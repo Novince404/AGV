@@ -1,6 +1,6 @@
 <script setup>
 import './assets/agv-map.css'
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 const GRID_COLS = 10
 const GRID_ROWS = 8
@@ -10,6 +10,8 @@ const API_BASE = 'http://127.0.0.1:8000'
 const CUSTOM_POINTS_STORAGE_KEY = 'agv_custom_points'
 const MAP_DISPLAY_STORAGE_KEY = 'agv_map_display_settings'
 const TASK_TEMPLATE_STORAGE_KEY = 'agv_task_templates'
+const PANEL_SECTION_STORAGE_KEY = 'agv_panel_sections'
+const PANEL_SUMMARY_MODE_STORAGE_KEY = 'agv_panel_summary_mode'
 const MAP_WIDTH = GRID_COLS * CELL_SIZE
 const MAP_HEIGHT = GRID_ROWS * CELL_SIZE
 const MINIMAP_WIDTH = 168
@@ -52,8 +54,22 @@ const pointFormStatus = ref('')
 const pointFormStatusType = ref('info')
 const taskTemplateStatus = ref('')
 const taskTemplateStatusType = ref('info')
+const templateJsonText = ref('')
+const templateJsonStatus = ref('')
+const templateJsonStatusType = ref('info')
 const jsonText = ref('')
 const jsonStatus = ref('')
+const templateFileInputRef = ref(null)
+const panelSearch = ref('')
+const focusedPanelSection = ref('')
+const panelSummaryMode = ref('compact')
+const panelSections = ref({
+  control: true,
+  queue: true,
+  templates: false,
+  points: false,
+  json: false
+})
 
 const selectedAgvId = ref(null)
 const startPoint = ref(null)
@@ -74,6 +90,11 @@ const layoutRef = ref(null)
 const mapViewportRef = ref(null)
 const minimapRef = ref(null)
 const panelRef = ref(null)
+const controlSectionRef = ref(null)
+const queueSectionRef = ref(null)
+const templatesSectionRef = ref(null)
+const pointsSectionRef = ref(null)
+const jsonSectionRef = ref(null)
 const panelWidth = ref(380)
 const showPanelBackToTop = ref(false)
 const windowWidth = ref(typeof window !== 'undefined' ? window.innerWidth : 1280)
@@ -84,6 +105,7 @@ const mapViewportWidth = ref(MAP_WIDTH)
 const mapViewportHeight = ref(MAP_HEIGHT)
 const isMapPanning = ref(false)
 const showMapSettings = ref(false)
+const showStatusLegend = ref(true)
 const showMarkerIcons = ref(true)
 const showPathArrows = ref(false)
 
@@ -107,6 +129,7 @@ let isMinimapDragging = false
 let isPanelResizing = false
 let panelResizeStartX = 0
 let panelResizeStartWidth = 0
+let panelSectionFocusTimer = null
 
 const messages = {
   zh: {
@@ -737,6 +760,13 @@ const layoutStyle = computed(() =>
         gridTemplateColumns: `minmax(0, 1fr) 10px ${panelWidth.value}px`
       }
 )
+const pageTopStyle = computed(() =>
+  isCompactLayout.value
+    ? {}
+    : {
+        gridTemplateColumns: `minmax(0, 1fr) 10px ${panelWidth.value}px`
+      }
+)
 const mapStageStyle = computed(() => ({
   width: `${MAP_WIDTH}px`,
   height: `${MAP_HEIGHT}px`,
@@ -794,6 +824,459 @@ const minimapStartMarker = computed(() => mainStartMarker.value)
 const minimapEndMarker = computed(() => mainEndMarker.value)
 const pointLibrary = computed(() => [...DEFAULT_POINT_LIBRARY, ...customPoints.value])
 const taskTemplates = computed(() => [...DEFAULT_TASK_TEMPLATES, ...customTaskTemplates.value])
+const templateJsonLocale = computed(() => {
+  if (locale.value === 'ja') {
+    return {
+      title: 'テンプレート JSON',
+      hint: 'カスタムテンプレートを JSON で保存したり、一括で取り込めます。',
+      placeholder:
+        '{ "templates": [{ "name": "搬入口Aから組立1", "start_x": 0, "start_y": 0, "end_x": 6, "end_y": 2, "priority": 3 }] }',
+      import: 'テンプレート取込',
+      export: 'カスタムを書出',
+      importFile: 'ファイル取込',
+      downloadFile: 'JSON 保存',
+      clear: 'JSON クリア',
+      exportEmpty: '書き出せるカスタムテンプレートがありません',
+      exportOk: '書き出した件数',
+      importOk: '取り込んだ件数',
+      importFail: 'テンプレート JSON が不正か、取込に失敗しました',
+      skipped: 'スキップ'
+    }
+  }
+
+  if (locale.value === 'zh') {
+    return {
+      title: '模板 JSON',
+      hint: '可导出自定义模板，也可从 JSON 批量导入。',
+      placeholder:
+        '{ "templates": [{ "name": "入库A到装配1", "start_x": 0, "start_y": 0, "end_x": 6, "end_y": 2, "priority": 3 }] }',
+      import: '导入模板',
+      export: '导出自定义模板',
+      importFile: '导入文件',
+      downloadFile: '下载 JSON',
+      clear: '清空模板 JSON',
+      exportEmpty: '当前没有可导出的自定义模板',
+      exportOk: '已导出数量',
+      importOk: '已导入数量',
+      importFail: '模板 JSON 格式无效或导入失败',
+      skipped: '已跳过'
+    }
+  }
+
+  return {
+    title: 'Template JSON',
+    hint: 'Export custom templates or import them in batches from JSON.',
+    placeholder:
+      '{ "templates": [{ "name": "Inbound A to Assembly 1", "start_x": 0, "start_y": 0, "end_x": 6, "end_y": 2, "priority": 3 }] }',
+    import: 'Import Templates',
+    export: 'Export Custom Templates',
+    importFile: 'Import File',
+    downloadFile: 'Download JSON',
+    clear: 'Clear Template JSON',
+    exportEmpty: 'There are no custom templates to export',
+    exportOk: 'Exported',
+    importOk: 'Imported',
+    importFail: 'Template JSON is invalid or import failed',
+    skipped: 'Skipped'
+  }
+})
+const panelLocale = computed(() => {
+  if (locale.value === 'ja') {
+    return {
+      sections: {
+        control: '配車操作',
+        queue: 'タスクキュー',
+        templates: 'タスクテンプレート',
+        points: '共通ポイント',
+        json: 'JSON ツール'
+      },
+      expandAll: 'すべて展開',
+      collapseAll: 'すべて折りたたむ',
+      collapse: '折りたたむ',
+      expand: '展開',
+      currentMode: '現在モード',
+      modeAuto: '自動配車',
+      modeManual: '手動調車',
+      modeAutoHint: '起点と終点を指定すると、システムが空き AGV を選択して実行します。',
+      modeManualHint: '先に AGV を選択し、その後に目的地を指定してその車両だけを移動させます。'
+    }
+  }
+
+  if (locale.value === 'zh') {
+    return {
+      sections: {
+        control: '调度控制',
+        queue: '任务队列',
+        templates: '任务模板',
+        points: '常用点位',
+        json: 'JSON 工具'
+      },
+      expandAll: '全部展开',
+      collapseAll: '全部收起',
+      collapse: '收起',
+      expand: '展开',
+      currentMode: '当前模式',
+      modeAuto: '自动调度',
+      modeManual: '手动调车',
+      modeAutoHint: '设置起点和终点后，系统会自动选择空闲 AGV 执行任务。',
+      modeManualHint: '先选择 AGV，再指定目标位置，只调度这台车。'
+    }
+  }
+
+  return {
+    sections: {
+      control: 'Dispatch Control',
+      queue: 'Task Queue',
+      templates: 'Task Templates',
+      points: 'Common Points',
+      json: 'JSON Tools'
+    },
+    expandAll: 'Expand All',
+    collapseAll: 'Collapse All',
+    collapse: 'Collapse',
+    expand: 'Expand',
+    currentMode: 'Current Mode',
+    modeAuto: 'Auto Dispatch',
+    modeManual: 'Manual Relocation',
+    modeAutoHint: 'After you set start and end points, the system selects an idle AGV automatically.',
+    modeManualHint: 'Select an AGV first, then choose a target point to move only that vehicle.'
+  }
+})
+const currentDispatchModeLabel = computed(() =>
+  dispatchMode.value === 'auto' ? panelLocale.value.modeAuto : panelLocale.value.modeManual
+)
+const currentDispatchModeHint = computed(() =>
+  dispatchMode.value === 'auto' ? panelLocale.value.modeAutoHint : panelLocale.value.modeManualHint
+)
+const panelSearchLocale = computed(() => {
+  if (locale.value === 'ja') {
+    return {
+      placeholder: 'パネル名・タスク・テンプレート・ポイントを検索',
+      clear: '検索クリア',
+      empty: '一致するセクションや項目はありません',
+      hits: '件一致'
+    }
+  }
+
+  if (locale.value === 'zh') {
+    return {
+      placeholder: '搜索面板、任务、模板或点位',
+      clear: '清空搜索',
+      empty: '没有匹配的面板或条目',
+      hits: '项匹配'
+    }
+  }
+
+  return {
+    placeholder: 'Search panels, tasks, templates, or points',
+    clear: 'Clear Search',
+    empty: 'No matching sections or items',
+    hits: 'matches'
+  }
+})
+const panelSummaryLocale = computed(() => {
+  if (locale.value === 'ja') {
+    return {
+      title: 'システム概要',
+      mode: '現在モード',
+      selectedAgv: '選択 AGV',
+      noAgv: '未選択',
+      noAgvCompact: '未選',
+      zoom: 'ズーム',
+      pending: '未割当',
+      running: '実行中',
+      hidden: '非表示',
+      compact: '簡潔',
+      full: '詳細',
+      autoShort: '自動',
+      manualShort: '手動',
+      pendingShort: '未割',
+      runningShort: '実行'
+    }
+  }
+
+  if (locale.value === 'zh') {
+    return {
+      title: '系统摘要',
+      mode: '当前模式',
+      selectedAgv: '已选 AGV',
+      noAgv: '未选择',
+      noAgvCompact: '未选',
+      zoom: '缩放',
+      pending: '待分配',
+      running: '运行中',
+      hidden: '隐藏',
+      compact: '精简',
+      full: '完整',
+      autoShort: '自动',
+      manualShort: '手动',
+      pendingShort: '待分',
+      runningShort: '运行'
+    }
+  }
+
+  return {
+    title: 'System Summary',
+    mode: 'Mode',
+    selectedAgv: 'Selected AGV',
+    noAgv: 'None',
+    noAgvCompact: 'NONE',
+    zoom: 'Zoom',
+    pending: 'Pending',
+    running: 'Running',
+    hidden: 'Hidden',
+    compact: 'Compact',
+    full: 'Full',
+    autoShort: 'AUTO',
+    manualShort: 'MANUAL',
+    pendingShort: 'PEND',
+    runningShort: 'RUN'
+  }
+})
+const settingsLocale = computed(() => {
+  if (locale.value === 'ja') {
+    return {
+      title: '設定',
+      mapGroup: 'マップ表示',
+      promptGroup: '提示項目',
+      showAgvStatus: 'AGV 状態表示を表示',
+      showMarkerIcons: '始点/終点アイコンを表示',
+      showPathArrows: '経路方向の矢印を表示',
+      resetView: 'ビューを初期化'
+    }
+  }
+
+  if (locale.value === 'zh') {
+    return {
+      title: '设置',
+      mapGroup: '地图显示',
+      promptGroup: '提示项',
+      showAgvStatus: '显示 AGV 状态提示',
+      showMarkerIcons: '显示起点/终点图标',
+      showPathArrows: '显示路径方向箭头',
+      resetView: '重置视图'
+    }
+  }
+
+  return {
+    title: 'Settings',
+    mapGroup: 'Map Display',
+    promptGroup: 'Hints',
+    showAgvStatus: 'Show AGV Status Legend',
+    showMarkerIcons: 'Show Start/End Icons',
+    showPathArrows: 'Show Path Direction Arrows',
+    resetView: 'Reset View'
+  }
+})
+const panelSummaryModes = computed(() => [
+  { key: 'hidden', label: panelSummaryLocale.value.hidden },
+  { key: 'compact', label: panelSummaryLocale.value.compact },
+  { key: 'full', label: panelSummaryLocale.value.full }
+])
+const areAllPanelSectionsExpanded = computed(() => Object.values(panelSections.value).every(Boolean))
+const areAllPanelSectionsCollapsed = computed(() => Object.values(panelSections.value).every(value => !value))
+const pendingTaskCount = computed(() => tasks.value.filter(task => task.status === 'pending').length)
+const runningTaskCount = computed(() => tasks.value.filter(task => task.status === 'running').length)
+const selectedAgvSummaryText = computed(() => {
+  if (!selectedAgv.value) return panelSummaryLocale.value.noAgv
+  return `#${selectedAgv.value.id} / ${statusText(selectedAgv.value.status)} / (${selectedAgv.value.x},${selectedAgv.value.y})`
+})
+const compactSelectedAgvText = computed(() => {
+  if (!selectedAgv.value) return panelSummaryLocale.value.noAgvCompact
+  return `#${selectedAgv.value.id}${compactStatusText(selectedAgv.value.status)}`
+})
+const panelSummaryItems = computed(() => [
+  {
+    key: 'mode',
+    label: panelSummaryLocale.value.mode,
+    value: currentDispatchModeLabel.value,
+    sectionKey: 'control'
+  },
+  {
+    key: 'agv',
+    label: panelSummaryLocale.value.selectedAgv,
+    value: selectedAgvSummaryText.value,
+    sectionKey: 'control'
+  },
+  {
+    key: 'zoom',
+    label: panelSummaryLocale.value.zoom,
+    value: mapZoomLabel.value,
+    sectionKey: 'control'
+  },
+  {
+    key: 'pending',
+    label: panelSummaryLocale.value.pending,
+    value: String(pendingTaskCount.value),
+    sectionKey: 'queue'
+  },
+  {
+    key: 'running',
+    label: panelSummaryLocale.value.running,
+    value: String(runningTaskCount.value),
+    sectionKey: 'queue'
+  }
+])
+const panelSummaryCompactItems = computed(() => [
+  {
+    key: 'mode',
+    value: dispatchMode.value === 'auto' ? panelSummaryLocale.value.autoShort : panelSummaryLocale.value.manualShort,
+    sectionKey: 'control'
+  },
+  {
+    key: 'agv',
+    value: compactSelectedAgvText.value,
+    sectionKey: 'control'
+  },
+  {
+    key: 'zoom',
+    value: mapZoomLabel.value,
+    sectionKey: 'control'
+  },
+  {
+    key: 'pending',
+    value:
+      locale.value === 'en'
+        ? `PEND ${pendingTaskCount.value}`
+        : locale.value === 'ja'
+          ? `未割${pendingTaskCount.value}`
+          : `待分${pendingTaskCount.value}`,
+    sectionKey: 'queue'
+  },
+  {
+    key: 'running',
+    value:
+      locale.value === 'en'
+        ? `RUN ${runningTaskCount.value}`
+        : locale.value === 'ja'
+          ? `実行${runningTaskCount.value}`
+          : `运行${runningTaskCount.value}`,
+    sectionKey: 'queue'
+  }
+])
+const showPanelSummary = computed(() => panelSummaryMode.value !== 'hidden')
+const normalizedPanelSearch = computed(() => panelSearch.value.trim().toLowerCase())
+const matchedTaskIds = computed(() => {
+  const keyword = normalizedPanelSearch.value
+  if (!keyword) return []
+
+  return tasks.value
+    .filter(task =>
+      matchesSearchFields(
+        [
+          task.id,
+          task.status,
+          taskStatusText(task.status),
+          formatTaskMeta(task),
+          formatTaskAgv(task),
+          formatDispatchReason(task),
+          task.priority
+        ],
+        keyword
+      )
+    )
+    .map(task => task.id)
+})
+const matchedTemplateIds = computed(() => {
+  const keyword = normalizedPanelSearch.value
+  if (!keyword) return []
+
+  return taskTemplates.value
+    .filter(template =>
+      matchesSearchFields(
+        [
+          taskTemplateName(template),
+          taskTemplateTypeText(template),
+          template.start_x,
+          template.start_y,
+          template.end_x,
+          template.end_y,
+          template.priority
+        ],
+        keyword
+      )
+    )
+    .map(template => template.id)
+})
+const matchedPointIds = computed(() => {
+  const keyword = normalizedPanelSearch.value
+  if (!keyword) return []
+
+  return pointLibrary.value
+    .filter(point =>
+      matchesSearchFields(
+        [pointName(point), pointZone(point), `${point.x},${point.y}`, `${point.x} ${point.y}`, ...(point.aliases ?? [])],
+        keyword
+      )
+    )
+    .map(point => point.id)
+})
+const panelSearchResults = computed(() => {
+  const keyword = normalizedPanelSearch.value
+  if (!keyword) return []
+
+  const results = []
+  const sections = [
+    {
+      key: 'control',
+      label: panelLocale.value.sections.control,
+      matched: matchesSearchFields(
+        [
+          panelLocale.value.sections.control,
+          panelLocale.value.currentMode,
+          currentDispatchModeLabel.value,
+          currentDispatchModeHint.value,
+          t('task_form'),
+          t('dispatch')
+        ],
+        keyword
+      ),
+      count: 0
+    },
+    {
+      key: 'queue',
+      label: panelLocale.value.sections.queue,
+      matched: matchedTaskIds.value.length > 0 || matchesSearchFields([panelLocale.value.sections.queue, t('tasks')], keyword),
+      count: matchedTaskIds.value.length
+    },
+    {
+      key: 'templates',
+      label: panelLocale.value.sections.templates,
+      matched:
+        matchedTemplateIds.value.length > 0 ||
+        matchesSearchFields([panelLocale.value.sections.templates, t('template_library')], keyword),
+      count: matchedTemplateIds.value.length
+    },
+    {
+      key: 'points',
+      label: panelLocale.value.sections.points,
+      matched:
+        matchedPointIds.value.length > 0 ||
+        matchesSearchFields([panelLocale.value.sections.points, t('point_library')], keyword),
+      count: matchedPointIds.value.length
+    },
+    {
+      key: 'json',
+      label: panelLocale.value.sections.json,
+      matched: matchesSearchFields([panelLocale.value.sections.json, t('json_tools')], keyword),
+      count: 0
+    }
+  ]
+
+  for (const section of sections) {
+    if (!section.matched) continue
+    results.push({
+      ...section,
+      text:
+        section.count > 0
+          ? `${section.label} (${section.count} ${panelSearchLocale.value.hits})`
+          : section.label
+    })
+  }
+
+  return results
+})
+const matchedPanelSectionKeys = computed(() => panelSearchResults.value.map(item => item.key))
 const filteredPoints = computed(() => {
   const keyword = pointSearch.value.trim().toLowerCase()
   if (!keyword) return pointLibrary.value
@@ -866,6 +1349,31 @@ function statusColor(status) {
 
 function statusText(status) {
   return t(`status_${status}`) ?? status
+}
+
+function compactStatusText(status) {
+  const map = {
+    zh: {
+      idle: '空闲',
+      running: '运行',
+      fault: '故障',
+      relocating: '就位'
+    },
+    ja: {
+      idle: '待機',
+      running: '走行',
+      fault: '故障',
+      relocating: '移動'
+    },
+    en: {
+      idle: 'IDLE',
+      running: 'RUN',
+      fault: 'FAULT',
+      relocating: 'MOVE'
+    }
+  }
+
+  return map[locale.value]?.[status] ?? statusText(status)
 }
 
 function taskStatusText(status) {
@@ -972,8 +1480,162 @@ function setTaskTemplateStatus(type, message) {
   taskTemplateStatus.value = message
 }
 
+function setTemplateJsonStatus(type, message) {
+  templateJsonStatusType.value = type
+  templateJsonStatus.value = message
+}
+
 function isValidGridCoordinate(value, max) {
   return Number.isInteger(value) && value >= 0 && value < max
+}
+
+function buildTaskTemplateSignature(template) {
+  return [
+    String(template.customName ?? template.nameKey ?? '').trim().toLowerCase(),
+    template.start_x,
+    template.start_y,
+    template.end_x,
+    template.end_y,
+    template.priority
+  ].join('|')
+}
+
+function normalizeImportedTaskTemplate(template) {
+  const name = String(template?.name ?? template?.customName ?? '').trim()
+  const startX = Number(template?.start_x)
+  const startY = Number(template?.start_y)
+  const endX = Number(template?.end_x)
+  const endY = Number(template?.end_y)
+  const priority = Number(template?.priority)
+
+  if (
+    !name ||
+    !isValidGridCoordinate(startX, GRID_COLS) ||
+    !isValidGridCoordinate(startY, GRID_ROWS) ||
+    !isValidGridCoordinate(endX, GRID_COLS) ||
+    !isValidGridCoordinate(endY, GRID_ROWS) ||
+    !Number.isInteger(priority)
+  ) {
+    return null
+  }
+
+  return {
+    id: `task_template_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    customName: name,
+    start_x: startX,
+    start_y: startY,
+    end_x: endX,
+    end_y: endY,
+    priority: clampValue(priority, 1, 5),
+    custom: true
+  }
+}
+
+function formatTemplateJsonSummary(primaryLabel, primaryCount, skippedCount = 0) {
+  const separator = locale.value === 'en' ? ', ' : '，'
+  const parts = [`${primaryLabel}: ${primaryCount}`]
+  if (skippedCount > 0) {
+    parts.push(`${templateJsonLocale.value.skipped}: ${skippedCount}`)
+  }
+  return parts.join(separator)
+}
+
+function matchesSearchFields(fields, keyword) {
+  if (!keyword) return false
+  return fields.some(value => String(value ?? '').toLowerCase().includes(keyword))
+}
+
+function loadPanelSections() {
+  try {
+    const raw = window.localStorage.getItem(PANEL_SECTION_STORAGE_KEY)
+    if (!raw) return
+
+    const parsed = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object') return
+
+    panelSections.value = {
+      control: typeof parsed.control === 'boolean' ? parsed.control : panelSections.value.control,
+      queue: typeof parsed.queue === 'boolean' ? parsed.queue : panelSections.value.queue,
+      templates:
+        typeof parsed.templates === 'boolean' ? parsed.templates : panelSections.value.templates,
+      points: typeof parsed.points === 'boolean' ? parsed.points : panelSections.value.points,
+      json: typeof parsed.json === 'boolean' ? parsed.json : panelSections.value.json
+    }
+  } catch (error) {
+    console.error('Load panel sections error:', error)
+  }
+}
+
+function savePanelSections() {
+  try {
+    window.localStorage.setItem(PANEL_SECTION_STORAGE_KEY, JSON.stringify(panelSections.value))
+  } catch (error) {
+    console.error('Save panel sections error:', error)
+  }
+}
+
+function loadPanelSummaryMode() {
+  try {
+    const raw = window.localStorage.getItem(PANEL_SUMMARY_MODE_STORAGE_KEY)
+    if (!raw) return
+    if (['hidden', 'compact', 'full'].includes(raw)) {
+      panelSummaryMode.value = raw
+    }
+  } catch (error) {
+    console.error('Load panel summary mode error:', error)
+  }
+}
+
+function savePanelSummaryMode() {
+  try {
+    window.localStorage.setItem(PANEL_SUMMARY_MODE_STORAGE_KEY, panelSummaryMode.value)
+  } catch (error) {
+    console.error('Save panel summary mode error:', error)
+  }
+}
+
+function panelSectionRefByKey(sectionKey) {
+  const sectionMap = {
+    control: controlSectionRef.value,
+    queue: queueSectionRef.value,
+    templates: templatesSectionRef.value,
+    points: pointsSectionRef.value,
+    json: jsonSectionRef.value
+  }
+  return sectionMap[sectionKey] ?? null
+}
+
+function focusPanelSection(sectionKey) {
+  focusedPanelSection.value = sectionKey
+  if (panelSectionFocusTimer) {
+    clearTimeout(panelSectionFocusTimer)
+  }
+  panelSectionFocusTimer = setTimeout(() => {
+    focusedPanelSection.value = ''
+    panelSectionFocusTimer = null
+  }, 1600)
+}
+
+async function jumpToPanelSearchResult(sectionKey) {
+  panelSections.value = {
+    ...panelSections.value,
+    [sectionKey]: true
+  }
+
+  await nextTick()
+
+  const panelSection = panelSectionRefByKey(sectionKey)
+  const panelElement = panelRef.value
+  if (panelSection && panelElement) {
+    const top = Math.max(panelSection.offsetTop - 12, 0)
+    panelElement.scrollTo({ top, behavior: 'smooth' })
+  }
+
+  focusPanelSection(sectionKey)
+}
+
+function clearPanelSearch() {
+  panelSearch.value = ''
 }
 
 function loadCustomPoints() {
@@ -1073,6 +1735,9 @@ function loadMapDisplaySettings() {
     if (typeof parsed?.showPathArrows === 'boolean') {
       showPathArrows.value = parsed.showPathArrows
     }
+    if (typeof parsed?.showStatusLegend === 'boolean') {
+      showStatusLegend.value = parsed.showStatusLegend
+    }
   } catch (error) {
     console.error('Load map display settings error:', error)
   }
@@ -1085,7 +1750,8 @@ function saveMapDisplaySettings() {
       JSON.stringify({
         showAutoPath: showAutoPath.value,
         showMarkerIcons: showMarkerIcons.value,
-        showPathArrows: showPathArrows.value
+        showPathArrows: showPathArrows.value,
+        showStatusLegend: showStatusLegend.value
       })
     )
   } catch (error) {
@@ -1176,6 +1842,162 @@ function deleteTaskTemplate(template) {
 
   customTaskTemplates.value = customTaskTemplates.value.filter(item => item.id !== template.id)
   setTaskTemplateStatus('success', t('template_form_deleted'))
+}
+
+function buildTemplateExportPayload() {
+  return {
+    version: 1,
+    templates: customTaskTemplates.value.map(template => ({
+      name: template.customName,
+      start_x: template.start_x,
+      start_y: template.start_y,
+      end_x: template.end_x,
+      end_y: template.end_y,
+      priority: template.priority
+    }))
+  }
+}
+
+function exportTaskTemplatesToJson() {
+  if (customTaskTemplates.value.length === 0) {
+    setTemplateJsonStatus('error', templateJsonLocale.value.exportEmpty)
+    return
+  }
+
+  templateJsonText.value = JSON.stringify(buildTemplateExportPayload(), null, 2)
+  setTemplateJsonStatus(
+    'success',
+    formatTemplateJsonSummary(templateJsonLocale.value.exportOk, customTaskTemplates.value.length)
+  )
+}
+
+function clearTemplateJsonText() {
+  templateJsonText.value = ''
+  setTemplateJsonStatus('info', '')
+}
+
+function importTaskTemplatesFromRaw(rawText) {
+  if (!rawText.trim()) return
+  setTemplateJsonStatus('info', '')
+
+  let parsed
+  try {
+    parsed = JSON.parse(rawText)
+  } catch {
+    setTemplateJsonStatus('error', templateJsonLocale.value.importFail)
+    return
+  }
+
+  const templateItems = Array.isArray(parsed) ? parsed : parsed?.templates
+  if (!Array.isArray(templateItems)) {
+    setTemplateJsonStatus('error', templateJsonLocale.value.importFail)
+    return
+  }
+
+  const existingSignatures = new Set(customTaskTemplates.value.map(buildTaskTemplateSignature))
+  const imported = []
+  let skipped = 0
+
+  for (const item of templateItems) {
+    const normalized = normalizeImportedTaskTemplate(item)
+    if (!normalized) {
+      skipped += 1
+      continue
+    }
+
+    const signature = buildTaskTemplateSignature(normalized)
+    if (existingSignatures.has(signature)) {
+      skipped += 1
+      continue
+    }
+
+    existingSignatures.add(signature)
+    imported.push(normalized)
+  }
+
+  if (imported.length === 0) {
+    if (skipped > 0) {
+      setTemplateJsonStatus('info', formatTemplateJsonSummary(templateJsonLocale.value.importOk, 0, skipped))
+      return
+    }
+
+    setTemplateJsonStatus('error', templateJsonLocale.value.importFail)
+    return
+  }
+
+  customTaskTemplates.value = [...customTaskTemplates.value, ...imported]
+  setTemplateJsonStatus(
+    'success',
+    formatTemplateJsonSummary(templateJsonLocale.value.importOk, imported.length, skipped)
+  )
+}
+
+function importTaskTemplatesFromJson() {
+  importTaskTemplatesFromRaw(templateJsonText.value)
+}
+
+function downloadTemplateJsonFile() {
+  if (customTaskTemplates.value.length === 0) {
+    setTemplateJsonStatus('error', templateJsonLocale.value.exportEmpty)
+    return
+  }
+
+  const payloadText = JSON.stringify(buildTemplateExportPayload(), null, 2)
+  templateJsonText.value = payloadText
+
+  const blob = new Blob([payloadText], { type: 'application/json;charset=utf-8' })
+  const url = window.URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  const timestamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')
+
+  link.href = url
+  link.download = `agv-task-templates-${timestamp}.json`
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  window.setTimeout(() => window.URL.revokeObjectURL(url), 0)
+
+  setTemplateJsonStatus(
+    'success',
+    formatTemplateJsonSummary(templateJsonLocale.value.exportOk, customTaskTemplates.value.length)
+  )
+}
+
+function triggerTemplateFileImport() {
+  templateFileInputRef.value?.click()
+}
+
+async function handleTemplateFileChange(event) {
+  const file = event.target?.files?.[0]
+  if (!file) return
+
+  try {
+    const text = await file.text()
+    templateJsonText.value = text
+    importTaskTemplatesFromRaw(text)
+  } catch (error) {
+    console.error('Read template json file error:', error)
+    setTemplateJsonStatus('error', templateJsonLocale.value.importFail)
+  } finally {
+    event.target.value = ''
+  }
+}
+
+function togglePanelSection(sectionKey) {
+  panelSections.value = {
+    ...panelSections.value,
+    [sectionKey]: !panelSections.value[sectionKey]
+  }
+}
+
+function setAllPanelSections(expanded) {
+  panelSections.value = {
+    control: expanded,
+    queue: expanded,
+    templates: expanded,
+    points: expanded,
+    json: expanded
+  }
 }
 
 function hasIdleAgv() {
@@ -1853,6 +2675,8 @@ onMounted(() => {
   loadCustomPoints()
   loadTaskTemplates()
   loadMapDisplaySettings()
+  loadPanelSections()
+  loadPanelSummaryMode()
   syncPanelWidth()
   updateMapViewportMetrics(true)
   if (typeof ResizeObserver !== 'undefined') {
@@ -1889,7 +2713,19 @@ watch(
   { deep: true }
 )
 
-watch([showAutoPath, showMarkerIcons, showPathArrows], () => {
+watch(
+  panelSections,
+  () => {
+    savePanelSections()
+  },
+  { deep: true }
+)
+
+watch(panelSummaryMode, () => {
+  savePanelSummaryMode()
+})
+
+watch([showAutoPath, showMarkerIcons, showPathArrows, showStatusLegend], () => {
   saveMapDisplaySettings()
 })
 
@@ -1898,6 +2734,7 @@ onBeforeUnmount(() => {
   if (clickTimer) clearTimeout(clickTimer)
   if (previewTimer) clearTimeout(previewTimer)
   if (dispatchHelpTimer) clearTimeout(dispatchHelpTimer)
+  if (panelSectionFocusTimer) clearTimeout(panelSectionFocusTimer)
   if (mapResizeObserver) mapResizeObserver.disconnect()
   document.body.style.cursor = ''
   window.removeEventListener('keydown', onKeyDown)
@@ -1909,6 +2746,8 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="page-shell">
+    <div class="page-top" :style="pageTopStyle">
+      <div class="page-top-main">
     <h1>{{ t('title') }}</h1>
 
     <div class="toolbar">
@@ -1989,28 +2828,65 @@ onBeforeUnmount(() => {
     </div>
 
     <p class="toolbar-hint">{{ t('hint') }}</p>
+      </div>
 
-    <div ref="layoutRef" class="layout" :style="layoutStyle">
-      <div class="map-pane">
-        <div class="map-legend legend">
-          <div class="legend-title">{{ t('agv_status') }}</div>
-          <div class="legend-row">
-            <div class="legend-item">
-              <span class="legend-dot idle"></span>{{ t('status_idle') }}
+      <div class="page-top-spacer"></div>
+
+      <aside class="page-top-summary">
+        <div class="panel-topbar">
+          <div class="panel-summary-header">
+            <strong class="panel-summary-title">{{ panelSummaryLocale.title }}</strong>
+            <div class="panel-summary-mode-switch">
+              <button
+                v-for="mode in panelSummaryModes"
+                :key="mode.key"
+                class="panel-summary-mode-button"
+                :class="{ active: panelSummaryMode === mode.key }"
+                type="button"
+                @click="panelSummaryMode = mode.key"
+              >
+                {{ mode.label }}
+              </button>
             </div>
-            <div class="legend-item">
-              <span class="legend-dot relocating"></span>{{ t('status_relocating') }}
-              <span class="info-icon" :title="t('status_relocating_desc')">i</span>
+          </div>
+
+          <div
+            v-if="showPanelSummary"
+            class="panel-summary-shell"
+            :class="{ compact: panelSummaryMode === 'compact', full: panelSummaryMode === 'full' }"
+          >
+            <div v-if="panelSummaryMode === 'compact'" class="panel-summary-compact">
+              <button
+                v-for="item in panelSummaryCompactItems"
+                :key="item.key"
+                class="panel-summary-tower"
+                :class="`summary-${item.key}`"
+                type="button"
+                @click="jumpToPanelSearchResult(item.sectionKey)"
+              >
+                <strong class="panel-summary-tower-value">{{ item.value }}</strong>
+              </button>
             </div>
-            <div class="legend-item">
-              <span class="legend-dot running"></span>{{ t('status_running') }}
-            </div>
-            <div class="legend-item">
-              <span class="legend-dot fault"></span>{{ t('status_fault') }}
+
+            <div v-else class="panel-summary-grid">
+              <button
+                v-for="item in panelSummaryItems"
+                :key="item.key"
+                class="panel-summary-card"
+                type="button"
+                @click="jumpToPanelSearchResult(item.sectionKey)"
+              >
+                <span class="panel-summary-label">{{ item.label }}</span>
+                <strong class="panel-summary-value">{{ item.value }}</strong>
+              </button>
             </div>
           </div>
         </div>
+      </aside>
+    </div>
 
+    <div ref="layoutRef" class="layout" :style="layoutStyle">
+      <div class="map-pane">
         <section
           ref="mapViewportRef"
           class="map"
@@ -2021,6 +2897,32 @@ onBeforeUnmount(() => {
           @wheel.prevent="onMapWheel"
           @contextmenu="onMapContextMenu"
         >
+          <div
+            v-if="showStatusLegend"
+            class="map-status-overlay"
+            @mousedown.stop
+            @click.stop
+            @dblclick.stop
+            @wheel.stop
+          >
+            <div class="legend-title">{{ t('agv_status') }}</div>
+            <div class="legend-row">
+              <div class="legend-item">
+                <span class="legend-dot idle"></span>{{ t('status_idle') }}
+              </div>
+              <div class="legend-item">
+                <span class="legend-dot relocating"></span>{{ t('status_relocating') }}
+                <span class="info-icon" :title="t('status_relocating_desc')">i</span>
+              </div>
+              <div class="legend-item">
+                <span class="legend-dot running"></span>{{ t('status_running') }}
+              </div>
+              <div class="legend-item">
+                <span class="legend-dot fault"></span>{{ t('status_fault') }}
+              </div>
+            </div>
+          </div>
+
           <div class="map-stage" :style="mapStageStyle">
             <svg class="path-layer" :width="MAP_WIDTH" :height="MAP_HEIGHT">
               <defs>
@@ -2182,20 +3084,30 @@ onBeforeUnmount(() => {
           >
             <div class="map-zoom-pill">{{ mapZoomLabel }}</div>
             <button class="map-control-button" type="button" @click="toggleMapSettings">
-              {{ t('map_settings_toggle') }}
+              {{ settingsLocale.title }}
             </button>
             <div v-if="showMapSettings" class="map-settings-panel">
-              <div class="map-settings-title">{{ t('map_settings') }}</div>
-              <label class="map-setting-row">
-                <input v-model="showMarkerIcons" type="checkbox" />
-                <span>{{ t('map_setting_icons') }}</span>
-              </label>
-              <label class="map-setting-row">
-                <input v-model="showPathArrows" type="checkbox" />
-                <span>{{ t('map_setting_arrows') }}</span>
-              </label>
+              <div class="map-settings-title">{{ settingsLocale.title }}</div>
+              <div class="map-settings-group">
+                <div class="map-settings-subtitle">{{ settingsLocale.mapGroup }}</div>
+                <label class="map-setting-row">
+                  <input v-model="showMarkerIcons" type="checkbox" />
+                  <span>{{ settingsLocale.showMarkerIcons }}</span>
+                </label>
+                <label class="map-setting-row">
+                  <input v-model="showPathArrows" type="checkbox" />
+                  <span>{{ settingsLocale.showPathArrows }}</span>
+                </label>
+              </div>
+              <div class="map-settings-group">
+                <div class="map-settings-subtitle">{{ settingsLocale.promptGroup }}</div>
+                <label class="map-setting-row">
+                  <input v-model="showStatusLegend" type="checkbox" />
+                  <span>{{ settingsLocale.showAgvStatus }}</span>
+                </label>
+              </div>
               <button class="map-settings-action" type="button" @click="resetMapView">
-                {{ t('map_reset_view') }}
+                {{ settingsLocale.resetView }}
               </button>
             </div>
           </div>
@@ -2284,242 +3196,461 @@ onBeforeUnmount(() => {
 
       <aside class="panel-shell">
         <div ref="panelRef" class="panel" @scroll="onPanelScroll">
-      <div class="task-form">
-        <h2>{{ t('task_form') }}</h2>
-        <div class="form-grid">
-          <label>{{ t('form_start_x') }}</label>
-          <input v-model.number="taskForm.start_x" type="number" min="0" :max="GRID_COLS - 1" />
-          <label>{{ t('form_start_y') }}</label>
-          <input v-model.number="taskForm.start_y" type="number" min="0" :max="GRID_ROWS - 1" />
-          <label>{{ t('form_end_x') }}</label>
-          <input v-model.number="taskForm.end_x" type="number" min="0" :max="GRID_COLS - 1" />
-          <label>{{ t('form_end_y') }}</label>
-          <input v-model.number="taskForm.end_y" type="number" min="0" :max="GRID_ROWS - 1" />
-          <label>{{ t('task_priority') }}</label>
-          <select v-model.number="taskForm.priority">
-            <option :value="5">5</option>
-            <option :value="4">4</option>
-            <option :value="3">3</option>
-            <option :value="2">2</option>
-            <option :value="1">1</option>
-          </select>
-        </div>
-        <button class="btn-primary full-width" type="button" @click="addTaskFromForm">
-          {{ t('add_task') }}
-        </button>
-      </div>
-
-      <div class="task-templates">
-        <h2>{{ t('template_library') }}</h2>
-        <p class="panel-hint">{{ t('template_hint') }}</p>
-
-        <div class="template-manage">
-          <h3>{{ t('template_manage') }}</h3>
-          <div class="form-grid template-manage-grid">
-            <label>{{ t('template_name') }}</label>
-            <input
-              v-model.trim="taskTemplateForm.name"
-              type="text"
-              :placeholder="t('template_name_placeholder')"
-            />
-          </div>
-          <button class="btn-primary full-width" type="button" @click="saveCurrentTaskAsTemplate">
-            {{ t('template_save_current') }}
-          </button>
-          <div v-if="taskTemplateStatus" class="template-status" :class="taskTemplateStatusType">
-            {{ taskTemplateStatus }}
-          </div>
-        </div>
-
-        <div class="template-list">
-          <article v-for="template in taskTemplates" :key="template.id" class="template-card">
-            <div class="template-head">
-              <strong>{{ taskTemplateName(template) }}</strong>
-              <span class="point-badge" :class="{ custom: template.custom }">
-                {{ taskTemplateTypeText(template) }}
-              </span>
-            </div>
-            <div class="template-meta">
-              {{ t('task_start') }} ({{ template.start_x }}, {{ template.start_y }}) ->
-              {{ t('task_end') }} ({{ template.end_x }}, {{ template.end_y }})
-            </div>
-            <div class="template-meta">{{ t('task_priority') }}: {{ template.priority }}</div>
-            <div class="template-actions">
-              <button class="btn-secondary" type="button" @click="applyTaskTemplate(template)">
-                {{ t('template_apply') }}
+          <div class="panel-search">
+            <div class="panel-search-row">
+              <input
+                v-model.trim="panelSearch"
+                class="panel-search-input"
+                type="text"
+                :placeholder="panelSearchLocale.placeholder"
+              />
+              <button class="btn-ghost" type="button" @click="clearPanelSearch">
+                {{ panelSearchLocale.clear }}
               </button>
-              <button class="btn-ghost" type="button" @click="createTaskFromTemplate(template)">
-                {{ t('template_run') }}
-              </button>
+            </div>
+            <div v-if="panelSearch" class="panel-search-results">
               <button
-                v-if="template.custom"
-                class="btn-delete"
+                v-for="result in panelSearchResults"
+                :key="result.key"
+                class="panel-search-chip"
                 type="button"
-                @click="deleteTaskTemplate(template)"
+                @click="jumpToPanelSearchResult(result.key)"
               >
-                {{ t('template_delete') }}
+                {{ result.text }}
               </button>
-            </div>
-          </article>
-        </div>
-      </div>
-
-      <div class="point-library">
-        <h2>{{ t('point_library') }}</h2>
-        <p class="panel-hint">{{ t('point_fill_hint') }}</p>
-
-        <div class="point-manage">
-          <h3>{{ t('point_manage') }}</h3>
-          <p class="panel-hint">{{ t('point_manage_hint') }}</p>
-          <div class="form-grid">
-            <label>{{ t('point_form_name') }}</label>
-            <input
-              v-model.trim="customPointForm.name"
-              type="text"
-              :placeholder="t('point_form_name_placeholder')"
-            />
-            <label>{{ t('point_form_zone') }}</label>
-            <input
-              v-model.trim="customPointForm.zone"
-              type="text"
-              :placeholder="t('point_form_zone_placeholder')"
-            />
-            <label>{{ t('form_start_x') }}</label>
-            <input v-model.number="customPointForm.x" type="number" min="0" :max="GRID_COLS - 1" />
-            <label>{{ t('form_start_y') }}</label>
-            <input v-model.number="customPointForm.y" type="number" min="0" :max="GRID_ROWS - 1" />
-          </div>
-          <button class="btn-primary full-width" type="button" @click="addCustomPoint">
-            {{ t('point_add') }}
-          </button>
-          <div v-if="pointFormStatus" class="point-status" :class="pointFormStatusType">
-            {{ pointFormStatus }}
-          </div>
-        </div>
-
-        <input
-          v-model.trim="pointSearch"
-          class="point-search"
-          type="text"
-          :placeholder="t('point_search_placeholder')"
-        />
-
-        <div v-if="filteredPoints.length === 0" class="point-empty">
-          {{ t('point_search_empty') }}
-        </div>
-
-        <div v-else class="point-list">
-          <article v-for="point in filteredPoints" :key="point.id" class="point-card">
-            <div class="point-head">
-              <strong>{{ pointName(point) }}</strong>
-              <div class="point-tags">
-                <span class="point-zone">{{ pointZone(point) }}</span>
-                <span class="point-badge" :class="{ custom: point.custom }">
-                  {{ pointTypeText(point) }}
-                </span>
+              <div v-if="panelSearchResults.length === 0" class="panel-search-empty">
+                {{ panelSearchLocale.empty }}
               </div>
             </div>
-            <div class="point-meta">
-              {{ t('point_coords') }}: ({{ point.x }}, {{ point.y }})
-            </div>
-            <div class="point-actions">
-              <button
-                class="btn-secondary"
-                type="button"
-                @click="applyPointToTaskForm('start', point)"
-              >
-                {{ t('point_apply_start') }}
-              </button>
-              <button
-                class="btn-ghost"
-                type="button"
-                @click="applyPointToTaskForm('end', point)"
-              >
-                {{ t('point_apply_end') }}
-              </button>
-              <button
-                v-if="point.custom"
-                class="btn-delete"
-                type="button"
-                @click="deleteCustomPoint(point)"
-              >
-                {{ t('point_delete') }}
-              </button>
-            </div>
-          </article>
-        </div>
-      </div>
-
-      <div class="json-tools">
-        <h2>{{ t('json_tools') }}</h2>
-        <textarea
-          v-model="jsonText"
-          class="json-area"
-          rows="8"
-          :placeholder="t('json_placeholder')"
-        ></textarea>
-        <div class="json-actions">
-          <button class="btn-secondary" type="button" @click="importTasksFromJson">
-            {{ t('import_json') }}
-          </button>
-          <button class="btn-secondary" type="button" @click="exportTasksToJson">
-            {{ t('export_json') }}
-          </button>
-          <button class="btn-ghost" type="button" @click="clearJsonText">
-            {{ t('clear_json') }}
-          </button>
-        </div>
-        <div v-if="jsonStatus" class="json-status">{{ jsonStatus }}</div>
-      </div>
-
-      <div class="queue-panel">
-        <h2>{{ t('tasks') }}</h2>
-        <div v-if="tasks.length === 0" class="empty">{{ t('tasks_empty') }}</div>
-
-        <section v-for="group in taskGroups" :key="group.key" class="queue-group">
-          <div class="queue-header">
-            <span>{{ group.title }}</span>
-            <span class="queue-count">{{ group.tasks.length }}</span>
           </div>
 
-          <div v-if="group.tasks.length === 0" class="queue-empty">
-            {{ t('queue_empty') }}
+          <div class="panel-section-actions">
+            <button
+              class="btn-ghost"
+              type="button"
+              :disabled="areAllPanelSectionsExpanded"
+              @click="setAllPanelSections(true)"
+            >
+              {{ panelLocale.expandAll }}
+            </button>
+            <button
+              class="btn-ghost"
+              type="button"
+              :disabled="areAllPanelSectionsCollapsed"
+              @click="setAllPanelSections(false)"
+            >
+              {{ panelLocale.collapseAll }}
+            </button>
           </div>
 
-          <article
-            v-for="task in group.tasks"
-            :key="task.id"
-            class="task-card"
-            :class="{ previewing: previewTaskId === task.id }"
-            @mouseenter="onTaskHover(task)"
-            @mouseleave="onTaskLeave"
+          <section
+            ref="controlSectionRef"
+            class="panel-section"
+            :class="{
+              collapsed: !panelSections.control,
+              'search-hit': matchedPanelSectionKeys.includes('control'),
+              focused: focusedPanelSection === 'control'
+            }"
           >
-            <div class="task-head">
-              <strong>#{{ task.id }}</strong>
-              <span class="status-badge" :class="task.status">{{ taskStatusText(task.status) }}</span>
+            <button
+              class="panel-section-toggle"
+              type="button"
+              :aria-expanded="panelSections.control"
+              @click="togglePanelSection('control')"
+            >
+              <span>{{ panelLocale.sections.control }}</span>
+              <span class="panel-section-toggle-text">
+                {{ panelSections.control ? panelLocale.collapse : panelLocale.expand }}
+              </span>
+            </button>
+            <div v-show="panelSections.control" class="panel-section-body">
+              <div class="dispatch-summary">
+                <div class="dispatch-summary-label">{{ panelLocale.currentMode }}</div>
+                <strong>{{ currentDispatchModeLabel }}</strong>
+                <p>{{ currentDispatchModeHint }}</p>
+              </div>
+
+              <div class="task-form">
+                <h2>{{ t('task_form') }}</h2>
+                <div class="form-grid">
+                  <label>{{ t('form_start_x') }}</label>
+                  <input v-model.number="taskForm.start_x" type="number" min="0" :max="GRID_COLS - 1" />
+                  <label>{{ t('form_start_y') }}</label>
+                  <input v-model.number="taskForm.start_y" type="number" min="0" :max="GRID_ROWS - 1" />
+                  <label>{{ t('form_end_x') }}</label>
+                  <input v-model.number="taskForm.end_x" type="number" min="0" :max="GRID_COLS - 1" />
+                  <label>{{ t('form_end_y') }}</label>
+                  <input v-model.number="taskForm.end_y" type="number" min="0" :max="GRID_ROWS - 1" />
+                  <label>{{ t('task_priority') }}</label>
+                  <select v-model.number="taskForm.priority">
+                    <option :value="5">5</option>
+                    <option :value="4">4</option>
+                    <option :value="3">3</option>
+                    <option :value="2">2</option>
+                    <option :value="1">1</option>
+                  </select>
+                </div>
+                <button class="btn-primary full-width" type="button" @click="addTaskFromForm">
+                  {{ t('add_task') }}
+                </button>
+              </div>
             </div>
-            <div class="task-line">{{ formatTaskMeta(task) }}</div>
-            <div class="task-line">{{ t('task_priority') }}: {{ task.priority }}</div>
-            <div class="task-line">{{ formatTaskAgv(task) }}</div>
-            <div class="task-line task-reason">
-              {{ t('dispatch_reason') }}: {{ formatDispatchReason(task) }}
+          </section>
+
+          <section
+            ref="queueSectionRef"
+            class="panel-section"
+            :class="{
+              collapsed: !panelSections.queue,
+              'search-hit': matchedPanelSectionKeys.includes('queue'),
+              focused: focusedPanelSection === 'queue'
+            }"
+          >
+            <button
+              class="panel-section-toggle"
+              type="button"
+              :aria-expanded="panelSections.queue"
+              @click="togglePanelSection('queue')"
+            >
+              <span>{{ panelLocale.sections.queue }}</span>
+              <span class="panel-section-toggle-text">
+                {{ panelSections.queue ? panelLocale.collapse : panelLocale.expand }}
+              </span>
+            </button>
+            <div v-show="panelSections.queue" class="panel-section-body">
+              <div class="queue-panel">
+                <h2>{{ t('tasks') }}</h2>
+                <div v-if="tasks.length === 0" class="empty">{{ t('tasks_empty') }}</div>
+
+                <section v-for="group in taskGroups" :key="group.key" class="queue-group">
+                  <div class="queue-header">
+                    <span>{{ group.title }}</span>
+                    <span class="queue-count">{{ group.tasks.length }}</span>
+                  </div>
+
+                  <div v-if="group.tasks.length === 0" class="queue-empty">
+                    {{ t('queue_empty') }}
+                  </div>
+
+                  <article
+                    v-for="task in group.tasks"
+                    :key="task.id"
+                    class="task-card"
+                    :class="{
+                      previewing: previewTaskId === task.id,
+                      'search-hit': matchedTaskIds.includes(task.id)
+                    }"
+                    @mouseenter="onTaskHover(task)"
+                    @mouseleave="onTaskLeave"
+                  >
+                    <div class="task-head">
+                      <strong>#{{ task.id }}</strong>
+                      <span class="status-badge" :class="task.status">{{ taskStatusText(task.status) }}</span>
+                    </div>
+                    <div class="task-line">{{ formatTaskMeta(task) }}</div>
+                    <div class="task-line">{{ t('task_priority') }}: {{ task.priority }}</div>
+                    <div class="task-line">{{ formatTaskAgv(task) }}</div>
+                    <div class="task-line task-reason">
+                      {{ t('dispatch_reason') }}: {{ formatDispatchReason(task) }}
+                    </div>
+                    <div v-if="formatTaskTime(task)" class="task-line task-time">
+                      {{ formatTaskTime(task) }}
+                    </div>
+                    <div class="task-actions">
+                      <button
+                        v-if="task.status === 'pending'"
+                        class="btn-delete"
+                        type="button"
+                        @click="deleteTask(task)"
+                      >
+                        {{ t('delete_task') }}
+                      </button>
+                    </div>
+                  </article>
+                </section>
+              </div>
             </div>
-            <div v-if="formatTaskTime(task)" class="task-line task-time">
-              {{ formatTaskTime(task) }}
+          </section>
+
+          <section
+            ref="templatesSectionRef"
+            class="panel-section"
+            :class="{
+              collapsed: !panelSections.templates,
+              'search-hit': matchedPanelSectionKeys.includes('templates'),
+              focused: focusedPanelSection === 'templates'
+            }"
+          >
+            <button
+              class="panel-section-toggle"
+              type="button"
+              :aria-expanded="panelSections.templates"
+              @click="togglePanelSection('templates')"
+            >
+              <span>{{ panelLocale.sections.templates }}</span>
+              <span class="panel-section-toggle-text">
+                {{ panelSections.templates ? panelLocale.collapse : panelLocale.expand }}
+              </span>
+            </button>
+            <div v-show="panelSections.templates" class="panel-section-body">
+              <div class="task-templates">
+                <h2>{{ t('template_library') }}</h2>
+                <p class="panel-hint">{{ t('template_hint') }}</p>
+
+                <div class="template-manage">
+                  <h3>{{ t('template_manage') }}</h3>
+                  <div class="form-grid template-manage-grid">
+                    <label>{{ t('template_name') }}</label>
+                    <input
+                      v-model.trim="taskTemplateForm.name"
+                      type="text"
+                      :placeholder="t('template_name_placeholder')"
+                    />
+                  </div>
+                  <button class="btn-primary full-width" type="button" @click="saveCurrentTaskAsTemplate">
+                    {{ t('template_save_current') }}
+                  </button>
+                  <div v-if="taskTemplateStatus" class="template-status" :class="taskTemplateStatusType">
+                    {{ taskTemplateStatus }}
+                  </div>
+                </div>
+
+                <div class="template-manage template-json-tools">
+                  <h3>{{ templateJsonLocale.title }}</h3>
+                  <p class="panel-hint">{{ templateJsonLocale.hint }}</p>
+                  <input
+                    ref="templateFileInputRef"
+                    class="visually-hidden"
+                    type="file"
+                    accept=".json,application/json"
+                    @change="handleTemplateFileChange"
+                  />
+                  <textarea
+                    v-model="templateJsonText"
+                    class="json-area"
+                    rows="6"
+                    :placeholder="templateJsonLocale.placeholder"
+                  ></textarea>
+                  <div class="json-actions">
+                    <button class="btn-secondary" type="button" @click="importTaskTemplatesFromJson">
+                      {{ templateJsonLocale.import }}
+                    </button>
+                    <button class="btn-secondary" type="button" @click="triggerTemplateFileImport">
+                      {{ templateJsonLocale.importFile }}
+                    </button>
+                    <button class="btn-secondary" type="button" @click="exportTaskTemplatesToJson">
+                      {{ templateJsonLocale.export }}
+                    </button>
+                    <button class="btn-secondary" type="button" @click="downloadTemplateJsonFile">
+                      {{ templateJsonLocale.downloadFile }}
+                    </button>
+                    <button class="btn-ghost" type="button" @click="clearTemplateJsonText">
+                      {{ templateJsonLocale.clear }}
+                    </button>
+                  </div>
+                  <div v-if="templateJsonStatus" class="template-status" :class="templateJsonStatusType">
+                    {{ templateJsonStatus }}
+                  </div>
+                </div>
+
+                <div class="template-list">
+                  <article
+                    v-for="template in taskTemplates"
+                    :key="template.id"
+                    class="template-card"
+                    :class="{ 'search-hit': matchedTemplateIds.includes(template.id) }"
+                  >
+                    <div class="template-head">
+                      <strong>{{ taskTemplateName(template) }}</strong>
+                      <span class="point-badge" :class="{ custom: template.custom }">
+                        {{ taskTemplateTypeText(template) }}
+                      </span>
+                    </div>
+                    <div class="template-meta">
+                      {{ t('task_start') }} ({{ template.start_x }}, {{ template.start_y }}) ->
+                      {{ t('task_end') }} ({{ template.end_x }}, {{ template.end_y }})
+                    </div>
+                    <div class="template-meta">{{ t('task_priority') }}: {{ template.priority }}</div>
+                    <div class="template-actions">
+                      <button class="btn-secondary" type="button" @click="applyTaskTemplate(template)">
+                        {{ t('template_apply') }}
+                      </button>
+                      <button class="btn-ghost" type="button" @click="createTaskFromTemplate(template)">
+                        {{ t('template_run') }}
+                      </button>
+                      <button
+                        v-if="template.custom"
+                        class="btn-delete"
+                        type="button"
+                        @click="deleteTaskTemplate(template)"
+                      >
+                        {{ t('template_delete') }}
+                      </button>
+                    </div>
+                  </article>
+                </div>
+              </div>
             </div>
-            <div class="task-actions">
-              <button
-                v-if="task.status === 'pending'"
-                class="btn-delete"
-                type="button"
-                @click="deleteTask(task)"
-              >
-                {{ t('delete_task') }}
-              </button>
+          </section>
+
+          <section
+            ref="pointsSectionRef"
+            class="panel-section"
+            :class="{
+              collapsed: !panelSections.points,
+              'search-hit': matchedPanelSectionKeys.includes('points'),
+              focused: focusedPanelSection === 'points'
+            }"
+          >
+            <button
+              class="panel-section-toggle"
+              type="button"
+              :aria-expanded="panelSections.points"
+              @click="togglePanelSection('points')"
+            >
+              <span>{{ panelLocale.sections.points }}</span>
+              <span class="panel-section-toggle-text">
+                {{ panelSections.points ? panelLocale.collapse : panelLocale.expand }}
+              </span>
+            </button>
+            <div v-show="panelSections.points" class="panel-section-body">
+              <div class="point-library">
+                <h2>{{ t('point_library') }}</h2>
+                <p class="panel-hint">{{ t('point_fill_hint') }}</p>
+
+                <div class="point-manage">
+                  <h3>{{ t('point_manage') }}</h3>
+                  <p class="panel-hint">{{ t('point_manage_hint') }}</p>
+                  <div class="form-grid">
+                    <label>{{ t('point_form_name') }}</label>
+                    <input
+                      v-model.trim="customPointForm.name"
+                      type="text"
+                      :placeholder="t('point_form_name_placeholder')"
+                    />
+                    <label>{{ t('point_form_zone') }}</label>
+                    <input
+                      v-model.trim="customPointForm.zone"
+                      type="text"
+                      :placeholder="t('point_form_zone_placeholder')"
+                    />
+                    <label>{{ t('form_start_x') }}</label>
+                    <input v-model.number="customPointForm.x" type="number" min="0" :max="GRID_COLS - 1" />
+                    <label>{{ t('form_start_y') }}</label>
+                    <input v-model.number="customPointForm.y" type="number" min="0" :max="GRID_ROWS - 1" />
+                  </div>
+                  <button class="btn-primary full-width" type="button" @click="addCustomPoint">
+                    {{ t('point_add') }}
+                  </button>
+                  <div v-if="pointFormStatus" class="point-status" :class="pointFormStatusType">
+                    {{ pointFormStatus }}
+                  </div>
+                </div>
+
+                <input
+                  v-model.trim="pointSearch"
+                  class="point-search"
+                  type="text"
+                  :placeholder="t('point_search_placeholder')"
+                />
+
+                <div v-if="filteredPoints.length === 0" class="point-empty">
+                  {{ t('point_search_empty') }}
+                </div>
+
+                <div v-else class="point-list">
+                  <article
+                    v-for="point in filteredPoints"
+                    :key="point.id"
+                    class="point-card"
+                    :class="{ 'search-hit': matchedPointIds.includes(point.id) }"
+                  >
+                    <div class="point-head">
+                      <strong>{{ pointName(point) }}</strong>
+                      <div class="point-tags">
+                        <span class="point-zone">{{ pointZone(point) }}</span>
+                        <span class="point-badge" :class="{ custom: point.custom }">
+                          {{ pointTypeText(point) }}
+                        </span>
+                      </div>
+                    </div>
+                    <div class="point-meta">
+                      {{ t('point_coords') }}: ({{ point.x }}, {{ point.y }})
+                    </div>
+                    <div class="point-actions">
+                      <button
+                        class="btn-secondary"
+                        type="button"
+                        @click="applyPointToTaskForm('start', point)"
+                      >
+                        {{ t('point_apply_start') }}
+                      </button>
+                      <button
+                        class="btn-ghost"
+                        type="button"
+                        @click="applyPointToTaskForm('end', point)"
+                      >
+                        {{ t('point_apply_end') }}
+                      </button>
+                      <button
+                        v-if="point.custom"
+                        class="btn-delete"
+                        type="button"
+                        @click="deleteCustomPoint(point)"
+                      >
+                        {{ t('point_delete') }}
+                      </button>
+                    </div>
+                  </article>
+                </div>
+              </div>
             </div>
-          </article>
-        </section>
-      </div>
+          </section>
+
+          <section
+            ref="jsonSectionRef"
+            class="panel-section"
+            :class="{
+              collapsed: !panelSections.json,
+              'search-hit': matchedPanelSectionKeys.includes('json'),
+              focused: focusedPanelSection === 'json'
+            }"
+          >
+            <button
+              class="panel-section-toggle"
+              type="button"
+              :aria-expanded="panelSections.json"
+              @click="togglePanelSection('json')"
+            >
+              <span>{{ panelLocale.sections.json }}</span>
+              <span class="panel-section-toggle-text">
+                {{ panelSections.json ? panelLocale.collapse : panelLocale.expand }}
+              </span>
+            </button>
+            <div v-show="panelSections.json" class="panel-section-body">
+              <div class="json-tools">
+                <h2>{{ t('json_tools') }}</h2>
+                <textarea
+                  v-model="jsonText"
+                  class="json-area"
+                  rows="8"
+                  :placeholder="t('json_placeholder')"
+                ></textarea>
+                <div class="json-actions">
+                  <button class="btn-secondary" type="button" @click="importTasksFromJson">
+                    {{ t('import_json') }}
+                  </button>
+                  <button class="btn-secondary" type="button" @click="exportTasksToJson">
+                    {{ t('export_json') }}
+                  </button>
+                  <button class="btn-ghost" type="button" @click="clearJsonText">
+                    {{ t('clear_json') }}
+                  </button>
+                </div>
+                <div v-if="jsonStatus" class="json-status">{{ jsonStatus }}</div>
+              </div>
+            </div>
+          </section>
         </div>
         <button
           v-if="showPanelBackToTop"
