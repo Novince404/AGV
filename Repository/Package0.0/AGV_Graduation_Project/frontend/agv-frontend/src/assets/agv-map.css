@@ -197,12 +197,36 @@ h2 {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 12px;
+  max-width: 168px;
+  padding: 7px 10px;
   border-radius: 999px;
-  background: #f7efe0;
+  background: rgba(247, 239, 224, 0.92);
   color: #6b5125;
   border: 1px solid #e2cfa4;
-  font-size: 13px;
+  font-size: 12px;
+  box-sizing: border-box;
+}
+
+.status-pill.empty {
+  background: rgba(242, 239, 233, 0.92);
+  color: #756b5d;
+  border-color: #d8d0c5;
+}
+
+.status-pill-dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.55);
+}
+
+.status-pill-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
 }
 
 .layout {
@@ -1028,6 +1052,11 @@ h2 {
   margin-bottom: 16px;
 }
 
+.task-chain-builder {
+  padding-top: 4px;
+  border-top: 1px solid #ebe3d8;
+}
+
 .legend {
   padding-bottom: 12px;
   border-bottom: 1px solid #ebe3d8;
@@ -1089,6 +1118,10 @@ h2 {
   gap: 8px;
   margin-bottom: 10px;
   align-items: center;
+}
+
+.chain-form-grid {
+  grid-template-columns: 1fr 92px;
 }
 
 .form-grid label {
@@ -1182,6 +1215,33 @@ h2 {
   margin: 0 0 10px;
   font-size: 12px;
   color: var(--muted-text);
+}
+
+.task-chain-stage {
+  margin-bottom: 10px;
+  padding: 10px;
+  border: 1px dashed #d8d0c5;
+  border-radius: 14px;
+  background: rgba(255, 252, 246, 0.82);
+}
+
+.task-chain-stage-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.task-chain-stage-head strong {
+  font-size: 13px;
+}
+
+.task-chain-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 8px 0 10px;
 }
 
 .point-manage {

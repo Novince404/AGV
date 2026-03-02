@@ -5,6 +5,7 @@ from app.api.agv_api import agv_list
 from app.api.task_api import task_list
 from app.utils.agv_movement import move_agv
 from app.utils.path_planner import plan_path
+from app.utils.task_chain import get_current_stage, set_stage_paths, sync_task_stage_fields
 
 
 router = APIRouter(prefix="/schedule", tags=["Schedule"])
@@ -27,6 +28,7 @@ def _select_pending_task(task_id: int | None):
         task = next((t for t in task_list if t.id == task_id), None)
         if not task:
             raise HTTPException(status_code=404, detail="Task not found")
+        sync_task_stage_fields(task)
         if task.status != "pending":
             raise HTTPException(status_code=400, detail="Task is not pending")
         return task
@@ -49,7 +51,10 @@ def _select_idle_agv(agv_id: int | None):
 
 
 def _get_pending_tasks():
-    return [t for t in task_list if t.status == "pending"]
+    pending_tasks = [t for t in task_list if t.status == "pending"]
+    for task in pending_tasks:
+        sync_task_stage_fields(task)
+    return pending_tasks
 
 
 def _get_idle_agvs():
@@ -158,6 +163,7 @@ def _schedule_task(
         grid_cols,
         grid_rows,
     )
+    stage = get_current_stage(task)
 
     if task.created_at is None:
         task.created_at = now_iso()
@@ -171,32 +177,29 @@ def _schedule_task(
         algorithm,
         agv.x,
         agv.y,
-        task.start_x,
-        task.start_y,
+        stage.start_x,
+        stage.start_y,
         grid_cols,
         grid_rows,
     )
     path_to_end = plan_path(
         algorithm,
-        task.start_x,
-        task.start_y,
-        task.end_x,
-        task.end_y,
+        stage.start_x,
+        stage.start_y,
+        stage.end_x,
+        stage.end_y,
         grid_cols,
         grid_rows,
     )
     if not path_to_start or not path_to_end:
         raise HTTPException(status_code=400, detail="Path not found")
 
-    task.path_to_start = path_to_start
-    task.path_to_end = path_to_end
-    task.path_length_to_start = max(len(path_to_start) - 1, 0)
-    task.path_length_to_end = max(len(path_to_end) - 1, 0)
+    set_stage_paths(task, path_to_start, path_to_end)
     task.dispatch_mode = schedule_mode
     task.dispatch_distance = dispatch_distance
     task.dispatch_algorithm = algorithm
     task.dispatch_reason = (
-        f"mode={schedule_mode}, priority={task.priority}, distance={dispatch_distance}, agv={agv.id}, algorithm={algorithm}"
+        f"mode={schedule_mode}, priority={task.priority}, distance={dispatch_distance}, agv={agv.id}, algorithm={algorithm}, stage={task.current_stage_index + 1}/{task.total_stages}"
     )
 
     if len(path_to_start) > 1:
@@ -205,8 +208,10 @@ def _schedule_task(
         agv.status = "running"
         task.status = "running"
         task.started_at = now_iso()
+        if stage.started_at is None:
+            stage.started_at = task.started_at
 
-    move_agv(agv.id, task.id, path_to_start, path_to_end)
+    move_agv(agv.id, task.id, algorithm, grid_cols, grid_rows)
 
     full_path = path_to_start[:]
     if path_to_end:
@@ -221,11 +226,13 @@ def _schedule_task(
         "task": {
             "id": task.id,
             "status": task.status,
-            "start_x": task.start_x,
-            "start_y": task.start_y,
-            "end_x": task.end_x,
-            "end_y": task.end_y,
+            "start_x": stage.start_x,
+            "start_y": stage.start_y,
+            "end_x": stage.end_x,
+            "end_y": stage.end_y,
             "priority": task.priority,
+            "current_stage_index": task.current_stage_index,
+            "total_stages": task.total_stages,
         },
         "agv": {
             "id": agv.id,

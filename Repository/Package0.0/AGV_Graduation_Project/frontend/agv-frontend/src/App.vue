@@ -35,6 +35,7 @@ const taskForm = ref({
   end_y: 0,
   priority: 3
 })
+const taskChainStages = ref(buildDefaultTaskChainStages())
 
 const taskTemplateForm = ref({
   name: ''
@@ -108,6 +109,7 @@ const showMapSettings = ref(false)
 const showStatusLegend = ref(true)
 const showMarkerIcons = ref(true)
 const showPathArrows = ref(false)
+const showMinimap = ref(true)
 
 let timer = null
 let clickTimer = null
@@ -1042,6 +1044,8 @@ const settingsLocale = computed(() => {
       showAgvStatus: 'AGV 状態表示を表示',
       showMarkerIcons: '始点/終点アイコンを表示',
       showPathArrows: '経路方向の矢印を表示',
+      showAutoPath: '自動経路を表示',
+      showMinimap: 'ミニマップを表示',
       resetView: 'ビューを初期化'
     }
   }
@@ -1054,6 +1058,8 @@ const settingsLocale = computed(() => {
       showAgvStatus: '显示 AGV 状态提示',
       showMarkerIcons: '显示起点/终点图标',
       showPathArrows: '显示路径方向箭头',
+      showAutoPath: '显示自动路径',
+      showMinimap: '显示小地图',
       resetView: '重置视图'
     }
   }
@@ -1065,7 +1071,62 @@ const settingsLocale = computed(() => {
     showAgvStatus: 'Show AGV Status Legend',
     showMarkerIcons: 'Show Start/End Icons',
     showPathArrows: 'Show Path Direction Arrows',
+    showAutoPath: 'Show Auto Path',
+    showMinimap: 'Show Minimap',
     resetView: 'Reset View'
+  }
+})
+const taskChainLocale = computed(() => {
+  if (locale.value === 'ja') {
+    return {
+      title: '段階タスク',
+      hint: 'A -> B -> C のような連続工程を 1 件のタスクとして順番に実行します。',
+      stage: '段階',
+      stageLabel: '段階名',
+      stageLabelPlaceholder: '例: 組立工程',
+      addStage: '段階追加',
+      removeStage: '削除',
+      resetStages: '段階を初期化',
+      createTask: '段階タスクを作成',
+      progress: '進行',
+      currentRoute: '現在段階',
+      overallRoute: '全体経路',
+      priorityHint: '優先度は上の共通設定を使用します。'
+    }
+  }
+
+  if (locale.value === 'zh') {
+    return {
+      title: '阶段任务',
+      hint: '用于 A -> B -> C 这类连续流程，同一任务会按阶段顺序连续执行。',
+      stage: '阶段',
+      stageLabel: '阶段名',
+      stageLabelPlaceholder: '例如：装配工序',
+      addStage: '新增阶段',
+      removeStage: '删除',
+      resetStages: '重置阶段',
+      createTask: '创建阶段任务',
+      progress: '进度',
+      currentRoute: '当前阶段',
+      overallRoute: '总路线',
+      priorityHint: '优先级使用上方公共设置。'
+    }
+  }
+
+  return {
+    title: 'Stage Task',
+    hint: 'Use one task to execute linked stages such as A -> B -> C in order.',
+    stage: 'Stage',
+    stageLabel: 'Stage Name',
+    stageLabelPlaceholder: 'e.g. Assembly',
+    addStage: 'Add Stage',
+    removeStage: 'Remove',
+    resetStages: 'Reset Stages',
+    createTask: 'Create Stage Task',
+    progress: 'Progress',
+    currentRoute: 'Current Stage',
+    overallRoute: 'Overall Route',
+    priorityHint: 'Priority uses the shared control above.'
   }
 })
 const panelSummaryModes = computed(() => [
@@ -1084,6 +1145,18 @@ const selectedAgvSummaryText = computed(() => {
 const compactSelectedAgvText = computed(() => {
   if (!selectedAgv.value) return panelSummaryLocale.value.noAgvCompact
   return `#${selectedAgv.value.id}${compactStatusText(selectedAgv.value.status)}`
+})
+const toolbarSelectedAgvText = computed(() => {
+  if (!selectedAgv.value) {
+    if (locale.value === 'ja') return '未選択'
+    if (locale.value === 'zh') return '未选车'
+    return 'No AGV'
+  }
+  return `#${selectedAgv.value.id} ${compactStatusText(selectedAgv.value.status)}`
+})
+const toolbarSelectedAgvTitle = computed(() => {
+  if (!selectedAgv.value) return selectedAgvSummaryText.value
+  return `AGV ${selectedAgvSummaryText.value}`
 })
 const panelSummaryItems = computed(() => [
   {
@@ -1168,6 +1241,8 @@ const matchedTaskIds = computed(() => {
           task.status,
           taskStatusText(task.status),
           formatTaskMeta(task),
+          formatTaskStageProgress(task),
+          formatTaskCurrentStage(task),
           formatTaskAgv(task),
           formatDispatchReason(task),
           task.priority
@@ -1313,6 +1388,74 @@ function clampValue(value, min, max) {
   return Math.min(Math.max(value, min), max)
 }
 
+function createTaskChainStage(seed = {}) {
+  return {
+    label: seed.label ?? '',
+    start_x: Number(seed.start_x ?? 0),
+    start_y: Number(seed.start_y ?? 0),
+    end_x: Number(seed.end_x ?? 0),
+    end_y: Number(seed.end_y ?? 0)
+  }
+}
+
+function buildDefaultTaskChainStages() {
+  const firstStage = createTaskChainStage({
+    start_x: Number(taskForm.value.start_x),
+    start_y: Number(taskForm.value.start_y),
+    end_x: Number(taskForm.value.end_x),
+    end_y: Number(taskForm.value.end_y)
+  })
+  const secondStage = createTaskChainStage({
+    start_x: firstStage.end_x,
+    start_y: firstStage.end_y,
+    end_x: firstStage.end_x,
+    end_y: firstStage.end_y
+  })
+  return [firstStage, secondStage]
+}
+
+function normalizeTaskStages(task) {
+  if (Array.isArray(task.stages) && task.stages.length > 0) {
+    return task.stages
+  }
+  return [
+    {
+      index: 0,
+      start_x: task.start_x,
+      start_y: task.start_y,
+      end_x: task.end_x,
+      end_y: task.end_y,
+      label: ''
+    }
+  ]
+}
+
+function isTaskChain(task) {
+  return Number(task.total_stages ?? normalizeTaskStages(task).length) > 1
+}
+
+function overallTaskStart(task) {
+  return {
+    x: task.overall_start_x ?? normalizeTaskStages(task)[0]?.start_x ?? task.start_x,
+    y: task.overall_start_y ?? normalizeTaskStages(task)[0]?.start_y ?? task.start_y
+  }
+}
+
+function overallTaskEnd(task) {
+  const stages = normalizeTaskStages(task)
+  const lastStage = stages[stages.length - 1]
+  return {
+    x: task.overall_end_x ?? lastStage?.end_x ?? task.end_x,
+    y: task.overall_end_y ?? lastStage?.end_y ?? task.end_y
+  }
+}
+
+function currentTaskStage(task) {
+  const stages = normalizeTaskStages(task)
+  const index = clampValue(Number(task.current_stage_index ?? 0), 0, stages.length - 1)
+  return stages[index]
+}
+
 function pointStyle(point, cellSize = CELL_SIZE, size = 12) {
   return {
     left: `${point.x * cellSize + cellSize / 2 - size / 2}px`,
@@ -1389,11 +1532,28 @@ function dispatchModeText(value) {
 }
 
 function formatTaskMeta(task) {
+  if (isTaskChain(task)) {
+    const start = overallTaskStart(task)
+    const end = overallTaskEnd(task)
+    return `${taskChainLocale.value.overallRoute}: (${start.x}, ${start.y}) -> (${end.x}, ${end.y})`
+  }
   return `${t('task_start')} (${task.start_x}, ${task.start_y}) -> ${t('task_end')} (${task.end_x}, ${task.end_y})`
 }
 
 function formatTaskAgv(task) {
   return `${t('task_agv')}: ${task.agv_id ?? t('selected_none')}`
+}
+
+function formatTaskStageProgress(task) {
+  if (!isTaskChain(task)) return ''
+  return `${taskChainLocale.value.progress}: ${Number(task.current_stage_index ?? 0) + 1}/${task.total_stages ?? normalizeTaskStages(task).length}`
+}
+
+function formatTaskCurrentStage(task) {
+  if (!isTaskChain(task)) return ''
+  const stage = currentTaskStage(task)
+  const label = stage.label ? ` ${stage.label}` : ''
+  return `${taskChainLocale.value.currentRoute}${label}: (${stage.start_x}, ${stage.start_y}) -> (${stage.end_x}, ${stage.end_y})`
 }
 
 function formatTaskTime(task) {
@@ -1425,6 +1585,9 @@ function formatDispatchReason(task) {
   }
   if (task.agv_id !== null && task.agv_id !== undefined) {
     parts.push(`AGV #${task.agv_id}`)
+  }
+  if (isTaskChain(task)) {
+    parts.push(`${Number(task.current_stage_index ?? 0) + 1}/${task.total_stages ?? normalizeTaskStages(task).length}`)
   }
 
   return parts.join(' | ')
@@ -1738,6 +1901,9 @@ function loadMapDisplaySettings() {
     if (typeof parsed?.showStatusLegend === 'boolean') {
       showStatusLegend.value = parsed.showStatusLegend
     }
+    if (typeof parsed?.showMinimap === 'boolean') {
+      showMinimap.value = parsed.showMinimap
+    }
   } catch (error) {
     console.error('Load map display settings error:', error)
   }
@@ -1751,7 +1917,8 @@ function saveMapDisplaySettings() {
         showAutoPath: showAutoPath.value,
         showMarkerIcons: showMarkerIcons.value,
         showPathArrows: showPathArrows.value,
-        showStatusLegend: showStatusLegend.value
+        showStatusLegend: showStatusLegend.value,
+        showMinimap: showMinimap.value
       })
     )
   } catch (error) {
@@ -2041,6 +2208,11 @@ function clearManualDestination() {
   manualPathToEnd.value = []
 }
 
+function clearManualPaths() {
+  manualPathToStart.value = []
+  manualPathToEnd.value = []
+}
+
 function cancelSelection() {
   selectedAgvId.value = null
   startPoint.value = null
@@ -2049,6 +2221,40 @@ function cancelSelection() {
 
 function findAgvById(id) {
   return displayAgvs.value.find(agv => agv.id === id)
+}
+
+function activeTaskSort(a, b) {
+  return compareTime(b.assigned_at, a.assigned_at) || b.priority - a.priority || b.id - a.id
+}
+
+function findLatestActiveTask(mode) {
+  const activeTasks = tasks.value
+    .filter(task => ['assigned', 'running'].includes(task.status) && task.dispatch_mode === mode)
+    .sort(activeTaskSort)
+
+  if (mode === 'manual' && selectedAgvId.value) {
+    return activeTasks.find(task => task.agv_id === selectedAgvId.value) ?? activeTasks[0] ?? null
+  }
+
+  return activeTasks[0] ?? null
+}
+
+function syncDisplayedPathsFromTasks() {
+  const autoTask = findLatestActiveTask('auto')
+  if (autoTask) {
+    autoPathToStart.value = autoTask.path_to_start ?? []
+    autoPathToEnd.value = autoTask.path_to_end ?? []
+  } else {
+    clearAutoPaths()
+  }
+
+  const manualTask = findLatestActiveTask('manual')
+  if (manualTask) {
+    manualPathToStart.value = manualTask.path_to_start ?? []
+    manualPathToEnd.value = manualTask.path_to_end ?? []
+  } else {
+    clearManualPaths()
+  }
 }
 
 function isCellOccupied(x, y) {
@@ -2500,13 +2706,37 @@ async function deleteTask(task) {
 }
 
 async function submitTaskPayload(payload) {
-  if (
+  const hasStages = Array.isArray(payload.stages) && payload.stages.length > 0
+  if (hasStages) {
+    const normalizedStages = payload.stages
+      .map(stage => ({
+        ...stage,
+        start_x: Number(stage.start_x),
+        start_y: Number(stage.start_y),
+        end_x: Number(stage.end_x),
+        end_y: Number(stage.end_y),
+        label: String(stage.label ?? '').trim() || null
+      }))
+      .filter(
+        stage =>
+          isValidGridCoordinate(stage.start_x, GRID_COLS) &&
+          isValidGridCoordinate(stage.start_y, GRID_ROWS) &&
+          isValidGridCoordinate(stage.end_x, GRID_COLS) &&
+          isValidGridCoordinate(stage.end_y, GRID_ROWS)
+      )
+
+    if (normalizedStages.length === 0) return false
+    payload = {
+      priority: Number(payload.priority),
+      stages: normalizedStages
+    }
+  } else if (
     Number.isNaN(payload.start_x) ||
     Number.isNaN(payload.start_y) ||
     Number.isNaN(payload.end_x) ||
     Number.isNaN(payload.end_y)
   ) {
-    return
+    return false
   }
 
   try {
@@ -2523,8 +2753,10 @@ async function submitTaskPayload(payload) {
     if (dispatchMode.value === 'auto') {
       await tryAutoSchedule()
     }
+    return true
   } catch (error) {
     console.error('Create task form error:', error)
+    return false
   }
 }
 
@@ -2538,6 +2770,39 @@ async function addTaskFromForm() {
   }
 
   await submitTaskPayload(payload)
+}
+
+function addTaskChainStage() {
+  const lastStage = taskChainStages.value.at(-1)
+  taskChainStages.value = [
+    ...taskChainStages.value,
+    createTaskChainStage({
+      start_x: lastStage?.end_x ?? 0,
+      start_y: lastStage?.end_y ?? 0,
+      end_x: lastStage?.end_x ?? 0,
+      end_y: lastStage?.end_y ?? 0
+    })
+  ]
+}
+
+function removeTaskChainStage(index) {
+  if (taskChainStages.value.length <= 2) return
+  taskChainStages.value = taskChainStages.value.filter((_, stageIndex) => stageIndex !== index)
+}
+
+function resetTaskChainStages() {
+  taskChainStages.value = buildDefaultTaskChainStages()
+}
+
+async function addTaskChainFromForm() {
+  if (taskChainStages.value.length < 2) return
+  const created = await submitTaskPayload({
+    priority: Number(taskForm.value.priority),
+    stages: taskChainStages.value
+  })
+  if (created) {
+    resetTaskChainStages()
+  }
 }
 
 async function createTaskFromTemplate(template) {
@@ -2638,6 +2903,7 @@ async function refreshState() {
   polling = true
   try {
     await Promise.all([fetchAgvs(), fetchTasks()])
+    syncDisplayedPathsFromTasks()
     if (dispatchMode.value === 'auto') {
       if (!hasActiveTask()) {
         clearAutoPaths()
@@ -2725,7 +2991,7 @@ watch(panelSummaryMode, () => {
   savePanelSummaryMode()
 })
 
-watch([showAutoPath, showMarkerIcons, showPathArrows, showStatusLegend], () => {
+watch([showAutoPath, showMarkerIcons, showPathArrows, showStatusLegend, showMinimap], () => {
   saveMapDisplaySettings()
 })
 
@@ -2815,15 +3081,9 @@ onBeforeUnmount(() => {
         </select>
       </label>
 
-      <label class="field checkbox-field">
-        <input v-model="showAutoPath" type="checkbox" />
-        <span>{{ t('show_auto_path') }}</span>
-      </label>
-
-      <div class="status-pill">
-        {{ t('selected') }}:
-        <span v-if="selectedAgv">#{{ selectedAgv.id }} / {{ statusText(selectedAgv.status) }}</span>
-        <span v-else>{{ t('selected_none') }}</span>
+      <div class="status-pill" :class="{ empty: !selectedAgv }" :title="toolbarSelectedAgvTitle">
+        <span class="status-pill-dot" :style="{ backgroundColor: selectedAgv ? statusColor(selectedAgv.status) : '#9e9e9e' }"></span>
+        <span class="status-pill-text">{{ toolbarSelectedAgvText }}</span>
       </div>
     </div>
 
@@ -3091,12 +3351,20 @@ onBeforeUnmount(() => {
               <div class="map-settings-group">
                 <div class="map-settings-subtitle">{{ settingsLocale.mapGroup }}</div>
                 <label class="map-setting-row">
+                  <input v-model="showAutoPath" type="checkbox" />
+                  <span>{{ settingsLocale.showAutoPath }}</span>
+                </label>
+                <label class="map-setting-row">
                   <input v-model="showMarkerIcons" type="checkbox" />
                   <span>{{ settingsLocale.showMarkerIcons }}</span>
                 </label>
                 <label class="map-setting-row">
                   <input v-model="showPathArrows" type="checkbox" />
                   <span>{{ settingsLocale.showPathArrows }}</span>
+                </label>
+                <label class="map-setting-row">
+                  <input v-model="showMinimap" type="checkbox" />
+                  <span>{{ settingsLocale.showMinimap }}</span>
                 </label>
               </div>
               <div class="map-settings-group">
@@ -3113,6 +3381,7 @@ onBeforeUnmount(() => {
           </div>
 
           <div
+            v-if="showMinimap"
             ref="minimapRef"
             class="minimap"
             :style="{ width: `${MINIMAP_WIDTH}px`, height: `${minimapHeight}px` }"
@@ -3294,6 +3563,52 @@ onBeforeUnmount(() => {
                   {{ t('add_task') }}
                 </button>
               </div>
+
+              <div class="task-form task-chain-builder">
+                <h2>{{ taskChainLocale.title }}</h2>
+                <p class="panel-hint">{{ taskChainLocale.hint }}</p>
+                <p class="panel-hint">{{ taskChainLocale.priorityHint }}</p>
+                <div
+                  v-for="(stage, index) in taskChainStages"
+                  :key="`chain-stage-${index}`"
+                  class="task-chain-stage"
+                >
+                  <div class="task-chain-stage-head">
+                    <strong>{{ taskChainLocale.stage }} {{ index + 1 }}</strong>
+                    <button
+                      class="btn-ghost"
+                      type="button"
+                      :disabled="taskChainStages.length <= 2"
+                      @click="removeTaskChainStage(index)"
+                    >
+                      {{ taskChainLocale.removeStage }}
+                    </button>
+                  </div>
+                  <div class="form-grid chain-form-grid">
+                    <label>{{ taskChainLocale.stageLabel }}</label>
+                    <input v-model.trim="stage.label" type="text" :placeholder="taskChainLocale.stageLabelPlaceholder" />
+                    <label>{{ t('form_start_x') }}</label>
+                    <input v-model.number="stage.start_x" type="number" min="0" :max="GRID_COLS - 1" />
+                    <label>{{ t('form_start_y') }}</label>
+                    <input v-model.number="stage.start_y" type="number" min="0" :max="GRID_ROWS - 1" />
+                    <label>{{ t('form_end_x') }}</label>
+                    <input v-model.number="stage.end_x" type="number" min="0" :max="GRID_COLS - 1" />
+                    <label>{{ t('form_end_y') }}</label>
+                    <input v-model.number="stage.end_y" type="number" min="0" :max="GRID_ROWS - 1" />
+                  </div>
+                </div>
+                <div class="task-chain-actions">
+                  <button class="btn-secondary" type="button" @click="addTaskChainStage">
+                    {{ taskChainLocale.addStage }}
+                  </button>
+                  <button class="btn-ghost" type="button" @click="resetTaskChainStages">
+                    {{ taskChainLocale.resetStages }}
+                  </button>
+                </div>
+                <button class="btn-primary full-width" type="button" @click="addTaskChainFromForm">
+                  {{ taskChainLocale.createTask }}
+                </button>
+              </div>
             </div>
           </section>
 
@@ -3348,6 +3663,8 @@ onBeforeUnmount(() => {
                       <span class="status-badge" :class="task.status">{{ taskStatusText(task.status) }}</span>
                     </div>
                     <div class="task-line">{{ formatTaskMeta(task) }}</div>
+                    <div v-if="formatTaskStageProgress(task)" class="task-line">{{ formatTaskStageProgress(task) }}</div>
+                    <div v-if="formatTaskCurrentStage(task)" class="task-line">{{ formatTaskCurrentStage(task) }}</div>
                     <div class="task-line">{{ t('task_priority') }}: {{ task.priority }}</div>
                     <div class="task-line">{{ formatTaskAgv(task) }}</div>
                     <div class="task-line task-reason">

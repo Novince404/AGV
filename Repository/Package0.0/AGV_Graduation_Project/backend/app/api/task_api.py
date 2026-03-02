@@ -3,26 +3,37 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from app.models.task import Task
 from app.api.agv_api import agv_list
+from app.utils.task_chain import build_stage_models, sync_task_stage_fields
 
 
 router = APIRouter(prefix="/task", tags=["Task"])
 
 
-class TaskCreateRequest(BaseModel):
+class TaskStagePayload(BaseModel):
     start_x: int
     start_y: int
     end_x: int
     end_y: int
+    label: str | None = None
+
+
+class TaskCreateRequest(BaseModel):
+    start_x: int | None = None
+    start_y: int | None = None
+    end_x: int | None = None
+    end_y: int | None = None
     priority: int = 1
+    stages: list[TaskStagePayload] | None = None
 
 
 class TaskImportItem(BaseModel):
     id: int | None = None
-    start_x: int
-    start_y: int
-    end_x: int
-    end_y: int
+    start_x: int | None = None
+    start_y: int | None = None
+    end_x: int | None = None
+    end_y: int | None = None
     priority: int = 1
+    stages: list[TaskStagePayload] | None = None
 
 
 class TaskImportRequest(BaseModel):
@@ -31,6 +42,25 @@ class TaskImportRequest(BaseModel):
 
 def now_iso():
     return datetime.now().isoformat(timespec="seconds")
+
+
+def build_task_stages(item: TaskCreateRequest | TaskImportItem):
+    if item.stages:
+        return build_stage_models(item.stages)
+
+    if None in {item.start_x, item.start_y, item.end_x, item.end_y}:
+        raise HTTPException(status_code=400, detail="Task coordinates are required")
+
+    return build_stage_models(
+        [
+            TaskStagePayload(
+                start_x=item.start_x,
+                start_y=item.start_y,
+                end_x=item.end_x,
+                end_y=item.end_y,
+            )
+        ]
+    )
 
 
 task_list = [
@@ -65,16 +95,27 @@ def get_tasks():
 @router.post("/create")
 def create_task(req: TaskCreateRequest):
     next_id = max((t.id for t in task_list), default=0) + 1
+    stages = build_task_stages(req)
+    first_stage = stages[0]
+    last_stage = stages[-1]
     task = Task(
         id=next_id,
-        start_x=req.start_x,
-        start_y=req.start_y,
-        end_x=req.end_x,
-        end_y=req.end_y,
+        start_x=first_stage.start_x,
+        start_y=first_stage.start_y,
+        end_x=first_stage.end_x,
+        end_y=first_stage.end_y,
         priority=req.priority,
         status="pending",
         created_at=now_iso(),
+        current_stage_index=0,
+        total_stages=len(stages),
+        overall_start_x=first_stage.start_x,
+        overall_start_y=first_stage.start_y,
+        overall_end_x=last_stage.end_x,
+        overall_end_y=last_stage.end_y,
+        stages=stages,
     )
+    sync_task_stage_fields(task)
     task_list.append(task)
     return {"message": "Task created", "task": task}
 
@@ -112,17 +153,28 @@ def import_tasks(req: TaskImportRequest):
             task_id = next_id
             next_id += 1
         existing_ids.add(task_id)
+        stages = build_task_stages(item)
+        first_stage = stages[0]
+        last_stage = stages[-1]
 
         task = Task(
             id=task_id,
-            start_x=item.start_x,
-            start_y=item.start_y,
-            end_x=item.end_x,
-            end_y=item.end_y,
+            start_x=first_stage.start_x,
+            start_y=first_stage.start_y,
+            end_x=first_stage.end_x,
+            end_y=first_stage.end_y,
             priority=item.priority,
             status="pending",
             created_at=now_iso(),
+            current_stage_index=0,
+            total_stages=len(stages),
+            overall_start_x=first_stage.start_x,
+            overall_start_y=first_stage.start_y,
+            overall_end_x=last_stage.end_x,
+            overall_end_y=last_stage.end_y,
+            stages=stages,
         )
+        sync_task_stage_fields(task)
         task_list.append(task)
         created_ids.append(task_id)
 
