@@ -44,6 +44,31 @@ def now_iso():
     return datetime.now().isoformat(timespec="seconds")
 
 
+def serialize_task_for_json(task: Task):
+    payload = {
+        "id": task.id,
+        "start_x": task.overall_start_x if task.overall_start_x is not None else task.start_x,
+        "start_y": task.overall_start_y if task.overall_start_y is not None else task.start_y,
+        "end_x": task.overall_end_x if task.overall_end_x is not None else task.end_x,
+        "end_y": task.overall_end_y if task.overall_end_y is not None else task.end_y,
+        "priority": task.priority,
+    }
+
+    if task.stages and len(task.stages) > 1:
+        payload["stages"] = [
+            {
+                "label": stage.label,
+                "start_x": stage.start_x,
+                "start_y": stage.start_y,
+                "end_x": stage.end_x,
+                "end_y": stage.end_y,
+            }
+            for stage in task.stages
+        ]
+
+    return payload
+
+
 def build_task_stages(item: TaskCreateRequest | TaskImportItem):
     if item.stages:
         return build_stage_models(item.stages)
@@ -183,7 +208,11 @@ def import_tasks(req: TaskImportRequest):
 
 @router.get("/export_json")
 def export_tasks():
-    return {"exported_at": now_iso(), "tasks": task_list}
+    return {
+        "version": 2,
+        "exported_at": now_iso(),
+        "tasks": [serialize_task_for_json(task) for task in task_list],
+    }
 
 
 @router.delete("/{task_id}")

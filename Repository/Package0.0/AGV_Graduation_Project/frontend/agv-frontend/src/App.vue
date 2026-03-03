@@ -12,6 +12,7 @@ const MAP_DISPLAY_STORAGE_KEY = 'agv_map_display_settings'
 const TASK_TEMPLATE_STORAGE_KEY = 'agv_task_templates'
 const PANEL_SECTION_STORAGE_KEY = 'agv_panel_sections'
 const PANEL_SUMMARY_MODE_STORAGE_KEY = 'agv_panel_summary_mode'
+const TASK_QUEUE_VIEW_STORAGE_KEY = 'agv_task_queue_view'
 const MAP_WIDTH = GRID_COLS * CELL_SIZE
 const MAP_HEIGHT = GRID_ROWS * CELL_SIZE
 const MINIMAP_WIDTH = 168
@@ -36,6 +37,10 @@ const taskForm = ref({
   priority: 3
 })
 const taskChainStages = ref(buildDefaultTaskChainStages())
+const taskBuilderMode = ref('single')
+const taskChainMapPickActive = ref(false)
+const taskChainMapPickStageCount = ref(2)
+const taskChainMapPickPoints = ref([])
 
 const taskTemplateForm = ref({
   name: ''
@@ -58,6 +63,7 @@ const taskTemplateStatusType = ref('info')
 const templateJsonText = ref('')
 const templateJsonStatus = ref('')
 const templateJsonStatusType = ref('info')
+const taskTemplateJumpReady = ref(false)
 const jsonText = ref('')
 const jsonStatus = ref('')
 const templateFileInputRef = ref(null)
@@ -71,6 +77,9 @@ const panelSections = ref({
   points: false,
   json: false
 })
+const queueGroupsCollapsed = ref(buildDefaultQueueGroupState())
+const taskCardCollapsed = ref({})
+const summaryZoomArmed = ref(false)
 
 const selectedAgvId = ref(null)
 const startPoint = ref(null)
@@ -115,6 +124,8 @@ let timer = null
 let clickTimer = null
 let previewTimer = null
 let dispatchHelpTimer = null
+let templateApplyClickTimer = null
+let taskBuilderJumpTimer = null
 let localNextId = 1000
 let autoScheduling = false
 let polling = false
@@ -822,6 +833,13 @@ const mainEndMarker = computed(() => {
     null
   )
 })
+const chainMidMarkers = computed(() => {
+  if (!taskChainMapPickActive.value) return []
+  return taskChainMapPickPoints.value.slice(1, -1).map((point, index) => ({
+    ...point,
+    order: index + 1
+  }))
+})
 const minimapStartMarker = computed(() => mainStartMarker.value)
 const minimapEndMarker = computed(() => mainEndMarker.value)
 const pointLibrary = computed(() => [...DEFAULT_POINT_LIBRARY, ...customPoints.value])
@@ -1091,7 +1109,10 @@ const taskChainLocale = computed(() => {
       progress: '進行',
       currentRoute: '現在段階',
       overallRoute: '全体経路',
-      priorityHint: '優先度は上の共通設定を使用します。'
+      priorityHint: '優先度は上の共通設定を使用します。',
+      saveTemplate: '現在の段階タスクをテンプレート保存',
+      stageCount: '段階数',
+      loadedHint: '段階テンプレートを読み込みました。下の段階タスク作成ボタンを使ってください。'
     }
   }
 
@@ -1109,7 +1130,10 @@ const taskChainLocale = computed(() => {
       progress: '进度',
       currentRoute: '当前阶段',
       overallRoute: '总路线',
-      priorityHint: '优先级使用上方公共设置。'
+      priorityHint: '优先级使用上方公共设置。',
+      saveTemplate: '保存当前阶段任务为模板',
+      stageCount: '阶段数',
+      loadedHint: '已载入阶段模板，请使用下方阶段任务按钮创建。'
     }
   }
 
@@ -1126,9 +1150,226 @@ const taskChainLocale = computed(() => {
     progress: 'Progress',
     currentRoute: 'Current Stage',
     overallRoute: 'Overall Route',
-    priorityHint: 'Priority uses the shared control above.'
+    priorityHint: 'Priority uses the shared control above.',
+    saveTemplate: 'Save Stage Task as Template',
+    stageCount: 'Stages',
+    loadedHint: 'Stage template loaded. Use the stage task button below to create it.'
   }
 })
+const taskBuilderLocale = computed(() => {
+  if (locale.value === 'ja') {
+    return {
+      title: 'タスク作成',
+      single: '単一タスク',
+      chain: '段階タスク',
+      singleCompact: '単段',
+      chainCompact: '多段',
+      switchLabel: '切替',
+      singleHint: 'A -> B の単一搬送タスクを作成します。',
+      jumpAction: '作成欄へ移動',
+      jumpHint: '読込後、右下の黄色ボタンから移動できます。ダブルクリックなら直接移動します。',
+      loadedSingle: '単一タスクのフォームに読み込みました。',
+      loadedChain: '段階タスクのフォームに読み込みました。'
+    }
+  }
+
+  if (locale.value === 'zh') {
+    return {
+      title: '任务创建',
+      single: '单段任务',
+      chain: '阶段任务',
+      singleCompact: '单段',
+      chainCompact: '多段',
+      switchLabel: '切换',
+      singleHint: '用于创建 A -> B 的单段搬运任务。',
+      jumpAction: '跳转到任务创建',
+      jumpHint: '载入后可点击右下角黄色按钮跳转，双击可直接跳转。',
+      loadedSingle: '已载入到单段任务表单。',
+      loadedChain: '已载入到阶段任务表单。'
+    }
+  }
+
+  return {
+    title: 'Task Builder',
+    single: 'Single',
+    chain: 'Stages',
+    singleCompact: 'Single',
+    chainCompact: 'Multi',
+    switchLabel: 'Mode',
+    singleHint: 'Create a single A -> B transport task.',
+    jumpAction: 'Jump to Builder',
+    jumpHint: 'Use the yellow button at the lower-right after loading, or double-click to jump directly.',
+    loadedSingle: 'Loaded into the single-task form.',
+    loadedChain: 'Loaded into the stage-task form.'
+  }
+})
+const taskJsonLocale = computed(() => {
+  if (locale.value === 'ja') {
+    return {
+      singleExample: '単一サンプル',
+      chainExample: '段階サンプル',
+      singleLoaded: '単一タスクの JSON サンプルを入力しました。',
+      chainLoaded: '段階タスクの JSON サンプルを入力しました。'
+    }
+  }
+
+  if (locale.value === 'zh') {
+    return {
+      singleExample: '填入单段示例',
+      chainExample: '填入阶段示例',
+      singleLoaded: '已填入单段任务 JSON 示例。',
+      chainLoaded: '已填入阶段任务 JSON 示例。'
+    }
+  }
+
+  return {
+    singleExample: 'Single Example',
+    chainExample: 'Stage Example',
+    singleLoaded: 'Loaded a single-task JSON example.',
+    chainLoaded: 'Loaded a stage-task JSON example.'
+  }
+})
+const taskJsonExampleFileLocale = computed(() => {
+  if (locale.value === 'ja') {
+    return {
+      singleDownload: '単一サンプルを保存',
+      chainDownload: '段階サンプルを保存',
+      singleDownloaded: '単一タスクの JSON サンプルを保存しました。',
+      chainDownloaded: '段階タスクの JSON サンプルを保存しました。'
+    }
+  }
+
+  if (locale.value === 'zh') {
+    return {
+      singleDownload: '下载单段示例',
+      chainDownload: '下载阶段示例',
+      singleDownloaded: '已下载单段任务 JSON 示例。',
+      chainDownloaded: '已下载阶段任务 JSON 示例。'
+    }
+  }
+
+  return {
+    singleDownload: 'Download Single Sample',
+    chainDownload: 'Download Stage Sample',
+    singleDownloaded: 'Downloaded a single-task JSON sample.',
+    chainDownloaded: 'Downloaded a stage-task JSON sample.'
+  }
+})
+const taskChainMapPickLocale = computed(() => {
+  if (locale.value === 'ja') {
+    return {
+      start: '地図3点入力',
+      cancel: '入力取消',
+      step1: '1 点目: 開始点 A をクリック',
+      step2: '2 点目: 中継点 B をクリック',
+      step3: '3 点目: 終点 C をクリック'
+    }
+  }
+
+  if (locale.value === 'zh') {
+    return {
+      start: '地图三击建两段',
+      cancel: '取消地图选点',
+      step1: '第 1 点：点击起点 A',
+      step2: '第 2 点：点击中转点 B',
+      step3: '第 3 点：点击终点 C'
+    }
+  }
+
+  return {
+    start: '3-Click Build',
+    cancel: 'Cancel Picking',
+    step1: 'Point 1: click start A',
+    step2: 'Point 2: click transfer B',
+    step3: 'Point 3: click end C'
+  }
+})
+const taskChainMapPickUiLocale = computed(() => {
+  if (locale.value === 'ja') {
+    return {
+      start: '選点',
+      cancel: '取消',
+      stageCount: '預選',
+      idle: (required, stages) => `預選 ${stages} 段 / 必要 ${required} 点。先に「選点」を押してから地図をクリックしてください。`,
+      status: (picked, required, stages) =>
+        picked >= required
+          ? `${required} 点已選択。確認後に ${stages} 段タスクを作成します。`
+          : `已選 ${picked}/${required} 点。続けて選点してください。`
+    }
+  }
+
+  if (locale.value === 'zh') {
+    return {
+      start: '选点',
+      cancel: '取消',
+      stageCount: '预选',
+      idle: (required, stages) => `预选 ${stages} 段 / 需 ${required} 点，先点击“选点”，再到地图上选点。`,
+      status: (picked, required, stages) =>
+        picked >= required
+          ? `已选满 ${required} 点，确认后创建 ${stages} 段任务。`
+          : `已选 ${picked}/${required} 点，请继续选点。`
+    }
+  }
+
+  return {
+    start: 'Pick',
+    cancel: 'Cancel',
+    stageCount: 'Plan',
+    idle: (required, stages) => `Plan ${stages} stages / ${required} points. Click "Pick" first, then select points on the map.`,
+    status: (picked, required, stages) =>
+      picked >= required
+        ? `${required} points selected. Confirm to create ${stages} stages.`
+        : `${picked}/${required} points selected. Keep picking.`
+  }
+})
+const queueViewLocale = computed(() => {
+  if (locale.value === 'ja') {
+    return {
+      collapseCards: 'カード折りたたみ',
+      expandCards: 'カード展開'
+    }
+  }
+
+  if (locale.value === 'zh') {
+    return {
+      collapseCards: '折叠卡片',
+      expandCards: '展开卡片'
+    }
+  }
+
+  return {
+    collapseCards: 'Fold Cards',
+    expandCards: 'Expand Cards'
+  }
+})
+const currentTaskBuilderModeCompactLabel = computed(() =>
+  taskBuilderMode.value === 'chain' ? taskBuilderLocale.value.chainCompact : taskBuilderLocale.value.singleCompact
+)
+const taskChainStageCount = computed(() => Math.max(taskChainStages.value.length, 2))
+const taskChainMapPickStageCountInput = computed({
+  get: () => taskChainMapPickStageCount.value,
+  set: value => {
+    setTaskChainMapPickStageCount(value)
+  }
+})
+const taskChainRequiredPointCount = computed(() => taskChainMapPickStageCount.value + 1)
+const currentTaskBuilderHint = computed(() =>
+  taskBuilderMode.value === 'chain' ? taskChainLocale.value.hint : taskBuilderLocale.value.singleHint
+)
+const taskChainMapPickStatusText = computed(() => {
+  if (!taskChainMapPickActive.value) {
+    return taskChainMapPickUiLocale.value.idle(taskChainRequiredPointCount.value, taskChainMapPickStageCount.value)
+  }
+
+  return taskChainMapPickUiLocale.value.status(
+    taskChainMapPickPoints.value.length,
+    taskChainRequiredPointCount.value,
+    taskChainMapPickStageCount.value
+  )
+})
+const taskChainMapPickButtonText = computed(() =>
+  taskChainMapPickActive.value ? taskChainMapPickUiLocale.value.cancel : taskChainMapPickUiLocale.value.start
+)
 const panelSummaryModes = computed(() => [
   { key: 'hidden', label: panelSummaryLocale.value.hidden },
   { key: 'compact', label: panelSummaryLocale.value.compact },
@@ -1163,7 +1404,8 @@ const panelSummaryItems = computed(() => [
     key: 'mode',
     label: panelSummaryLocale.value.mode,
     value: currentDispatchModeLabel.value,
-    sectionKey: 'control'
+    sectionKey: 'control',
+    interactive: 'mode'
   },
   {
     key: 'agv',
@@ -1175,7 +1417,8 @@ const panelSummaryItems = computed(() => [
     key: 'zoom',
     label: panelSummaryLocale.value.zoom,
     value: mapZoomLabel.value,
-    sectionKey: 'control'
+    sectionKey: 'control',
+    interactive: 'zoom'
   },
   {
     key: 'pending',
@@ -1194,7 +1437,8 @@ const panelSummaryCompactItems = computed(() => [
   {
     key: 'mode',
     value: dispatchMode.value === 'auto' ? panelSummaryLocale.value.autoShort : panelSummaryLocale.value.manualShort,
-    sectionKey: 'control'
+    sectionKey: 'control',
+    interactive: 'mode'
   },
   {
     key: 'agv',
@@ -1204,7 +1448,8 @@ const panelSummaryCompactItems = computed(() => [
   {
     key: 'zoom',
     value: mapZoomLabel.value,
-    sectionKey: 'control'
+    sectionKey: 'control',
+    interactive: 'zoom'
   },
   {
     key: 'pending',
@@ -1262,11 +1507,16 @@ const matchedTemplateIds = computed(() => {
         [
           taskTemplateName(template),
           taskTemplateTypeText(template),
-          template.start_x,
-          template.start_y,
-          template.end_x,
-          template.end_y,
-          template.priority
+          formatTemplateMeta(template),
+          formatTemplateStageCount(template),
+          template.priority,
+          ...normalizeTemplateStages(template).flatMap(stage => [
+            stage.label,
+            stage.start_x,
+            stage.start_y,
+            stage.end_x,
+            stage.end_y
+          ])
         ],
         keyword
       )
@@ -1301,6 +1551,10 @@ const panelSearchResults = computed(() => {
           panelLocale.value.currentMode,
           currentDispatchModeLabel.value,
           currentDispatchModeHint.value,
+          taskBuilderLocale.value.title,
+          taskBuilderLocale.value.single,
+          taskBuilderLocale.value.chain,
+          taskChainLocale.value.title,
           t('task_form'),
           t('dispatch')
         ],
@@ -1384,6 +1638,15 @@ const taskGroups = computed(() => {
   }))
 })
 
+function buildDefaultQueueGroupState() {
+  return {
+    pending: false,
+    assigned: false,
+    running: false,
+    finished: true
+  }
+}
+
 function clampValue(value, min, max) {
   return Math.min(Math.max(value, min), max)
 }
@@ -1398,20 +1661,62 @@ function createTaskChainStage(seed = {}) {
   }
 }
 
-function buildDefaultTaskChainStages() {
+function buildDefaultTaskChainStages(stageCount = 2) {
+  const normalizedCount = Math.max(2, Math.floor(Number(stageCount) || 2))
   const firstStage = createTaskChainStage({
     start_x: Number(taskForm.value.start_x),
     start_y: Number(taskForm.value.start_y),
     end_x: Number(taskForm.value.end_x),
     end_y: Number(taskForm.value.end_y)
   })
-  const secondStage = createTaskChainStage({
-    start_x: firstStage.end_x,
-    start_y: firstStage.end_y,
-    end_x: firstStage.end_x,
-    end_y: firstStage.end_y
-  })
-  return [firstStage, secondStage]
+  const stages = [firstStage]
+
+  while (stages.length < normalizedCount) {
+    const previousStage = stages.at(-1)
+    stages.push(
+      createTaskChainStage({
+        start_x: previousStage?.end_x ?? 0,
+        start_y: previousStage?.end_y ?? 0,
+        end_x: previousStage?.end_x ?? 0,
+        end_y: previousStage?.end_y ?? 0
+      })
+    )
+  }
+
+  return stages
+}
+
+function buildTaskJsonExamplePayload(mode) {
+  if (mode === 'chain') {
+    return {
+      version: 2,
+      tasks: [
+        {
+          priority: 4,
+          stages: [
+            { label: '入库', start_x: 1, start_y: 1, end_x: 4, end_y: 1 },
+            { label: '装配', start_x: 4, start_y: 1, end_x: 4, end_y: 5 },
+            { label: '出库', start_x: 4, start_y: 5, end_x: 8, end_y: 5 }
+          ]
+        },
+        {
+          priority: 2,
+          stages: [
+            { label: '取货', start_x: 0, start_y: 6, end_x: 3, end_y: 6 },
+            { label: '补货', start_x: 3, start_y: 6, end_x: 3, end_y: 2 }
+          ]
+        }
+      ]
+    }
+  }
+
+  return {
+    tasks: [
+      { start_x: 1, start_y: 1, end_x: 7, end_y: 1, priority: 3 },
+      { start_x: 2, start_y: 6, end_x: 8, end_y: 4, priority: 5 },
+      { start_x: 0, start_y: 0, end_x: 5, end_y: 3, priority: 2 }
+    ]
+  }
 }
 
 function normalizeTaskStages(task) {
@@ -1568,6 +1873,25 @@ function formatTaskTime(task) {
   return values.map(item => `${item.label}: ${item.value}`).join(' | ')
 }
 
+function formatTaskCompactSummary(task) {
+  const start = isTaskChain(task) ? overallTaskStart(task) : { x: task.start_x, y: task.start_y }
+  const end = isTaskChain(task) ? overallTaskEnd(task) : { x: task.end_x, y: task.end_y }
+  const parts = [
+    `(${start.x}, ${start.y}) -> (${end.x}, ${end.y})`,
+    `${t('task_priority')} ${task.priority}`,
+    taskStatusText(task.status)
+  ]
+
+  if (task.agv_id !== null && task.agv_id !== undefined) {
+    parts.push(`AGV #${task.agv_id}`)
+  }
+  if (isTaskChain(task)) {
+    parts.push(`${Number(task.current_stage_index ?? 0) + 1}/${task.total_stages ?? normalizeTaskStages(task).length}`)
+  }
+
+  return parts.join(' | ')
+}
+
 function formatDispatchReason(task) {
   if (!task.dispatch_mode && task.status === 'pending') {
     return t('dispatch_waiting')
@@ -1593,6 +1917,62 @@ function formatDispatchReason(task) {
   return parts.join(' | ')
 }
 
+function buildTaskChainPayloadFromPoints(points) {
+  if (points.length < taskChainRequiredPointCount.value) return null
+
+  return {
+    priority: Number(taskForm.value.priority),
+    stages: Array.from({ length: taskChainMapPickStageCount.value }, (_, index) => ({
+      label: taskChainStages.value[index]?.label ?? null,
+      start_x: points[index].x,
+      start_y: points[index].y,
+      end_x: points[index + 1].x,
+      end_y: points[index + 1].y
+    }))
+  }
+}
+
+function isQueueGroupCollapsed(groupKey) {
+  return Boolean(queueGroupsCollapsed.value[groupKey])
+}
+
+function toggleQueueGroup(groupKey) {
+  queueGroupsCollapsed.value = {
+    ...queueGroupsCollapsed.value,
+    [groupKey]: !queueGroupsCollapsed.value[groupKey]
+  }
+}
+
+function isTaskCardFolded(taskId) {
+  return Boolean(taskCardCollapsed.value[String(taskId)])
+}
+
+function toggleTaskCard(taskId) {
+  const key = String(taskId)
+  taskCardCollapsed.value = {
+    ...taskCardCollapsed.value,
+    [key]: !taskCardCollapsed.value[key]
+  }
+}
+
+function areGroupTaskCardsCollapsed(group) {
+  return group.tasks.length > 0 && group.tasks.every(task => isTaskCardFolded(task.id))
+}
+
+function areGroupTaskCardsExpanded(group) {
+  return group.tasks.length > 0 && group.tasks.every(task => !isTaskCardFolded(task.id))
+}
+
+function setQueueGroupTaskCardsCollapsed(group, collapsed) {
+  if (!group?.tasks?.length) return
+
+  const nextState = { ...taskCardCollapsed.value }
+  for (const task of group.tasks) {
+    nextState[String(task.id)] = collapsed
+  }
+  taskCardCollapsed.value = nextState
+}
+
 function pointName(point) {
   return point.customName ?? t(point.nameKey)
 }
@@ -1611,6 +1991,75 @@ function taskTemplateName(template) {
 
 function taskTemplateTypeText(template) {
   return template.custom ? t('template_custom') : t('template_builtin')
+}
+
+function normalizeTemplateStages(template) {
+  const rawStages = Array.isArray(template?.stages) && template.stages.length > 0
+    ? template.stages
+    : [
+        {
+          label: '',
+          start_x: template?.start_x,
+          start_y: template?.start_y,
+          end_x: template?.end_x,
+          end_y: template?.end_y
+        }
+      ]
+
+  return rawStages
+    .map(stage => ({
+      ...createTaskChainStage(stage),
+      label: String(stage?.label ?? '').trim()
+    }))
+    .filter(
+      stage =>
+        isValidGridCoordinate(stage.start_x, GRID_COLS) &&
+        isValidGridCoordinate(stage.start_y, GRID_ROWS) &&
+        isValidGridCoordinate(stage.end_x, GRID_COLS) &&
+        isValidGridCoordinate(stage.end_y, GRID_ROWS)
+    )
+}
+
+function buildTemplateFromStages({
+  id = `task_template_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+  name,
+  priority,
+  stages,
+  custom = true
+}) {
+  const normalizedStages = normalizeTemplateStages({ stages })
+  if (!name || normalizedStages.length === 0) return null
+
+  const firstStage = normalizedStages[0]
+  const lastStage = normalizedStages[normalizedStages.length - 1]
+  return {
+    id,
+    customName: String(name).trim(),
+    start_x: firstStage.start_x,
+    start_y: firstStage.start_y,
+    end_x: lastStage.end_x,
+    end_y: lastStage.end_y,
+    stages: normalizedStages,
+    priority: clampValue(Number(priority), 1, 5),
+    custom
+  }
+}
+
+function isTaskChainTemplate(template) {
+  return normalizeTemplateStages(template).length > 1
+}
+
+function formatTemplateMeta(template) {
+  const stages = normalizeTemplateStages(template)
+  const firstStage = stages[0]
+  const lastStage = stages[stages.length - 1]
+  return `${t('task_start')} (${firstStage.start_x}, ${firstStage.start_y}) -> ${t('task_end')} (${lastStage.end_x}, ${lastStage.end_y})`
+}
+
+function formatTemplateStageCount(template) {
+  const stages = normalizeTemplateStages(template)
+  if (stages.length <= 1) return ''
+  return `${taskChainLocale.value.stageCount}: ${stages.length}`
 }
 
 function applyPointToTaskForm(target, point) {
@@ -1653,45 +2102,29 @@ function isValidGridCoordinate(value, max) {
 }
 
 function buildTaskTemplateSignature(template) {
+  const stages = normalizeTemplateStages(template)
   return [
     String(template.customName ?? template.nameKey ?? '').trim().toLowerCase(),
-    template.start_x,
-    template.start_y,
-    template.end_x,
-    template.end_y,
-    template.priority
+    template.priority,
+    ...stages.flatMap(stage => [stage.label, stage.start_x, stage.start_y, stage.end_x, stage.end_y])
   ].join('|')
 }
 
 function normalizeImportedTaskTemplate(template) {
   const name = String(template?.name ?? template?.customName ?? '').trim()
-  const startX = Number(template?.start_x)
-  const startY = Number(template?.start_y)
-  const endX = Number(template?.end_x)
-  const endY = Number(template?.end_y)
   const priority = Number(template?.priority)
+  const stages = normalizeTemplateStages(template)
 
-  if (
-    !name ||
-    !isValidGridCoordinate(startX, GRID_COLS) ||
-    !isValidGridCoordinate(startY, GRID_ROWS) ||
-    !isValidGridCoordinate(endX, GRID_COLS) ||
-    !isValidGridCoordinate(endY, GRID_ROWS) ||
-    !Number.isInteger(priority)
-  ) {
+  if (!name || stages.length === 0 || !Number.isInteger(priority)) {
     return null
   }
 
-  return {
-    id: `task_template_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-    customName: name,
-    start_x: startX,
-    start_y: startY,
-    end_x: endX,
-    end_y: endY,
-    priority: clampValue(priority, 1, 5),
+  return buildTemplateFromStages({
+    name,
+    priority,
+    stages,
     custom: true
-  }
+  })
 }
 
 function formatTemplateJsonSummary(primaryLabel, primaryCount, skippedCount = 0) {
@@ -1757,6 +2190,59 @@ function savePanelSummaryMode() {
   }
 }
 
+function loadTaskQueueView() {
+  try {
+    const raw = window.localStorage.getItem(TASK_QUEUE_VIEW_STORAGE_KEY)
+    if (!raw) return
+
+    const parsed = JSON.parse(raw)
+    if (parsed?.groups && typeof parsed.groups === 'object') {
+      queueGroupsCollapsed.value = {
+        ...queueGroupsCollapsed.value,
+        pending: typeof parsed.groups.pending === 'boolean' ? parsed.groups.pending : queueGroupsCollapsed.value.pending,
+        assigned: typeof parsed.groups.assigned === 'boolean' ? parsed.groups.assigned : queueGroupsCollapsed.value.assigned,
+        running: typeof parsed.groups.running === 'boolean' ? parsed.groups.running : queueGroupsCollapsed.value.running,
+        finished: typeof parsed.groups.finished === 'boolean' ? parsed.groups.finished : queueGroupsCollapsed.value.finished
+      }
+    }
+
+    if (parsed?.cards && typeof parsed.cards === 'object') {
+      taskCardCollapsed.value = Object.fromEntries(
+        Object.entries(parsed.cards)
+          .filter(([taskId, collapsed]) => taskId && typeof collapsed === 'boolean')
+          .map(([taskId, collapsed]) => [String(taskId), collapsed])
+      )
+    }
+  } catch (error) {
+    console.error('Load task queue view error:', error)
+  }
+}
+
+function saveTaskQueueView() {
+  try {
+    window.localStorage.setItem(
+      TASK_QUEUE_VIEW_STORAGE_KEY,
+      JSON.stringify({
+        groups: queueGroupsCollapsed.value,
+        cards: taskCardCollapsed.value
+      })
+    )
+  } catch (error) {
+    console.error('Save task queue view error:', error)
+  }
+}
+
+function pruneTaskCardCollapsedState() {
+  const visibleIds = new Set(tasks.value.map(task => String(task.id)))
+  const nextState = Object.fromEntries(
+    Object.entries(taskCardCollapsed.value).filter(([taskId]) => visibleIds.has(taskId))
+  )
+
+  if (Object.keys(nextState).length !== Object.keys(taskCardCollapsed.value).length) {
+    taskCardCollapsed.value = nextState
+  }
+}
+
 function panelSectionRefByKey(sectionKey) {
   const sectionMap = {
     control: controlSectionRef.value,
@@ -1799,6 +2285,87 @@ async function jumpToPanelSearchResult(sectionKey) {
 
 function clearPanelSearch() {
   panelSearch.value = ''
+}
+
+function fillTaskJsonExample(mode) {
+  jsonText.value = JSON.stringify(buildTaskJsonExamplePayload(mode), null, 2)
+  jsonStatus.value = mode === 'chain' ? taskJsonLocale.value.chainLoaded : taskJsonLocale.value.singleLoaded
+}
+
+function downloadJsonFile(filename, payloadText) {
+  const blob = new Blob([payloadText], { type: 'application/json;charset=utf-8' })
+  const url = window.URL.createObjectURL(blob)
+  const link = document.createElement('a')
+
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  window.setTimeout(() => window.URL.revokeObjectURL(url), 0)
+}
+
+function downloadTaskJsonExample(mode) {
+  const payloadText = JSON.stringify(buildTaskJsonExamplePayload(mode), null, 2)
+  const fileName =
+    mode === 'chain' ? 'agv-stage-task-example.json' : 'agv-single-task-example.json'
+
+  downloadJsonFile(fileName, payloadText)
+  jsonStatus.value =
+    mode === 'chain'
+      ? taskJsonExampleFileLocale.value.chainDownloaded
+      : taskJsonExampleFileLocale.value.singleDownloaded
+}
+
+function hideTaskBuilderJumpButton() {
+  taskTemplateJumpReady.value = false
+  if (taskBuilderJumpTimer) {
+    clearTimeout(taskBuilderJumpTimer)
+    taskBuilderJumpTimer = null
+  }
+}
+
+function showTaskBuilderJumpButton() {
+  taskTemplateJumpReady.value = true
+  if (taskBuilderJumpTimer) {
+    clearTimeout(taskBuilderJumpTimer)
+  }
+  taskBuilderJumpTimer = setTimeout(() => {
+    taskTemplateJumpReady.value = false
+    taskBuilderJumpTimer = null
+  }, 5000)
+}
+
+async function focusTaskBuilder(mode = taskBuilderMode.value) {
+  taskBuilderMode.value = mode
+  await jumpToPanelSearchResult('control')
+  hideTaskBuilderJumpButton()
+}
+
+function cancelTaskChainMapPick(resetMarkers = true) {
+  taskChainMapPickActive.value = false
+  taskChainMapPickPoints.value = []
+  if (resetMarkers) {
+    clearAutoMarkers()
+  }
+}
+
+function toggleTaskChainMapPick() {
+  if (dispatchMode.value !== 'auto') return
+
+  if (taskChainMapPickActive.value) {
+    cancelTaskChainMapPick()
+    return
+  }
+
+  taskBuilderMode.value = 'chain'
+  taskChainMapPickActive.value = true
+  taskChainMapPickPoints.value = []
+  clearAutoMarkers()
+}
+
+function toggleDispatchModeFromSummary() {
+  dispatchMode.value = dispatchMode.value === 'auto' ? 'manual' : 'auto'
 }
 
 function loadCustomPoints() {
@@ -1935,27 +2502,16 @@ function loadTaskTemplates() {
     if (!Array.isArray(parsed)) return
 
     customTaskTemplates.value = parsed
-      .filter(template => {
-        return (
-          typeof template?.id === 'string' &&
-          typeof template?.customName === 'string' &&
-          isValidGridCoordinate(template?.start_x, GRID_COLS) &&
-          isValidGridCoordinate(template?.start_y, GRID_ROWS) &&
-          isValidGridCoordinate(template?.end_x, GRID_COLS) &&
-          isValidGridCoordinate(template?.end_y, GRID_ROWS) &&
-          Number.isInteger(template?.priority)
-        )
-      })
-      .map(template => ({
-        id: template.id,
-        customName: template.customName.trim(),
-        start_x: template.start_x,
-        start_y: template.start_y,
-        end_x: template.end_x,
-        end_y: template.end_y,
-        priority: clampValue(template.priority, 1, 5),
-        custom: true
-      }))
+      .map(template =>
+        buildTemplateFromStages({
+          id: typeof template?.id === 'string' ? template.id : undefined,
+          name: template?.customName,
+          priority: template?.priority,
+          stages: normalizeTemplateStages(template),
+          custom: true
+        })
+      )
+      .filter(Boolean)
   } catch (error) {
     console.error('Load task templates error:', error)
   }
@@ -1969,12 +2525,50 @@ function saveTaskTemplates() {
   }
 }
 
-function applyTaskTemplate(template) {
-  taskForm.value.start_x = template.start_x
-  taskForm.value.start_y = template.start_y
-  taskForm.value.end_x = template.end_x
-  taskForm.value.end_y = template.end_y
+async function applyTaskTemplate(template, options = {}) {
+  const stages = normalizeTemplateStages(template)
+  if (stages.length === 0) return
+
+  const firstStage = stages[0]
+  taskForm.value.start_x = firstStage.start_x
+  taskForm.value.start_y = firstStage.start_y
+  taskForm.value.end_x = firstStage.end_x
+  taskForm.value.end_y = firstStage.end_y
   taskForm.value.priority = template.priority
+  taskChainStages.value = stages.map(stage => createTaskChainStage(stage))
+  taskBuilderMode.value = stages.length > 1 ? 'chain' : 'single'
+
+  if (stages.length > 1) {
+    setTaskTemplateStatus('info', `${taskBuilderLocale.value.loadedChain} ${taskBuilderLocale.value.jumpHint}`)
+  } else {
+    setTaskTemplateStatus('info', `${taskBuilderLocale.value.loadedSingle} ${taskBuilderLocale.value.jumpHint}`)
+  }
+
+  if (options.focus) {
+    hideTaskBuilderJumpButton()
+    await focusTaskBuilder(taskBuilderMode.value)
+    return
+  }
+
+  showTaskBuilderJumpButton()
+}
+
+function onTemplateApplyClick(template) {
+  if (templateApplyClickTimer) {
+    clearTimeout(templateApplyClickTimer)
+  }
+  templateApplyClickTimer = setTimeout(() => {
+    templateApplyClickTimer = null
+    void applyTaskTemplate(template)
+  }, 220)
+}
+
+function onTemplateApplyDoubleClick(template) {
+  if (templateApplyClickTimer) {
+    clearTimeout(templateApplyClickTimer)
+    templateApplyClickTimer = null
+  }
+  void applyTaskTemplate(template, { focus: true })
 }
 
 function saveCurrentTaskAsTemplate() {
@@ -1984,21 +2578,55 @@ function saveCurrentTaskAsTemplate() {
     return
   }
 
+  const template = buildTemplateFromStages({
+    name,
+    priority: Number(taskForm.value.priority),
+    stages: [
+      {
+        start_x: Number(taskForm.value.start_x),
+        start_y: Number(taskForm.value.start_y),
+        end_x: Number(taskForm.value.end_x),
+        end_y: Number(taskForm.value.end_y)
+      }
+    ],
+    custom: true
+  })
+  if (!template) {
+    setTaskTemplateStatus('error', t('point_form_invalid_coords'))
+    return
+  }
+
   customTaskTemplates.value = [
     ...customTaskTemplates.value,
-    {
-      id: `task_template_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-      customName: name,
-      start_x: Number(taskForm.value.start_x),
-      start_y: Number(taskForm.value.start_y),
-      end_x: Number(taskForm.value.end_x),
-      end_y: Number(taskForm.value.end_y),
-      priority: Number(taskForm.value.priority),
-      custom: true
-    }
+    template
   ]
 
   taskTemplateForm.value.name = ''
+  hideTaskBuilderJumpButton()
+  setTaskTemplateStatus('success', t('template_form_saved'))
+}
+
+function saveCurrentTaskChainAsTemplate() {
+  const name = taskTemplateForm.value.name.trim()
+  if (!name) {
+    setTaskTemplateStatus('error', t('template_form_invalid_name'))
+    return
+  }
+
+  const template = buildTemplateFromStages({
+    name,
+    priority: Number(taskForm.value.priority),
+    stages: taskChainStages.value,
+    custom: true
+  })
+  if (!template || normalizeTemplateStages(template).length < 2) {
+    setTaskTemplateStatus('error', t('point_form_invalid_coords'))
+    return
+  }
+
+  customTaskTemplates.value = [...customTaskTemplates.value, template]
+  taskTemplateForm.value.name = ''
+  hideTaskBuilderJumpButton()
   setTaskTemplateStatus('success', t('template_form_saved'))
 }
 
@@ -2008,20 +2636,33 @@ function deleteTaskTemplate(template) {
   if (!ok) return
 
   customTaskTemplates.value = customTaskTemplates.value.filter(item => item.id !== template.id)
+  hideTaskBuilderJumpButton()
   setTaskTemplateStatus('success', t('template_form_deleted'))
 }
 
 function buildTemplateExportPayload() {
   return {
-    version: 1,
-    templates: customTaskTemplates.value.map(template => ({
-      name: template.customName,
-      start_x: template.start_x,
-      start_y: template.start_y,
-      end_x: template.end_x,
-      end_y: template.end_y,
-      priority: template.priority
-    }))
+    version: 2,
+    templates: customTaskTemplates.value.map(template => {
+      const stages = normalizeTemplateStages(template)
+      const firstStage = stages[0]
+      const lastStage = stages[stages.length - 1]
+      return {
+        name: template.customName,
+        start_x: firstStage.start_x,
+        start_y: firstStage.start_y,
+        end_x: lastStage.end_x,
+        end_y: lastStage.end_y,
+        stages: stages.map(stage => ({
+          label: stage.label || undefined,
+          start_x: stage.start_x,
+          start_y: stage.start_y,
+          end_x: stage.end_x,
+          end_y: stage.end_y
+        })),
+        priority: template.priority
+      }
+    })
   }
 }
 
@@ -2280,6 +2921,25 @@ function resetMapView() {
   centerMapView()
 }
 
+function updateMapZoom(nextZoom, pointerX = mapViewportWidth.value / 2, pointerY = mapViewportHeight.value / 2) {
+  const clampedZoom = clampValue(Number(nextZoom.toFixed(3)), MIN_ZOOM, MAX_ZOOM)
+  if (clampedZoom === mapZoom.value) return false
+
+  const worldX = (pointerX - mapOffsetX.value) / mapZoom.value
+  const worldY = (pointerY - mapOffsetY.value) / mapZoom.value
+
+  mapZoom.value = clampedZoom
+  mapOffsetX.value = pointerX - worldX * clampedZoom
+  mapOffsetY.value = pointerY - worldY * clampedZoom
+  clampMapTransform()
+  return true
+}
+
+function changeMapZoom(deltaY, pointerX = mapViewportWidth.value / 2, pointerY = mapViewportHeight.value / 2) {
+  const ratio = deltaY < 0 ? 1.12 : 0.88
+  return updateMapZoom(mapZoom.value * ratio, pointerX, pointerY)
+}
+
 function clampMapTransform() {
   const scaledWidth = MAP_WIDTH * mapZoom.value
   const scaledHeight = MAP_HEIGHT * mapZoom.value
@@ -2390,6 +3050,7 @@ function onMapMouseDown(event) {
 }
 
 function onMapDoubleClick(event) {
+  if (taskChainMapPickActive.value) return
   if (ignoreNextMapClick) {
     ignoreNextMapClick = false
     return
@@ -2430,20 +3091,63 @@ function onMapWheel(event) {
 
   const pointerX = event.clientX - rect.left
   const pointerY = event.clientY - rect.top
-  const worldX = (pointerX - mapOffsetX.value) / mapZoom.value
-  const worldY = (pointerY - mapOffsetY.value) / mapZoom.value
-  const ratio = event.deltaY < 0 ? 1.12 : 0.88
-  const nextZoom = clampValue(Number((mapZoom.value * ratio).toFixed(3)), MIN_ZOOM, MAX_ZOOM)
-  if (nextZoom === mapZoom.value) return
-
-  mapZoom.value = nextZoom
-  mapOffsetX.value = pointerX - worldX * nextZoom
-  mapOffsetY.value = pointerY - worldY * nextZoom
-  clampMapTransform()
+  changeMapZoom(event.deltaY, pointerX, pointerY)
 }
 
 function toggleMapSettings() {
   showMapSettings.value = !showMapSettings.value
+}
+
+function handlePanelSummaryItemClick(item) {
+  if (item.interactive !== 'zoom') {
+    summaryZoomArmed.value = false
+  }
+
+  if (item.interactive === 'mode') {
+    toggleDispatchModeFromSummary()
+    return
+  }
+
+  if (item.interactive === 'zoom') {
+    if (panelSummaryMode.value === 'full') {
+      summaryZoomArmed.value = true
+      return
+    }
+    return
+  }
+
+  void jumpToPanelSearchResult(item.sectionKey)
+}
+
+function handlePanelSummaryItemWheel(event, item, modeVariant) {
+  if (item.interactive !== 'zoom') return
+
+  if (modeVariant === 'compact') {
+    event.preventDefault()
+    event.stopPropagation()
+    changeMapZoom(event.deltaY)
+    return
+  }
+
+  if (modeVariant === 'full' && summaryZoomArmed.value) {
+    event.preventDefault()
+    event.stopPropagation()
+    changeMapZoom(event.deltaY)
+  }
+}
+
+function handlePanelSummaryItemMouseLeave(item) {
+  if (panelSummaryMode.value === 'full' && item.interactive === 'zoom') {
+    summaryZoomArmed.value = false
+  }
+}
+
+function handlePanelSummaryItemDoubleClick(event, item) {
+  if (item.interactive !== 'zoom') return
+  event.preventDefault()
+  event.stopPropagation()
+  summaryZoomArmed.value = false
+  resetMapView()
 }
 
 function handleSingleClick(x, y) {
@@ -2454,6 +3158,11 @@ function handleSingleClick(x, y) {
 
     startPoint.value = { x: agv.x, y: agv.y }
     void confirmAndSchedule(x, y, agv.id)
+    return
+  }
+
+  if (dispatchMode.value === 'auto' && taskBuilderMode.value === 'chain' && taskChainMapPickActive.value) {
+    void handleTaskChainMapClick(x, y)
     return
   }
 
@@ -2471,6 +3180,33 @@ function handleSingleClick(x, y) {
   endPoint.value = null
   manualPathToStart.value = []
   manualPathToEnd.value = []
+}
+
+async function handleTaskChainMapClick(x, y) {
+  const requiredPoints = taskChainRequiredPointCount.value
+  const nextPoints = [...taskChainMapPickPoints.value, { x, y }].slice(0, requiredPoints)
+  taskChainMapPickPoints.value = nextPoints
+  startPoint.value = nextPoints[0] ?? null
+  endPoint.value = nextPoints.at(-1) ?? null
+
+  if (nextPoints.length < requiredPoints) return
+
+  const ok = window.confirm(t('confirm_dispatch'))
+  if (!ok) {
+    taskChainMapPickPoints.value = nextPoints.slice(0, -1)
+    startPoint.value = taskChainMapPickPoints.value[0] ?? null
+    endPoint.value = taskChainMapPickPoints.value.at(-1) ?? null
+    return
+  }
+
+  const payload = buildTaskChainPayloadFromPoints(nextPoints)
+  if (!payload) return
+
+  const created = await submitTaskPayload(payload)
+  if (created) {
+    clearAutoMarkers()
+    taskChainMapPickPoints.value = []
+  }
 }
 
 async function confirmAndSchedule(x, y, agvId = null) {
@@ -2769,20 +3505,14 @@ async function addTaskFromForm() {
     priority: Number(taskForm.value.priority)
   }
 
-  await submitTaskPayload(payload)
+  const created = await submitTaskPayload(payload)
+  if (created) {
+    hideTaskBuilderJumpButton()
+  }
 }
 
 function addTaskChainStage() {
-  const lastStage = taskChainStages.value.at(-1)
-  taskChainStages.value = [
-    ...taskChainStages.value,
-    createTaskChainStage({
-      start_x: lastStage?.end_x ?? 0,
-      start_y: lastStage?.end_y ?? 0,
-      end_x: lastStage?.end_x ?? 0,
-      end_y: lastStage?.end_y ?? 0
-    })
-  ]
+  setTaskChainStageCount(taskChainStageCount.value + 1)
 }
 
 function removeTaskChainStage(index) {
@@ -2791,7 +3521,43 @@ function removeTaskChainStage(index) {
 }
 
 function resetTaskChainStages() {
-  taskChainStages.value = buildDefaultTaskChainStages()
+  taskChainStages.value = buildDefaultTaskChainStages(taskChainStageCount.value)
+}
+
+function setTaskChainStageCount(nextCount) {
+  const normalizedCount = Math.max(2, Math.floor(Number(nextCount)))
+  if (!Number.isFinite(normalizedCount)) return
+  if (normalizedCount === taskChainStages.value.length) return
+
+  if (normalizedCount < taskChainStages.value.length) {
+    taskChainStages.value = taskChainStages.value.slice(0, normalizedCount)
+    return
+  }
+
+  const stages = [...taskChainStages.value]
+  while (stages.length < normalizedCount) {
+    const previousStage = stages.at(-1)
+    stages.push(
+      createTaskChainStage({
+        start_x: previousStage?.end_x ?? 0,
+        start_y: previousStage?.end_y ?? 0,
+        end_x: previousStage?.end_x ?? 0,
+        end_y: previousStage?.end_y ?? 0
+      })
+    )
+  }
+
+  taskChainStages.value = stages
+}
+
+function setTaskChainMapPickStageCount(nextCount) {
+  const normalizedCount = Math.max(2, Math.floor(Number(nextCount)))
+  if (!Number.isFinite(normalizedCount)) return
+  taskChainMapPickStageCount.value = normalizedCount
+}
+
+function toggleTaskBuilderMode() {
+  taskBuilderMode.value = taskBuilderMode.value === 'chain' ? 'single' : 'chain'
 }
 
 async function addTaskChainFromForm() {
@@ -2801,16 +3567,28 @@ async function addTaskChainFromForm() {
     stages: taskChainStages.value
   })
   if (created) {
+    hideTaskBuilderJumpButton()
     resetTaskChainStages()
   }
 }
 
 async function createTaskFromTemplate(template) {
+  hideTaskBuilderJumpButton()
+  const stages = normalizeTemplateStages(template)
+  if (stages.length > 1) {
+    await submitTaskPayload({
+      priority: Number(template.priority),
+      stages
+    })
+    return
+  }
+
+  const firstStage = stages[0]
   await submitTaskPayload({
-    start_x: Number(template.start_x),
-    start_y: Number(template.start_y),
-    end_x: Number(template.end_x),
-    end_y: Number(template.end_y),
+    start_x: Number(firstStage.start_x),
+    start_y: Number(firstStage.start_y),
+    end_x: Number(firstStage.end_x),
+    end_y: Number(firstStage.end_y),
     priority: Number(template.priority)
   })
 }
@@ -2931,10 +3709,29 @@ watch(dispatchMode, mode => {
   clearPreview()
   dispatchHelpPinned.value = false
   showDispatchHelp.value = false
+  if (mode !== 'auto') {
+    cancelTaskChainMapPick(false)
+  }
   if (mode === 'manual') {
     clearAutoPaths()
     clearAutoMarkers()
   }
+})
+
+watch(taskBuilderMode, mode => {
+  if (mode !== 'chain') {
+    cancelTaskChainMapPick(false)
+  }
+})
+
+watch(taskChainMapPickStageCount, stageCount => {
+  const requiredPoints = stageCount + 1
+  if (taskChainMapPickPoints.value.length > requiredPoints) {
+    taskChainMapPickPoints.value = taskChainMapPickPoints.value.slice(0, requiredPoints)
+  }
+  if (!taskChainMapPickActive.value) return
+  startPoint.value = taskChainMapPickPoints.value[0] ?? null
+  endPoint.value = taskChainMapPickPoints.value.at(-1) ?? null
 })
 
 onMounted(() => {
@@ -2943,6 +3740,7 @@ onMounted(() => {
   loadMapDisplaySettings()
   loadPanelSections()
   loadPanelSummaryMode()
+  loadTaskQueueView()
   syncPanelWidth()
   updateMapViewportMetrics(true)
   if (typeof ResizeObserver !== 'undefined') {
@@ -2988,6 +3786,7 @@ watch(
 )
 
 watch(panelSummaryMode, () => {
+  summaryZoomArmed.value = false
   savePanelSummaryMode()
 })
 
@@ -2995,11 +3794,29 @@ watch([showAutoPath, showMarkerIcons, showPathArrows, showStatusLegend, showMini
   saveMapDisplaySettings()
 })
 
+watch(
+  [queueGroupsCollapsed, taskCardCollapsed],
+  () => {
+    saveTaskQueueView()
+  },
+  { deep: true }
+)
+
+watch(
+  tasks,
+  () => {
+    pruneTaskCardCollapsedState()
+  },
+  { deep: true }
+)
+
 onBeforeUnmount(() => {
   if (timer) clearInterval(timer)
   if (clickTimer) clearTimeout(clickTimer)
   if (previewTimer) clearTimeout(previewTimer)
   if (dispatchHelpTimer) clearTimeout(dispatchHelpTimer)
+  if (templateApplyClickTimer) clearTimeout(templateApplyClickTimer)
+  if (taskBuilderJumpTimer) clearTimeout(taskBuilderJumpTimer)
   if (panelSectionFocusTimer) clearTimeout(panelSectionFocusTimer)
   if (mapResizeObserver) mapResizeObserver.disconnect()
   document.body.style.cursor = ''
@@ -3120,9 +3937,12 @@ onBeforeUnmount(() => {
                 v-for="item in panelSummaryCompactItems"
                 :key="item.key"
                 class="panel-summary-tower"
-                :class="`summary-${item.key}`"
+                :class="[`summary-${item.key}`, { armed: item.key === 'zoom' && summaryZoomArmed }]"
                 type="button"
-                @click="jumpToPanelSearchResult(item.sectionKey)"
+                @click="handlePanelSummaryItemClick(item)"
+                @wheel="handlePanelSummaryItemWheel($event, item, 'compact')"
+                @mouseleave="handlePanelSummaryItemMouseLeave(item)"
+                @dblclick="handlePanelSummaryItemDoubleClick($event, item)"
               >
                 <strong class="panel-summary-tower-value">{{ item.value }}</strong>
               </button>
@@ -3133,8 +3953,12 @@ onBeforeUnmount(() => {
                 v-for="item in panelSummaryItems"
                 :key="item.key"
                 class="panel-summary-card"
+                :class="{ armed: item.key === 'zoom' && summaryZoomArmed }"
                 type="button"
-                @click="jumpToPanelSearchResult(item.sectionKey)"
+                @click="handlePanelSummaryItemClick(item)"
+                @wheel="handlePanelSummaryItemWheel($event, item, 'full')"
+                @mouseleave="handlePanelSummaryItemMouseLeave(item)"
+                @dblclick="handlePanelSummaryItemDoubleClick($event, item)"
               >
                 <span class="panel-summary-label">{{ item.label }}</span>
                 <strong class="panel-summary-value">{{ item.value }}</strong>
@@ -3307,6 +4131,15 @@ onBeforeUnmount(() => {
             </div>
 
             <div
+              v-for="(point, index) in chainMidMarkers"
+              :key="`chain-mid-${index}`"
+              class="transfer-marker"
+              :style="pointStyle(point, CELL_SIZE, 22)"
+            >
+              <span>{{ point.order }}</span>
+            </div>
+
+            <div
               v-if="previewStart"
               class="marker preview-start"
               :style="pointStyle(previewStart, CELL_SIZE, 10)"
@@ -3456,6 +4289,14 @@ onBeforeUnmount(() => {
             >
               <span v-if="showMarkerIcons">E</span>
             </div>
+            <div
+              v-for="(point, index) in chainMidMarkers"
+              :key="`mini-chain-mid-${index}`"
+              class="transfer-marker minimap-transfer-marker"
+              :style="pointStyle(point, minimapCellSize, 8)"
+            >
+              <span>{{ point.order }}</span>
+            </div>
             <div class="minimap-viewport" :style="minimapViewportStyle"></div>
           </div>
         </section>
@@ -3533,23 +4374,23 @@ onBeforeUnmount(() => {
               </span>
             </button>
             <div v-show="panelSections.control" class="panel-section-body">
-              <div class="dispatch-summary">
-                <div class="dispatch-summary-label">{{ panelLocale.currentMode }}</div>
+              <button class="dispatch-summary dispatch-summary-button" type="button" @click="toggleDispatchModeFromSummary">
+                <span class="dispatch-summary-label">{{ panelLocale.currentMode }}</span>
                 <strong>{{ currentDispatchModeLabel }}</strong>
                 <p>{{ currentDispatchModeHint }}</p>
-              </div>
+              </button>
 
-              <div class="task-form">
-                <h2>{{ t('task_form') }}</h2>
-                <div class="form-grid">
-                  <label>{{ t('form_start_x') }}</label>
-                  <input v-model.number="taskForm.start_x" type="number" min="0" :max="GRID_COLS - 1" />
-                  <label>{{ t('form_start_y') }}</label>
-                  <input v-model.number="taskForm.start_y" type="number" min="0" :max="GRID_ROWS - 1" />
-                  <label>{{ t('form_end_x') }}</label>
-                  <input v-model.number="taskForm.end_x" type="number" min="0" :max="GRID_COLS - 1" />
-                  <label>{{ t('form_end_y') }}</label>
-                  <input v-model.number="taskForm.end_y" type="number" min="0" :max="GRID_ROWS - 1" />
+              <div class="task-form task-builder">
+                <div class="task-builder-header">
+                  <h2>{{ taskBuilderLocale.title }}</h2>
+                  <button class="task-builder-mode-toggle" type="button" @click="toggleTaskBuilderMode">
+                    <span class="task-builder-mode-toggle-label">{{ taskBuilderLocale.switchLabel }}</span>
+                    <strong>{{ currentTaskBuilderModeCompactLabel }}</strong>
+                  </button>
+                </div>
+                <p class="panel-hint">{{ currentTaskBuilderHint }}</p>
+                <p v-if="taskBuilderMode === 'chain'" class="panel-hint">{{ taskChainLocale.priorityHint }}</p>
+                <div class="task-builder-meta">
                   <label>{{ t('task_priority') }}</label>
                   <select v-model.number="taskForm.priority">
                     <option :value="5">5</option>
@@ -3559,55 +4400,107 @@ onBeforeUnmount(() => {
                     <option :value="1">1</option>
                   </select>
                 </div>
-                <button class="btn-primary full-width" type="button" @click="addTaskFromForm">
-                  {{ t('add_task') }}
-                </button>
-              </div>
 
-              <div class="task-form task-chain-builder">
-                <h2>{{ taskChainLocale.title }}</h2>
-                <p class="panel-hint">{{ taskChainLocale.hint }}</p>
-                <p class="panel-hint">{{ taskChainLocale.priorityHint }}</p>
-                <div
-                  v-for="(stage, index) in taskChainStages"
-                  :key="`chain-stage-${index}`"
-                  class="task-chain-stage"
-                >
-                  <div class="task-chain-stage-head">
-                    <strong>{{ taskChainLocale.stage }} {{ index + 1 }}</strong>
-                    <button
-                      class="btn-ghost"
-                      type="button"
-                      :disabled="taskChainStages.length <= 2"
-                      @click="removeTaskChainStage(index)"
-                    >
-                      {{ taskChainLocale.removeStage }}
+                <template v-if="taskBuilderMode === 'single'">
+                  <div class="form-grid">
+                    <label>{{ t('form_start_x') }}</label>
+                    <input v-model.number="taskForm.start_x" type="number" min="0" :max="GRID_COLS - 1" />
+                    <label>{{ t('form_start_y') }}</label>
+                    <input v-model.number="taskForm.start_y" type="number" min="0" :max="GRID_ROWS - 1" />
+                    <label>{{ t('form_end_x') }}</label>
+                    <input v-model.number="taskForm.end_x" type="number" min="0" :max="GRID_COLS - 1" />
+                    <label>{{ t('form_end_y') }}</label>
+                    <input v-model.number="taskForm.end_y" type="number" min="0" :max="GRID_ROWS - 1" />
+                  </div>
+                  <button class="btn-primary full-width" type="button" @click="addTaskFromForm">
+                    {{ t('add_task') }}
+                  </button>
+                </template>
+
+                <template v-else>
+                  <div class="task-chain-map-actions">
+                    <div class="task-chain-map-toolbar">
+                      <button
+                        class="btn-secondary"
+                        type="button"
+                        :class="{ active: taskChainMapPickActive }"
+                        @click="toggleTaskChainMapPick"
+                      >
+                        {{ taskChainMapPickButtonText }}
+                      </button>
+                      <label class="task-chain-count-control">
+                        <span class="task-chain-count-label">{{ taskChainMapPickUiLocale.stageCount }}</span>
+                        <button
+                          class="btn-ghost task-chain-count-button"
+                          type="button"
+                          :disabled="taskChainMapPickStageCount <= 2"
+                          @click="setTaskChainMapPickStageCount(taskChainMapPickStageCount - 1)"
+                        >
+                          -
+                        </button>
+                        <input
+                          v-model.number="taskChainMapPickStageCountInput"
+                          class="task-chain-count-input"
+                          type="number"
+                          min="2"
+                        />
+                        <button
+                          class="btn-ghost task-chain-count-button"
+                          type="button"
+                          @click="setTaskChainMapPickStageCount(taskChainMapPickStageCount + 1)"
+                        >
+                          +
+                        </button>
+                      </label>
+                    </div>
+                    <span class="task-chain-map-status">{{ taskChainMapPickStatusText }}</span>
+                  </div>
+                  <div
+                    v-for="(stage, index) in taskChainStages"
+                    :key="`chain-stage-${index}`"
+                    class="task-chain-stage"
+                  >
+                    <div class="task-chain-stage-head">
+                      <strong>{{ taskChainLocale.stage }} {{ index + 1 }}</strong>
+                      <button
+                        class="btn-ghost"
+                        type="button"
+                        :disabled="taskChainStages.length <= 2"
+                        @click="removeTaskChainStage(index)"
+                      >
+                        {{ taskChainLocale.removeStage }}
+                      </button>
+                    </div>
+                    <div class="form-grid chain-form-grid">
+                      <label>{{ taskChainLocale.stageLabel }}</label>
+                      <input v-model.trim="stage.label" type="text" :placeholder="taskChainLocale.stageLabelPlaceholder" />
+                      <label>{{ t('form_start_x') }}</label>
+                      <input v-model.number="stage.start_x" type="number" min="0" :max="GRID_COLS - 1" />
+                      <label>{{ t('form_start_y') }}</label>
+                      <input v-model.number="stage.start_y" type="number" min="0" :max="GRID_ROWS - 1" />
+                      <label>{{ t('form_end_x') }}</label>
+                      <input v-model.number="stage.end_x" type="number" min="0" :max="GRID_COLS - 1" />
+                      <label>{{ t('form_end_y') }}</label>
+                      <input v-model.number="stage.end_y" type="number" min="0" :max="GRID_ROWS - 1" />
+                    </div>
+                  </div>
+                  <div class="task-chain-actions">
+                    <button class="btn-secondary" type="button" @click="addTaskChainStage">
+                      {{ taskChainLocale.addStage }}
+                    </button>
+                    <button class="btn-ghost" type="button" @click="resetTaskChainStages">
+                      {{ taskChainLocale.resetStages }}
                     </button>
                   </div>
-                  <div class="form-grid chain-form-grid">
-                    <label>{{ taskChainLocale.stageLabel }}</label>
-                    <input v-model.trim="stage.label" type="text" :placeholder="taskChainLocale.stageLabelPlaceholder" />
-                    <label>{{ t('form_start_x') }}</label>
-                    <input v-model.number="stage.start_x" type="number" min="0" :max="GRID_COLS - 1" />
-                    <label>{{ t('form_start_y') }}</label>
-                    <input v-model.number="stage.start_y" type="number" min="0" :max="GRID_ROWS - 1" />
-                    <label>{{ t('form_end_x') }}</label>
-                    <input v-model.number="stage.end_x" type="number" min="0" :max="GRID_COLS - 1" />
-                    <label>{{ t('form_end_y') }}</label>
-                    <input v-model.number="stage.end_y" type="number" min="0" :max="GRID_ROWS - 1" />
-                  </div>
-                </div>
-                <div class="task-chain-actions">
-                  <button class="btn-secondary" type="button" @click="addTaskChainStage">
-                    {{ taskChainLocale.addStage }}
+                  <button
+                    class="btn-primary full-width"
+                    type="button"
+                    :disabled="taskChainStages.length < 2"
+                    @click="addTaskChainFromForm"
+                  >
+                    {{ taskChainLocale.createTask }}
                   </button>
-                  <button class="btn-ghost" type="button" @click="resetTaskChainStages">
-                    {{ taskChainLocale.resetStages }}
-                  </button>
-                </div>
-                <button class="btn-primary full-width" type="button" @click="addTaskChainFromForm">
-                  {{ taskChainLocale.createTask }}
-                </button>
+                </template>
               </div>
             </div>
           </section>
@@ -3638,52 +4531,93 @@ onBeforeUnmount(() => {
                 <div v-if="tasks.length === 0" class="empty">{{ t('tasks_empty') }}</div>
 
                 <section v-for="group in taskGroups" :key="group.key" class="queue-group">
-                  <div class="queue-header">
-                    <span>{{ group.title }}</span>
-                    <span class="queue-count">{{ group.tasks.length }}</span>
+                  <div class="queue-header" :class="{ prominent: group.key === 'finished' }">
+                    <button class="queue-header-main" type="button" @click="toggleQueueGroup(group.key)">
+                      <span>{{ group.title }}</span>
+                      <span class="queue-header-meta">
+                        <span class="queue-count">{{ group.tasks.length }}</span>
+                        <span class="queue-toggle-text">
+                          {{ isQueueGroupCollapsed(group.key) ? panelLocale.expand : panelLocale.collapse }}
+                        </span>
+                      </span>
+                    </button>
                   </div>
 
-                  <div v-if="group.tasks.length === 0" class="queue-empty">
-                    {{ t('queue_empty') }}
-                  </div>
-
-                  <article
-                    v-for="task in group.tasks"
-                    :key="task.id"
-                    class="task-card"
-                    :class="{
-                      previewing: previewTaskId === task.id,
-                      'search-hit': matchedTaskIds.includes(task.id)
-                    }"
-                    @mouseenter="onTaskHover(task)"
-                    @mouseleave="onTaskLeave"
-                  >
-                    <div class="task-head">
-                      <strong>#{{ task.id }}</strong>
-                      <span class="status-badge" :class="task.status">{{ taskStatusText(task.status) }}</span>
-                    </div>
-                    <div class="task-line">{{ formatTaskMeta(task) }}</div>
-                    <div v-if="formatTaskStageProgress(task)" class="task-line">{{ formatTaskStageProgress(task) }}</div>
-                    <div v-if="formatTaskCurrentStage(task)" class="task-line">{{ formatTaskCurrentStage(task) }}</div>
-                    <div class="task-line">{{ t('task_priority') }}: {{ task.priority }}</div>
-                    <div class="task-line">{{ formatTaskAgv(task) }}</div>
-                    <div class="task-line task-reason">
-                      {{ t('dispatch_reason') }}: {{ formatDispatchReason(task) }}
-                    </div>
-                    <div v-if="formatTaskTime(task)" class="task-line task-time">
-                      {{ formatTaskTime(task) }}
-                    </div>
-                    <div class="task-actions">
+                  <template v-if="!isQueueGroupCollapsed(group.key)">
+                    <div v-if="group.tasks.length > 0" class="queue-bulk-actions" :class="{ prominent: group.key === 'finished' }">
                       <button
-                        v-if="task.status === 'pending'"
-                        class="btn-delete"
+                        class="queue-bulk-button"
                         type="button"
-                        @click="deleteTask(task)"
+                        :disabled="areGroupTaskCardsCollapsed(group)"
+                        @click="setQueueGroupTaskCardsCollapsed(group, true)"
                       >
-                        {{ t('delete_task') }}
+                        {{ queueViewLocale.collapseCards }}
+                      </button>
+                      <button
+                        class="queue-bulk-button"
+                        type="button"
+                        :disabled="areGroupTaskCardsExpanded(group)"
+                        @click="setQueueGroupTaskCardsCollapsed(group, false)"
+                      >
+                        {{ queueViewLocale.expandCards }}
                       </button>
                     </div>
-                  </article>
+
+                    <div v-else class="queue-empty">
+                      {{ t('queue_empty') }}
+                    </div>
+
+                    <article
+                      v-for="task in group.tasks"
+                      :key="task.id"
+                      class="task-card"
+                      :class="{
+                        previewing: previewTaskId === task.id,
+                        collapsed: isTaskCardFolded(task.id),
+                        'search-hit': matchedTaskIds.includes(task.id)
+                      }"
+                      @mouseenter="onTaskHover(task)"
+                      @mouseleave="onTaskLeave"
+                    >
+                      <button class="task-head task-card-toggle" type="button" @click="toggleTaskCard(task.id)">
+                        <strong>#{{ task.id }}</strong>
+                        <span class="task-head-side">
+                          <span class="status-badge" :class="task.status">{{ taskStatusText(task.status) }}</span>
+                          <span class="task-card-toggle-text">
+                            {{ isTaskCardFolded(task.id) ? panelLocale.expand : panelLocale.collapse }}
+                          </span>
+                        </span>
+                      </button>
+
+                      <div v-if="isTaskCardFolded(task.id)" class="task-line task-line-compact">
+                        {{ formatTaskCompactSummary(task) }}
+                      </div>
+
+                      <template v-else>
+                        <div class="task-line">{{ formatTaskMeta(task) }}</div>
+                        <div v-if="formatTaskStageProgress(task)" class="task-line">{{ formatTaskStageProgress(task) }}</div>
+                        <div v-if="formatTaskCurrentStage(task)" class="task-line">{{ formatTaskCurrentStage(task) }}</div>
+                        <div class="task-line">{{ t('task_priority') }}: {{ task.priority }}</div>
+                        <div class="task-line">{{ formatTaskAgv(task) }}</div>
+                        <div class="task-line task-reason">
+                          {{ t('dispatch_reason') }}: {{ formatDispatchReason(task) }}
+                        </div>
+                        <div v-if="formatTaskTime(task)" class="task-line task-time">
+                          {{ formatTaskTime(task) }}
+                        </div>
+                        <div class="task-actions">
+                          <button
+                            v-if="task.status === 'pending'"
+                            class="btn-delete"
+                            type="button"
+                            @click="deleteTask(task)"
+                          >
+                            {{ t('delete_task') }}
+                          </button>
+                        </div>
+                      </template>
+                    </article>
+                  </template>
                 </section>
               </div>
             </div>
@@ -3724,9 +4658,14 @@ onBeforeUnmount(() => {
                       :placeholder="t('template_name_placeholder')"
                     />
                   </div>
-                  <button class="btn-primary full-width" type="button" @click="saveCurrentTaskAsTemplate">
-                    {{ t('template_save_current') }}
-                  </button>
+                  <div class="template-save-actions">
+                    <button class="btn-primary full-width" type="button" @click="saveCurrentTaskAsTemplate">
+                      {{ t('template_save_current') }}
+                    </button>
+                    <button class="btn-secondary full-width" type="button" @click="saveCurrentTaskChainAsTemplate">
+                      {{ taskChainLocale.saveTemplate }}
+                    </button>
+                  </div>
                   <div v-if="taskTemplateStatus" class="template-status" :class="taskTemplateStatusType">
                     {{ taskTemplateStatus }}
                   </div>
@@ -3784,12 +4723,19 @@ onBeforeUnmount(() => {
                       </span>
                     </div>
                     <div class="template-meta">
-                      {{ t('task_start') }} ({{ template.start_x }}, {{ template.start_y }}) ->
-                      {{ t('task_end') }} ({{ template.end_x }}, {{ template.end_y }})
+                      {{ formatTemplateMeta(template) }}
+                    </div>
+                    <div v-if="formatTemplateStageCount(template)" class="template-meta">
+                      {{ formatTemplateStageCount(template) }}
                     </div>
                     <div class="template-meta">{{ t('task_priority') }}: {{ template.priority }}</div>
                     <div class="template-actions">
-                      <button class="btn-secondary" type="button" @click="applyTaskTemplate(template)">
+                      <button
+                        class="btn-secondary"
+                        type="button"
+                        @click="onTemplateApplyClick(template)"
+                        @dblclick.stop="onTemplateApplyDoubleClick(template)"
+                      >
                         {{ t('template_apply') }}
                       </button>
                       <button class="btn-ghost" type="button" @click="createTaskFromTemplate(template)">
@@ -3947,6 +4893,20 @@ onBeforeUnmount(() => {
             <div v-show="panelSections.json" class="panel-section-body">
               <div class="json-tools">
                 <h2>{{ t('json_tools') }}</h2>
+                <div class="json-example-actions">
+                  <button class="btn-secondary" type="button" @click="fillTaskJsonExample('single')">
+                    {{ taskJsonLocale.singleExample }}
+                  </button>
+                  <button class="btn-ghost" type="button" @click="downloadTaskJsonExample('single')">
+                    {{ taskJsonExampleFileLocale.singleDownload }}
+                  </button>
+                  <button class="btn-secondary" type="button" @click="fillTaskJsonExample('chain')">
+                    {{ taskJsonLocale.chainExample }}
+                  </button>
+                  <button class="btn-ghost" type="button" @click="downloadTaskJsonExample('chain')">
+                    {{ taskJsonExampleFileLocale.chainDownload }}
+                  </button>
+                </div>
                 <textarea
                   v-model="jsonText"
                   class="json-area"
@@ -3969,6 +4929,14 @@ onBeforeUnmount(() => {
             </div>
           </section>
         </div>
+        <button
+          v-if="taskTemplateJumpReady"
+          class="task-builder-jump-button"
+          type="button"
+          @click="focusTaskBuilder(taskBuilderMode)"
+        >
+          {{ taskBuilderLocale.jumpAction }}
+        </button>
         <button
           v-if="showPanelBackToTop"
           class="back-to-top"
