@@ -83,6 +83,46 @@ def set_stage_paths(task: Task, path_to_start: list[dict], path_to_end: list[dic
     return stage
 
 
+def clear_stage_paths(stage: TaskStage):
+    stage.path_to_start = None
+    stage.path_to_end = None
+    stage.path_length_to_start = None
+    stage.path_length_to_end = None
+    return stage
+
+
+def clear_task_paths(task: Task) -> TaskStage:
+    stage = sync_task_stage_fields(task)
+    clear_stage_paths(stage)
+    task.path_to_start = None
+    task.path_to_end = None
+    task.path_length_to_start = None
+    task.path_length_to_end = None
+    return stage
+
+
+def mark_task_pending(task: Task):
+    task.status = "pending"
+    task.agv_id = None
+    task.assigned_at = None
+    task.dispatch_distance = None
+    task.dispatch_reason = None
+    clear_task_paths(task)
+    return task
+
+
+def mark_task_blocked(task: Task, reason: str, algorithm: str | None = None):
+    task.status = "blocked"
+    task.agv_id = None
+    task.assigned_at = None
+    task.dispatch_distance = None
+    if algorithm is not None:
+        task.dispatch_algorithm = algorithm
+    task.dispatch_reason = reason
+    clear_task_paths(task)
+    return task
+
+
 def advance_task_stage(task: Task) -> bool:
     stages = ensure_task_stages(task)
     if task.current_stage_index + 1 >= len(stages):

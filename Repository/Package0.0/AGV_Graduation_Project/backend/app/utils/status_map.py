@@ -7,6 +7,7 @@ AGV_STATUS_COLOR = {
 
 TASK_STATUS_COLOR = {
     "pending": "#9e9e9e",
+    "blocked": "#e53935",
     "assigned": "#2196f3",
     "running": "#4caf50",
     "finished": "#ffc107",

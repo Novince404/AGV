@@ -1,5 +1,26 @@
 # Changelog
 
+## v1.3.0 - 2026-03-10
+
+### Added
+- Added obstacle-map support with editable blocked cells, preset warehouse scenes, and obstacle import/export.
+- Added drag-paint obstacle editing on the main map.
+- Added algorithm comparison for `simple` and `A*`, including panel mode and floating-window mode.
+- Added blocked-task retry support so individual unreachable tasks can switch to `A*`.
+- Added backend obstacle-layout and blocked-task retry endpoints.
+
+### Improved
+- Improved scheduling behavior under obstacle maps and further aligned backend path planning with frontend rendering.
+- Improved algorithm switching in the task-creation area and compare-entry behavior from the top toolbar.
+- Improved settings panel usability and compare display options.
+- Improved blocked-task handling so tasks can wait for an idle AGV after switching to `A*`.
+
+### Fixed
+- Fixed out-of-grid coordinates entering task creation or scheduling flows.
+- Fixed `simple` unreachable tasks remaining unclear in the pending queue.
+- Fixed missing feedback for unreachable routes during map-based point selection.
+- Fixed compare-entry expansion and detailed-view opening behavior.
+
 ## v1.2.0 - 2026-03-03
 
 ### Added

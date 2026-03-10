@@ -5,7 +5,13 @@ from datetime import datetime
 from app.api.agv_api import agv_list
 from app.api.task_api import task_list
 from app.utils.path_planner import plan_path
-from app.utils.task_chain import advance_task_stage, get_current_stage, set_stage_paths, sync_task_stage_fields
+from app.utils.task_chain import (
+    advance_task_stage,
+    get_current_stage,
+    mark_task_blocked,
+    set_stage_paths,
+    sync_task_stage_fields,
+)
 
 
 def now_iso():
@@ -46,7 +52,7 @@ def move_agv(
                 grid_rows,
             )
             if not path_to_start or not path_to_end:
-                task.status = "pending"
+                mark_task_blocked(task, f"当前算法 {algorithm} 下，任务路径不可达，请切换算法或修改点位", algorithm)
                 agv.status = "idle"
                 agv.task_id = None
                 return
@@ -105,7 +111,7 @@ def move_agv(
                 grid_rows,
             )
             if not next_path_to_start or not next_path_to_end:
-                task.status = "pending"
+                mark_task_blocked(task, f"当前算法 {algorithm} 下，下一阶段路径不可达，请切换算法或修改点位", algorithm)
                 agv.status = "idle"
                 agv.task_id = None
                 return

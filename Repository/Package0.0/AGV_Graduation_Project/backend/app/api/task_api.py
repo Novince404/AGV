@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from app.models.task import Task
 from app.api.agv_api import agv_list
 from app.utils.task_chain import build_stage_models, sync_task_stage_fields
+from app.utils.warehouse_map import DEFAULT_GRID_COLS, DEFAULT_GRID_ROWS, get_blocked_cells
 
 
 router = APIRouter(prefix="/task", tags=["Task"])
@@ -44,6 +45,31 @@ def now_iso():
     return datetime.now().isoformat(timespec="seconds")
 
 
+def _is_valid_grid_coordinate(value: int, max_value: int):
+    return isinstance(value, int) and 0 <= value < max_value
+
+
+def _validate_task_stages(stages, grid_cols: int = DEFAULT_GRID_COLS, grid_rows: int = DEFAULT_GRID_ROWS):
+    blocked = get_blocked_cells(grid_cols, grid_rows)
+
+    for index, stage in enumerate(stages):
+        points = (
+            (stage.start_x, stage.start_y, "start"),
+            (stage.end_x, stage.end_y, "end"),
+        )
+        for x, y, point_type in points:
+            if not _is_valid_grid_coordinate(x, grid_cols) or not _is_valid_grid_coordinate(y, grid_rows):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Stage {index + 1} {point_type} coordinates are outside the grid",
+                )
+            if (x, y) in blocked:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Stage {index + 1} {point_type} coordinates are blocked",
+                )
+
+
 def serialize_task_for_json(task: Task):
     payload = {
         "id": task.id,
@@ -71,12 +97,14 @@ def serialize_task_for_json(task: Task):
 
 def build_task_stages(item: TaskCreateRequest | TaskImportItem):
     if item.stages:
-        return build_stage_models(item.stages)
+        stages = build_stage_models(item.stages)
+        _validate_task_stages(stages)
+        return stages
 
     if None in {item.start_x, item.start_y, item.end_x, item.end_y}:
         raise HTTPException(status_code=400, detail="Task coordinates are required")
 
-    return build_stage_models(
+    stages = build_stage_models(
         [
             TaskStagePayload(
                 start_x=item.start_x,
@@ -86,6 +114,8 @@ def build_task_stages(item: TaskCreateRequest | TaskImportItem):
             )
         ]
     )
+    _validate_task_stages(stages)
+    return stages
 
 
 task_list = [
@@ -220,8 +250,8 @@ def delete_task(task_id: int):
     task = next((t for t in task_list if t.id == task_id), None)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    if task.status != "pending":
-        raise HTTPException(status_code=400, detail="Only pending tasks can be deleted")
+    if task.status not in {"pending", "blocked"}:
+        raise HTTPException(status_code=400, detail="Only pending or blocked tasks can be deleted")
 
     task_list.remove(task)
     return {"message": "Task deleted", "task_id": task_id}

@@ -18,10 +18,27 @@ const MAP_HEIGHT = GRID_ROWS * CELL_SIZE
 const MINIMAP_WIDTH = 168
 const MIN_ZOOM = 0.75
 const MAX_ZOOM = 3
+const DEFAULT_BLOCKED_CELLS = [
+  { x: 3, y: 0 },
+  { x: 3, y: 1 },
+  { x: 3, y: 2 },
+  { x: 3, y: 4 },
+  { x: 3, y: 5 },
+  { x: 3, y: 6 },
+  { x: 3, y: 7 },
+  { x: 6, y: 0 },
+  { x: 6, y: 1 },
+  { x: 6, y: 3 },
+  { x: 6, y: 4 },
+  { x: 6, y: 5 },
+  { x: 6, y: 6 },
+  { x: 6, y: 7 }
+]
 
 const agvs = ref([])
 const localAgvs = ref([])
 const tasks = ref([])
+const blockedCells = ref([...DEFAULT_BLOCKED_CELLS])
 
 const dispatchMode = ref('auto')
 const locale = ref('zh')
@@ -66,6 +83,9 @@ const templateJsonStatusType = ref('info')
 const taskTemplateJumpReady = ref(false)
 const jsonText = ref('')
 const jsonStatus = ref('')
+const pathCompareResult = ref(null)
+const pathCompareLoading = ref(false)
+const pathCompareError = ref('')
 const templateFileInputRef = ref(null)
 const panelSearch = ref('')
 const focusedPanelSection = ref('')
@@ -101,6 +121,7 @@ const mapViewportRef = ref(null)
 const minimapRef = ref(null)
 const panelRef = ref(null)
 const controlSectionRef = ref(null)
+const comparePanelRef = ref(null)
 const queueSectionRef = ref(null)
 const templatesSectionRef = ref(null)
 const pointsSectionRef = ref(null)
@@ -119,6 +140,20 @@ const showStatusLegend = ref(true)
 const showMarkerIcons = ref(true)
 const showPathArrows = ref(false)
 const showMinimap = ref(true)
+const obstacleEditMode = ref(false)
+const obstacleMapSaving = ref(false)
+const syncedBlockedCells = ref([...DEFAULT_BLOCKED_CELLS])
+const obstaclePresets = ref([])
+const selectedObstaclePreset = ref('default_shelves')
+const obstacleLayoutStatus = ref('')
+const obstacleLayoutStatusType = ref('info')
+const obstacleLayoutFileInputRef = ref(null)
+const compareDisplayMode = ref('panel')
+const comparePanelExpanded = ref(false)
+const showFloatingCompare = ref(false)
+const compareFloatingOpacity = ref(0.92)
+const compareFloatingX = ref(0)
+const compareFloatingY = ref(140)
 
 let timer = null
 let clickTimer = null
@@ -143,6 +178,13 @@ let isPanelResizing = false
 let panelResizeStartX = 0
 let panelResizeStartWidth = 0
 let panelSectionFocusTimer = null
+let obstaclePaintActive = false
+let obstaclePaintMode = 'add'
+let obstaclePaintLastKey = ''
+let compareFloatingDragging = false
+let compareFloatingDragOffsetX = 0
+let compareFloatingDragOffsetY = 0
+let floatingCompareRefreshTimer = null
 
 const messages = {
   zh: {
@@ -168,6 +210,7 @@ const messages = {
     task_agv: 'AGV',
     task_priority: '优先级',
     task_pending: '未分配',
+    task_blocked: '不可达',
     task_assigned: '已分配',
     task_running: '执行中',
     task_finished: '已完成',
@@ -189,7 +232,9 @@ const messages = {
     panel_back_to_top: '回到顶部',
     map_overview: '地图总览',
     delete_task: '删除',
-    confirm_delete_task: '确认删除该未分配任务吗？',
+    task_retry_astar: '改用 A*',
+    task_retry_astar_queued: '任务已切换为 A*，将在 AGV 空闲后自动重试。',
+    confirm_delete_task: '确认删除该未分配或不可达任务吗？',
     task_form: '任务添加',
     form_start_x: '起点X',
     form_start_y: '起点Y',
@@ -223,12 +268,14 @@ const messages = {
     json_import_ok: '导入成功',
     json_import_fail: '导入失败',
     queue_pending: '待分配队列',
+    queue_blocked: '不可达队列',
     queue_assigned: '已分配队列',
     queue_running: '执行队列',
     queue_finished: '完成队列',
     queue_empty: '当前分组为空',
     dispatch_reason: '调度说明',
     dispatch_waiting: '等待空闲 AGV 调度',
+    dispatch_blocked: '当前算法下不可达，请切换算法或修改点位',
     reason_distance: '距起点',
     reason_algorithm: '算法',
     reason_mode: '方式',
@@ -254,6 +301,8 @@ const messages = {
     point_form_deleted: '点位已删除',
     point_form_invalid_name: '请填写点位名称和分区',
     point_form_invalid_coords: '坐标超出地图范围',
+    task_blocked_alert: '当前算法下路径不可达，任务已移入不可达队列。',
+    task_manual_unreachable: '当前算法下无法到达，请切换算法或修改点位。',
     confirm_delete_point: '确认删除这个自定义点位吗？',
     point_category: '分区',
     point_coords: '坐标',
@@ -300,6 +349,7 @@ const messages = {
     task_agv: 'AGV',
     task_priority: '優先度',
     task_pending: '未割当',
+    task_blocked: '到達不可',
     task_assigned: '割当済',
     task_running: '実行中',
     task_finished: '完了',
@@ -321,7 +371,9 @@ const messages = {
     panel_back_to_top: '先頭へ戻る',
     map_overview: 'マップ全体',
     delete_task: '削除',
-    confirm_delete_task: 'この未割当タスクを削除しますか？',
+    task_retry_astar: 'A*で再試行',
+    task_retry_astar_queued: 'タスクを A* に切り替えました。AGV が空き次第、自動で再試行します。',
+    confirm_delete_task: 'この未割当または到達不可タスクを削除しますか？',
     task_form: 'タスク追加',
     form_start_x: '始点X',
     form_start_y: '始点Y',
@@ -355,12 +407,14 @@ const messages = {
     json_import_ok: '取込成功',
     json_import_fail: '取込失敗',
     queue_pending: '未割当キュー',
+    queue_blocked: '到達不可キュー',
     queue_assigned: '割当済キュー',
     queue_running: '実行キュー',
     queue_finished: '完了キュー',
     queue_empty: 'このグループは空です',
     dispatch_reason: '割当理由',
     dispatch_waiting: '空き AGV を待機中',
+    dispatch_blocked: '現在のアルゴリズムでは到達できません。アルゴリズムを切り替えるか点位を修正してください。',
     reason_distance: '開始点まで',
     reason_algorithm: 'アルゴリズム',
     reason_mode: '方式',
@@ -386,6 +440,8 @@ const messages = {
     point_form_deleted: 'ポイントを削除しました',
     point_form_invalid_name: 'ポイント名とエリアを入力してください',
     point_form_invalid_coords: '座標がマップ範囲外です',
+    task_blocked_alert: '現在のアルゴリズムでは到達できないため、タスクを到達不可キューへ移動しました。',
+    task_manual_unreachable: '現在のアルゴリズムでは到達できません。アルゴリズムを切り替えるか点位を修正してください。',
     confirm_delete_point: 'このカスタムポイントを削除しますか？',
     point_category: 'エリア',
     point_coords: '座標',
@@ -432,6 +488,7 @@ const messages = {
     task_agv: 'AGV',
     task_priority: 'Priority',
     task_pending: 'Pending',
+    task_blocked: 'Blocked',
     task_assigned: 'Assigned',
     task_running: 'Running',
     task_finished: 'Finished',
@@ -453,7 +510,9 @@ const messages = {
     panel_back_to_top: 'Back To Top',
     map_overview: 'Map Overview',
     delete_task: 'Delete',
-    confirm_delete_task: 'Delete this pending task?',
+    task_retry_astar: 'Retry with A*',
+    task_retry_astar_queued: 'The task has been switched to A* and will retry automatically when an AGV becomes idle.',
+    confirm_delete_task: 'Delete this pending or blocked task?',
     task_form: 'Add Task',
     form_start_x: 'Start X',
     form_start_y: 'Start Y',
@@ -487,12 +546,14 @@ const messages = {
     json_import_ok: 'Import success',
     json_import_fail: 'Import failed',
     queue_pending: 'Pending Queue',
+    queue_blocked: 'Blocked Queue',
     queue_assigned: 'Assigned Queue',
     queue_running: 'Running Queue',
     queue_finished: 'Finished Queue',
     queue_empty: 'This section is empty',
     dispatch_reason: 'Dispatch Reason',
     dispatch_waiting: 'Waiting for an idle AGV',
+    dispatch_blocked: 'Unreachable with the current algorithm. Switch algorithm or adjust points.',
     reason_distance: 'To start',
     reason_algorithm: 'Algorithm',
     reason_mode: 'Mode',
@@ -518,6 +579,8 @@ const messages = {
     point_form_deleted: 'Point deleted',
     point_form_invalid_name: 'Please enter both point name and zone',
     point_form_invalid_coords: 'Coordinates are outside the grid',
+    task_blocked_alert: 'The current algorithm cannot reach this route. The task has been moved to the blocked queue.',
+    task_manual_unreachable: 'The current algorithm cannot reach this route. Switch algorithm or adjust points.',
     confirm_delete_point: 'Delete this custom point?',
     point_category: 'Zone',
     point_coords: 'Coordinates',
@@ -789,6 +852,23 @@ const mapZoomLabel = computed(() => `${Math.round(mapZoom.value * 100)}%`)
 const minimapScale = computed(() => MINIMAP_WIDTH / MAP_WIDTH)
 const minimapHeight = computed(() => MAP_HEIGHT * minimapScale.value)
 const minimapCellSize = computed(() => CELL_SIZE * minimapScale.value)
+const blockedCellSet = computed(
+  () => new Set(blockedCells.value.map(cell => `${cell.x},${cell.y}`))
+)
+const blockedCellCount = computed(() => blockedCells.value.length)
+const selectedObstaclePresetInfo = computed(
+  () => obstaclePresets.value.find(preset => preset.key === selectedObstaclePreset.value) ?? null
+)
+const syncedBlockedCellSet = computed(
+  () => new Set(syncedBlockedCells.value.map(cell => `${cell.x},${cell.y}`))
+)
+const obstacleLayoutDirty = computed(() => {
+  if (blockedCellCount.value !== syncedBlockedCells.value.length) return true
+  for (const key of blockedCellSet.value) {
+    if (!syncedBlockedCellSet.value.has(key)) return true
+  }
+  return false
+})
 const minimapManualPathToStartPoints = computed(() =>
   toSvgPoints(manualPathToStart.value, minimapCellSize.value)
 )
@@ -1058,13 +1138,33 @@ const settingsLocale = computed(() => {
     return {
       title: '設定',
       mapGroup: 'マップ表示',
+      obstacleGroup: '障害物マップ',
       promptGroup: '提示項目',
       showAgvStatus: 'AGV 状態表示を表示',
-      showMarkerIcons: '始点/終点アイコンを表示',
-      showPathArrows: '経路方向の矢印を表示',
+      showMarkerIcons: '開始/終了アイコンを表示',
+      showPathArrows: '経路方向矢印を表示',
       showAutoPath: '自動経路を表示',
       showMinimap: 'ミニマップを表示',
-      resetView: 'ビューを初期化'
+      obstacleEdit: '障害物を編集',
+      obstacleHint: '有効にすると、地図セルをクリックして障害物の追加・削除ができます。保存後、比較と調度に反映されます。',
+      obstaclePreset: 'プリセット',
+      obstaclePresetApply: 'プリセット適用',
+      obstacleExport: '配置を書き出す',
+      obstacleImport: '配置を読み込む',
+      obstacleSave: '障害物を保存',
+      obstacleReset: '初期配置に戻す',
+      obstacleDirty: '未保存の変更あり',
+      obstacleSaved: '同期済み',
+      obstacleImported: '障害物レイアウトを読み込みました。',
+      obstacleApplied: '障害物プリセットを適用しました。',
+      obstacleResetDone: '初期障害物レイアウトに戻しました。',
+      obstaclePresetNone: '先にプリセットを選択してください。',
+      compareGroup: 'アルゴリズム比較',
+      compareDisplay: '表示方式',
+      compareDisplayPanel: '右側パネル',
+      compareDisplayFloating: 'フローティング',
+      compareOpacity: '透明度',
+      resetView: '視点をリセット'
     }
   }
 
@@ -1072,12 +1172,32 @@ const settingsLocale = computed(() => {
     return {
       title: '设置',
       mapGroup: '地图显示',
+      obstacleGroup: '障碍地图',
       promptGroup: '提示项',
       showAgvStatus: '显示 AGV 状态提示',
       showMarkerIcons: '显示起点/终点图标',
       showPathArrows: '显示路径方向箭头',
       showAutoPath: '显示自动路径',
       showMinimap: '显示小地图',
+      obstacleEdit: '编辑障碍',
+      obstacleHint: '开启后可点击地图格子增删障碍，保存后会同步用于路径对比与实际调度。',
+      obstaclePreset: '预设场景',
+      obstaclePresetApply: '应用预设',
+      obstacleExport: '导出布局',
+      obstacleImport: '导入布局',
+      obstacleSave: '保存障碍',
+      obstacleReset: '恢复默认',
+      obstacleDirty: '存在未保存修改',
+      obstacleSaved: '已同步',
+      obstacleImported: '已导入障碍布局。',
+      obstacleApplied: '已应用障碍预设。',
+      obstacleResetDone: '已恢复默认障碍布局。',
+      obstaclePresetNone: '请先选择一个预设。',
+      compareGroup: '算法对比',
+      compareDisplay: '显示方式',
+      compareDisplayPanel: '右侧栏展开',
+      compareDisplayFloating: '悬浮窗',
+      compareOpacity: '透明度',
       resetView: '重置视图'
     }
   }
@@ -1085,12 +1205,32 @@ const settingsLocale = computed(() => {
   return {
     title: 'Settings',
     mapGroup: 'Map Display',
+    obstacleGroup: 'Obstacle Map',
     promptGroup: 'Hints',
     showAgvStatus: 'Show AGV Status Legend',
     showMarkerIcons: 'Show Start/End Icons',
     showPathArrows: 'Show Path Direction Arrows',
     showAutoPath: 'Show Auto Path',
     showMinimap: 'Show Minimap',
+    obstacleEdit: 'Edit Obstacles',
+    obstacleHint: 'When enabled, click map cells to add or remove blocked cells. Save applies to future comparison and dispatch.',
+    obstaclePreset: 'Preset Scene',
+    obstaclePresetApply: 'Apply Preset',
+    obstacleExport: 'Export Layout',
+    obstacleImport: 'Import Layout',
+    obstacleSave: 'Save Obstacles',
+    obstacleReset: 'Reset Default',
+    obstacleDirty: 'Unsaved changes',
+    obstacleSaved: 'Synced',
+    obstacleImported: 'Obstacle layout imported.',
+    obstacleApplied: 'Obstacle preset applied.',
+    obstacleResetDone: 'Default obstacle layout restored.',
+    obstaclePresetNone: 'Select a preset first.',
+    compareGroup: 'Algorithm Compare',
+    compareDisplay: 'Display Mode',
+    compareDisplayPanel: 'Side Panel',
+    compareDisplayFloating: 'Floating Window',
+    compareOpacity: 'Opacity',
     resetView: 'Reset View'
   }
 })
@@ -1370,6 +1510,100 @@ const taskChainMapPickStatusText = computed(() => {
 const taskChainMapPickButtonText = computed(() =>
   taskChainMapPickActive.value ? taskChainMapPickUiLocale.value.cancel : taskChainMapPickUiLocale.value.start
 )
+const algorithmCompareLocale = computed(() => {
+  if (locale.value === 'ja') {
+    return {
+      title: 'アルゴリズム比較',
+      hintSingle: '現在の単一路線を simple と A* で比較します。',
+      hintChain: '現在の段階タスクを simple と A* で比較します。',
+      run: '現在の経路を比較',
+      clear: '結果を消去',
+      invalid: '比較するための有効な座標が必要です。',
+      reachable: '到達可能',
+      unreachable: '到達不可',
+      total: '総距離',
+      stages: '段階距離',
+      failedStage: '失敗段階',
+      recommended: '推奨',
+      current: '現在',
+      apply: '使用中',
+      switchTo: '切替'
+    }
+  }
+
+  if (locale.value === 'zh') {
+    return {
+      title: '算法对比',
+      hintSingle: '对当前单段路线进行 simple 与 A* 对比。',
+      hintChain: '对当前阶段任务进行 simple 与 A* 对比。',
+      run: '对比当前路线',
+      clear: '清空结果',
+      invalid: '当前表单坐标无效，无法进行算法对比。',
+      reachable: '可达',
+      unreachable: '不可达',
+      total: '总长度',
+      stages: '阶段长度',
+      failedStage: '失败阶段',
+      recommended: '推荐',
+      current: '当前',
+      apply: '使用中',
+      switchTo: '切换'
+    }
+  }
+
+  return {
+    title: 'Algorithm Compare',
+    hintSingle: 'Compare the current single route with simple and A*.',
+    hintChain: 'Compare the current staged task with simple and A*.',
+    run: 'Compare Current Route',
+    clear: 'Clear',
+    invalid: 'Current form coordinates are invalid for comparison.',
+    reachable: 'Reachable',
+    unreachable: 'Blocked',
+    total: 'Total Length',
+    stages: 'Stage Lengths',
+    failedStage: 'Failed Stage',
+    recommended: 'Recommended',
+    current: 'Current',
+    apply: 'Using',
+    switchTo: 'Switch'
+  }
+})
+const currentCompareHint = computed(() =>
+  taskBuilderMode.value === 'chain'
+    ? algorithmCompareLocale.value.hintChain
+    : algorithmCompareLocale.value.hintSingle
+)
+const recommendedCompareAlgorithm = computed(() => {
+  const results = pathCompareResult.value?.results
+  if (!results) return null
+  const simple = results.simple
+  const astar = results.astar
+  if (simple?.reachable && !astar?.reachable) return 'simple'
+  if (!simple?.reachable && astar?.reachable) return 'astar'
+  if (!simple?.reachable && !astar?.reachable) return null
+  if ((astar?.total_length ?? Number.POSITIVE_INFINITY) < (simple?.total_length ?? Number.POSITIVE_INFINITY)) {
+    return 'astar'
+  }
+  return 'simple'
+})
+const compareEntryText = computed(() => {
+  if (!pathCompareResult.value) {
+    return algorithmCompareLocale.value.title
+  }
+
+  if (recommendedCompareAlgorithm.value) {
+    return `${algorithmCompareLocale.value.title} · ${algorithmText(recommendedCompareAlgorithm.value)}`
+  }
+
+  return `${algorithmCompareLocale.value.title} · ${algorithmCompareLocale.value.unreachable}`
+})
+const compareResultEntries = computed(() => Object.entries(pathCompareResult.value?.results ?? {}))
+const compareFloatingStyle = computed(() => ({
+  left: `${compareFloatingX.value}px`,
+  top: `${compareFloatingY.value}px`,
+  opacity: compareFloatingOpacity.value
+}))
 const panelSummaryModes = computed(() => [
   { key: 'hidden', label: panelSummaryLocale.value.hidden },
   { key: 'compact', label: panelSummaryLocale.value.compact },
@@ -1379,6 +1613,30 @@ const areAllPanelSectionsExpanded = computed(() => Object.values(panelSections.v
 const areAllPanelSectionsCollapsed = computed(() => Object.values(panelSections.value).every(value => !value))
 const pendingTaskCount = computed(() => tasks.value.filter(task => task.status === 'pending').length)
 const runningTaskCount = computed(() => tasks.value.filter(task => task.status === 'running').length)
+const obstacleSummaryText = computed(() => {
+  if (locale.value === 'ja') {
+    return `障害セル ${blockedCellCount.value} マス`
+  }
+  if (locale.value === 'zh') {
+    return `障碍格 ${blockedCellCount.value} 个`
+  }
+  return `${blockedCellCount.value} blocked cells`
+})
+const algorithmHintText = computed(() => {
+  if (locale.value === 'ja') {
+    return algorithm.value === 'astar'
+      ? `A* は障害物を回避して経路探索します。${obstacleSummaryText.value}。`
+      : `直線経路は横移動優先の簡化経路で、障害物で失敗する場合があります。${obstacleSummaryText.value}。`
+  }
+  if (locale.value === 'zh') {
+    return algorithm.value === 'astar'
+      ? `A* 会绕开障碍寻找可达路径。${obstacleSummaryText.value}。`
+      : `直线路径仅做简化横纵通行，遇到障碍时可能无法调度。${obstacleSummaryText.value}。`
+  }
+  return algorithm.value === 'astar'
+    ? `A* searches around blocked cells. ${obstacleSummaryText.value}.`
+    : `Simple routing only follows a direct Manhattan trace and may fail on blocked cells. ${obstacleSummaryText.value}.`
+})
 const selectedAgvSummaryText = computed(() => {
   if (!selectedAgv.value) return panelSummaryLocale.value.noAgv
   return `#${selectedAgv.value.id} / ${statusText(selectedAgv.value.status)} / (${selectedAgv.value.x},${selectedAgv.value.y})`
@@ -1627,6 +1885,7 @@ const filteredPoints = computed(() => {
 const taskGroups = computed(() => {
   const groups = [
     { key: 'pending', title: t('queue_pending') },
+    { key: 'blocked', title: t('queue_blocked') },
     { key: 'assigned', title: t('queue_assigned') },
     { key: 'running', title: t('queue_running') },
     { key: 'finished', title: t('queue_finished') }
@@ -1641,6 +1900,7 @@ const taskGroups = computed(() => {
 function buildDefaultQueueGroupState() {
   return {
     pending: false,
+    blocked: false,
     assigned: false,
     running: false,
     finished: true
@@ -1768,9 +2028,17 @@ function pointStyle(point, cellSize = CELL_SIZE, size = 12) {
   }
 }
 
+function blockedCellKey(x, y) {
+  return `${x},${y}`
+}
+
+function isBlockedCell(x, y) {
+  return blockedCellSet.value.has(blockedCellKey(x, y))
+}
+
 function sortTasks(list, status) {
   const copy = [...list]
-  if (status === 'pending') {
+  if (status === 'pending' || status === 'blocked') {
     return copy.sort((a, b) => b.priority - a.priority || a.id - b.id)
   }
   if (status === 'finished') {
@@ -1830,6 +2098,33 @@ function taskStatusText(status) {
 
 function algorithmText(value) {
   return value === 'astar' ? t('algo_astar') : t('algo_simple')
+}
+
+function formatCompareStageLengths(result) {
+  if (!result?.stage_results?.length) return ''
+  return result.stage_results
+    .map(stage => {
+      if (!stage.reachable) {
+        return `${stage.index + 1}: X`
+      }
+      return `${stage.index + 1}: ${stage.path_length}`
+    })
+    .join(' | ')
+}
+
+function formatCompareResultStatus(result) {
+  if (!result) return ''
+  return result.reachable ? algorithmCompareLocale.value.reachable : algorithmCompareLocale.value.unreachable
+}
+
+function compareResultBadgeText(key) {
+  if (algorithm.value === key) {
+    return algorithmCompareLocale.value.apply
+  }
+  if (recommendedCompareAlgorithm.value === key) {
+    return algorithmCompareLocale.value.recommended
+  }
+  return algorithmCompareLocale.value.switchTo
 }
 
 function dispatchModeText(value) {
@@ -1896,6 +2191,12 @@ function formatDispatchReason(task) {
   if (!task.dispatch_mode && task.status === 'pending') {
     return t('dispatch_waiting')
   }
+  if (task.status === 'blocked' && task.dispatch_reason) {
+    return task.dispatch_reason
+  }
+  if (task.status === 'blocked') {
+    return t('dispatch_blocked')
+  }
 
   const parts = []
   if (task.dispatch_mode) {
@@ -1915,6 +2216,33 @@ function formatDispatchReason(task) {
   }
 
   return parts.join(' | ')
+}
+
+function formatTaskPathStats(task) {
+  const parts = []
+  if (task.path_length_to_start !== null && task.path_length_to_start !== undefined) {
+    if (locale.value === 'ja') {
+      parts.push(`始点まで ${task.path_length_to_start}`)
+    } else if (locale.value === 'zh') {
+      parts.push(`到起点 ${task.path_length_to_start}`)
+    } else {
+      parts.push(`to start ${task.path_length_to_start}`)
+    }
+  }
+  if (task.path_length_to_end !== null && task.path_length_to_end !== undefined) {
+    if (locale.value === 'ja') {
+      parts.push(`执行区間 ${task.path_length_to_end}`)
+    } else if (locale.value === 'zh') {
+      parts.push(`执行段 ${task.path_length_to_end}`)
+    } else {
+      parts.push(`run ${task.path_length_to_end}`)
+    }
+  }
+  return parts.join(' | ')
+}
+
+function blockedTaskAlertText(task) {
+  return task?.dispatch_reason || t('task_blocked_alert')
 }
 
 function buildTaskChainPayloadFromPoints(points) {
@@ -2200,6 +2528,7 @@ function loadTaskQueueView() {
       queueGroupsCollapsed.value = {
         ...queueGroupsCollapsed.value,
         pending: typeof parsed.groups.pending === 'boolean' ? parsed.groups.pending : queueGroupsCollapsed.value.pending,
+        blocked: typeof parsed.groups.blocked === 'boolean' ? parsed.groups.blocked : queueGroupsCollapsed.value.blocked,
         assigned: typeof parsed.groups.assigned === 'boolean' ? parsed.groups.assigned : queueGroupsCollapsed.value.assigned,
         running: typeof parsed.groups.running === 'boolean' ? parsed.groups.running : queueGroupsCollapsed.value.running,
         finished: typeof parsed.groups.finished === 'boolean' ? parsed.groups.finished : queueGroupsCollapsed.value.finished
@@ -2281,6 +2610,52 @@ async function jumpToPanelSearchResult(sectionKey) {
   }
 
   focusPanelSection(sectionKey)
+}
+
+async function scrollToComparePanel() {
+  panelSections.value = {
+    ...panelSections.value,
+    control: true
+  }
+  comparePanelExpanded.value = true
+
+  await nextTick()
+
+  const panelElement = panelRef.value
+  const comparePanelElement = comparePanelRef.value
+  if (panelElement && comparePanelElement) {
+    const top = Math.max(comparePanelElement.offsetTop - 12, 0)
+    panelElement.scrollTo({ top, behavior: 'smooth' })
+  } else {
+    await jumpToPanelSearchResult('control')
+    return
+  }
+
+  focusPanelSection('control')
+}
+
+function shouldAutoRefreshFloatingCompare() {
+  return compareDisplayMode.value === 'floating' && showFloatingCompare.value
+}
+
+function stopFloatingCompareRefresh() {
+  if (floatingCompareRefreshTimer) {
+    clearTimeout(floatingCompareRefreshTimer)
+    floatingCompareRefreshTimer = null
+  }
+}
+
+function requestFloatingCompareRefresh() {
+  if (!shouldAutoRefreshFloatingCompare()) return
+  stopFloatingCompareRefresh()
+  floatingCompareRefreshTimer = setTimeout(() => {
+    floatingCompareRefreshTimer = null
+    if (pathCompareLoading.value) {
+      requestFloatingCompareRefresh()
+      return
+    }
+    void compareCurrentRoute()
+  }, 360)
 }
 
 function clearPanelSearch() {
@@ -2471,6 +2846,12 @@ function loadMapDisplaySettings() {
     if (typeof parsed?.showMinimap === 'boolean') {
       showMinimap.value = parsed.showMinimap
     }
+    if (parsed?.compareDisplayMode === 'panel' || parsed?.compareDisplayMode === 'floating') {
+      compareDisplayMode.value = parsed.compareDisplayMode
+    }
+    if (typeof parsed?.compareFloatingOpacity === 'number') {
+      compareFloatingOpacity.value = clampValue(parsed.compareFloatingOpacity, 0.45, 1)
+    }
   } catch (error) {
     console.error('Load map display settings error:', error)
   }
@@ -2485,7 +2866,9 @@ function saveMapDisplaySettings() {
         showMarkerIcons: showMarkerIcons.value,
         showPathArrows: showPathArrows.value,
         showStatusLegend: showStatusLegend.value,
-        showMinimap: showMinimap.value
+        showMinimap: showMinimap.value,
+        compareDisplayMode: compareDisplayMode.value,
+        compareFloatingOpacity: compareFloatingOpacity.value
       })
     )
   } catch (error) {
@@ -2813,7 +3196,7 @@ function hasIdleAgv() {
 }
 
 function hasPendingTask() {
-  return tasks.value.some(task => task.status === 'pending')
+  return tasks.value.some(task => task.status === 'pending' || task.status === 'blocked')
 }
 
 function hasActiveTask() {
@@ -3010,21 +3393,120 @@ function getCellFromEvent(event) {
   }
 }
 
-function buildSimplePath(sx, sy, ex, ey) {
-  const path = []
+function getCellFromClient(clientX, clientY) {
+  const rect = mapViewportRef.value?.getBoundingClientRect()
+  if (!rect) return null
+  if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) {
+    return null
+  }
+
+  const point = getMapPointFromClient(clientX, clientY)
+  return {
+    x: clampValue(Math.floor(point.x / CELL_SIZE), 0, GRID_COLS - 1),
+    y: clampValue(Math.floor(point.y / CELL_SIZE), 0, GRID_ROWS - 1)
+  }
+}
+
+function buildSimpleCandidatePath(sx, sy, ex, ey, axisOrder) {
+  const path = [{ x: sx, y: sy }]
   let x = sx
   let y = sy
 
-  while (x !== ex || y !== ey) {
-    path.push({ x, y })
-    if (x < ex) x += 1
-    else if (x > ex) x -= 1
-    else if (y < ey) y += 1
-    else if (y > ey) y -= 1
+  for (const axis of axisOrder) {
+    if (axis === 'x') {
+      while (x !== ex) {
+        x += ex > x ? 1 : -1
+        if (isBlockedCell(x, y)) return []
+        path.push({ x, y })
+      }
+    } else {
+      while (y !== ey) {
+        y += ey > y ? 1 : -1
+        if (isBlockedCell(x, y)) return []
+        path.push({ x, y })
+      }
+    }
   }
 
-  path.push({ x: ex, y: ey })
   return path
+}
+
+function buildSimplePath(sx, sy, ex, ey) {
+  if (isBlockedCell(sx, sy) || isBlockedCell(ex, ey)) return []
+  if (sx === ex && sy === ey) return [{ x: sx, y: sy }]
+
+  const xFirst = buildSimpleCandidatePath(sx, sy, ex, ey, ['x', 'y'])
+  if (xFirst.length > 0) return xFirst
+
+  return buildSimpleCandidatePath(sx, sy, ex, ey, ['y', 'x'])
+}
+
+function buildAStarPath(sx, sy, ex, ey) {
+  if (isBlockedCell(sx, sy) || isBlockedCell(ex, ey)) return []
+  if (sx === ex && sy === ey) return [{ x: sx, y: sy }]
+
+  const startKey = blockedCellKey(sx, sy)
+  const goalKey = blockedCellKey(ex, ey)
+  const open = [{ x: sx, y: sy, key: startKey, f: 0 }]
+  const cameFrom = new Map()
+  const gScore = new Map([[startKey, 0]])
+
+  while (open.length > 0) {
+    open.sort((a, b) => a.f - b.f)
+    const current = open.shift()
+    if (!current) break
+
+    if (current.x === ex && current.y === ey) {
+      const path = [{ x: ex, y: ey }]
+      let cursorKey = goalKey
+      while (cameFrom.has(cursorKey)) {
+        const previous = cameFrom.get(cursorKey)
+        path.push({ x: previous.x, y: previous.y })
+        cursorKey = blockedCellKey(previous.x, previous.y)
+      }
+      path.reverse()
+      return path
+    }
+
+    for (const [dx, dy] of [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1]
+    ]) {
+      const nx = current.x + dx
+      const ny = current.y + dy
+      if (nx < 0 || nx >= GRID_COLS || ny < 0 || ny >= GRID_ROWS) continue
+      if (isBlockedCell(nx, ny)) continue
+
+      const neighborKey = blockedCellKey(nx, ny)
+      const tentative = (gScore.get(current.key) ?? 0) + 1
+      if (tentative >= (gScore.get(neighborKey) ?? Number.POSITIVE_INFINITY)) continue
+
+      cameFrom.set(neighborKey, { x: current.x, y: current.y })
+      gScore.set(neighborKey, tentative)
+      const heuristic = Math.abs(nx - ex) + Math.abs(ny - ey)
+      const existing = open.find(item => item.key === neighborKey)
+      const nextNode = { x: nx, y: ny, key: neighborKey, f: tentative + heuristic }
+      if (existing) {
+        existing.f = nextNode.f
+      } else {
+        open.push(nextNode)
+      }
+    }
+  }
+
+  return []
+}
+
+function buildPreviewPathByAlgorithm(sx, sy, ex, ey) {
+  return algorithm.value === 'astar' ? buildAStarPath(sx, sy, ex, ey) : buildSimplePath(sx, sy, ex, ey)
+}
+
+function blockedCellAlertText() {
+  if (locale.value === 'ja') return '障害物セルは始点・終点・中継点に設定できません。'
+  if (locale.value === 'zh') return '障碍格不能作为起点、终点或中转点。'
+  return 'Blocked cells cannot be used as start, end, or transfer points.'
 }
 
 function onAgvClick(agv, event) {
@@ -3041,6 +3523,22 @@ function onMapMouseDown(event) {
   if (event.button !== 0) return
   if (event.target.closest('.agv') || event.target.closest('.minimap')) return
 
+  if (obstacleEditMode.value) {
+    event.preventDefault()
+    const cell = getCellFromEvent(event)
+    obstaclePaintMode = isBlockedCell(cell.x, cell.y) ? 'remove' : 'add'
+    obstaclePaintActive = true
+    obstaclePaintLastKey = ''
+    applyObstaclePaintAt(cell.x, cell.y, obstaclePaintMode)
+    ignoreNextMapClick = true
+    window.setTimeout(() => {
+      if (ignoreNextMapClick) {
+        ignoreNextMapClick = false
+      }
+    }, 260)
+    return
+  }
+
   mapPanCandidate = true
   mapPanMoved = false
   mapPanStartX = event.clientX
@@ -3050,6 +3548,13 @@ function onMapMouseDown(event) {
 }
 
 function onMapDoubleClick(event) {
+  if (obstacleEditMode.value) {
+    if (clickTimer) {
+      clearTimeout(clickTimer)
+      clickTimer = null
+    }
+    return
+  }
   if (taskChainMapPickActive.value) return
   if (ignoreNextMapClick) {
     ignoreNextMapClick = false
@@ -3061,6 +3566,10 @@ function onMapDoubleClick(event) {
   }
 
   const { x, y } = getCellFromEvent(event)
+  if (isBlockedCell(x, y)) {
+    window.alert(blockedCellAlertText())
+    return
+  }
   if (isCellOccupied(x, y)) return
 
   localAgvs.value.push({
@@ -3151,6 +3660,16 @@ function handlePanelSummaryItemDoubleClick(event, item) {
 }
 
 function handleSingleClick(x, y) {
+  if (obstacleEditMode.value) {
+    toggleBlockedCellAt(x, y)
+    return
+  }
+
+  if (isBlockedCell(x, y)) {
+    window.alert(blockedCellAlertText())
+    return
+  }
+
   if (dispatchMode.value === 'manual') {
     if (!selectedAgvId.value) return
     const agv = findAgvById(selectedAgvId.value)
@@ -3183,6 +3702,11 @@ function handleSingleClick(x, y) {
 }
 
 async function handleTaskChainMapClick(x, y) {
+  if (isBlockedCell(x, y)) {
+    window.alert(blockedCellAlertText())
+    return
+  }
+
   const requiredPoints = taskChainRequiredPointCount.value
   const nextPoints = [...taskChainMapPickPoints.value, { x, y }].slice(0, requiredPoints)
   taskChainMapPickPoints.value = nextPoints
@@ -3218,6 +3742,7 @@ async function confirmAndSchedule(x, y, agvId = null) {
 
 async function createTaskAndSchedule(agvId) {
   if (!startPoint.value || !endPoint.value) return
+  if (!(await ensureBlockedCellsSynced())) return
 
   try {
     const createRes = await fetch(`${API_BASE}/task/create`, {
@@ -3239,8 +3764,34 @@ async function createTaskAndSchedule(agvId) {
     await fetchTasks()
 
     if (dispatchMode.value === 'auto') {
-      await tryAutoSchedule()
+      const scheduleRes = await fetch(`${API_BASE}/schedule/with_path`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          task_id: createData.task.id,
+          agv_id: null,
+          algorithm: algorithm.value,
+          grid_cols: GRID_COLS,
+          grid_rows: GRID_ROWS
+        })
+      })
+      const scheduleData = await scheduleRes.json()
+      if (!scheduleRes.ok) {
+        await fetchTasks()
+        const latestTask = tasks.value.find(task => task.id === createData.task.id)
+        if (latestTask?.status === 'blocked') {
+          window.alert(blockedTaskAlertText(latestTask))
+        } else if (String(scheduleData?.detail ?? '').toLowerCase().includes('unreachable')) {
+          window.alert(t('task_manual_unreachable'))
+        }
+        clearAutoMarkers()
+        return
+      }
+
+      autoPathToStart.value = scheduleData.path_to_start ?? []
+      autoPathToEnd.value = scheduleData.path_to_end ?? scheduleData.path ?? []
       clearAutoMarkers()
+      await Promise.all([fetchAgvs(), fetchTasks()])
       return
     }
 
@@ -3343,6 +3894,12 @@ function onWindowResize() {
 }
 
 function onGlobalMouseMove(event) {
+  if (compareFloatingDragging) {
+    compareFloatingX.value = Math.max(event.clientX - compareFloatingDragOffsetX, 12)
+    compareFloatingY.value = Math.max(event.clientY - compareFloatingDragOffsetY, 12)
+    return
+  }
+
   if (isPanelResizing) {
     const deltaX = event.clientX - panelResizeStartX
     syncPanelWidth(panelResizeStartWidth - deltaX)
@@ -3351,6 +3908,13 @@ function onGlobalMouseMove(event) {
 
   if (isMinimapDragging) {
     handleMinimapNavigation(event)
+    return
+  }
+
+  if (obstaclePaintActive) {
+    const cell = getCellFromClient(event.clientX, event.clientY)
+    if (!cell) return
+    applyObstaclePaintAt(cell.x, cell.y, obstaclePaintMode)
     return
   }
 
@@ -3368,6 +3932,10 @@ function onGlobalMouseMove(event) {
 }
 
 function onGlobalMouseUp() {
+  if (compareFloatingDragging) {
+    compareFloatingDragging = false
+  }
+
   if (isPanelResizing) {
     isPanelResizing = false
     document.body.style.cursor = ''
@@ -3375,6 +3943,10 @@ function onGlobalMouseUp() {
 
   if (isMinimapDragging) {
     isMinimapDragging = false
+  }
+
+  if (obstaclePaintActive) {
+    stopObstaclePaint()
   }
 
   if (mapPanCandidate) {
@@ -3390,6 +3962,7 @@ function onGlobalMouseUp() {
 async function tryAutoSchedule() {
   if (dispatchMode.value !== 'auto') return
   if (autoScheduling) return
+  if (obstacleEditMode.value || obstacleLayoutDirty.value) return
   if (!hasIdleAgv() || !hasPendingTask()) return
 
   autoScheduling = true
@@ -3406,7 +3979,10 @@ async function tryAutoSchedule() {
       })
     })
     const scheduleData = await scheduleRes.json()
-    if (!scheduleRes.ok) return
+    if (!scheduleRes.ok) {
+      await fetchTasks()
+      return
+    }
 
     autoPathToStart.value = scheduleData.path_to_start ?? []
     autoPathToEnd.value = scheduleData.path_to_end ?? scheduleData.path ?? []
@@ -3420,7 +3996,7 @@ async function tryAutoSchedule() {
 }
 
 async function deleteTask(task) {
-  if (task.status !== 'pending') return
+  if (!['pending', 'blocked'].includes(task.status)) return
   const ok = window.confirm(t('confirm_delete_task'))
   if (!ok) return
 
@@ -3441,7 +4017,41 @@ async function deleteTask(task) {
   }
 }
 
+async function retryBlockedTaskWithAStar(task) {
+  if (task.status !== 'blocked') return
+
+  try {
+    const res = await fetch(`${API_BASE}/schedule/retry_blocked/${task.id}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        algorithm: 'astar',
+        grid_cols: GRID_COLS,
+        grid_rows: GRID_ROWS
+      })
+    })
+    const data = await res.json()
+    if (!res.ok) {
+      throw new Error(data?.detail || 'Retry task with A* failed')
+    }
+
+    if (data?.queued) {
+      clearAutoPaths()
+      window.alert(t('task_retry_astar_queued'))
+    } else {
+      autoPathToStart.value = data.path_to_start ?? []
+      autoPathToEnd.value = data.path_to_end ?? data.path ?? []
+    }
+    await Promise.all([fetchAgvs(), fetchTasks()])
+  } catch (error) {
+    console.error('Retry blocked task error:', error)
+    window.alert(error instanceof Error ? error.message : String(error))
+    await fetchTasks()
+  }
+}
+
 async function submitTaskPayload(payload) {
+  if (!(await ensureBlockedCellsSynced())) return false
   const hasStages = Array.isArray(payload.stages) && payload.stages.length > 0
   if (hasStages) {
     const normalizedStages = payload.stages
@@ -3461,17 +4071,45 @@ async function submitTaskPayload(payload) {
           isValidGridCoordinate(stage.end_y, GRID_ROWS)
       )
 
-    if (normalizedStages.length === 0) return false
+    if (normalizedStages.length !== payload.stages.length || normalizedStages.length === 0) {
+      window.alert(t('point_form_invalid_coords'))
+      return false
+    }
+    if (
+      normalizedStages.some(
+        stage =>
+          isBlockedCell(stage.start_x, stage.start_y) ||
+          isBlockedCell(stage.end_x, stage.end_y)
+      )
+    ) {
+      window.alert(blockedCellAlertText())
+      return false
+    }
     payload = {
       priority: Number(payload.priority),
       stages: normalizedStages
     }
   } else if (
-    Number.isNaN(payload.start_x) ||
-    Number.isNaN(payload.start_y) ||
-    Number.isNaN(payload.end_x) ||
-    Number.isNaN(payload.end_y)
+    Number.isNaN(Number(payload.start_x)) ||
+    Number.isNaN(Number(payload.start_y)) ||
+    Number.isNaN(Number(payload.end_x)) ||
+    Number.isNaN(Number(payload.end_y))
   ) {
+    window.alert(t('point_form_invalid_coords'))
+    return false
+  } else if (
+    !isValidGridCoordinate(Number(payload.start_x), GRID_COLS) ||
+    !isValidGridCoordinate(Number(payload.start_y), GRID_ROWS) ||
+    !isValidGridCoordinate(Number(payload.end_x), GRID_COLS) ||
+    !isValidGridCoordinate(Number(payload.end_y), GRID_ROWS)
+  ) {
+    window.alert(t('point_form_invalid_coords'))
+    return false
+  } else if (
+    isBlockedCell(Number(payload.start_x), Number(payload.start_y)) ||
+    isBlockedCell(Number(payload.end_x), Number(payload.end_y))
+  ) {
+    window.alert(blockedCellAlertText())
     return false
   }
 
@@ -3486,14 +4124,146 @@ async function submitTaskPayload(payload) {
       throw new Error(data?.detail || 'Create task failed')
     }
     await fetchTasks()
+    let createdTask = data.task
     if (dispatchMode.value === 'auto') {
       await tryAutoSchedule()
+      await fetchTasks()
+      createdTask = tasks.value.find(task => task.id === data.task?.id) ?? data.task
+      if (createdTask?.status === 'blocked') {
+        window.alert(blockedTaskAlertText(createdTask))
+      }
     }
-    return true
+    return createdTask
   } catch (error) {
     console.error('Create task form error:', error)
+    window.alert(error instanceof Error ? error.message : String(error))
     return false
   }
+}
+
+function clearPathCompare() {
+  pathCompareResult.value = null
+  pathCompareError.value = ''
+}
+
+function buildPathComparePayload() {
+  if (taskBuilderMode.value === 'chain') {
+    const stages = taskChainStages.value.map(stage => ({
+      label: String(stage.label ?? '').trim() || null,
+      start_x: Number(stage.start_x),
+      start_y: Number(stage.start_y),
+      end_x: Number(stage.end_x),
+      end_y: Number(stage.end_y)
+    }))
+
+    if (
+      stages.length < 2 ||
+      stages.some(
+        stage =>
+          !isValidGridCoordinate(stage.start_x, GRID_COLS) ||
+          !isValidGridCoordinate(stage.start_y, GRID_ROWS) ||
+          !isValidGridCoordinate(stage.end_x, GRID_COLS) ||
+          !isValidGridCoordinate(stage.end_y, GRID_ROWS)
+      )
+    ) {
+      return null
+    }
+
+    return {
+      stages,
+      grid_cols: GRID_COLS,
+      grid_rows: GRID_ROWS
+    }
+  }
+
+  const payload = {
+    start_x: Number(taskForm.value.start_x),
+    start_y: Number(taskForm.value.start_y),
+    end_x: Number(taskForm.value.end_x),
+    end_y: Number(taskForm.value.end_y),
+    grid_cols: GRID_COLS,
+    grid_rows: GRID_ROWS
+  }
+
+  if (
+    !isValidGridCoordinate(payload.start_x, GRID_COLS) ||
+    !isValidGridCoordinate(payload.start_y, GRID_ROWS) ||
+    !isValidGridCoordinate(payload.end_x, GRID_COLS) ||
+    !isValidGridCoordinate(payload.end_y, GRID_ROWS)
+  ) {
+    return null
+  }
+
+  return payload
+}
+
+async function compareCurrentRoute() {
+  if (!(await ensureBlockedCellsSynced())) {
+    pathCompareError.value = algorithmCompareLocale.value.invalid
+    return
+  }
+  const payload = buildPathComparePayload()
+  if (!payload) {
+    pathCompareError.value = algorithmCompareLocale.value.invalid
+    pathCompareResult.value = null
+    return
+  }
+
+  pathCompareLoading.value = true
+  pathCompareError.value = ''
+  try {
+    const res = await fetch(`${API_BASE}/schedule/compare_path`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    })
+    const data = await res.json()
+    if (!res.ok) {
+      throw new Error(data?.detail || 'Compare path failed')
+    }
+    pathCompareResult.value = data
+  } catch (error) {
+    console.error('Compare path error:', error)
+    pathCompareError.value = error instanceof Error ? error.message : String(error)
+    pathCompareResult.value = null
+  } finally {
+    pathCompareLoading.value = false
+  }
+}
+
+function applyComparedAlgorithm(nextAlgorithm) {
+  algorithm.value = nextAlgorithm
+}
+
+async function openCompareDisplay() {
+  if (compareDisplayMode.value === 'floating') {
+    showFloatingCompare.value = true
+    requestFloatingCompareRefresh()
+    return
+  }
+
+  await scrollToComparePanel()
+  void compareCurrentRoute()
+}
+
+function handleCompareEntryClick() {
+  void openCompareDisplay()
+}
+
+function toggleComparePanelExpanded() {
+  comparePanelExpanded.value = !comparePanelExpanded.value
+}
+
+function closeFloatingCompare() {
+  stopFloatingCompareRefresh()
+  showFloatingCompare.value = false
+}
+
+function startFloatingCompareDrag(event) {
+  if (event.button !== 0) return
+  compareFloatingDragging = true
+  compareFloatingDragOffsetX = event.clientX - compareFloatingX.value
+  compareFloatingDragOffsetY = event.clientY - compareFloatingY.value
 }
 
 async function addTaskFromForm() {
@@ -3652,18 +4422,287 @@ function clearJsonText() {
 }
 
 function onTaskHover(task) {
-  if (task.status !== 'pending') return
+  if (!['pending', 'blocked'].includes(task.status)) return
   if (previewTimer) clearTimeout(previewTimer)
   previewTimer = setTimeout(() => {
     previewTaskId.value = task.id
     previewStart.value = { x: task.start_x, y: task.start_y }
     previewEnd.value = { x: task.end_x, y: task.end_y }
-    previewPath.value = buildSimplePath(task.start_x, task.start_y, task.end_x, task.end_y)
+    previewPath.value = buildPreviewPathByAlgorithm(task.start_x, task.start_y, task.end_x, task.end_y)
   }, 400)
 }
 
 function onTaskLeave() {
   clearPreview()
+}
+
+function setObstacleLayoutStatus(type, message) {
+  obstacleLayoutStatusType.value = type
+  obstacleLayoutStatus.value = message
+}
+
+function obstaclePresetName(preset) {
+  if (!preset?.name) return preset?.key ?? ''
+  if (typeof preset.name === 'string') return preset.name
+  return preset.name[locale.value] ?? preset.name.zh ?? preset.name.en ?? preset.key
+}
+
+function obstaclePresetDescription(preset) {
+  if (!preset?.description) return ''
+  if (typeof preset.description === 'string') return preset.description
+  return (
+    preset.description[locale.value] ??
+    preset.description.zh ??
+    preset.description.en ??
+    ''
+  )
+}
+
+function normalizeBlockedCellList(cells) {
+  return Array.from(new Set(
+    cells
+      .filter(cell => Number.isInteger(cell.x) && Number.isInteger(cell.y))
+      .map(cell => `${cell.x},${cell.y}`)
+  ))
+    .map(key => {
+      const [x, y] = key.split(',').map(Number)
+      return { x, y }
+    })
+    .sort((a, b) => a.x - b.x || a.y - b.y)
+}
+
+function toggleObstacleEditMode() {
+  obstacleEditMode.value = !obstacleEditMode.value
+  if (obstacleEditMode.value) {
+    cancelSelection()
+    clearPreview()
+    cancelTaskChainMapPick(false)
+  }
+}
+
+function toggleBlockedCellAt(x, y) {
+  if (isCellOccupied(x, y)) return
+  const key = blockedCellKey(x, y)
+  if (blockedCellSet.value.has(key)) {
+    blockedCells.value = blockedCells.value.filter(cell => blockedCellKey(cell.x, cell.y) !== key)
+    return
+  }
+  blockedCells.value = normalizeBlockedCellList([...blockedCells.value, { x, y }])
+}
+
+function applyObstaclePaintAt(x, y, mode) {
+  if (isCellOccupied(x, y)) return
+
+  const key = blockedCellKey(x, y)
+  if (obstaclePaintLastKey === key) return
+  obstaclePaintLastKey = key
+
+  if (mode === 'remove') {
+    if (!blockedCellSet.value.has(key)) return
+    blockedCells.value = blockedCells.value.filter(cell => blockedCellKey(cell.x, cell.y) !== key)
+    return
+  }
+
+  if (blockedCellSet.value.has(key)) return
+  blockedCells.value = normalizeBlockedCellList([...blockedCells.value, { x, y }])
+}
+
+function stopObstaclePaint() {
+  obstaclePaintActive = false
+  obstaclePaintLastKey = ''
+}
+
+async function saveBlockedCells() {
+  obstacleMapSaving.value = true
+  try {
+    const res = await fetch(`${API_BASE}/status/map`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        blocked_cells: normalizeBlockedCellList(blockedCells.value),
+        grid_cols: GRID_COLS,
+        grid_rows: GRID_ROWS
+      })
+    })
+    const data = await res.json()
+    if (!res.ok) {
+      throw new Error(data?.detail || 'Save blocked cells failed')
+    }
+    const normalized = normalizeBlockedCellList(data.blocked_cells ?? [])
+    blockedCells.value = normalized
+    syncedBlockedCells.value = normalized
+    clearPreview()
+    cancelSelection()
+    setObstacleLayoutStatus('success', settingsLocale.value.obstacleSaved)
+    return true
+  } catch (error) {
+    console.error('Save blocked cells error:', error)
+    setObstacleLayoutStatus('error', error?.message || 'Save blocked cells failed')
+    return false
+  } finally {
+    obstacleMapSaving.value = false
+  }
+}
+
+async function resetBlockedCellsToDefault() {
+  obstacleMapSaving.value = true
+  try {
+    const res = await fetch(`${API_BASE}/status/map/reset`, {
+      method: 'POST'
+    })
+    const data = await res.json()
+    if (!res.ok) {
+      throw new Error(data?.detail || 'Reset blocked cells failed')
+    }
+    const normalized = normalizeBlockedCellList(data.blocked_cells ?? [])
+    blockedCells.value = normalized
+    syncedBlockedCells.value = normalized
+    clearPreview()
+    cancelSelection()
+    setObstacleLayoutStatus('success', settingsLocale.value.obstacleResetDone)
+    return true
+  } catch (error) {
+    console.error('Reset blocked cells error:', error)
+    setObstacleLayoutStatus('error', error?.message || 'Reset blocked cells failed')
+    return false
+  } finally {
+    obstacleMapSaving.value = false
+  }
+}
+
+async function ensureBlockedCellsSynced() {
+  if (!obstacleLayoutDirty.value) return true
+  return await saveBlockedCells()
+}
+
+async function fetchMapPresets() {
+  try {
+    const res = await fetch(`${API_BASE}/status/map/presets`)
+    if (!res.ok) {
+      throw new Error(`Map preset request failed: ${res.status}`)
+    }
+    const data = await res.json()
+    obstaclePresets.value = Array.isArray(data?.presets) ? data.presets : []
+    if (
+      obstaclePresets.value.length > 0 &&
+      !obstaclePresets.value.some(preset => preset.key === selectedObstaclePreset.value)
+    ) {
+      selectedObstaclePreset.value = obstaclePresets.value[0].key
+    }
+  } catch (error) {
+    console.error('Fetch map presets error:', error)
+    obstaclePresets.value = []
+  }
+}
+
+async function fetchMapLayout() {
+  try {
+    const res = await fetch(`${API_BASE}/status/map`)
+    if (!res.ok) {
+      throw new Error(`Map layout request failed: ${res.status}`)
+    }
+
+    const data = await res.json()
+    if (!Array.isArray(data?.blocked_cells)) {
+      blockedCells.value = [...DEFAULT_BLOCKED_CELLS]
+      syncedBlockedCells.value = [...DEFAULT_BLOCKED_CELLS]
+      return
+    }
+
+    const normalized = normalizeBlockedCellList(
+      data.blocked_cells.map(cell => ({
+        x: Number(cell.x),
+        y: Number(cell.y)
+      }))
+    )
+    blockedCells.value = normalized
+    syncedBlockedCells.value = normalized
+  } catch (error) {
+    console.error('Fetch map layout error:', error)
+    blockedCells.value = [...DEFAULT_BLOCKED_CELLS]
+    syncedBlockedCells.value = [...DEFAULT_BLOCKED_CELLS]
+  }
+}
+
+async function applyObstaclePreset() {
+  if (!selectedObstaclePreset.value) {
+    setObstacleLayoutStatus('error', settingsLocale.value.obstaclePresetNone)
+    return false
+  }
+
+  obstacleMapSaving.value = true
+  try {
+    const res = await fetch(`${API_BASE}/status/map/preset/${selectedObstaclePreset.value}`, {
+      method: 'POST'
+    })
+    const data = await res.json()
+    if (!res.ok) {
+      throw new Error(data?.detail || 'Apply obstacle preset failed')
+    }
+    const normalized = normalizeBlockedCellList(data.blocked_cells ?? [])
+    blockedCells.value = normalized
+    syncedBlockedCells.value = normalized
+    clearPreview()
+    cancelSelection()
+    setObstacleLayoutStatus('success', settingsLocale.value.obstacleApplied)
+    return true
+  } catch (error) {
+    console.error('Apply obstacle preset error:', error)
+    setObstacleLayoutStatus('error', error?.message || 'Apply obstacle preset failed')
+    return false
+  } finally {
+    obstacleMapSaving.value = false
+  }
+}
+
+function downloadObstacleLayout() {
+  const payload = {
+    grid_cols: GRID_COLS,
+    grid_rows: GRID_ROWS,
+    blocked_cells: normalizeBlockedCellList(blockedCells.value)
+  }
+  downloadJsonFile('agv-obstacle-layout.json', JSON.stringify(payload, null, 2))
+}
+
+function triggerObstacleLayoutImport() {
+  obstacleLayoutFileInputRef.value?.click()
+}
+
+async function importObstacleLayout(rawText) {
+  try {
+    const parsed = JSON.parse(rawText)
+    const rawCells = Array.isArray(parsed)
+      ? parsed
+      : Array.isArray(parsed?.blocked_cells)
+        ? parsed.blocked_cells
+        : null
+    if (!rawCells) {
+      throw new Error('Invalid obstacle layout')
+    }
+
+    blockedCells.value = normalizeBlockedCellList(
+      rawCells.map(cell => ({
+        x: Number(cell?.x),
+        y: Number(cell?.y)
+      }))
+    )
+    const saved = await saveBlockedCells()
+    if (saved) {
+      setObstacleLayoutStatus('success', settingsLocale.value.obstacleImported)
+    }
+  } catch (error) {
+    console.error('Import obstacle layout error:', error)
+    setObstacleLayoutStatus('error', error?.message || 'Import obstacle layout failed')
+  }
+}
+
+async function onObstacleLayoutFileChange(event) {
+  const file = event.target.files?.[0]
+  event.target.value = ''
+  if (!file) return
+
+  const text = await file.text()
+  await importObstacleLayout(text)
 }
 
 async function fetchAgvs() {
@@ -3718,7 +4757,20 @@ watch(dispatchMode, mode => {
   }
 })
 
+watch(obstacleEditMode, enabled => {
+  stopObstaclePaint()
+  if (!enabled) return
+  cancelSelection()
+  clearPreview()
+  cancelTaskChainMapPick(false)
+})
+
 watch(taskBuilderMode, mode => {
+  if (shouldAutoRefreshFloatingCompare()) {
+    requestFloatingCompareRefresh()
+  } else {
+    clearPathCompare()
+  }
   if (mode !== 'chain') {
     cancelTaskChainMapPick(false)
   }
@@ -3734,6 +4786,30 @@ watch(taskChainMapPickStageCount, stageCount => {
   endPoint.value = taskChainMapPickPoints.value.at(-1) ?? null
 })
 
+watch(
+  [taskForm, taskChainStages],
+  () => {
+    if (shouldAutoRefreshFloatingCompare()) {
+      requestFloatingCompareRefresh()
+      return
+    }
+    clearPathCompare()
+  },
+  { deep: true }
+)
+
+watch(
+  blockedCells,
+  () => {
+    if (shouldAutoRefreshFloatingCompare()) {
+      requestFloatingCompareRefresh()
+      return
+    }
+    clearPathCompare()
+  },
+  { deep: true }
+)
+
 onMounted(() => {
   loadCustomPoints()
   loadTaskTemplates()
@@ -3742,6 +4818,7 @@ onMounted(() => {
   loadPanelSummaryMode()
   loadTaskQueueView()
   syncPanelWidth()
+  compareFloatingX.value = Math.max((windowWidth.value || 1280) - 440, 520)
   updateMapViewportMetrics(true)
   if (typeof ResizeObserver !== 'undefined') {
     mapResizeObserver = new ResizeObserver(() => {
@@ -3751,6 +4828,8 @@ onMounted(() => {
       mapResizeObserver.observe(mapViewportRef.value)
     }
   }
+  void fetchMapPresets()
+  void fetchMapLayout()
   void refreshState()
   timer = setInterval(() => {
     void refreshState()
@@ -3790,7 +4869,24 @@ watch(panelSummaryMode, () => {
   savePanelSummaryMode()
 })
 
-watch([showAutoPath, showMarkerIcons, showPathArrows, showStatusLegend, showMinimap], () => {
+watch(compareDisplayMode, mode => {
+  if (mode === 'panel') {
+    stopFloatingCompareRefresh()
+    showFloatingCompare.value = false
+  } else {
+    comparePanelExpanded.value = false
+  }
+})
+
+watch(showFloatingCompare, visible => {
+  if (visible) {
+    requestFloatingCompareRefresh()
+    return
+  }
+  stopFloatingCompareRefresh()
+})
+
+watch([showAutoPath, showMarkerIcons, showPathArrows, showStatusLegend, showMinimap, compareDisplayMode, compareFloatingOpacity], () => {
   saveMapDisplaySettings()
 })
 
@@ -3818,7 +4914,9 @@ onBeforeUnmount(() => {
   if (templateApplyClickTimer) clearTimeout(templateApplyClickTimer)
   if (taskBuilderJumpTimer) clearTimeout(taskBuilderJumpTimer)
   if (panelSectionFocusTimer) clearTimeout(panelSectionFocusTimer)
+  stopFloatingCompareRefresh()
   if (mapResizeObserver) mapResizeObserver.disconnect()
+  stopObstaclePaint()
   document.body.style.cursor = ''
   window.removeEventListener('keydown', onKeyDown)
   window.removeEventListener('resize', onWindowResize)
@@ -3902,6 +5000,10 @@ onBeforeUnmount(() => {
         <span class="status-pill-dot" :style="{ backgroundColor: selectedAgv ? statusColor(selectedAgv.status) : '#9e9e9e' }"></span>
         <span class="status-pill-text">{{ toolbarSelectedAgvText }}</span>
       </div>
+
+      <button class="toolbar-compare-entry" type="button" @click="handleCompareEntryClick">
+        {{ compareEntryText }}
+      </button>
     </div>
 
     <p class="toolbar-hint">{{ t('hint') }}</p>
@@ -3974,7 +5076,7 @@ onBeforeUnmount(() => {
         <section
           ref="mapViewportRef"
           class="map"
-          :class="{ panning: isMapPanning }"
+          :class="{ panning: isMapPanning, editing: obstacleEditMode }"
           @mousedown="onMapMouseDown"
           @click="onMapClick"
           @dblclick="onMapDoubleClick"
@@ -4008,6 +5110,18 @@ onBeforeUnmount(() => {
           </div>
 
           <div class="map-stage" :style="mapStageStyle">
+            <div
+              v-for="cell in blockedCells"
+              :key="`blocked-${cell.x}-${cell.y}`"
+              class="blocked-cell"
+              :style="{
+                left: `${cell.x * CELL_SIZE}px`,
+                top: `${cell.y * CELL_SIZE}px`,
+                width: `${CELL_SIZE}px`,
+                height: `${CELL_SIZE}px`
+              }"
+            ></div>
+
             <svg class="path-layer" :width="MAP_WIDTH" :height="MAP_HEIGHT">
               <defs>
                 <marker id="path-arrow-start" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
@@ -4201,6 +5315,113 @@ onBeforeUnmount(() => {
                 </label>
               </div>
               <div class="map-settings-group">
+                <div class="map-settings-subtitle">{{ settingsLocale.obstacleGroup }}</div>
+                <label class="map-setting-row">
+                  <input :checked="obstacleEditMode" type="checkbox" @change="toggleObstacleEditMode" />
+                  <span>{{ settingsLocale.obstacleEdit }}</span>
+                </label>
+                <p class="panel-hint map-settings-hint">{{ settingsLocale.obstacleHint }}</p>
+                <div class="map-settings-select-group">
+                  <label class="map-settings-select-label" for="obstacle-preset-select">
+                    {{ settingsLocale.obstaclePreset }}
+                  </label>
+                  <select
+                    id="obstacle-preset-select"
+                    v-model="selectedObstaclePreset"
+                    class="map-settings-select"
+                  >
+                    <option
+                      v-for="preset in obstaclePresets"
+                      :key="preset.key"
+                      :value="preset.key"
+                    >
+                      {{ obstaclePresetName(preset) }}
+                    </option>
+                  </select>
+                </div>
+                <p v-if="selectedObstaclePresetInfo" class="panel-hint map-settings-hint">
+                  {{ obstaclePresetDescription(selectedObstaclePresetInfo) }}
+                </p>
+                <div class="map-settings-status">
+                  {{ obstacleLayoutDirty ? settingsLocale.obstacleDirty : settingsLocale.obstacleSaved }}
+                </div>
+                <div
+                  v-if="obstacleLayoutStatus"
+                  class="map-settings-status"
+                  :class="`status-${obstacleLayoutStatusType}`"
+                >
+                  {{ obstacleLayoutStatus }}
+                </div>
+                <div class="map-settings-actions">
+                  <button
+                    class="btn-secondary"
+                    type="button"
+                    :disabled="obstacleMapSaving || obstaclePresets.length === 0"
+                    @click="applyObstaclePreset"
+                  >
+                    {{ settingsLocale.obstaclePresetApply }}
+                  </button>
+                  <button
+                    class="btn-secondary"
+                    type="button"
+                    :disabled="obstacleMapSaving || !obstacleLayoutDirty"
+                    @click="saveBlockedCells"
+                  >
+                    {{ settingsLocale.obstacleSave }}
+                  </button>
+                  <button class="btn-ghost" type="button" @click="downloadObstacleLayout">
+                    {{ settingsLocale.obstacleExport }}
+                  </button>
+                  <button class="btn-ghost" type="button" @click="triggerObstacleLayoutImport">
+                    {{ settingsLocale.obstacleImport }}
+                  </button>
+                  <button
+                    class="btn-ghost"
+                    type="button"
+                    :disabled="obstacleMapSaving"
+                    @click="resetBlockedCellsToDefault"
+                  >
+                    {{ settingsLocale.obstacleReset }}
+                  </button>
+                </div>
+                <input
+                  ref="obstacleLayoutFileInputRef"
+                  type="file"
+                  accept="application/json,.json"
+                  class="hidden-file-input"
+                  @change="onObstacleLayoutFileChange"
+                />
+              </div>
+              <div class="map-settings-group">
+                <div class="map-settings-subtitle">{{ settingsLocale.compareGroup }}</div>
+                <div class="map-settings-select-group">
+                  <label class="map-settings-select-label" for="compare-display-mode">
+                    {{ settingsLocale.compareDisplay }}
+                  </label>
+                  <select
+                    id="compare-display-mode"
+                    v-model="compareDisplayMode"
+                    class="map-settings-select"
+                  >
+                    <option value="panel">{{ settingsLocale.compareDisplayPanel }}</option>
+                    <option value="floating">{{ settingsLocale.compareDisplayFloating }}</option>
+                  </select>
+                </div>
+                <div v-if="compareDisplayMode === 'floating'" class="map-settings-select-group">
+                  <label class="map-settings-select-label" for="compare-opacity-range">
+                    {{ settingsLocale.compareOpacity }}
+                  </label>
+                  <input
+                    id="compare-opacity-range"
+                    v-model.number="compareFloatingOpacity"
+                    type="range"
+                    min="0.45"
+                    max="1"
+                    step="0.05"
+                  />
+                </div>
+              </div>
+              <div class="map-settings-group">
                 <div class="map-settings-subtitle">{{ settingsLocale.promptGroup }}</div>
                 <label class="map-setting-row">
                   <input v-model="showStatusLegend" type="checkbox" />
@@ -4227,6 +5448,17 @@ onBeforeUnmount(() => {
               class="minimap-grid"
               :style="{
                 backgroundSize: `${CELL_SIZE * minimapScale}px ${CELL_SIZE * minimapScale}px`
+              }"
+            ></div>
+            <div
+              v-for="cell in blockedCells"
+              :key="`mini-blocked-${cell.x}-${cell.y}`"
+              class="minimap-blocked-cell"
+              :style="{
+                left: `${cell.x * CELL_SIZE * minimapScale}px`,
+                top: `${cell.y * CELL_SIZE * minimapScale}px`,
+                width: `${CELL_SIZE * minimapScale}px`,
+                height: `${CELL_SIZE * minimapScale}px`
               }"
             ></div>
             <svg class="minimap-path-layer" :width="MINIMAP_WIDTH" :height="minimapHeight">
@@ -4380,6 +5612,77 @@ onBeforeUnmount(() => {
                 <p>{{ currentDispatchModeHint }}</p>
               </button>
 
+              <div class="dispatch-summary dispatch-algorithm-note">
+                <span class="dispatch-summary-label">{{ t('algorithm') }}</span>
+                <strong>{{ algorithmText(algorithm) }}</strong>
+                <p>{{ algorithmHintText }}</p>
+              </div>
+
+              <div
+                v-if="compareDisplayMode === 'panel'"
+                ref="comparePanelRef"
+                class="dispatch-summary algorithm-compare-panel"
+              >
+                <div class="algorithm-compare-header">
+                  <div>
+                    <span class="dispatch-summary-label">{{ algorithmCompareLocale.title }}</span>
+                    <strong>{{ taskBuilderMode === 'chain' ? taskChainLocale.title : currentTaskBuilderModeCompactLabel }}</strong>
+                  </div>
+                  <div class="algorithm-compare-actions">
+                    <button class="btn-ghost" type="button" @click="toggleComparePanelExpanded">
+                      {{ comparePanelExpanded ? panelLocale.collapse : panelLocale.expand }}
+                    </button>
+                    <button class="btn-secondary" type="button" :disabled="pathCompareLoading" @click="compareCurrentRoute">
+                      {{ pathCompareLoading ? '...' : algorithmCompareLocale.run }}
+                    </button>
+                    <button
+                      v-if="pathCompareResult || pathCompareError"
+                      class="btn-ghost"
+                      type="button"
+                      @click="clearPathCompare"
+                    >
+                      {{ algorithmCompareLocale.clear }}
+                    </button>
+                  </div>
+                </div>
+                <template v-if="comparePanelExpanded">
+                  <p class="panel-hint">{{ currentCompareHint }}</p>
+                  <div v-if="pathCompareError" class="template-status error">{{ pathCompareError }}</div>
+                  <div v-else-if="pathCompareResult" class="algorithm-compare-grid">
+                    <article
+                      v-for="entry in compareResultEntries"
+                      :key="entry[0]"
+                      class="algorithm-compare-card"
+                      :class="{
+                        active: algorithm === entry[0],
+                        recommended: recommendedCompareAlgorithm === entry[0]
+                      }"
+                    >
+                      <div class="algorithm-compare-card-head">
+                        <strong>{{ algorithmText(entry[0]) }}</strong>
+                        <button class="btn-ghost" type="button" @click="applyComparedAlgorithm(entry[0])">
+                          {{ compareResultBadgeText(entry[0]) }}
+                        </button>
+                      </div>
+                      <div class="task-line">
+                        {{ formatCompareResultStatus(entry[1]) }}
+                      </div>
+                      <div class="task-line">
+                        {{ algorithmCompareLocale.total }}:
+                        {{ entry[1].total_length ?? '--' }}
+                      </div>
+                      <div class="task-line">
+                        {{ algorithmCompareLocale.stages }}:
+                        {{ formatCompareStageLengths(entry[1]) || '--' }}
+                      </div>
+                      <div v-if="entry[1].failed_stage_index !== null" class="task-line task-reason">
+                        {{ algorithmCompareLocale.failedStage }}: {{ Number(entry[1].failed_stage_index) + 1 }}
+                      </div>
+                    </article>
+                  </div>
+                </template>
+              </div>
+
               <div class="task-form task-builder">
                 <div class="task-builder-header">
                   <h2>{{ taskBuilderLocale.title }}</h2>
@@ -4391,14 +5694,37 @@ onBeforeUnmount(() => {
                 <p class="panel-hint">{{ currentTaskBuilderHint }}</p>
                 <p v-if="taskBuilderMode === 'chain'" class="panel-hint">{{ taskChainLocale.priorityHint }}</p>
                 <div class="task-builder-meta">
-                  <label>{{ t('task_priority') }}</label>
-                  <select v-model.number="taskForm.priority">
-                    <option :value="5">5</option>
-                    <option :value="4">4</option>
-                    <option :value="3">3</option>
-                    <option :value="2">2</option>
-                    <option :value="1">1</option>
-                  </select>
+                  <div class="task-builder-meta-group">
+                    <label>{{ t('task_priority') }}</label>
+                    <select v-model.number="taskForm.priority">
+                      <option :value="5">5</option>
+                      <option :value="4">4</option>
+                      <option :value="3">3</option>
+                      <option :value="2">2</option>
+                      <option :value="1">1</option>
+                    </select>
+                  </div>
+                  <div class="task-builder-meta-group">
+                    <label>{{ t('algorithm') }}</label>
+                    <div class="task-builder-algorithm-switch">
+                      <button
+                        class="task-builder-algorithm-button"
+                        :class="{ active: algorithm === 'simple' }"
+                        type="button"
+                        @click="algorithm = 'simple'"
+                      >
+                        {{ t('algo_simple') }}
+                      </button>
+                      <button
+                        class="task-builder-algorithm-button"
+                        :class="{ active: algorithm === 'astar' }"
+                        type="button"
+                        @click="algorithm = 'astar'"
+                      >
+                        {{ t('algo_astar') }}
+                      </button>
+                    </div>
+                  </div>
                 </div>
 
                 <template v-if="taskBuilderMode === 'single'">
@@ -4599,6 +5925,7 @@ onBeforeUnmount(() => {
                         <div v-if="formatTaskCurrentStage(task)" class="task-line">{{ formatTaskCurrentStage(task) }}</div>
                         <div class="task-line">{{ t('task_priority') }}: {{ task.priority }}</div>
                         <div class="task-line">{{ formatTaskAgv(task) }}</div>
+                        <div v-if="formatTaskPathStats(task)" class="task-line">{{ formatTaskPathStats(task) }}</div>
                         <div class="task-line task-reason">
                           {{ t('dispatch_reason') }}: {{ formatDispatchReason(task) }}
                         </div>
@@ -4607,12 +5934,20 @@ onBeforeUnmount(() => {
                         </div>
                         <div class="task-actions">
                           <button
-                            v-if="task.status === 'pending'"
-                            class="btn-delete"
+                            v-if="['pending', 'blocked'].includes(task.status)"
+                            class="btn-delete task-action-button"
                             type="button"
                             @click="deleteTask(task)"
                           >
                             {{ t('delete_task') }}
+                          </button>
+                          <button
+                            v-if="task.status === 'blocked'"
+                            class="btn-secondary task-action-button"
+                            type="button"
+                            @click="retryBlockedTaskWithAStar(task)"
+                          >
+                            {{ t('task_retry_astar') }}
                           </button>
                         </div>
                       </template>
@@ -4947,6 +6282,59 @@ onBeforeUnmount(() => {
           ↑
         </button>
       </aside>
+    </div>
+
+    <div
+      v-if="compareDisplayMode === 'floating' && showFloatingCompare"
+      class="floating-compare-panel"
+      :style="compareFloatingStyle"
+    >
+      <div class="floating-compare-head" @mousedown="startFloatingCompareDrag">
+        <div>
+          <span class="dispatch-summary-label">{{ algorithmCompareLocale.title }}</span>
+          <strong>{{ taskBuilderMode === 'chain' ? taskChainLocale.title : currentTaskBuilderModeCompactLabel }}</strong>
+        </div>
+        <button class="btn-ghost" type="button" @mousedown.stop @click="closeFloatingCompare">×</button>
+      </div>
+      <p class="panel-hint">{{ currentCompareHint }}</p>
+      <div class="algorithm-compare-actions">
+        <button class="btn-secondary" type="button" :disabled="pathCompareLoading" @click="compareCurrentRoute">
+          {{ pathCompareLoading ? '...' : algorithmCompareLocale.run }}
+        </button>
+      </div>
+      <div v-if="pathCompareError" class="template-status error">{{ pathCompareError }}</div>
+      <div v-else-if="pathCompareResult" class="algorithm-compare-grid">
+        <article
+          v-for="entry in compareResultEntries"
+          :key="entry[0]"
+          class="algorithm-compare-card"
+          :class="{
+            active: algorithm === entry[0],
+            recommended: recommendedCompareAlgorithm === entry[0]
+          }"
+        >
+          <div class="algorithm-compare-card-head">
+            <strong>{{ algorithmText(entry[0]) }}</strong>
+            <button class="btn-ghost" type="button" @click="applyComparedAlgorithm(entry[0])">
+              {{ compareResultBadgeText(entry[0]) }}
+            </button>
+          </div>
+          <div class="task-line">
+            {{ formatCompareResultStatus(entry[1]) }}
+          </div>
+          <div class="task-line">
+            {{ algorithmCompareLocale.total }}:
+            {{ entry[1].total_length ?? '--' }}
+          </div>
+          <div class="task-line">
+            {{ algorithmCompareLocale.stages }}:
+            {{ formatCompareStageLengths(entry[1]) || '--' }}
+          </div>
+          <div v-if="entry[1].failed_stage_index !== null" class="task-line task-reason">
+            {{ algorithmCompareLocale.failedStage }}: {{ Number(entry[1].failed_stage_index) + 1 }}
+          </div>
+        </article>
+      </div>
     </div>
   </div>
 </template>

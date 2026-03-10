@@ -1,24 +1,66 @@
 import heapq
 
+from app.utils.warehouse_map import get_blocked_cells
 
-def generate_simple_path(sx: int, sy: int, ex: int, ey: int):
-    path = []
+
+def _trace_simple_candidate(
+    sx: int,
+    sy: int,
+    ex: int,
+    ey: int,
+    axis_order: tuple[str, str],
+    blocked: set[tuple[int, int]],
+):
+    path = [{"x": sx, "y": sy}]
     x, y = sx, sy
 
-    while x != ex or y != ey:
-        path.append({"x": x, "y": y})
+    for axis in axis_order:
+        if axis == "x":
+            while x != ex:
+                x += 1 if ex > x else -1
+                if (x, y) in blocked:
+                    return []
+                path.append({"x": x, "y": y})
+        else:
+            while y != ey:
+                y += 1 if ey > y else -1
+                if (x, y) in blocked:
+                    return []
+                path.append({"x": x, "y": y})
 
-        if x < ex:
-            x += 1
-        elif x > ex:
-            x -= 1
-        elif y < ey:
-            y += 1
-        elif y > ey:
-            y -= 1
-
-    path.append({"x": ex, "y": ey})
     return path
+
+
+def generate_simple_path(
+    sx: int,
+    sy: int,
+    ex: int,
+    ey: int,
+    grid_cols: int,
+    grid_rows: int,
+    blocked: set[tuple[int, int]] | None = None,
+):
+    if blocked is None:
+        blocked = set()
+
+    def in_bounds(x: int, y: int):
+        return 0 <= x < grid_cols and 0 <= y < grid_rows
+
+    if not in_bounds(sx, sy) or not in_bounds(ex, ey):
+        return []
+
+    if (sx, sy) in blocked or (ex, ey) in blocked:
+        return []
+
+    if sx == ex and sy == ey:
+        return [{"x": sx, "y": sy}]
+
+    for axis_order in (("x", "y"), ("y", "x")):
+        path = _trace_simple_candidate(sx, sy, ex, ey, axis_order, blocked)
+        if path:
+            return path
+
+    return []
 
 
 def generate_astar_path(
@@ -55,6 +97,9 @@ def generate_astar_path(
     if not in_bounds(*start) or not in_bounds(*goal):
         return []
 
+    if start in blocked or goal in blocked:
+        return []
+
     open_heap = []
     heapq.heappush(open_heap, (0, start))
     came_from: dict[tuple[int, int], tuple[int, int]] = {}
@@ -89,8 +134,12 @@ def plan_path(
     ey: int,
     grid_cols: int,
     grid_rows: int,
+    blocked: set[tuple[int, int]] | None = None,
 ):
-    if algorithm == "astar":
-        return generate_astar_path(sx, sy, ex, ey, grid_cols, grid_rows)
+    if blocked is None:
+        blocked = get_blocked_cells(grid_cols, grid_rows)
 
-    return generate_simple_path(sx, sy, ex, ey)
+    if algorithm == "astar":
+        return generate_astar_path(sx, sy, ex, ey, grid_cols, grid_rows, blocked)
+
+    return generate_simple_path(sx, sy, ex, ey, grid_cols, grid_rows, blocked)
