@@ -1,8 +1,9 @@
 from datetime import datetime
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from pydantic import BaseModel
 from app.models.task import Task
 from app.api.agv_api import agv_list
+from app.utils.api_error import raise_api_error
 from app.utils.task_chain import build_stage_models, sync_task_stage_fields
 from app.utils.warehouse_map import DEFAULT_GRID_COLS, DEFAULT_GRID_ROWS, get_blocked_cells
 
@@ -59,14 +60,18 @@ def _validate_task_stages(stages, grid_cols: int = DEFAULT_GRID_COLS, grid_rows:
         )
         for x, y, point_type in points:
             if not _is_valid_grid_coordinate(x, grid_cols) or not _is_valid_grid_coordinate(y, grid_rows):
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Stage {index + 1} {point_type} coordinates are outside the grid",
+                raise_api_error(
+                    400,
+                    "stage_out_of_grid",
+                    stage_index=index + 1,
+                    point_type=point_type,
                 )
             if (x, y) in blocked:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Stage {index + 1} {point_type} coordinates are blocked",
+                raise_api_error(
+                    400,
+                    "stage_blocked",
+                    stage_index=index + 1,
+                    point_type=point_type,
                 )
 
 
@@ -102,7 +107,7 @@ def build_task_stages(item: TaskCreateRequest | TaskImportItem):
         return stages
 
     if None in {item.start_x, item.start_y, item.end_x, item.end_y}:
-        raise HTTPException(status_code=400, detail="Task coordinates are required")
+        raise_api_error(400, "task_coordinates_required")
 
     stages = build_stage_models(
         [
@@ -179,14 +184,14 @@ def create_task(req: TaskCreateRequest):
 def finish_task(task_id: int):
     task = next((t for t in task_list if t.id == task_id), None)
     if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
+        raise_api_error(404, "task_not_found")
 
     if task.status != "running":
-        raise HTTPException(status_code=400, detail="Task is not running")
+        raise_api_error(400, "task_not_running")
 
     agv = next((a for a in agv_list if a.id == task.agv_id), None)
     if not agv:
-        raise HTTPException(status_code=404, detail="Related AGV not found")
+        raise_api_error(404, "related_agv_not_found")
 
     task.status = "finished"
     task.finished_at = now_iso()
@@ -249,9 +254,9 @@ def export_tasks():
 def delete_task(task_id: int):
     task = next((t for t in task_list if t.id == task_id), None)
     if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
+        raise_api_error(404, "task_not_found")
     if task.status not in {"pending", "blocked"}:
-        raise HTTPException(status_code=400, detail="Only pending or blocked tasks can be deleted")
+        raise_api_error(400, "task_delete_not_allowed")
 
     task_list.remove(task)
     return {"message": "Task deleted", "task_id": task_id}

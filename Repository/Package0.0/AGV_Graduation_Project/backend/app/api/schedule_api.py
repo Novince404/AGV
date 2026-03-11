@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from app.api.agv_api import agv_list
 from app.api.task_api import task_list
 from app.utils.agv_movement import move_agv
+from app.utils.api_error import raise_api_error
 from app.utils.path_planner import plan_path
 from app.utils.task_chain import (
     get_current_stage,
@@ -66,10 +67,7 @@ def _validate_stage_bounds(stages: list[dict], grid_cols: int, grid_rows: int):
             or not _is_valid_grid_coordinate(stage["end_x"], grid_cols)
             or not _is_valid_grid_coordinate(stage["end_y"], grid_rows)
         ):
-            raise HTTPException(
-                status_code=400,
-                detail=f"Stage {stage['index'] + 1} coordinates are outside the grid",
-            )
+            raise_api_error(400, "stage_out_of_grid", stage_index=stage["index"] + 1)
 
 
 def _mark_task_unreachable(task, algorithm: str, reason: str):
@@ -79,7 +77,7 @@ def _mark_task_unreachable(task, algorithm: str, reason: str):
 def _normalize_algorithm_name(algorithm: str | None):
     normalized = (algorithm or "simple").lower().strip()
     if normalized not in {"simple", "astar"}:
-        raise HTTPException(status_code=400, detail="Unsupported algorithm")
+        raise_api_error(400, "unsupported_algorithm")
     return normalized
 
 
@@ -94,10 +92,10 @@ def _select_schedulable_task(task_id: int | None):
     if task_id is not None:
         task = next((t for t in task_list if t.id == task_id), None)
         if not task:
-            raise HTTPException(status_code=404, detail="Task not found")
+            raise_api_error(404, "task_not_found")
         sync_task_stage_fields(task)
         if task.status not in {"pending", "blocked"}:
-            raise HTTPException(status_code=400, detail="Task is not schedulable")
+            raise_api_error(400, "task_not_schedulable")
         return task
     return None
 
@@ -106,14 +104,14 @@ def _select_idle_agv(agv_id: int | None):
     if agv_id is not None:
         agv = next((a for a in agv_list if a.id == agv_id), None)
         if not agv:
-            raise HTTPException(status_code=404, detail="AGV not found")
+            raise_api_error(404, "agv_not_found")
         if agv.status != "idle":
-            raise HTTPException(status_code=400, detail="AGV is not idle")
+            raise_api_error(400, "agv_not_idle")
         return agv
 
     idle_agv = next((a for a in agv_list if a.status == "idle"), None)
     if not idle_agv:
-        raise HTTPException(status_code=400, detail="No idle AGV")
+        raise_api_error(400, "no_idle_agv")
     return idle_agv
 
 
@@ -284,14 +282,14 @@ def _pick_task_and_agv_resolved(
                 _mark_task_unreachable(
                     task,
                     task_algorithm,
-                    f"Task start is unreachable for AGV with algorithm {task_algorithm}",
+                    f"task_start_unreachable:{task_algorithm}",
                 )
-                raise HTTPException(status_code=400, detail="Task unreachable with current algorithm")
+                raise_api_error(400, "task_start_unreachable", algorithm=task_algorithm)
             return task, agv, distance, task_algorithm
 
         idle_agvs = _get_idle_agvs()
         if not idle_agvs:
-            raise HTTPException(status_code=400, detail="No idle AGV")
+            raise_api_error(400, "no_idle_agv")
 
         best_agv = None
         best_distance = None
@@ -315,18 +313,18 @@ def _pick_task_and_agv_resolved(
             _mark_task_unreachable(
                 task,
                 task_algorithm,
-                f"No idle AGV can reach the task start with algorithm {task_algorithm}",
+                f"task_start_unreachable:{task_algorithm}",
             )
-            raise HTTPException(status_code=400, detail="Task unreachable with current algorithm")
+            raise_api_error(400, "task_start_unreachable", algorithm=task_algorithm)
         return task, best_agv, best_distance, task_algorithm
 
     pending_tasks = _get_pending_tasks()
     if not pending_tasks:
-        raise HTTPException(status_code=400, detail="No pending tasks")
+        raise_api_error(400, "no_pending_tasks")
 
     idle_agvs = _get_idle_agvs()
     if not idle_agvs:
-        raise HTTPException(status_code=400, detail="No idle AGV")
+        raise_api_error(400, "no_idle_agv")
 
     if agv_id is not None:
         agv = _select_idle_agv(agv_id)
@@ -354,7 +352,7 @@ def _pick_task_and_agv_resolved(
                 best_distance = distance
                 best_algorithm = task_algorithm
         if best_task is None:
-            raise HTTPException(status_code=400, detail="No reachable tasks")
+            raise_api_error(400, "no_reachable_tasks")
         return best_task, agv, best_distance, best_algorithm
 
     best_pair = None
@@ -390,11 +388,11 @@ def _pick_task_and_agv_resolved(
             _mark_task_unreachable(
                 pending_task,
                 task_algorithm,
-                f"No idle AGV can reach the task start with algorithm {task_algorithm}",
+                f"task_start_unreachable:{task_algorithm}",
             )
 
     if best_pair is None:
-        raise HTTPException(status_code=400, detail="No reachable tasks")
+        raise_api_error(400, "no_reachable_tasks")
     return best_pair[0], best_pair[1], best_distance, best_algorithm
 
 
@@ -415,7 +413,7 @@ def _build_compare_stages(req: PathCompareRequest):
         return stages
 
     if None in {req.start_x, req.start_y, req.end_x, req.end_y}:
-        raise HTTPException(status_code=400, detail="Task coordinates are required")
+        raise_api_error(400, "task_coordinates_required")
 
     stages = [
         {
@@ -531,10 +529,10 @@ def _schedule_task(
         _mark_task_unreachable(
             task,
             task_algorithm,
-            f"当前算法 {algorithm} 下，任务路径不可达，请切换算法或修改点位",
+            f"task_route_unreachable:{task_algorithm}",
         )
-        task.dispatch_reason = f"Task route is unreachable with algorithm {task_algorithm}"
-        raise HTTPException(status_code=400, detail="Task route unreachable with current algorithm")
+        task.dispatch_reason = f"task_route_unreachable:{task_algorithm}"
+        raise_api_error(400, "task_route_unreachable", algorithm=task_algorithm)
 
     task.status = "assigned"
     task.agv_id = agv.id
@@ -637,15 +635,15 @@ def compare_path(req: PathCompareRequest):
 def retry_blocked_task(task_id: int, req: RetryBlockedTaskRequest):
     algorithm = _normalize_algorithm_name(req.algorithm)
     if algorithm != "astar":
-        raise HTTPException(status_code=400, detail="Blocked task retry only supports A*")
+        raise_api_error(400, "blocked_retry_requires_astar")
 
     task = next((t for t in task_list if t.id == task_id), None)
     if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
+        raise_api_error(404, "task_not_found")
 
     sync_task_stage_fields(task)
     if task.status != "blocked":
-        raise HTTPException(status_code=400, detail="Task is not blocked")
+        raise_api_error(400, "task_not_blocked")
 
     task.dispatch_algorithm = algorithm
 
@@ -653,7 +651,7 @@ def retry_blocked_task(task_id: int, req: RetryBlockedTaskRequest):
         mark_task_pending(task)
         task.dispatch_algorithm = algorithm
         task.dispatch_mode = "manual"
-        task.dispatch_reason = "Switched to A* and waiting for an idle AGV"
+        task.dispatch_reason = "retry_waiting_for_idle_agv:astar"
         return {
             "message": "Task queued for A* retry",
             "queued": True,

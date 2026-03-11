@@ -120,6 +120,7 @@ const layoutRef = ref(null)
 const mapViewportRef = ref(null)
 const minimapRef = ref(null)
 const panelRef = ref(null)
+const compareEntryButtonRef = ref(null)
 const controlSectionRef = ref(null)
 const comparePanelRef = ref(null)
 const queueSectionRef = ref(null)
@@ -269,6 +270,7 @@ const messages = {
     json_import_fail: '导入失败',
     queue_pending: '待分配队列',
     queue_blocked: '不可达队列',
+    queue_retry_all_astar: '一键 A*',
     queue_assigned: '已分配队列',
     queue_running: '执行队列',
     queue_finished: '完成队列',
@@ -408,6 +410,7 @@ const messages = {
     json_import_fail: '取込失敗',
     queue_pending: '未割当キュー',
     queue_blocked: '到達不可キュー',
+    queue_retry_all_astar: '一括 A*',
     queue_assigned: '割当済キュー',
     queue_running: '実行キュー',
     queue_finished: '完了キュー',
@@ -547,6 +550,7 @@ const messages = {
     json_import_fail: 'Import failed',
     queue_pending: 'Pending Queue',
     queue_blocked: 'Blocked Queue',
+    queue_retry_all_astar: 'Retry All with A*',
     queue_assigned: 'Assigned Queue',
     queue_running: 'Running Queue',
     queue_finished: 'Finished Queue',
@@ -737,6 +741,209 @@ const DEFAULT_TASK_TEMPLATES = [
 ]
 
 const t = key => messages[locale.value]?.[key] ?? messages.en[key] ?? key
+
+const API_POINT_TEXT = {
+  zh: {
+    start: '起点',
+    end: '终点'
+  },
+  ja: {
+    start: '開始点',
+    end: '終了点'
+  },
+  en: {
+    start: 'start point',
+    end: 'end point'
+  }
+}
+
+const API_ALGORITHM_TEXT = {
+  zh: {
+    simple: '直线路径',
+    astar: 'A*'
+  },
+  ja: {
+    simple: '直線経路',
+    astar: 'A*'
+  },
+  en: {
+    simple: 'simple',
+    astar: 'A*'
+  }
+}
+
+const API_ERROR_TEXT = {
+  zh: {
+    stage_out_of_grid: '第 {stage} 阶段的{point}坐标超出地图范围。',
+    stage_blocked: '第 {stage} 阶段的{point}位于障碍格，无法使用。',
+    task_coordinates_required: '请填写完整的任务坐标。',
+    task_not_found: '未找到任务。',
+    task_not_schedulable: '该任务当前不可调度。',
+    task_not_running: '该任务当前不在运行中。',
+    related_agv_not_found: '未找到关联的 AGV。',
+    task_delete_not_allowed: '仅可删除待分配或不可达任务。',
+    agv_not_found: '未找到 AGV。',
+    agv_not_idle: '该 AGV 当前不是空闲状态。',
+    no_idle_agv: '当前没有空闲 AGV。',
+    no_pending_tasks: '当前没有可调度任务。',
+    no_reachable_tasks: '当前没有可达任务。',
+    task_start_unreachable: '当前算法 {algorithm} 下，没有空闲 AGV 可以到达任务起点。',
+    task_route_unreachable: '当前算法 {algorithm} 下，任务路径不可达，请切换算法或修改点位。',
+    unsupported_algorithm: '不支持的路径算法。',
+    blocked_retry_requires_astar: '不可达任务仅支持使用 A* 重试。',
+    task_not_blocked: '该任务当前不在不可达队列中。',
+    preset_not_found: '未找到对应的障碍预设。',
+    retry_waiting_for_idle_agv: '任务已切换为 {algorithm}，将在 AGV 空闲后自动重试。'
+  },
+  ja: {
+    stage_out_of_grid: '第 {stage} 段階の{point}座標がマップ範囲外です。',
+    stage_blocked: '第 {stage} 段階の{point}が障害物セル上にあります。',
+    task_coordinates_required: 'タスク座標をすべて入力してください。',
+    task_not_found: 'タスクが見つかりません。',
+    task_not_schedulable: 'このタスクは現在スケジュールできません。',
+    task_not_running: 'このタスクは現在実行中ではありません。',
+    related_agv_not_found: '関連する AGV が見つかりません。',
+    task_delete_not_allowed: '未割当または不可達タスクのみ削除できます。',
+    agv_not_found: 'AGV が見つかりません。',
+    agv_not_idle: 'この AGV は現在待機状態ではありません。',
+    no_idle_agv: '現在、空き AGV がありません。',
+    no_pending_tasks: '現在、スケジュール可能なタスクがありません。',
+    no_reachable_tasks: '現在、到達可能なタスクがありません。',
+    task_start_unreachable: '現在の {algorithm} では、タスク開始点に到達できる空き AGV がありません。',
+    task_route_unreachable: '現在の {algorithm} ではタスク経路が到達不能です。アルゴリズムまたは点位を変更してください。',
+    unsupported_algorithm: '未対応の経路アルゴリズムです。',
+    blocked_retry_requires_astar: '不可達タスクの再試行は A* のみ対応しています。',
+    task_not_blocked: 'このタスクは不可達キューにありません。',
+    preset_not_found: '指定した障害物プリセットが見つかりません。',
+    retry_waiting_for_idle_agv: 'タスクを {algorithm} に切り替えました。AGV が空き次第、自動で再試行します。'
+  },
+  en: {
+    stage_out_of_grid: 'Stage {stage} {point} is outside the map bounds.',
+    stage_blocked: 'Stage {stage} {point} is on a blocked cell.',
+    task_coordinates_required: 'Task coordinates are required.',
+    task_not_found: 'Task not found.',
+    task_not_schedulable: 'This task cannot be scheduled right now.',
+    task_not_running: 'This task is not running.',
+    related_agv_not_found: 'Related AGV not found.',
+    task_delete_not_allowed: 'Only pending or blocked tasks can be deleted.',
+    agv_not_found: 'AGV not found.',
+    agv_not_idle: 'The selected AGV is not idle.',
+    no_idle_agv: 'No idle AGV is available.',
+    no_pending_tasks: 'No schedulable tasks are available.',
+    no_reachable_tasks: 'No reachable tasks are available.',
+    task_start_unreachable: 'No idle AGV can reach the task start with algorithm {algorithm}.',
+    task_route_unreachable: 'The task route is unreachable with algorithm {algorithm}.',
+    unsupported_algorithm: 'Unsupported path algorithm.',
+    blocked_retry_requires_astar: 'Blocked task retry only supports A*.',
+    task_not_blocked: 'This task is not in the blocked queue.',
+    preset_not_found: 'Obstacle preset not found.',
+    retry_waiting_for_idle_agv: 'The task has been switched to {algorithm} and will retry automatically when an AGV becomes idle.'
+  }
+}
+
+function fillTemplate(template, variables = {}) {
+  return String(template ?? '').replace(/\{(\w+)\}/g, (_, key) => String(variables[key] ?? ''))
+}
+
+function apiPointText(pointType) {
+  return (
+    API_POINT_TEXT[locale.value]?.[pointType] ??
+    API_POINT_TEXT.en[pointType] ??
+    String(pointType ?? '')
+  )
+}
+
+function apiAlgorithmText(algorithmName) {
+  return (
+    API_ALGORITHM_TEXT[locale.value]?.[algorithmName] ??
+    API_ALGORITHM_TEXT.en[algorithmName] ??
+    String(algorithmName ?? '')
+  )
+}
+
+function localizeApiErrorDetail(detail, fallbackMessage = '') {
+  const fallback = fallbackMessage || ''
+
+  if (detail && typeof detail === 'object' && !Array.isArray(detail) && detail.error_code) {
+    const template =
+      API_ERROR_TEXT[locale.value]?.[detail.error_code] ??
+      API_ERROR_TEXT.en[detail.error_code] ??
+      fallback
+
+    return fillTemplate(template, {
+      stage: detail.stage_index ?? '',
+      point: apiPointText(detail.point_type),
+      algorithm: apiAlgorithmText(detail.algorithm)
+    })
+  }
+
+  if (typeof detail === 'string') {
+    const sentinel = localizeDispatchReason(detail)
+    if (sentinel) return sentinel
+
+    const legacyMatches = [
+      [/^Task coordinates are required$/i, 'task_coordinates_required'],
+      [/^Task not found$/i, 'task_not_found'],
+      [/^Task is not blocked$/i, 'task_not_blocked'],
+      [/^Blocked task retry only supports A\*$/i, 'blocked_retry_requires_astar'],
+      [/^No idle AGV$/i, 'no_idle_agv'],
+      [/^No pending tasks$/i, 'no_pending_tasks'],
+      [/^No reachable tasks$/i, 'no_reachable_tasks'],
+      [/^Task route unreachable with current algorithm$/i, 'task_route_unreachable'],
+      [/^Preset not found$/i, 'preset_not_found']
+    ]
+
+    for (const [pattern, errorCode] of legacyMatches) {
+      if (pattern.test(detail)) {
+        return (
+          API_ERROR_TEXT[locale.value]?.[errorCode] ??
+          API_ERROR_TEXT.en[errorCode] ??
+          fallback
+        )
+      }
+    }
+
+    const startUnreachableMatch = detail.match(
+      /^No idle AGV can reach the task start with algorithm (simple|astar)$/i
+    )
+    if (startUnreachableMatch) {
+      const algorithmName = startUnreachableMatch[1].toLowerCase()
+      return fillTemplate(
+        API_ERROR_TEXT[locale.value]?.task_start_unreachable ??
+          API_ERROR_TEXT.en.task_start_unreachable,
+        { algorithm: apiAlgorithmText(algorithmName) }
+      )
+    }
+
+    return detail
+  }
+
+  return fallback
+}
+
+function localizeDispatchReason(reason) {
+  if (!reason || typeof reason !== 'string') return ''
+
+  const [errorCode, rawAlgorithm] = reason.split(':')
+  if (!rawAlgorithm) return ''
+
+  if (!['task_start_unreachable', 'task_route_unreachable', 'retry_waiting_for_idle_agv'].includes(errorCode)) {
+    return ''
+  }
+
+  const template =
+    API_ERROR_TEXT[locale.value]?.[errorCode] ??
+    API_ERROR_TEXT.en[errorCode] ??
+    ''
+
+  return fillTemplate(template, {
+    algorithm: apiAlgorithmText(rawAlgorithm.toLowerCase())
+  })
+}
+
+function createApiError(payload, fallbackMessage = '') {
+  return new Error(localizeApiErrorDetail(payload?.detail, fallbackMessage))
+}
 
 const selectedAgv = computed(() => {
   if (!selectedAgvId.value) return null
@@ -2188,11 +2395,15 @@ function formatTaskCompactSummary(task) {
 }
 
 function formatDispatchReason(task) {
+  if (task.status === 'pending' && task.dispatch_reason) {
+    const localizedReason = localizeDispatchReason(task.dispatch_reason)
+    if (localizedReason) return localizedReason
+  }
   if (!task.dispatch_mode && task.status === 'pending') {
     return t('dispatch_waiting')
   }
   if (task.status === 'blocked' && task.dispatch_reason) {
-    return task.dispatch_reason
+    return localizeDispatchReason(task.dispatch_reason) || task.dispatch_reason
   }
   if (task.status === 'blocked') {
     return t('dispatch_blocked')
@@ -2242,7 +2453,7 @@ function formatTaskPathStats(task) {
 }
 
 function blockedTaskAlertText(task) {
-  return task?.dispatch_reason || t('task_blocked_alert')
+  return localizeDispatchReason(task?.dispatch_reason) || task?.dispatch_reason || t('task_blocked_alert')
 }
 
 function buildTaskChainPayloadFromPoints(points) {
@@ -2656,6 +2867,27 @@ function requestFloatingCompareRefresh() {
     }
     void compareCurrentRoute()
   }, 360)
+}
+
+function positionFloatingCompareBelowEntry() {
+  const button = compareEntryButtonRef.value
+  if (!button || typeof window === 'undefined') return
+
+  const rect = button.getBoundingClientRect()
+  const floatingWidth = Math.min(360, Math.max(window.innerWidth - 24, 240))
+  const maxX = Math.max(window.innerWidth - floatingWidth - 12, 12)
+  compareFloatingX.value = Math.min(Math.max(rect.left, 12), maxX)
+  compareFloatingY.value = Math.max(rect.bottom + 10, 12)
+}
+
+function buildBlockedBatchRetrySummary(total, scheduledCount, queuedCount, failedCount) {
+  if (locale.value === 'ja') {
+    return `到達不可タスク ${total} 件を処理しました。即時再試行 ${scheduledCount} 件、待機 ${queuedCount} 件、失敗 ${failedCount} 件。`
+  }
+  if (locale.value === 'zh') {
+    return `已处理 ${total} 个不可达任务：立即重试 ${scheduledCount} 个，等待空闲 AGV ${queuedCount} 个，失败 ${failedCount} 个。`
+  }
+  return `Processed ${total} blocked tasks: ${scheduledCount} retried now, ${queuedCount} queued, ${failedCount} failed.`
 }
 
 function clearPanelSearch() {
@@ -3364,14 +3596,18 @@ function focusMapAtWorld(worldX, worldY) {
 
 function getMapPointFromClient(clientX, clientY) {
   const rect = mapViewportRef.value?.getBoundingClientRect()
-  if (!rect) return { x: 0, y: 0 }
+  if (!rect) return null
 
   const worldX = (clientX - rect.left - mapOffsetX.value) / mapZoom.value
   const worldY = (clientY - rect.top - mapOffsetY.value) / mapZoom.value
 
+  if (worldX < 0 || worldX >= MAP_WIDTH || worldY < 0 || worldY >= MAP_HEIGHT) {
+    return null
+  }
+
   return {
-    x: clampValue(worldX, 0, MAP_WIDTH - 1),
-    y: clampValue(worldY, 0, MAP_HEIGHT - 1)
+    x: worldX,
+    y: worldY
   }
 }
 
@@ -3387,6 +3623,7 @@ function getWorldPointFromMinimapEvent(event) {
 
 function getCellFromEvent(event) {
   const point = getMapPointFromClient(event.clientX, event.clientY)
+  if (!point) return null
   return {
     x: clampValue(Math.floor(point.x / CELL_SIZE), 0, GRID_COLS - 1),
     y: clampValue(Math.floor(point.y / CELL_SIZE), 0, GRID_ROWS - 1)
@@ -3401,6 +3638,7 @@ function getCellFromClient(clientX, clientY) {
   }
 
   const point = getMapPointFromClient(clientX, clientY)
+  if (!point) return null
   return {
     x: clampValue(Math.floor(point.x / CELL_SIZE), 0, GRID_COLS - 1),
     y: clampValue(Math.floor(point.y / CELL_SIZE), 0, GRID_ROWS - 1)
@@ -3526,6 +3764,7 @@ function onMapMouseDown(event) {
   if (obstacleEditMode.value) {
     event.preventDefault()
     const cell = getCellFromEvent(event)
+    if (!cell) return
     obstaclePaintMode = isBlockedCell(cell.x, cell.y) ? 'remove' : 'add'
     obstaclePaintActive = true
     obstaclePaintLastKey = ''
@@ -3565,7 +3804,9 @@ function onMapDoubleClick(event) {
     clickTimer = null
   }
 
-  const { x, y } = getCellFromEvent(event)
+  const cell = getCellFromEvent(event)
+  if (!cell) return
+  const { x, y } = cell
   if (isBlockedCell(x, y)) {
     window.alert(blockedCellAlertText())
     return
@@ -3587,7 +3828,9 @@ function onMapClick(event) {
     return
   }
   if (clickTimer) return
-  const { x, y } = getCellFromEvent(event)
+  const cell = getCellFromEvent(event)
+  if (!cell) return
+  const { x, y } = cell
   clickTimer = setTimeout(() => {
     clickTimer = null
     handleSingleClick(x, y)
@@ -3758,7 +4001,7 @@ async function createTaskAndSchedule(agvId) {
     })
     const createData = await createRes.json()
     if (!createRes.ok) {
-      throw new Error(createData?.detail || 'Task create failed')
+      throw createApiError(createData, 'Task create failed')
     }
 
     await fetchTasks()
@@ -3781,8 +4024,8 @@ async function createTaskAndSchedule(agvId) {
         const latestTask = tasks.value.find(task => task.id === createData.task.id)
         if (latestTask?.status === 'blocked') {
           window.alert(blockedTaskAlertText(latestTask))
-        } else if (String(scheduleData?.detail ?? '').toLowerCase().includes('unreachable')) {
-          window.alert(t('task_manual_unreachable'))
+        } else {
+          window.alert(localizeApiErrorDetail(scheduleData?.detail, t('task_manual_unreachable')))
         }
         clearAutoMarkers()
         return
@@ -3808,7 +4051,7 @@ async function createTaskAndSchedule(agvId) {
     })
     const scheduleData = await scheduleRes.json()
     if (!scheduleRes.ok) {
-      throw new Error(scheduleData?.detail || 'Schedule failed')
+      throw createApiError(scheduleData, 'Schedule failed')
     }
 
     startPoint.value = {
@@ -4006,7 +4249,7 @@ async function deleteTask(task) {
     })
     const data = await res.json()
     if (!res.ok) {
-      throw new Error(data?.detail || 'Delete failed')
+      throw createApiError(data, 'Delete failed')
     }
     if (previewTaskId.value === task.id) {
       clearPreview()
@@ -4032,7 +4275,7 @@ async function retryBlockedTaskWithAStar(task) {
     })
     const data = await res.json()
     if (!res.ok) {
-      throw new Error(data?.detail || 'Retry task with A* failed')
+      throw createApiError(data, 'Retry task with A* failed')
     }
 
     if (data?.queued) {
@@ -4048,6 +4291,48 @@ async function retryBlockedTaskWithAStar(task) {
     window.alert(error instanceof Error ? error.message : String(error))
     await fetchTasks()
   }
+}
+
+async function retryAllBlockedTasksWithAStar(taskGroup) {
+  const blockedTasks = (taskGroup?.tasks ?? []).filter(task => task.status === 'blocked')
+  if (blockedTasks.length === 0) return
+
+  let scheduledCount = 0
+  let queuedCount = 0
+  let failedCount = 0
+
+  for (const task of blockedTasks) {
+    try {
+      const res = await fetch(`${API_BASE}/schedule/retry_blocked/${task.id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          algorithm: 'astar',
+          grid_cols: GRID_COLS,
+          grid_rows: GRID_ROWS
+        })
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        failedCount += 1
+        continue
+      }
+
+      if (data?.queued) {
+        queuedCount += 1
+      } else {
+        scheduledCount += 1
+        autoPathToStart.value = data.path_to_start ?? []
+        autoPathToEnd.value = data.path_to_end ?? data.path ?? []
+      }
+    } catch (error) {
+      console.error('Retry all blocked tasks error:', error)
+      failedCount += 1
+    }
+  }
+
+  await Promise.all([fetchAgvs(), fetchTasks()])
+  window.alert(buildBlockedBatchRetrySummary(blockedTasks.length, scheduledCount, queuedCount, failedCount))
 }
 
 async function submitTaskPayload(payload) {
@@ -4121,7 +4406,7 @@ async function submitTaskPayload(payload) {
     })
     const data = await res.json()
     if (!res.ok) {
-      throw new Error(data?.detail || 'Create task failed')
+      throw createApiError(data, 'Create task failed')
     }
     await fetchTasks()
     let createdTask = data.task
@@ -4219,7 +4504,7 @@ async function compareCurrentRoute() {
     })
     const data = await res.json()
     if (!res.ok) {
-      throw new Error(data?.detail || 'Compare path failed')
+      throw createApiError(data, 'Compare path failed')
     }
     pathCompareResult.value = data
   } catch (error) {
@@ -4238,6 +4523,8 @@ function applyComparedAlgorithm(nextAlgorithm) {
 async function openCompareDisplay() {
   if (compareDisplayMode.value === 'floating') {
     showFloatingCompare.value = true
+    await nextTick()
+    positionFloatingCompareBelowEntry()
     requestFloatingCompareRefresh()
     return
   }
@@ -4389,7 +4676,7 @@ async function importTasksFromJson() {
     })
     const data = await res.json()
     if (!res.ok) {
-      throw new Error(data?.detail || 'Import failed')
+      throw createApiError(data, 'Import failed')
     }
     jsonStatus.value = t('json_import_ok')
     await fetchTasks()
@@ -4408,7 +4695,7 @@ async function exportTasksToJson() {
     const res = await fetch(`${API_BASE}/task/export_json`)
     const data = await res.json()
     if (!res.ok) {
-      throw new Error(data?.detail || 'Export failed')
+      throw createApiError(data, 'Export failed')
     }
     jsonText.value = JSON.stringify(data, null, 2)
   } catch (error) {
@@ -4526,7 +4813,7 @@ async function saveBlockedCells() {
     })
     const data = await res.json()
     if (!res.ok) {
-      throw new Error(data?.detail || 'Save blocked cells failed')
+      throw createApiError(data, 'Save blocked cells failed')
     }
     const normalized = normalizeBlockedCellList(data.blocked_cells ?? [])
     blockedCells.value = normalized
@@ -4552,7 +4839,7 @@ async function resetBlockedCellsToDefault() {
     })
     const data = await res.json()
     if (!res.ok) {
-      throw new Error(data?.detail || 'Reset blocked cells failed')
+      throw createApiError(data, 'Reset blocked cells failed')
     }
     const normalized = normalizeBlockedCellList(data.blocked_cells ?? [])
     blockedCells.value = normalized
@@ -4637,7 +4924,7 @@ async function applyObstaclePreset() {
     })
     const data = await res.json()
     if (!res.ok) {
-      throw new Error(data?.detail || 'Apply obstacle preset failed')
+      throw createApiError(data, 'Apply obstacle preset failed')
     }
     const normalized = normalizeBlockedCellList(data.blocked_cells ?? [])
     blockedCells.value = normalized
@@ -5001,7 +5288,7 @@ onBeforeUnmount(() => {
         <span class="status-pill-text">{{ toolbarSelectedAgvText }}</span>
       </div>
 
-      <button class="toolbar-compare-entry" type="button" @click="handleCompareEntryClick">
+      <button ref="compareEntryButtonRef" class="toolbar-compare-entry" type="button" @click="handleCompareEntryClick">
         {{ compareEntryText }}
       </button>
     </div>
@@ -5871,6 +6158,14 @@ onBeforeUnmount(() => {
 
                   <template v-if="!isQueueGroupCollapsed(group.key)">
                     <div v-if="group.tasks.length > 0" class="queue-bulk-actions" :class="{ prominent: group.key === 'finished' }">
+                      <button
+                        v-if="group.key === 'blocked'"
+                        class="queue-bulk-button"
+                        type="button"
+                        @click="retryAllBlockedTasksWithAStar(group)"
+                      >
+                        {{ t('queue_retry_all_astar') }}
+                      </button>
                       <button
                         class="queue-bulk-button"
                         type="button"

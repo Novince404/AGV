@@ -1,5 +1,6 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from pydantic import BaseModel
+from app.utils.api_error import raise_api_error
 from app.utils.status_map import AGV_STATUS_COLOR, TASK_STATUS_COLOR
 from app.utils.warehouse_map import (
     apply_map_preset,
@@ -71,7 +72,7 @@ def apply_map_layout_preset(preset_key: str):
     try:
         updated = apply_map_preset(preset_key)
     except KeyError:
-        raise HTTPException(status_code=404, detail="Preset not found")
+        raise_api_error(404, "preset_not_found")
 
     return {
         "message": "Map preset applied",
