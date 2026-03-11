@@ -3,6 +3,7 @@ AGV_STATUS_COLOR = {
     "running": "#4caf50",
     "fault": "#f44336",
     "relocating": "#ff9800",
+    "emergency_stop": "#8e2430",
 }
 
 TASK_STATUS_COLOR = {

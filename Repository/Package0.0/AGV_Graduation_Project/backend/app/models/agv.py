@@ -6,3 +6,4 @@ class AGV(BaseModel):
     y: int
     status: str
     task_id: int | None = None
+    active_fault_event_id: int | None = None

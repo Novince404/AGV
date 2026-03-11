@@ -1,5 +1,25 @@
 # Changelog
 
+## v1.4.0 - 2026-03-11
+
+### Added
+- Added AGV emergency-stop, resume, fault report, fault list, and fault resolve support.
+- Added a fault-event panel and AGV control actions in the frontend sidebar.
+- Added AGV status legend layout and opacity settings.
+- Added locale modules under `src/locales/` to externalize frontend multilingual text.
+- Added a minimal AGV cell-occupancy guard to avoid multiple AGVs entering the same grid cell at the same time.
+
+### Improved
+- Improved manual-dispatch cleanup so selected AGV, markers, and preview paths clear automatically after task completion.
+- Improved auto-dispatch task creation flow to avoid false “task not schedulable” conflicts caused by scheduling race conditions.
+- Improved frontend selection controls and retained fault/emergency controls on the selected AGV card.
+- Improved dispatch-reason localization, including AGV fault stop, emergency stop, and occupied-cell interruption reasons.
+
+### Fixed
+- Fixed repeated mojibake and broken inline multilingual strings in `App.vue`.
+- Fixed map-interaction edge cases where auto mode and manual mode states could interfere with each other.
+- Fixed AGV overlap cases where multiple vehicles could previously occupy the same cell while moving or stopping.
+
 ## v1.3.0 - 2026-03-10
 
 ### Added

@@ -1,6 +1,7 @@
-<script setup>
+﻿<script setup>
 import './assets/agv-map.css'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { LOCALE_TEXTS } from './locales'
 
 const GRID_COLS = 10
 const GRID_ROWS = 8
@@ -86,6 +87,18 @@ const jsonStatus = ref('')
 const pathCompareResult = ref(null)
 const pathCompareLoading = ref(false)
 const pathCompareError = ref('')
+const faultEvents = ref([])
+const faultEventFilter = ref('open')
+const faultPanelStatus = ref('')
+const faultPanelStatusType = ref('info')
+const faultReportForm = ref({
+  fault_type: 'path_blocked',
+  severity: 'medium',
+  message: ''
+})
+const showFaultReportForm = ref(false)
+const agvActionLoadingId = ref(null)
+const resolvingFaultId = ref(null)
 const templateFileInputRef = ref(null)
 const panelSearch = ref('')
 const focusedPanelSection = ref('')
@@ -102,6 +115,7 @@ const taskCardCollapsed = ref({})
 const summaryZoomArmed = ref(false)
 
 const selectedAgvId = ref(null)
+const trackedManualTaskId = ref(null)
 const startPoint = ref(null)
 const endPoint = ref(null)
 const showDispatchHelp = ref(false)
@@ -138,6 +152,8 @@ const mapViewportHeight = ref(MAP_HEIGHT)
 const isMapPanning = ref(false)
 const showMapSettings = ref(false)
 const showStatusLegend = ref(true)
+const statusLegendLayout = ref('horizontal')
+const statusLegendOpacity = ref(0.55)
 const showMarkerIcons = ref(true)
 const showPathArrows = ref(false)
 const showMinimap = ref(true)
@@ -164,6 +180,7 @@ let templateApplyClickTimer = null
 let taskBuilderJumpTimer = null
 let localNextId = 1000
 let autoScheduling = false
+let autoScheduleGuard = false
 let polling = false
 let mapResizeObserver = null
 let mapViewReady = false
@@ -188,426 +205,9 @@ let compareFloatingDragOffsetY = 0
 let floatingCompareRefreshTimer = null
 
 const messages = {
-  zh: {
-    title: 'AGV 状态监控',
-    dispatch: '调度模式',
-    dispatch_auto: '自动',
-    dispatch_manual: '手动',
-    dispatch_help_trigger: '点击或悬停查看模式说明',
-    dispatch_help_title: '模式说明',
-    dispatch_help_auto: '自动调度：设置任务起点和终点后，系统会按优先级和距离自动选择空闲 AGV，并先前往起点再执行任务。',
-    dispatch_help_manual: '手动调车：先选中一台空闲 AGV，再点击目标格，这台车会按你的指定前往目标位置。',
-    dispatch_help_form: '任务表单和 JSON 导入更适合自动调度；手动模式主要用于临时指定车辆执行简单移动。',
-    algorithm: '路径算法',
-    algo_simple: '直线路径',
-    algo_astar: 'A*',
-    selected: '当前选中',
-    selected_none: '无',
-    hint: '自动模式按优先级和距离调度。手动模式先选 AGV 再点终点。双击空地可新增本地 AGV。',
-    tasks: '任务队列',
-    tasks_empty: '暂无任务',
-    task_start: '起点',
-    task_end: '终点',
-    task_agv: 'AGV',
-    task_priority: '优先级',
-    task_pending: '未分配',
-    task_blocked: '不可达',
-    task_assigned: '已分配',
-    task_running: '执行中',
-    task_finished: '已完成',
-    confirm_dispatch: '确认调度该小车前往目标点吗？',
-    status_idle: '空闲',
-    status_relocating: '就位中',
-    status_relocating_desc: 'AGV 正在前往任务起点，尚未开始执行任务。',
-    status_running: '运行中',
-    status_fault: '故障',
-    language: '语言',
-    priority: '任务优先级',
-    agv_status: 'AGV 状态',
-    show_auto_path: '显示自动路径',
-    map_settings: '地图显示',
-    map_settings_toggle: '显示设置',
-    map_reset_view: '重置视图',
-    map_setting_icons: '显示起点/终点图标',
-    map_setting_arrows: '显示路径方向箭头',
-    panel_back_to_top: '回到顶部',
-    map_overview: '地图总览',
-    delete_task: '删除',
-    task_retry_astar: '改用 A*',
-    task_retry_astar_queued: '任务已切换为 A*，将在 AGV 空闲后自动重试。',
-    confirm_delete_task: '确认删除该未分配或不可达任务吗？',
-    task_form: '任务添加',
-    form_start_x: '起点X',
-    form_start_y: '起点Y',
-    form_end_x: '终点X',
-    form_end_y: '终点Y',
-    add_task: '添加任务',
-    template_library: '任务模板',
-    template_hint: '保存高频任务，后续可一键载入表单或直接创建任务。',
-    template_manage: '保存当前表单',
-    template_name: '模板名称',
-    template_name_placeholder: '例如：入库A到装配1',
-    template_save_current: '保存当前为模板',
-    template_apply: '载入表单',
-    template_run: '直接创建',
-    template_delete: '删除模板',
-    template_form_saved: '模板已保存',
-    template_form_deleted: '模板已删除',
-    template_form_invalid_name: '请填写模板名称',
-    confirm_delete_template: '确认删除这个自定义模板吗？',
-    template_builtin: '预设',
-    template_custom: '自定义',
-    template_name_inbound_a_to_storage_c1: '入库口A到存储区C1',
-    template_name_inbound_b_to_storage_c2: '入库口B到存储区C2',
-    template_name_storage_c1_to_assembly_1: '存储区C1到装配台1',
-    template_name_assembly_1_to_outbound_a: '装配台1到出库口A',
-    json_tools: 'JSON 导入/导出',
-    import_json: '导入',
-    export_json: '导出',
-    clear_json: '清空',
-    json_placeholder: '粘贴 JSON，例如 { "tasks": [...] }',
-    json_import_ok: '导入成功',
-    json_import_fail: '导入失败',
-    queue_pending: '待分配队列',
-    queue_blocked: '不可达队列',
-    queue_retry_all_astar: '一键 A*',
-    queue_assigned: '已分配队列',
-    queue_running: '执行队列',
-    queue_finished: '完成队列',
-    queue_empty: '当前分组为空',
-    dispatch_reason: '调度说明',
-    dispatch_waiting: '等待空闲 AGV 调度',
-    dispatch_blocked: '当前算法下不可达，请切换算法或修改点位',
-    reason_distance: '距起点',
-    reason_algorithm: '算法',
-    reason_mode: '方式',
-    reason_auto: '自动',
-    reason_manual: '手动',
-    point_library: '常用点位',
-    point_fill_hint: '点击按钮可快速写入任务表单',
-    point_manage: '自定义点位',
-    point_manage_hint: '新增常用取货点、装配点或临时作业点，刷新页面后仍会保留在本机。',
-    point_search_placeholder: '搜索点位名称、分区或坐标',
-    point_search_empty: '没有匹配点位',
-    point_apply_start: '设为起点',
-    point_apply_end: '设为终点',
-    point_add: '保存点位',
-    point_delete: '删除点位',
-    point_custom: '自定义',
-    point_builtin: '预设',
-    point_form_name: '点位名称',
-    point_form_zone: '所属分区',
-    point_form_name_placeholder: '例如：备料台 A',
-    point_form_zone_placeholder: '例如：装配区',
-    point_form_saved: '点位已保存',
-    point_form_deleted: '点位已删除',
-    point_form_invalid_name: '请填写点位名称和分区',
-    point_form_invalid_coords: '坐标超出地图范围',
-    task_blocked_alert: '当前算法下路径不可达，任务已移入不可达队列。',
-    task_manual_unreachable: '当前算法下无法到达，请切换算法或修改点位。',
-    confirm_delete_point: '确认删除这个自定义点位吗？',
-    point_category: '分区',
-    point_coords: '坐标',
-    point_name_inbound_a: '入库口 A',
-    point_name_inbound_b: '入库口 B',
-    point_name_outbound_a: '出库口 A',
-    point_name_outbound_b: '出库口 B',
-    point_name_storage_c1: '存储区 C1',
-    point_name_storage_c2: '存储区 C2',
-    point_name_assembly_1: '装配台 1',
-    point_name_assembly_2: '装配台 2',
-    point_name_charge: '充电区',
-    point_name_maintenance: '维护区',
-    point_zone_inbound: '入库',
-    point_zone_outbound: '出库',
-    point_zone_storage: '存储',
-    point_zone_assembly: '装配',
-    point_zone_service: '服务',
-    time_created: '创建',
-    time_assigned: '分配',
-    time_started: '开始',
-    time_finished: '完成'
-  },
-  ja: {
-    title: 'AGV 状態モニター',
-    dispatch: '割当モード',
-    dispatch_auto: '自動',
-    dispatch_manual: '手動',
-    dispatch_help_trigger: 'クリックまたはホバーでモード説明を表示',
-    dispatch_help_title: 'モード説明',
-    dispatch_help_auto: '自動調度：タスクの始点と終点を設定すると、優先度と距離に基づいて空き AGV を自動選択し、始点へ移動してから実行します。',
-    dispatch_help_manual: '手動調車：空き AGV を1台選択してから目標マスをクリックすると、その車両だけを指定位置へ向かわせます。',
-    dispatch_help_form: 'タスク入力欄と JSON 取込は自動調度向きです。手動モードは臨時の単純移動に使います。',
-    algorithm: '経路アルゴリズム',
-    algo_simple: '直線',
-    algo_astar: 'A*',
-    selected: '選択中',
-    selected_none: 'なし',
-    hint: '自動モードは優先度と距離で割当。手動モードは AGV を選択してから終点を指定。空白ダブルクリックでローカル AGV を追加。',
-    tasks: 'タスクキュー',
-    tasks_empty: 'タスクなし',
-    task_start: '始点',
-    task_end: '終点',
-    task_agv: 'AGV',
-    task_priority: '優先度',
-    task_pending: '未割当',
-    task_blocked: '到達不可',
-    task_assigned: '割当済',
-    task_running: '実行中',
-    task_finished: '完了',
-    confirm_dispatch: 'この AGV を目的地へ向かわせますか？',
-    status_idle: '待機',
-    status_relocating: '就位中',
-    status_relocating_desc: 'AGV はタスク開始地点へ移動中で、まだ実行を開始していません。',
-    status_running: '走行中',
-    status_fault: '故障',
-    language: '言語',
-    priority: 'タスク優先度',
-    agv_status: 'AGV 状態',
-    show_auto_path: '自動経路を表示',
-    map_settings: 'マップ表示',
-    map_settings_toggle: '表示設定',
-    map_reset_view: 'ビューを初期化',
-    map_setting_icons: '始点/終点アイコンを表示',
-    map_setting_arrows: '経路方向の矢印を表示',
-    panel_back_to_top: '先頭へ戻る',
-    map_overview: 'マップ全体',
-    delete_task: '削除',
-    task_retry_astar: 'A*で再試行',
-    task_retry_astar_queued: 'タスクを A* に切り替えました。AGV が空き次第、自動で再試行します。',
-    confirm_delete_task: 'この未割当または到達不可タスクを削除しますか？',
-    task_form: 'タスク追加',
-    form_start_x: '始点X',
-    form_start_y: '始点Y',
-    form_end_x: '終点X',
-    form_end_y: '終点Y',
-    add_task: '追加',
-    template_library: 'タスクテンプレート',
-    template_hint: 'よく使うタスクを保存し、次回は入力欄へ反映またはそのまま作成できます。',
-    template_manage: '現在の入力を保存',
-    template_name: 'テンプレート名',
-    template_name_placeholder: '例：搬入口Aから組立1へ',
-    template_save_current: '現在内容を保存',
-    template_apply: '入力欄へ反映',
-    template_run: 'そのまま作成',
-    template_delete: '削除',
-    template_form_saved: 'テンプレートを保存しました',
-    template_form_deleted: 'テンプレートを削除しました',
-    template_form_invalid_name: 'テンプレート名を入力してください',
-    confirm_delete_template: 'このカスタムテンプレートを削除しますか？',
-    template_builtin: '既定',
-    template_custom: 'カスタム',
-    template_name_inbound_a_to_storage_c1: '搬入口Aから保管C1へ',
-    template_name_inbound_b_to_storage_c2: '搬入口Bから保管C2へ',
-    template_name_storage_c1_to_assembly_1: '保管C1から組立1へ',
-    template_name_assembly_1_to_outbound_a: '組立1から搬出口Aへ',
-    json_tools: 'JSON 取込/出力',
-    import_json: '取込',
-    export_json: '出力',
-    clear_json: 'クリア',
-    json_placeholder: 'JSON を貼り付け { "tasks": [...] }',
-    json_import_ok: '取込成功',
-    json_import_fail: '取込失敗',
-    queue_pending: '未割当キュー',
-    queue_blocked: '到達不可キュー',
-    queue_retry_all_astar: '一括 A*',
-    queue_assigned: '割当済キュー',
-    queue_running: '実行キュー',
-    queue_finished: '完了キュー',
-    queue_empty: 'このグループは空です',
-    dispatch_reason: '割当理由',
-    dispatch_waiting: '空き AGV を待機中',
-    dispatch_blocked: '現在のアルゴリズムでは到達できません。アルゴリズムを切り替えるか点位を修正してください。',
-    reason_distance: '開始点まで',
-    reason_algorithm: 'アルゴリズム',
-    reason_mode: '方式',
-    reason_auto: '自動',
-    reason_manual: '手動',
-    point_library: '共通ポイント',
-    point_fill_hint: 'ボタンでタスク入力欄にすばやく反映します',
-    point_manage: 'カスタムポイント',
-    point_manage_hint: 'よく使う搬送点や一時作業点を追加できます。ページ更新後もこの端末に保持されます。',
-    point_search_placeholder: '名称・エリア・座標で検索',
-    point_search_empty: '一致するポイントがありません',
-    point_apply_start: '始点に設定',
-    point_apply_end: '終点に設定',
-    point_add: 'ポイント保存',
-    point_delete: '削除',
-    point_custom: 'カスタム',
-    point_builtin: '既定',
-    point_form_name: 'ポイント名',
-    point_form_zone: 'エリア',
-    point_form_name_placeholder: '例：段取り台 A',
-    point_form_zone_placeholder: '例：組立区',
-    point_form_saved: 'ポイントを保存しました',
-    point_form_deleted: 'ポイントを削除しました',
-    point_form_invalid_name: 'ポイント名とエリアを入力してください',
-    point_form_invalid_coords: '座標がマップ範囲外です',
-    task_blocked_alert: '現在のアルゴリズムでは到達できないため、タスクを到達不可キューへ移動しました。',
-    task_manual_unreachable: '現在のアルゴリズムでは到達できません。アルゴリズムを切り替えるか点位を修正してください。',
-    confirm_delete_point: 'このカスタムポイントを削除しますか？',
-    point_category: 'エリア',
-    point_coords: '座標',
-    point_name_inbound_a: '搬入口 A',
-    point_name_inbound_b: '搬入口 B',
-    point_name_outbound_a: '搬出口 A',
-    point_name_outbound_b: '搬出口 B',
-    point_name_storage_c1: '保管区画 C1',
-    point_name_storage_c2: '保管区画 C2',
-    point_name_assembly_1: '組立台 1',
-    point_name_assembly_2: '組立台 2',
-    point_name_charge: '充電エリア',
-    point_name_maintenance: '保守エリア',
-    point_zone_inbound: '搬入',
-    point_zone_outbound: '搬出',
-    point_zone_storage: '保管',
-    point_zone_assembly: '組立',
-    point_zone_service: 'サービス',
-    time_created: '作成',
-    time_assigned: '割当',
-    time_started: '開始',
-    time_finished: '完了'
-  },
-  en: {
-    title: 'AGV Status Monitor',
-    dispatch: 'Dispatch',
-    dispatch_auto: 'Auto',
-    dispatch_manual: 'Manual',
-    dispatch_help_trigger: 'Click or hover to view mode details',
-    dispatch_help_title: 'Mode Details',
-    dispatch_help_auto: 'Auto dispatch: after you set task start and end, the system selects an idle AGV by priority and distance, then moves to the start before executing.',
-    dispatch_help_manual: 'Manual dispatch: select one idle AGV first, then click a target cell to send only that vehicle to the specified position.',
-    dispatch_help_form: 'The task form and JSON import are mainly for auto dispatch. Manual mode is intended for temporary vehicle relocation.',
-    algorithm: 'Algorithm',
-    algo_simple: 'Simple',
-    algo_astar: 'A*',
-    selected: 'Selected',
-    selected_none: 'None',
-    hint: 'Auto mode schedules by priority and distance. Manual mode selects an AGV first, then the destination. Double-click empty cells to add local AGVs.',
-    tasks: 'Task Queue',
-    tasks_empty: 'No tasks',
-    task_start: 'Start',
-    task_end: 'End',
-    task_agv: 'AGV',
-    task_priority: 'Priority',
-    task_pending: 'Pending',
-    task_blocked: 'Blocked',
-    task_assigned: 'Assigned',
-    task_running: 'Running',
-    task_finished: 'Finished',
-    confirm_dispatch: 'Confirm dispatch to the target point?',
-    status_idle: 'Idle',
-    status_relocating: 'Relocating',
-    status_relocating_desc: 'AGV is moving to the task start before execution.',
-    status_running: 'Running',
-    status_fault: 'Fault',
-    language: 'Language',
-    priority: 'Task Priority',
-    agv_status: 'AGV Status',
-    show_auto_path: 'Show Auto Paths',
-    map_settings: 'Map Display',
-    map_settings_toggle: 'Display Settings',
-    map_reset_view: 'Reset View',
-    map_setting_icons: 'Show Start/End Icons',
-    map_setting_arrows: 'Show Path Direction Arrows',
-    panel_back_to_top: 'Back To Top',
-    map_overview: 'Map Overview',
-    delete_task: 'Delete',
-    task_retry_astar: 'Retry with A*',
-    task_retry_astar_queued: 'The task has been switched to A* and will retry automatically when an AGV becomes idle.',
-    confirm_delete_task: 'Delete this pending or blocked task?',
-    task_form: 'Add Task',
-    form_start_x: 'Start X',
-    form_start_y: 'Start Y',
-    form_end_x: 'End X',
-    form_end_y: 'End Y',
-    add_task: 'Add Task',
-    template_library: 'Task Templates',
-    template_hint: 'Save frequent tasks so you can load them into the form or create them directly later.',
-    template_manage: 'Save Current Form',
-    template_name: 'Template Name',
-    template_name_placeholder: 'Example: Inbound A to Assembly 1',
-    template_save_current: 'Save Current As Template',
-    template_apply: 'Load To Form',
-    template_run: 'Create Now',
-    template_delete: 'Delete Template',
-    template_form_saved: 'Template saved',
-    template_form_deleted: 'Template deleted',
-    template_form_invalid_name: 'Please enter a template name',
-    confirm_delete_template: 'Delete this custom template?',
-    template_builtin: 'Built-in',
-    template_custom: 'Custom',
-    template_name_inbound_a_to_storage_c1: 'Inbound A to Storage C1',
-    template_name_inbound_b_to_storage_c2: 'Inbound B to Storage C2',
-    template_name_storage_c1_to_assembly_1: 'Storage C1 to Assembly 1',
-    template_name_assembly_1_to_outbound_a: 'Assembly 1 to Outbound A',
-    json_tools: 'JSON Import/Export',
-    import_json: 'Import',
-    export_json: 'Export',
-    clear_json: 'Clear',
-    json_placeholder: 'Paste JSON, for example { "tasks": [...] }',
-    json_import_ok: 'Import success',
-    json_import_fail: 'Import failed',
-    queue_pending: 'Pending Queue',
-    queue_blocked: 'Blocked Queue',
-    queue_retry_all_astar: 'Retry All with A*',
-    queue_assigned: 'Assigned Queue',
-    queue_running: 'Running Queue',
-    queue_finished: 'Finished Queue',
-    queue_empty: 'This section is empty',
-    dispatch_reason: 'Dispatch Reason',
-    dispatch_waiting: 'Waiting for an idle AGV',
-    dispatch_blocked: 'Unreachable with the current algorithm. Switch algorithm or adjust points.',
-    reason_distance: 'To start',
-    reason_algorithm: 'Algorithm',
-    reason_mode: 'Mode',
-    reason_auto: 'Auto',
-    reason_manual: 'Manual',
-    point_library: 'Common Points',
-    point_fill_hint: 'Use the buttons to fill the task form quickly',
-    point_manage: 'Custom Points',
-    point_manage_hint: 'Add frequently used pickup, assembly, or temporary work points. They stay on this browser after refresh.',
-    point_search_placeholder: 'Search by name, zone, or coordinates',
-    point_search_empty: 'No matching points',
-    point_apply_start: 'Set Start',
-    point_apply_end: 'Set End',
-    point_add: 'Save Point',
-    point_delete: 'Delete Point',
-    point_custom: 'Custom',
-    point_builtin: 'Built-in',
-    point_form_name: 'Point Name',
-    point_form_zone: 'Zone',
-    point_form_name_placeholder: 'Example: Prep Station A',
-    point_form_zone_placeholder: 'Example: Assembly Area',
-    point_form_saved: 'Point saved',
-    point_form_deleted: 'Point deleted',
-    point_form_invalid_name: 'Please enter both point name and zone',
-    point_form_invalid_coords: 'Coordinates are outside the grid',
-    task_blocked_alert: 'The current algorithm cannot reach this route. The task has been moved to the blocked queue.',
-    task_manual_unreachable: 'The current algorithm cannot reach this route. Switch algorithm or adjust points.',
-    confirm_delete_point: 'Delete this custom point?',
-    point_category: 'Zone',
-    point_coords: 'Coordinates',
-    point_name_inbound_a: 'Inbound A',
-    point_name_inbound_b: 'Inbound B',
-    point_name_outbound_a: 'Outbound A',
-    point_name_outbound_b: 'Outbound B',
-    point_name_storage_c1: 'Storage C1',
-    point_name_storage_c2: 'Storage C2',
-    point_name_assembly_1: 'Assembly 1',
-    point_name_assembly_2: 'Assembly 2',
-    point_name_charge: 'Charging Area',
-    point_name_maintenance: 'Maintenance Area',
-    point_zone_inbound: 'Inbound',
-    point_zone_outbound: 'Outbound',
-    point_zone_storage: 'Storage',
-    point_zone_assembly: 'Assembly',
-    point_zone_service: 'Service',
-    time_created: 'Created',
-    time_assigned: 'Assigned',
-    time_started: 'Started',
-    time_finished: 'Finished'
-  }
+  zh: LOCALE_TEXTS.zh.messages,
+  ja: LOCALE_TEXTS.ja.messages,
+  en: LOCALE_TEXTS.en.messages
 }
 
 const DEFAULT_POINT_LIBRARY = [
@@ -665,7 +265,7 @@ const DEFAULT_POINT_LIBRARY = [
     y: 2,
     nameKey: 'point_name_assembly_1',
     zoneKey: 'point_zone_assembly',
-    aliases: ['station', 'line', '装配', '組立', '6,2']
+    aliases: ['station', 'line', '装配', '组立', '6,2']
   },
   {
     id: 'assembly_2',
@@ -673,7 +273,7 @@ const DEFAULT_POINT_LIBRARY = [
     y: 5,
     nameKey: 'point_name_assembly_2',
     zoneKey: 'point_zone_assembly',
-    aliases: ['station', 'line', '装配', '組立', '6,5']
+    aliases: ['station', 'line', '装配', '组立', '6,5']
   },
   {
     id: 'charge',
@@ -742,104 +342,7 @@ const DEFAULT_TASK_TEMPLATES = [
 
 const t = key => messages[locale.value]?.[key] ?? messages.en[key] ?? key
 
-const API_POINT_TEXT = {
-  zh: {
-    start: '起点',
-    end: '终点'
-  },
-  ja: {
-    start: '開始点',
-    end: '終了点'
-  },
-  en: {
-    start: 'start point',
-    end: 'end point'
-  }
-}
-
-const API_ALGORITHM_TEXT = {
-  zh: {
-    simple: '直线路径',
-    astar: 'A*'
-  },
-  ja: {
-    simple: '直線経路',
-    astar: 'A*'
-  },
-  en: {
-    simple: 'simple',
-    astar: 'A*'
-  }
-}
-
-const API_ERROR_TEXT = {
-  zh: {
-    stage_out_of_grid: '第 {stage} 阶段的{point}坐标超出地图范围。',
-    stage_blocked: '第 {stage} 阶段的{point}位于障碍格，无法使用。',
-    task_coordinates_required: '请填写完整的任务坐标。',
-    task_not_found: '未找到任务。',
-    task_not_schedulable: '该任务当前不可调度。',
-    task_not_running: '该任务当前不在运行中。',
-    related_agv_not_found: '未找到关联的 AGV。',
-    task_delete_not_allowed: '仅可删除待分配或不可达任务。',
-    agv_not_found: '未找到 AGV。',
-    agv_not_idle: '该 AGV 当前不是空闲状态。',
-    no_idle_agv: '当前没有空闲 AGV。',
-    no_pending_tasks: '当前没有可调度任务。',
-    no_reachable_tasks: '当前没有可达任务。',
-    task_start_unreachable: '当前算法 {algorithm} 下，没有空闲 AGV 可以到达任务起点。',
-    task_route_unreachable: '当前算法 {algorithm} 下，任务路径不可达，请切换算法或修改点位。',
-    unsupported_algorithm: '不支持的路径算法。',
-    blocked_retry_requires_astar: '不可达任务仅支持使用 A* 重试。',
-    task_not_blocked: '该任务当前不在不可达队列中。',
-    preset_not_found: '未找到对应的障碍预设。',
-    retry_waiting_for_idle_agv: '任务已切换为 {algorithm}，将在 AGV 空闲后自动重试。'
-  },
-  ja: {
-    stage_out_of_grid: '第 {stage} 段階の{point}座標がマップ範囲外です。',
-    stage_blocked: '第 {stage} 段階の{point}が障害物セル上にあります。',
-    task_coordinates_required: 'タスク座標をすべて入力してください。',
-    task_not_found: 'タスクが見つかりません。',
-    task_not_schedulable: 'このタスクは現在スケジュールできません。',
-    task_not_running: 'このタスクは現在実行中ではありません。',
-    related_agv_not_found: '関連する AGV が見つかりません。',
-    task_delete_not_allowed: '未割当または不可達タスクのみ削除できます。',
-    agv_not_found: 'AGV が見つかりません。',
-    agv_not_idle: 'この AGV は現在待機状態ではありません。',
-    no_idle_agv: '現在、空き AGV がありません。',
-    no_pending_tasks: '現在、スケジュール可能なタスクがありません。',
-    no_reachable_tasks: '現在、到達可能なタスクがありません。',
-    task_start_unreachable: '現在の {algorithm} では、タスク開始点に到達できる空き AGV がありません。',
-    task_route_unreachable: '現在の {algorithm} ではタスク経路が到達不能です。アルゴリズムまたは点位を変更してください。',
-    unsupported_algorithm: '未対応の経路アルゴリズムです。',
-    blocked_retry_requires_astar: '不可達タスクの再試行は A* のみ対応しています。',
-    task_not_blocked: 'このタスクは不可達キューにありません。',
-    preset_not_found: '指定した障害物プリセットが見つかりません。',
-    retry_waiting_for_idle_agv: 'タスクを {algorithm} に切り替えました。AGV が空き次第、自動で再試行します。'
-  },
-  en: {
-    stage_out_of_grid: 'Stage {stage} {point} is outside the map bounds.',
-    stage_blocked: 'Stage {stage} {point} is on a blocked cell.',
-    task_coordinates_required: 'Task coordinates are required.',
-    task_not_found: 'Task not found.',
-    task_not_schedulable: 'This task cannot be scheduled right now.',
-    task_not_running: 'This task is not running.',
-    related_agv_not_found: 'Related AGV not found.',
-    task_delete_not_allowed: 'Only pending or blocked tasks can be deleted.',
-    agv_not_found: 'AGV not found.',
-    agv_not_idle: 'The selected AGV is not idle.',
-    no_idle_agv: 'No idle AGV is available.',
-    no_pending_tasks: 'No schedulable tasks are available.',
-    no_reachable_tasks: 'No reachable tasks are available.',
-    task_start_unreachable: 'No idle AGV can reach the task start with algorithm {algorithm}.',
-    task_route_unreachable: 'The task route is unreachable with algorithm {algorithm}.',
-    unsupported_algorithm: 'Unsupported path algorithm.',
-    blocked_retry_requires_astar: 'Blocked task retry only supports A*.',
-    task_not_blocked: 'This task is not in the blocked queue.',
-    preset_not_found: 'Obstacle preset not found.',
-    retry_waiting_for_idle_agv: 'The task has been switched to {algorithm} and will retry automatically when an AGV becomes idle.'
-  }
-}
+const localeTexts = computed(() => LOCALE_TEXTS[locale.value] ?? LOCALE_TEXTS.en)
 
 function fillTemplate(template, variables = {}) {
   return String(template ?? '').replace(/\{(\w+)\}/g, (_, key) => String(variables[key] ?? ''))
@@ -847,16 +350,16 @@ function fillTemplate(template, variables = {}) {
 
 function apiPointText(pointType) {
   return (
-    API_POINT_TEXT[locale.value]?.[pointType] ??
-    API_POINT_TEXT.en[pointType] ??
+    localeTexts.value.apiPointText?.[pointType] ??
+    LOCALE_TEXTS.en.apiPointText?.[pointType] ??
     String(pointType ?? '')
   )
 }
 
 function apiAlgorithmText(algorithmName) {
   return (
-    API_ALGORITHM_TEXT[locale.value]?.[algorithmName] ??
-    API_ALGORITHM_TEXT.en[algorithmName] ??
+    localeTexts.value.apiAlgorithmText?.[algorithmName] ??
+    LOCALE_TEXTS.en.apiAlgorithmText?.[algorithmName] ??
     String(algorithmName ?? '')
   )
 }
@@ -866,8 +369,8 @@ function localizeApiErrorDetail(detail, fallbackMessage = '') {
 
   if (detail && typeof detail === 'object' && !Array.isArray(detail) && detail.error_code) {
     const template =
-      API_ERROR_TEXT[locale.value]?.[detail.error_code] ??
-      API_ERROR_TEXT.en[detail.error_code] ??
+      localeTexts.value.apiErrorText?.[detail.error_code] ??
+      LOCALE_TEXTS.en.apiErrorText?.[detail.error_code] ??
       fallback
 
     return fillTemplate(template, {
@@ -896,8 +399,8 @@ function localizeApiErrorDetail(detail, fallbackMessage = '') {
     for (const [pattern, errorCode] of legacyMatches) {
       if (pattern.test(detail)) {
         return (
-          API_ERROR_TEXT[locale.value]?.[errorCode] ??
-          API_ERROR_TEXT.en[errorCode] ??
+          localeTexts.value.apiErrorText?.[errorCode] ??
+          LOCALE_TEXTS.en.apiErrorText?.[errorCode] ??
           fallback
         )
       }
@@ -909,8 +412,8 @@ function localizeApiErrorDetail(detail, fallbackMessage = '') {
     if (startUnreachableMatch) {
       const algorithmName = startUnreachableMatch[1].toLowerCase()
       return fillTemplate(
-        API_ERROR_TEXT[locale.value]?.task_start_unreachable ??
-          API_ERROR_TEXT.en.task_start_unreachable,
+        localeTexts.value.apiErrorText?.task_start_unreachable ??
+          LOCALE_TEXTS.en.apiErrorText.task_start_unreachable,
         { algorithm: apiAlgorithmText(algorithmName) }
       )
     }
@@ -924,6 +427,12 @@ function localizeApiErrorDetail(detail, fallbackMessage = '') {
 function localizeDispatchReason(reason) {
   if (!reason || typeof reason !== 'string') return ''
 
+  const directReason =
+    localeTexts.value.dispatchReasonText?.[reason] ??
+    LOCALE_TEXTS.en.dispatchReasonText?.[reason] ??
+    ''
+  if (directReason) return directReason
+
   const [errorCode, rawAlgorithm] = reason.split(':')
   if (!rawAlgorithm) return ''
 
@@ -932,8 +441,8 @@ function localizeDispatchReason(reason) {
   }
 
   const template =
-    API_ERROR_TEXT[locale.value]?.[errorCode] ??
-    API_ERROR_TEXT.en[errorCode] ??
+    localeTexts.value.apiErrorText?.[errorCode] ??
+    LOCALE_TEXTS.en.apiErrorText?.[errorCode] ??
     ''
 
   return fillTemplate(template, {
@@ -949,10 +458,25 @@ const selectedAgv = computed(() => {
   if (!selectedAgvId.value) return null
   return displayAgvs.value.find(agv => agv.id === selectedAgvId.value) ?? null
 })
+const selectedBackendAgv = computed(() => {
+  if (!selectedAgv.value || selectedAgv.value.source !== 'backend') return null
+  return selectedAgv.value
+})
 
 const displayAgvs = computed(() => {
   const backendAgvs = agvs.value.map(agv => ({ ...agv, source: 'backend' }))
   return [...backendAgvs, ...localAgvs.value]
+})
+const selectedAgvTask = computed(() => {
+  if (!selectedBackendAgv.value) return null
+  return (
+    tasks.value.find(task => task.agv_id === selectedBackendAgv.value.id && ['assigned', 'running'].includes(task.status)) ??
+    null
+  )
+})
+const filteredFaultEvents = computed(() => {
+  if (faultEventFilter.value === 'all') return faultEvents.value
+  return faultEvents.value.filter(event => event.status === faultEventFilter.value)
 })
 
 const toSvgPoints = (points, cellSize = CELL_SIZE) =>
@@ -1137,15 +661,15 @@ const templateJsonLocale = computed(() => {
       title: 'テンプレート JSON',
       hint: 'カスタムテンプレートを JSON で保存したり、一括で取り込めます。',
       placeholder:
-        '{ "templates": [{ "name": "搬入口Aから組立1", "start_x": 0, "start_y": 0, "end_x": 6, "end_y": 2, "priority": 3 }] }',
+        '{ "templates": [{ "name": "入庫口 A から組立 1", "start_x": 0, "start_y": 0, "end_x": 6, "end_y": 2, "priority": 3 }] }',
       import: 'テンプレート取込',
-      export: 'カスタムを書出',
+      export: 'カスタムを出力',
       importFile: 'ファイル取込',
       downloadFile: 'JSON 保存',
       clear: 'JSON クリア',
-      exportEmpty: '書き出せるカスタムテンプレートがありません',
-      exportOk: '書き出した件数',
-      importOk: '取り込んだ件数',
+      exportEmpty: '書き出すカスタムテンプレートがありません',
+      exportOk: '書き出し件数',
+      importOk: '取込件数',
       importFail: 'テンプレート JSON が不正か、取込に失敗しました',
       skipped: 'スキップ'
     }
@@ -1156,7 +680,7 @@ const templateJsonLocale = computed(() => {
       title: '模板 JSON',
       hint: '可导出自定义模板，也可从 JSON 批量导入。',
       placeholder:
-        '{ "templates": [{ "name": "入库A到装配1", "start_x": 0, "start_y": 0, "end_x": 6, "end_y": 2, "priority": 3 }] }',
+        '{ "templates": [{ "name": "入库口 A 到装配台 1", "start_x": 0, "start_y": 0, "end_x": 6, "end_y": 2, "priority": 3 }] }',
       import: '导入模板',
       export: '导出自定义模板',
       importFile: '导入文件',
@@ -1203,9 +727,9 @@ const panelLocale = computed(() => {
       expand: '展開',
       currentMode: '現在モード',
       modeAuto: '自動配車',
-      modeManual: '手動調車',
-      modeAutoHint: '起点と終点を指定すると、システムが空き AGV を選択して実行します。',
-      modeManualHint: '先に AGV を選択し、その後に目的地を指定してその車両だけを移動させます。'
+      modeManual: '手動配車',
+      modeAutoHint: '始点と終点を指定すると、システムが空き AGV を選んで実行します。',
+      modeManualHint: '先に AGV を選び、その後に目的地を指定してその車両だけを移動させます。'
     }
   }
 
@@ -1255,6 +779,7 @@ const currentDispatchModeLabel = computed(() =>
 const currentDispatchModeHint = computed(() =>
   dispatchMode.value === 'auto' ? panelLocale.value.modeAutoHint : panelLocale.value.modeManualHint
 )
+const faultLocale = computed(() => localeTexts.value.fault ?? LOCALE_TEXTS.en.fault)
 const panelSearchLocale = computed(() => {
   if (locale.value === 'ja') {
     return {
@@ -1281,166 +806,8 @@ const panelSearchLocale = computed(() => {
     hits: 'matches'
   }
 })
-const panelSummaryLocale = computed(() => {
-  if (locale.value === 'ja') {
-    return {
-      title: 'システム概要',
-      mode: '現在モード',
-      selectedAgv: '選択 AGV',
-      noAgv: '未選択',
-      noAgvCompact: '未選',
-      zoom: 'ズーム',
-      pending: '未割当',
-      running: '実行中',
-      hidden: '非表示',
-      compact: '簡潔',
-      full: '詳細',
-      autoShort: '自動',
-      manualShort: '手動',
-      pendingShort: '未割',
-      runningShort: '実行'
-    }
-  }
-
-  if (locale.value === 'zh') {
-    return {
-      title: '系统摘要',
-      mode: '当前模式',
-      selectedAgv: '已选 AGV',
-      noAgv: '未选择',
-      noAgvCompact: '未选',
-      zoom: '缩放',
-      pending: '待分配',
-      running: '运行中',
-      hidden: '隐藏',
-      compact: '精简',
-      full: '完整',
-      autoShort: '自动',
-      manualShort: '手动',
-      pendingShort: '待分',
-      runningShort: '运行'
-    }
-  }
-
-  return {
-    title: 'System Summary',
-    mode: 'Mode',
-    selectedAgv: 'Selected AGV',
-    noAgv: 'None',
-    noAgvCompact: 'NONE',
-    zoom: 'Zoom',
-    pending: 'Pending',
-    running: 'Running',
-    hidden: 'Hidden',
-    compact: 'Compact',
-    full: 'Full',
-    autoShort: 'AUTO',
-    manualShort: 'MANUAL',
-    pendingShort: 'PEND',
-    runningShort: 'RUN'
-  }
-})
-const settingsLocale = computed(() => {
-  if (locale.value === 'ja') {
-    return {
-      title: '設定',
-      mapGroup: 'マップ表示',
-      obstacleGroup: '障害物マップ',
-      promptGroup: '提示項目',
-      showAgvStatus: 'AGV 状態表示を表示',
-      showMarkerIcons: '開始/終了アイコンを表示',
-      showPathArrows: '経路方向矢印を表示',
-      showAutoPath: '自動経路を表示',
-      showMinimap: 'ミニマップを表示',
-      obstacleEdit: '障害物を編集',
-      obstacleHint: '有効にすると、地図セルをクリックして障害物の追加・削除ができます。保存後、比較と調度に反映されます。',
-      obstaclePreset: 'プリセット',
-      obstaclePresetApply: 'プリセット適用',
-      obstacleExport: '配置を書き出す',
-      obstacleImport: '配置を読み込む',
-      obstacleSave: '障害物を保存',
-      obstacleReset: '初期配置に戻す',
-      obstacleDirty: '未保存の変更あり',
-      obstacleSaved: '同期済み',
-      obstacleImported: '障害物レイアウトを読み込みました。',
-      obstacleApplied: '障害物プリセットを適用しました。',
-      obstacleResetDone: '初期障害物レイアウトに戻しました。',
-      obstaclePresetNone: '先にプリセットを選択してください。',
-      compareGroup: 'アルゴリズム比較',
-      compareDisplay: '表示方式',
-      compareDisplayPanel: '右側パネル',
-      compareDisplayFloating: 'フローティング',
-      compareOpacity: '透明度',
-      resetView: '視点をリセット'
-    }
-  }
-
-  if (locale.value === 'zh') {
-    return {
-      title: '设置',
-      mapGroup: '地图显示',
-      obstacleGroup: '障碍地图',
-      promptGroup: '提示项',
-      showAgvStatus: '显示 AGV 状态提示',
-      showMarkerIcons: '显示起点/终点图标',
-      showPathArrows: '显示路径方向箭头',
-      showAutoPath: '显示自动路径',
-      showMinimap: '显示小地图',
-      obstacleEdit: '编辑障碍',
-      obstacleHint: '开启后可点击地图格子增删障碍，保存后会同步用于路径对比与实际调度。',
-      obstaclePreset: '预设场景',
-      obstaclePresetApply: '应用预设',
-      obstacleExport: '导出布局',
-      obstacleImport: '导入布局',
-      obstacleSave: '保存障碍',
-      obstacleReset: '恢复默认',
-      obstacleDirty: '存在未保存修改',
-      obstacleSaved: '已同步',
-      obstacleImported: '已导入障碍布局。',
-      obstacleApplied: '已应用障碍预设。',
-      obstacleResetDone: '已恢复默认障碍布局。',
-      obstaclePresetNone: '请先选择一个预设。',
-      compareGroup: '算法对比',
-      compareDisplay: '显示方式',
-      compareDisplayPanel: '右侧栏展开',
-      compareDisplayFloating: '悬浮窗',
-      compareOpacity: '透明度',
-      resetView: '重置视图'
-    }
-  }
-
-  return {
-    title: 'Settings',
-    mapGroup: 'Map Display',
-    obstacleGroup: 'Obstacle Map',
-    promptGroup: 'Hints',
-    showAgvStatus: 'Show AGV Status Legend',
-    showMarkerIcons: 'Show Start/End Icons',
-    showPathArrows: 'Show Path Direction Arrows',
-    showAutoPath: 'Show Auto Path',
-    showMinimap: 'Show Minimap',
-    obstacleEdit: 'Edit Obstacles',
-    obstacleHint: 'When enabled, click map cells to add or remove blocked cells. Save applies to future comparison and dispatch.',
-    obstaclePreset: 'Preset Scene',
-    obstaclePresetApply: 'Apply Preset',
-    obstacleExport: 'Export Layout',
-    obstacleImport: 'Import Layout',
-    obstacleSave: 'Save Obstacles',
-    obstacleReset: 'Reset Default',
-    obstacleDirty: 'Unsaved changes',
-    obstacleSaved: 'Synced',
-    obstacleImported: 'Obstacle layout imported.',
-    obstacleApplied: 'Obstacle preset applied.',
-    obstacleResetDone: 'Default obstacle layout restored.',
-    obstaclePresetNone: 'Select a preset first.',
-    compareGroup: 'Algorithm Compare',
-    compareDisplay: 'Display Mode',
-    compareDisplayPanel: 'Side Panel',
-    compareDisplayFloating: 'Floating Window',
-    compareOpacity: 'Opacity',
-    resetView: 'Reset View'
-  }
-})
+const panelSummaryLocale = computed(() => localeTexts.value.panelSummary ?? LOCALE_TEXTS.en.panelSummary)
+const settingsLocale = computed(() => localeTexts.value.settings ?? LOCALE_TEXTS.en.settings)
 const taskChainLocale = computed(() => {
   if (locale.value === 'ja') {
     return {
@@ -1448,7 +815,7 @@ const taskChainLocale = computed(() => {
       hint: 'A -> B -> C のような連続工程を 1 件のタスクとして順番に実行します。',
       stage: '段階',
       stageLabel: '段階名',
-      stageLabelPlaceholder: '例: 組立工程',
+      stageLabelPlaceholder: '例：組立工程',
       addStage: '段階追加',
       removeStage: '削除',
       resetStages: '段階を初期化',
@@ -1514,7 +881,7 @@ const taskBuilderLocale = computed(() => {
       switchLabel: '切替',
       singleHint: 'A -> B の単一搬送タスクを作成します。',
       jumpAction: '作成欄へ移動',
-      jumpHint: '読込後、右下の黄色ボタンから移動できます。ダブルクリックなら直接移動します。',
+      jumpHint: '読み込み後、右下の黄色ボタンから移動できます。ダブルクリックなら直接移動します。',
       loadedSingle: '単一タスクのフォームに読み込みました。',
       loadedChain: '段階タスクのフォームに読み込みました。'
     }
@@ -1555,8 +922,8 @@ const taskJsonLocale = computed(() => {
     return {
       singleExample: '単一サンプル',
       chainExample: '段階サンプル',
-      singleLoaded: '単一タスクの JSON サンプルを入力しました。',
-      chainLoaded: '段階タスクの JSON サンプルを入力しました。'
+      singleLoaded: '単一タスク JSON サンプルを入力しました。',
+      chainLoaded: '段階タスク JSON サンプルを入力しました。'
     }
   }
 
@@ -1581,8 +948,8 @@ const taskJsonExampleFileLocale = computed(() => {
     return {
       singleDownload: '単一サンプルを保存',
       chainDownload: '段階サンプルを保存',
-      singleDownloaded: '単一タスクの JSON サンプルを保存しました。',
-      chainDownloaded: '段階タスクの JSON サンプルを保存しました。'
+      singleDownloaded: '単一タスク JSON サンプルを保存しました。',
+      chainDownloaded: '段階タスク JSON サンプルを保存しました。'
     }
   }
 
@@ -1605,17 +972,17 @@ const taskJsonExampleFileLocale = computed(() => {
 const taskChainMapPickLocale = computed(() => {
   if (locale.value === 'ja') {
     return {
-      start: '地図3点入力',
+      start: '地図選点',
       cancel: '入力取消',
-      step1: '1 点目: 開始点 A をクリック',
-      step2: '2 点目: 中継点 B をクリック',
-      step3: '3 点目: 終点 C をクリック'
+      step1: '1 点目：始点 A をクリック',
+      step2: '2 点目：中継点 B をクリック',
+      step3: '3 点目：終点 C をクリック'
     }
   }
 
   if (locale.value === 'zh') {
     return {
-      start: '地图三击建两段',
+      start: '地图选点',
       cancel: '取消地图选点',
       step1: '第 1 点：点击起点 A',
       step2: '第 2 点：点击中转点 B',
@@ -1624,7 +991,7 @@ const taskChainMapPickLocale = computed(() => {
   }
 
   return {
-    start: '3-Click Build',
+    start: 'Map Pick',
     cancel: 'Cancel Picking',
     step1: 'Point 1: click start A',
     step2: 'Point 2: click transfer B',
@@ -1636,12 +1003,12 @@ const taskChainMapPickUiLocale = computed(() => {
     return {
       start: '選点',
       cancel: '取消',
-      stageCount: '預選',
-      idle: (required, stages) => `預選 ${stages} 段 / 必要 ${required} 点。先に「選点」を押してから地図をクリックしてください。`,
+      stageCount: '予定',
+      idle: (required, stages) => `予定 ${stages} 段 / 必要 ${required} 点。先に「選点」を押してから地図をクリックしてください。`,
       status: (picked, required, stages) =>
         picked >= required
-          ? `${required} 点已選択。確認後に ${stages} 段タスクを作成します。`
-          : `已選 ${picked}/${required} 点。続けて選点してください。`
+          ? `${required} 点を選択済みです。確認後に ${stages} 段タスクを作成します。`
+          : `${picked}/${required} 点を選択済みです。続けて選点してください。`
     }
   }
 
@@ -1672,8 +1039,8 @@ const taskChainMapPickUiLocale = computed(() => {
 const queueViewLocale = computed(() => {
   if (locale.value === 'ja') {
     return {
-      collapseCards: 'カード折りたたみ',
-      expandCards: 'カード展開'
+      collapseCards: 'カードを折りたたむ',
+      expandCards: 'カードを展開'
     }
   }
 
@@ -1800,10 +1167,10 @@ const compareEntryText = computed(() => {
   }
 
   if (recommendedCompareAlgorithm.value) {
-    return `${algorithmCompareLocale.value.title} · ${algorithmText(recommendedCompareAlgorithm.value)}`
+    return `${algorithmCompareLocale.value.title} 路 ${algorithmText(recommendedCompareAlgorithm.value)}`
   }
 
-  return `${algorithmCompareLocale.value.title} · ${algorithmCompareLocale.value.unreachable}`
+  return `${algorithmCompareLocale.value.title} 路 ${algorithmCompareLocale.value.unreachable}`
 })
 const compareResultEntries = computed(() => Object.entries(pathCompareResult.value?.results ?? {}))
 const compareFloatingStyle = computed(() => ({
@@ -1833,12 +1200,12 @@ const algorithmHintText = computed(() => {
   if (locale.value === 'ja') {
     return algorithm.value === 'astar'
       ? `A* は障害物を回避して経路探索します。${obstacleSummaryText.value}。`
-      : `直線経路は横移動優先の簡化経路で、障害物で失敗する場合があります。${obstacleSummaryText.value}。`
+      : `直線経路は簡易マンハッタン経路のみを試すため、障害物で失敗する場合があります。${obstacleSummaryText.value}。`
   }
   if (locale.value === 'zh') {
     return algorithm.value === 'astar'
-      ? `A* 会绕开障碍寻找可达路径。${obstacleSummaryText.value}。`
-      : `直线路径仅做简化横纵通行，遇到障碍时可能无法调度。${obstacleSummaryText.value}。`
+      ? `A* 会绕开障碍搜索可达路径。${obstacleSummaryText.value}。`
+      : `直线路径只尝试简化曼哈顿直行，遇到障碍时可能失败。${obstacleSummaryText.value}。`
   }
   return algorithm.value === 'astar'
     ? `A* searches around blocked cells. ${obstacleSummaryText.value}.`
@@ -2265,13 +1632,25 @@ function statusColor(status) {
     idle: '#7f8c8d',
     running: '#2e7d32',
     fault: '#c62828',
-    relocating: '#ef6c00'
+    relocating: '#ef6c00',
+    emergency_stop: '#7b1f2f'
   }
   return map[status] ?? '#333'
 }
 
 function statusText(status) {
-  return t(`status_${status}`) ?? status
+  const localized = {
+    zh: {
+      emergency_stop: faultLocale.value.emergencyStopped
+    },
+    ja: {
+      emergency_stop: faultLocale.value.emergencyStopped
+    },
+    en: {
+      emergency_stop: faultLocale.value.emergencyStopped
+    }
+  }
+  return localized[locale.value]?.[status] ?? t(`status_${status}`) ?? status
 }
 
 function compactStatusText(status) {
@@ -2280,19 +1659,22 @@ function compactStatusText(status) {
       idle: '空闲',
       running: '运行',
       fault: '故障',
-      relocating: '就位'
+      relocating: '就位',
+      emergency_stop: '急停'
     },
     ja: {
       idle: '待機',
-      running: '走行',
+      running: '運行',
       fault: '故障',
-      relocating: '移動'
+      relocating: '移動',
+      emergency_stop: '急停'
     },
     en: {
       idle: 'IDLE',
       running: 'RUN',
       fault: 'FAULT',
-      relocating: 'MOVE'
+      relocating: 'MOVE',
+      emergency_stop: 'STOP'
     }
   }
 
@@ -2305,6 +1687,23 @@ function taskStatusText(status) {
 
 function algorithmText(value) {
   return value === 'astar' ? t('algo_astar') : t('algo_simple')
+}
+
+function faultTypeText(value) {
+  return faultLocale.value.faultTypes[value] ?? value
+}
+
+function faultSeverityText(value) {
+  return faultLocale.value.severities[value] ?? value
+}
+
+function faultEventTypeText(value) {
+  if (value === 'emergency_stop') return faultLocale.value.eventEmergency
+  return faultLocale.value.eventFault
+}
+
+function faultEventStatusText(value) {
+  return value === 'resolved' ? faultLocale.value.statusResolved : faultLocale.value.statusOpen
 }
 
 function formatCompareStageLengths(result) {
@@ -2429,6 +1828,11 @@ function formatDispatchReason(task) {
   return parts.join(' | ')
 }
 
+function formatTaskAlgorithm(task) {
+  if (!task?.dispatch_algorithm) return ''
+  return `${t('algorithm')}: ${algorithmText(task.dispatch_algorithm)}`
+}
+
 function formatTaskPathStats(task) {
   const parts = []
   if (task.path_length_to_start !== null && task.path_length_to_start !== undefined) {
@@ -2442,7 +1846,7 @@ function formatTaskPathStats(task) {
   }
   if (task.path_length_to_end !== null && task.path_length_to_end !== undefined) {
     if (locale.value === 'ja') {
-      parts.push(`执行区間 ${task.path_length_to_end}`)
+      parts.push(`実行区間 ${task.path_length_to_end}`)
     } else if (locale.value === 'zh') {
       parts.push(`执行段 ${task.path_length_to_end}`)
     } else {
@@ -2889,7 +2293,6 @@ function buildBlockedBatchRetrySummary(total, scheduledCount, queuedCount, faile
   }
   return `Processed ${total} blocked tasks: ${scheduledCount} retried now, ${queuedCount} queued, ${failedCount} failed.`
 }
-
 function clearPanelSearch() {
   panelSearch.value = ''
 }
@@ -3075,6 +2478,12 @@ function loadMapDisplaySettings() {
     if (typeof parsed?.showStatusLegend === 'boolean') {
       showStatusLegend.value = parsed.showStatusLegend
     }
+    if (parsed?.statusLegendLayout === 'horizontal' || parsed?.statusLegendLayout === 'vertical') {
+      statusLegendLayout.value = parsed.statusLegendLayout
+    }
+    if (typeof parsed?.statusLegendOpacity === 'number') {
+      statusLegendOpacity.value = clampValue(parsed.statusLegendOpacity, 0.2, 0.9)
+    }
     if (typeof parsed?.showMinimap === 'boolean') {
       showMinimap.value = parsed.showMinimap
     }
@@ -3098,6 +2507,8 @@ function saveMapDisplaySettings() {
         showMarkerIcons: showMarkerIcons.value,
         showPathArrows: showPathArrows.value,
         showStatusLegend: showStatusLegend.value,
+        statusLegendLayout: statusLegendLayout.value,
+        statusLegendOpacity: statusLegendOpacity.value,
         showMinimap: showMinimap.value,
         compareDisplayMode: compareDisplayMode.value,
         compareFloatingOpacity: compareFloatingOpacity.value
@@ -3471,8 +2882,10 @@ function clearManualPaths() {
 
 function cancelSelection() {
   selectedAgvId.value = null
+  trackedManualTaskId.value = null
   startPoint.value = null
   clearManualDestination()
+  showFaultReportForm.value = false
 }
 
 function findAgvById(id) {
@@ -3742,17 +3155,17 @@ function buildPreviewPathByAlgorithm(sx, sy, ex, ey) {
 }
 
 function blockedCellAlertText() {
-  if (locale.value === 'ja') return '障害物セルは始点・終点・中継点に設定できません。'
+  if (locale.value === 'ja') return '障害セルは始点・終点・中継点に設定できません。'
   if (locale.value === 'zh') return '障碍格不能作为起点、终点或中转点。'
   return 'Blocked cells cannot be used as start, end, or transfer points.'
 }
 
 function onAgvClick(agv, event) {
   event.stopPropagation()
-  if (dispatchMode.value !== 'manual') return
   if (agv.source !== 'backend') return
-  if (agv.status !== 'idle') return
   selectedAgvId.value = agv.id
+  if (dispatchMode.value !== 'manual') return
+  if (agv.status !== 'idle') return
   startPoint.value = { x: agv.x, y: agv.y }
   clearManualDestination()
 }
@@ -3987,7 +3400,11 @@ async function createTaskAndSchedule(agvId) {
   if (!startPoint.value || !endPoint.value) return
   if (!(await ensureBlockedCellsSynced())) return
 
+  const isAutoMode = dispatchMode.value === 'auto'
   try {
+    if (isAutoMode) {
+      autoScheduleGuard = true
+    }
     const createRes = await fetch(`${API_BASE}/task/create`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -4004,9 +3421,7 @@ async function createTaskAndSchedule(agvId) {
       throw createApiError(createData, 'Task create failed')
     }
 
-    await fetchTasks()
-
-    if (dispatchMode.value === 'auto') {
+    if (isAutoMode) {
       const scheduleRes = await fetch(`${API_BASE}/schedule/with_path`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -4064,12 +3479,18 @@ async function createTaskAndSchedule(agvId) {
     }
     manualPathToStart.value = scheduleData.path_to_start ?? []
     manualPathToEnd.value = scheduleData.path_to_end ?? scheduleData.path ?? []
+    trackedManualTaskId.value = scheduleData.task.id
 
     await Promise.all([fetchAgvs(), fetchTasks()])
   } catch (error) {
     console.error('Schedule error:', error)
-    if (dispatchMode.value === 'manual') {
+    if (!isAutoMode) {
+      trackedManualTaskId.value = null
       clearManualDestination()
+    }
+  } finally {
+    if (isAutoMode) {
+      autoScheduleGuard = false
     }
   }
 }
@@ -4205,6 +3626,7 @@ function onGlobalMouseUp() {
 async function tryAutoSchedule() {
   if (dispatchMode.value !== 'auto') return
   if (autoScheduling) return
+  if (autoScheduleGuard) return
   if (obstacleEditMode.value || obstacleLayoutDirty.value) return
   if (!hasIdleAgv() || !hasPendingTask()) return
 
@@ -5002,12 +4424,38 @@ async function fetchTasks() {
   tasks.value = await res.json()
 }
 
+async function fetchFaultEvents() {
+  const query = faultEventFilter.value === 'all' ? '' : `?status=${faultEventFilter.value}`
+  const res = await fetch(`${API_BASE}/fault/list${query}`)
+  if (!res.ok) {
+    throw new Error(`Fault event request failed: ${res.status}`)
+  }
+  faultEvents.value = await res.json()
+}
+
+async function refreshCoreState() {
+  await Promise.all([fetchAgvs(), fetchTasks(), fetchFaultEvents()])
+  syncDisplayedPathsFromTasks()
+}
+
+function setFaultPanelStatus(message, type = 'info') {
+  faultPanelStatus.value = message
+  faultPanelStatusType.value = type
+}
+
+function resetFaultReportForm() {
+  faultReportForm.value = {
+    fault_type: 'path_blocked',
+    severity: 'medium',
+    message: ''
+  }
+}
+
 async function refreshState() {
   if (polling) return
   polling = true
   try {
-    await Promise.all([fetchAgvs(), fetchTasks()])
-    syncDisplayedPathsFromTasks()
+    await refreshCoreState()
     if (dispatchMode.value === 'auto') {
       if (!hasActiveTask()) {
         clearAutoPaths()
@@ -5016,6 +4464,101 @@ async function refreshState() {
     }
   } finally {
     polling = false
+  }
+}
+
+async function emergencyStopSelectedAgv() {
+  if (!selectedBackendAgv.value) return
+  agvActionLoadingId.value = selectedBackendAgv.value.id
+  try {
+    const res = await fetch(`${API_BASE}/agv/${selectedBackendAgv.value.id}/emergency-stop`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reported_by: 'ui' })
+    })
+    const data = await res.json()
+    if (!res.ok) {
+      throw createApiError(data, faultLocale.value.emergencyStop)
+    }
+    setFaultPanelStatus(faultLocale.value.stopSuccess, 'success')
+    await refreshCoreState()
+  } catch (error) {
+    console.error('Emergency stop error:', error)
+    setFaultPanelStatus(error?.message || faultLocale.value.emergencyStop, 'error')
+  } finally {
+    agvActionLoadingId.value = null
+  }
+}
+
+async function resumeSelectedAgv() {
+  if (!selectedBackendAgv.value) return
+  agvActionLoadingId.value = selectedBackendAgv.value.id
+  try {
+    const res = await fetch(`${API_BASE}/agv/${selectedBackendAgv.value.id}/resume`, {
+      method: 'POST'
+    })
+    const data = await res.json()
+    if (!res.ok) {
+      throw createApiError(data, faultLocale.value.resume)
+    }
+    setFaultPanelStatus(faultLocale.value.resumeSuccess, 'success')
+    await refreshCoreState()
+  } catch (error) {
+    console.error('Resume AGV error:', error)
+    setFaultPanelStatus(error?.message || faultLocale.value.resume, 'error')
+  } finally {
+    agvActionLoadingId.value = null
+  }
+}
+
+async function submitFaultReport() {
+  if (!selectedBackendAgv.value) return
+  agvActionLoadingId.value = selectedBackendAgv.value.id
+  try {
+    const res = await fetch(`${API_BASE}/fault/report`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        agv_id: selectedBackendAgv.value.id,
+        fault_type: faultReportForm.value.fault_type,
+        severity: faultReportForm.value.severity,
+        message: faultReportForm.value.message || null,
+        reported_by: 'ui'
+      })
+    })
+    const data = await res.json()
+    if (!res.ok) {
+      throw createApiError(data, faultLocale.value.reportFault)
+    }
+    showFaultReportForm.value = false
+    resetFaultReportForm()
+    setFaultPanelStatus(faultLocale.value.faultReported, 'success')
+    await refreshCoreState()
+  } catch (error) {
+    console.error('Report fault error:', error)
+    setFaultPanelStatus(error?.message || faultLocale.value.reportFault, 'error')
+  } finally {
+    agvActionLoadingId.value = null
+  }
+}
+
+async function resolveFaultEventItem(eventItem) {
+  resolvingFaultId.value = eventItem.id
+  try {
+    const res = await fetch(`${API_BASE}/fault/${eventItem.id}/resolve`, {
+      method: 'POST'
+    })
+    const data = await res.json()
+    if (!res.ok) {
+      throw createApiError(data, faultLocale.value.resolve)
+    }
+    setFaultPanelStatus(faultLocale.value.faultResolved, 'success')
+    await refreshCoreState()
+  } catch (error) {
+    console.error('Resolve fault event error:', error)
+    setFaultPanelStatus(error?.message || faultLocale.value.resolve, 'error')
+  } finally {
+    resolvingFaultId.value = null
   }
 }
 
@@ -5173,7 +4716,7 @@ watch(showFloatingCompare, visible => {
   stopFloatingCompareRefresh()
 })
 
-watch([showAutoPath, showMarkerIcons, showPathArrows, showStatusLegend, showMinimap, compareDisplayMode, compareFloatingOpacity], () => {
+watch([showAutoPath, showMarkerIcons, showPathArrows, showStatusLegend, statusLegendLayout, statusLegendOpacity, showMinimap, compareDisplayMode, compareFloatingOpacity], () => {
   saveMapDisplaySettings()
 })
 
@@ -5181,6 +4724,47 @@ watch(
   [queueGroupsCollapsed, taskCardCollapsed],
   () => {
     saveTaskQueueView()
+  },
+  { deep: true }
+)
+
+watch(faultEventFilter, () => {
+  void fetchFaultEvents()
+})
+
+watch(selectedBackendAgv, agv => {
+  if (agv) return
+  showFaultReportForm.value = false
+  resetFaultReportForm()
+})
+
+watch(
+  [tasks, agvs, trackedManualTaskId, selectedBackendAgv, dispatchMode],
+  () => {
+    if (dispatchMode.value !== 'manual') return
+    if (!trackedManualTaskId.value) return
+    if (!selectedBackendAgv.value) {
+      trackedManualTaskId.value = null
+      return
+    }
+
+    const trackedTask = tasks.value.find(task => task.id === trackedManualTaskId.value)
+    if (!trackedTask || ['finished', 'blocked', 'failed'].includes(trackedTask.status)) {
+      cancelSelection()
+      return
+    }
+
+    if (trackedTask.agv_id !== selectedBackendAgv.value.id) {
+      trackedManualTaskId.value = null
+      return
+    }
+
+    if (
+      !['assigned', 'running'].includes(trackedTask.status) &&
+      selectedBackendAgv.value.status === 'idle'
+    ) {
+      cancelSelection()
+    }
   },
   { deep: true }
 )
@@ -5373,6 +4957,11 @@ onBeforeUnmount(() => {
           <div
             v-if="showStatusLegend"
             class="map-status-overlay"
+            :class="{
+              'is-horizontal': statusLegendLayout === 'horizontal',
+              'is-vertical': statusLegendLayout === 'vertical'
+            }"
+            :style="{ '--status-legend-opacity': statusLegendOpacity }"
             @mousedown.stop
             @click.stop
             @dblclick.stop
@@ -5392,6 +4981,9 @@ onBeforeUnmount(() => {
               </div>
               <div class="legend-item">
                 <span class="legend-dot fault"></span>{{ t('status_fault') }}
+              </div>
+              <div class="legend-item">
+                <span class="legend-dot emergency-stop"></span>{{ faultLocale.emergencyStopped }}
               </div>
             </div>
           </div>
@@ -5714,6 +5306,32 @@ onBeforeUnmount(() => {
                   <input v-model="showStatusLegend" type="checkbox" />
                   <span>{{ settingsLocale.showAgvStatus }}</span>
                 </label>
+                <div v-if="showStatusLegend" class="map-settings-select-group">
+                  <label class="map-settings-select-label" for="status-legend-layout">
+                    {{ settingsLocale.agvLegendLayout }}
+                  </label>
+                  <select
+                    id="status-legend-layout"
+                    v-model="statusLegendLayout"
+                    class="map-settings-select"
+                  >
+                    <option value="horizontal">{{ settingsLocale.agvLegendLayoutHorizontal }}</option>
+                    <option value="vertical">{{ settingsLocale.agvLegendLayoutVertical }}</option>
+                  </select>
+                </div>
+                <div v-if="showStatusLegend" class="map-settings-select-group">
+                  <label class="map-settings-select-label" for="status-legend-opacity">
+                    {{ settingsLocale.agvLegendOpacity }}
+                  </label>
+                  <input
+                    id="status-legend-opacity"
+                    v-model.number="statusLegendOpacity"
+                    type="range"
+                    min="0.2"
+                    max="0.9"
+                    step="0.05"
+                  />
+                </div>
               </div>
               <button class="map-settings-action" type="button" @click="resetMapView">
                 {{ settingsLocale.resetView }}
@@ -5970,6 +5588,183 @@ onBeforeUnmount(() => {
                 </template>
               </div>
 
+              <div class="dispatch-summary fault-panel">
+                <div class="fault-panel-header">
+                  <div>
+                    <span class="dispatch-summary-label">{{ faultLocale.title }}</span>
+                    <strong>{{ faultLocale.selectedAgv }}</strong>
+                  </div>
+                  <div class="fault-filter-group">
+                    <button
+                      class="btn-ghost fault-filter-button"
+                      :class="{ active: faultEventFilter === 'open' }"
+                      type="button"
+                      @click="faultEventFilter = 'open'"
+                    >
+                      {{ faultLocale.filterOpen }}
+                    </button>
+                    <button
+                      class="btn-ghost fault-filter-button"
+                      :class="{ active: faultEventFilter === 'resolved' }"
+                      type="button"
+                      @click="faultEventFilter = 'resolved'"
+                    >
+                      {{ faultLocale.filterResolved }}
+                    </button>
+                    <button
+                      class="btn-ghost fault-filter-button"
+                      :class="{ active: faultEventFilter === 'all' }"
+                      type="button"
+                      @click="faultEventFilter = 'all'"
+                    >
+                      {{ faultLocale.filterAll }}
+                    </button>
+                  </div>
+                </div>
+
+                <template v-if="selectedBackendAgv">
+                  <div class="fault-selected-agv">
+                    <div class="fault-selected-line">
+                      <strong>AGV #{{ selectedBackendAgv.id }}</strong>
+                      <div class="fault-selected-head-actions">
+                        <span class="status-badge" :class="selectedBackendAgv.status">{{ statusText(selectedBackendAgv.status) }}</span>
+                        <button
+                          class="btn-ghost fault-selected-clear-button"
+                          type="button"
+                          :disabled="agvActionLoadingId === selectedBackendAgv.id"
+                          @click="cancelSelection"
+                        >
+                          {{ faultLocale.clearSelection }}
+                        </button>
+                      </div>
+                    </div>
+                    <div class="task-line">
+                      {{ faultLocale.currentTask }}:
+                      {{ selectedAgvTask ? `#${selectedAgvTask.id}` : faultLocale.currentTaskNone }}
+                    </div>
+                    <div class="fault-action-row">
+                      <button
+                        v-if="selectedBackendAgv.status !== 'emergency_stop'"
+                        class="btn-danger fault-action-button"
+                        type="button"
+                        :disabled="agvActionLoadingId === selectedBackendAgv.id || selectedBackendAgv.status === 'fault'"
+                        @click="emergencyStopSelectedAgv"
+                      >
+                        {{ faultLocale.emergencyStop }}
+                      </button>
+                      <button
+                        v-else
+                        class="btn-secondary fault-action-button"
+                        type="button"
+                        :disabled="agvActionLoadingId === selectedBackendAgv.id"
+                        @click="resumeSelectedAgv"
+                      >
+                        {{ faultLocale.resume }}
+                      </button>
+                      <button
+                        class="btn-secondary fault-action-button"
+                        type="button"
+                        :disabled="agvActionLoadingId === selectedBackendAgv.id"
+                        @click="showFaultReportForm = !showFaultReportForm"
+                      >
+                        {{ faultLocale.reportFault }}
+                      </button>
+                    </div>
+                    <div v-if="showFaultReportForm" class="fault-report-form">
+                      <label>
+                        {{ faultLocale.faultType }}
+                        <select v-model="faultReportForm.fault_type">
+                          <option value="path_blocked">{{ faultTypeText('path_blocked') }}</option>
+                          <option value="battery">{{ faultTypeText('battery') }}</option>
+                          <option value="motor">{{ faultTypeText('motor') }}</option>
+                          <option value="communication">{{ faultTypeText('communication') }}</option>
+                          <option value="manual">{{ faultTypeText('manual') }}</option>
+                          <option value="other">{{ faultTypeText('other') }}</option>
+                        </select>
+                      </label>
+                      <label>
+                        {{ faultLocale.severity }}
+                        <select v-model="faultReportForm.severity">
+                          <option value="low">{{ faultSeverityText('low') }}</option>
+                          <option value="medium">{{ faultSeverityText('medium') }}</option>
+                          <option value="high">{{ faultSeverityText('high') }}</option>
+                          <option value="critical">{{ faultSeverityText('critical') }}</option>
+                        </select>
+                      </label>
+                      <label>
+                        {{ faultLocale.message }}
+                        <textarea v-model.trim="faultReportForm.message" rows="2"></textarea>
+                      </label>
+                      <div class="fault-action-row">
+                        <button
+                          class="btn-primary fault-action-button"
+                          type="button"
+                          :disabled="agvActionLoadingId === selectedBackendAgv.id"
+                          @click="submitFaultReport"
+                        >
+                          {{ faultLocale.reportFaultSubmit }}
+                        </button>
+                        <button
+                          class="btn-ghost fault-action-button"
+                          type="button"
+                          @click="showFaultReportForm = false"
+                        >
+                          {{ faultLocale.reportFaultCancel }}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </template>
+                <p v-else class="panel-hint">{{ faultLocale.noSelectedAgv }}</p>
+
+                <div v-if="faultPanelStatus" class="template-status" :class="faultPanelStatusType">
+                  {{ faultPanelStatus }}
+                </div>
+
+                <div class="fault-event-list">
+                  <article v-for="eventItem in filteredFaultEvents" :key="eventItem.id" class="fault-event-card">
+                    <div class="fault-event-head">
+                      <strong>#{{ eventItem.id }} · AGV #{{ eventItem.agv_id }}</strong>
+                      <span class="status-badge" :class="eventItem.status === 'resolved' ? 'finished' : 'blocked'">
+                        {{ faultEventStatusText(eventItem.status) }}
+                      </span>
+                    </div>
+                    <div class="task-line">
+                      {{ faultLocale.eventType }}: {{ faultEventTypeText(eventItem.event_type) }}
+                    </div>
+                    <div class="task-line">
+                      {{ faultLocale.faultType }}: {{ faultTypeText(eventItem.fault_type) }}
+                    </div>
+                    <div class="task-line">
+                      {{ faultLocale.severity }}: {{ faultSeverityText(eventItem.severity) }}
+                    </div>
+                    <div v-if="eventItem.message" class="task-line task-reason">
+                      {{ faultLocale.message }}: {{ eventItem.message }}
+                    </div>
+                    <div class="task-line task-time">
+                      {{ faultLocale.reportedAt }}: {{ eventItem.reported_at }}
+                    </div>
+                    <div v-if="eventItem.resolved_at" class="task-line task-time">
+                      {{ faultLocale.resolvedAt }}: {{ eventItem.resolved_at }}
+                    </div>
+                    <div class="task-actions">
+                      <button
+                        v-if="eventItem.status !== 'resolved'"
+                        class="btn-secondary task-action-button"
+                        type="button"
+                        :disabled="resolvingFaultId === eventItem.id"
+                        @click="resolveFaultEventItem(eventItem)"
+                      >
+                        {{ faultLocale.resolve }}
+                      </button>
+                    </div>
+                  </article>
+                  <div v-if="filteredFaultEvents.length === 0" class="empty-note">
+                    {{ faultLocale.empty }}
+                  </div>
+                </div>
+              </div>
+
               <div class="task-form task-builder">
                 <div class="task-builder-header">
                   <h2>{{ taskBuilderLocale.title }}</h2>
@@ -6219,6 +6014,7 @@ onBeforeUnmount(() => {
                         <div v-if="formatTaskStageProgress(task)" class="task-line">{{ formatTaskStageProgress(task) }}</div>
                         <div v-if="formatTaskCurrentStage(task)" class="task-line">{{ formatTaskCurrentStage(task) }}</div>
                         <div class="task-line">{{ t('task_priority') }}: {{ task.priority }}</div>
+                        <div v-if="formatTaskAlgorithm(task)" class="task-line">{{ formatTaskAlgorithm(task) }}</div>
                         <div class="task-line">{{ formatTaskAgv(task) }}</div>
                         <div v-if="formatTaskPathStats(task)" class="task-line">{{ formatTaskPathStats(task) }}</div>
                         <div class="task-line task-reason">
@@ -6574,8 +6370,7 @@ onBeforeUnmount(() => {
           :title="t('panel_back_to_top')"
           @click="scrollPanelToTop"
         >
-          ↑
-        </button>
+          鈫?        </button>
       </aside>
     </div>
 
@@ -6633,3 +6428,9 @@ onBeforeUnmount(() => {
     </div>
   </div>
 </template>
+
+
+
+
+
+

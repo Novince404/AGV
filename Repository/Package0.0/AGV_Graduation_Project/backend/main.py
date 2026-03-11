@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from app.api.agv_api import router as agv_router
+from app.api.fault_api import router as fault_router
 from app.api.task_api import router as task_router
 from app.api.schedule_api import router as schedule_router
 from app.api.status_api import router as status_router
@@ -16,6 +17,7 @@ app.add_middleware(
 )
 
 app.include_router(agv_router)
+app.include_router(fault_router)
 app.include_router(task_router)
 app.include_router(schedule_router)
 app.include_router(status_router)
