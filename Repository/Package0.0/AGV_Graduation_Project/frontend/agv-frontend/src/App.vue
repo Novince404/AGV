@@ -2,6 +2,14 @@
 import './assets/agv-map.css'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { LOCALE_TEXTS } from './locales'
+import { DEFAULT_POINT_LIBRARY, DEFAULT_TASK_TEMPLATES } from './config/defaultData'
+import { useDispatchScheduler } from './composables/useDispatchScheduler'
+import { useLocalPersistence } from './composables/useLocalPersistence'
+import { useTemplatePointActions } from './composables/useTemplatePointActions'
+import { usePanelCompareUi } from './composables/usePanelCompareUi'
+import { useDataExportActions } from './composables/useDataExportActions'
+import { useMapViewport } from './composables/useMapViewport'
+import { useTaskBuilderState } from './composables/useTaskBuilderState'
 import {
   buildDefaultTaskChainStages,
   buildTaskJsonExamplePayload,
@@ -14,6 +22,17 @@ import {
 } from './utils/taskChain'
 import { buildAStarPath, buildSimplePath } from './utils/pathPreview'
 import { rowsToCsv } from './utils/csv'
+import { downloadJsonFile } from './utils/fileDownload'
+import {
+  buildTaskTemplateSignature as buildTaskTemplateSignatureRaw,
+  buildTemplateExportPayload as buildTemplateExportPayloadRaw,
+  buildTemplateFromStages as buildTemplateFromStagesRaw,
+  formatTemplateJsonSummary as formatTemplateJsonSummaryRaw,
+  isValidGridCoordinate,
+  normalizeImportedTaskTemplate as normalizeImportedTaskTemplateRaw,
+  normalizeTemplateStages as normalizeTemplateStagesRaw
+} from './utils/templateHelpers'
+import { buildCustomPoint, normalizeStoredCustomPoints } from './utils/pointHelpers'
 
 const GRID_COLS = 10
 const GRID_ROWS = 8
@@ -196,15 +215,13 @@ const compareFloatingY = ref(140)
 let timer = null
 let clickTimer = null
 let previewTimer = null
-let templateApplyClickTimer = null
 let taskBuilderJumpTimer = null
 let localNextId = 1000
-let autoScheduling = false
-let autoScheduleGuard = false
-let manualBoundScheduling = false
+const autoScheduling = ref(false)
+const autoScheduleGuard = ref(false)
+const manualBoundScheduling = ref(false)
 let polling = false
 let mapResizeObserver = null
-let mapViewReady = false
 let mapPanCandidate = false
 let mapPanMoved = false
 let mapPanStartX = 0
@@ -212,18 +229,12 @@ let mapPanStartY = 0
 let mapPanOriginX = 0
 let mapPanOriginY = 0
 let ignoreNextMapClick = false
-let isMinimapDragging = false
-let isPanelResizing = false
-let panelResizeStartX = 0
-let panelResizeStartWidth = 0
-let panelSectionFocusTimer = null
 let obstaclePaintActive = false
 let obstaclePaintMode = 'add'
 let obstaclePaintLastKey = ''
 let compareFloatingDragging = false
 let compareFloatingDragOffsetX = 0
 let compareFloatingDragOffsetY = 0
-let floatingCompareRefreshTimer = null
 let manualPreviewHoldTimer = null
 
 const messages = {
@@ -231,136 +242,6 @@ const messages = {
   ja: LOCALE_TEXTS.ja.messages,
   en: LOCALE_TEXTS.en.messages
 }
-
-const DEFAULT_POINT_LIBRARY = [
-  {
-    id: 'inbound_a',
-    x: 0,
-    y: 1,
-    nameKey: 'point_name_inbound_a',
-    zoneKey: 'point_zone_inbound',
-    aliases: ['dock', 'receiving', '入库', '搬入', '0,1']
-  },
-  {
-    id: 'inbound_b',
-    x: 0,
-    y: 6,
-    nameKey: 'point_name_inbound_b',
-    zoneKey: 'point_zone_inbound',
-    aliases: ['dock', 'receiving', '入库', '搬入', '0,6']
-  },
-  {
-    id: 'outbound_a',
-    x: 9,
-    y: 1,
-    nameKey: 'point_name_outbound_a',
-    zoneKey: 'point_zone_outbound',
-    aliases: ['shipping', 'delivery', '出库', '搬出', '9,1']
-  },
-  {
-    id: 'outbound_b',
-    x: 9,
-    y: 6,
-    nameKey: 'point_name_outbound_b',
-    zoneKey: 'point_zone_outbound',
-    aliases: ['shipping', 'delivery', '出库', '搬出', '9,6']
-  },
-  {
-    id: 'storage_c1',
-    x: 3,
-    y: 2,
-    nameKey: 'point_name_storage_c1',
-    zoneKey: 'point_zone_storage',
-    aliases: ['rack', 'buffer', '存储', '保管', '3,2']
-  },
-  {
-    id: 'storage_c2',
-    x: 3,
-    y: 5,
-    nameKey: 'point_name_storage_c2',
-    zoneKey: 'point_zone_storage',
-    aliases: ['rack', 'buffer', '存储', '保管', '3,5']
-  },
-  {
-    id: 'assembly_1',
-    x: 6,
-    y: 2,
-    nameKey: 'point_name_assembly_1',
-    zoneKey: 'point_zone_assembly',
-    aliases: ['station', 'line', '装配', '组立', '6,2']
-  },
-  {
-    id: 'assembly_2',
-    x: 6,
-    y: 5,
-    nameKey: 'point_name_assembly_2',
-    zoneKey: 'point_zone_assembly',
-    aliases: ['station', 'line', '装配', '组立', '6,5']
-  },
-  {
-    id: 'charge',
-    x: 1,
-    y: 7,
-    nameKey: 'point_name_charge',
-    zoneKey: 'point_zone_service',
-    aliases: ['charger', 'battery', '充电', '充電', '1,7']
-  },
-  {
-    id: 'maintenance',
-    x: 8,
-    y: 7,
-    nameKey: 'point_name_maintenance',
-    zoneKey: 'point_zone_service',
-    aliases: ['repair', 'service', '维护', '保守', '8,7']
-  }
-]
-
-function getDefaultPoint(id) {
-  return DEFAULT_POINT_LIBRARY.find(point => point.id === id)
-}
-
-const DEFAULT_TASK_TEMPLATES = [
-  {
-    id: 'template_inbound_a_to_storage_c1',
-    nameKey: 'template_name_inbound_a_to_storage_c1',
-    start_x: getDefaultPoint('inbound_a').x,
-    start_y: getDefaultPoint('inbound_a').y,
-    end_x: getDefaultPoint('storage_c1').x,
-    end_y: getDefaultPoint('storage_c1').y,
-    priority: 3,
-    custom: false
-  },
-  {
-    id: 'template_inbound_b_to_storage_c2',
-    nameKey: 'template_name_inbound_b_to_storage_c2',
-    start_x: getDefaultPoint('inbound_b').x,
-    start_y: getDefaultPoint('inbound_b').y,
-    end_x: getDefaultPoint('storage_c2').x,
-    end_y: getDefaultPoint('storage_c2').y,
-    priority: 3,
-    custom: false
-  },
-  {
-    id: 'template_storage_c1_to_assembly_1',
-    nameKey: 'template_name_storage_c1_to_assembly_1',
-    start_x: getDefaultPoint('storage_c1').x,
-    start_y: getDefaultPoint('storage_c1').y,
-    end_x: getDefaultPoint('assembly_1').x,
-    end_y: getDefaultPoint('assembly_1').y,
-    priority: 4,
-    custom: false
-  },
-  {
-    id: 'template_assembly_1_to_outbound_a',
-    nameKey: 'template_name_assembly_1_to_outbound_a',
-    start_x: getDefaultPoint('assembly_1').x,
-    start_y: getDefaultPoint('assembly_1').y,
-    end_x: getDefaultPoint('outbound_a').x,
-    end_y: getDefaultPoint('outbound_a').y,
-    priority: 5,
-    custom: false
-  }
-]
 
 const t = key => messages[locale.value]?.[key] ?? messages.en[key] ?? key
 
@@ -672,6 +553,106 @@ const minimapAutoPathToEndPoints = computed(() =>
   toSvgPoints(autoPathToEnd.value, minimapCellSize.value)
 )
 const minimapPreviewPathPoints = computed(() => toSvgPoints(previewPath.value, minimapCellSize.value))
+function isFinitePoint(point) {
+  return Number.isFinite(Number(point?.x)) && Number.isFinite(Number(point?.y))
+}
+
+function taskStageWaypoints(task) {
+  const stages = Array.isArray(task?.stages) ? task.stages : []
+  if (stages.length === 0) return []
+
+  const points = []
+  const firstStage = stages[0]
+  if (isFinitePoint({ x: firstStage?.start_x, y: firstStage?.start_y })) {
+    points.push({ x: Number(firstStage.start_x), y: Number(firstStage.start_y) })
+  }
+  for (const stage of stages) {
+    if (isFinitePoint({ x: stage?.end_x, y: stage?.end_y })) {
+      points.push({ x: Number(stage.end_x), y: Number(stage.end_y) })
+    }
+  }
+  return points
+}
+
+function taskCurrentStageIndex(task) {
+  const stages = Array.isArray(task?.stages) ? task.stages : []
+  if (stages.length === 0) return 0
+  const idx = Number(task?.current_stage_index ?? 0)
+  if (!Number.isFinite(idx)) return 0
+  return clampValue(Math.floor(idx), 0, stages.length - 1)
+}
+
+function taskRemainingWaypoints(task) {
+  const stages = Array.isArray(task?.stages) ? task.stages : []
+  if (stages.length === 0) return []
+
+  const stageIndex = taskCurrentStageIndex(task)
+  const currentStage = stages[stageIndex]
+  const points = []
+
+  if (isFinitePoint({ x: currentStage?.start_x, y: currentStage?.start_y })) {
+    points.push({ x: Number(currentStage.start_x), y: Number(currentStage.start_y) })
+  }
+
+  for (let index = stageIndex; index < stages.length; index += 1) {
+    const stage = stages[index]
+    if (isFinitePoint({ x: stage?.end_x, y: stage?.end_y })) {
+      points.push({ x: Number(stage.end_x), y: Number(stage.end_y) })
+    }
+  }
+
+  return points
+}
+
+function taskChainMidPoints(task) {
+  const waypoints = taskRemainingWaypoints(task)
+  if (waypoints.length <= 2) return []
+  return waypoints.slice(1, -1).map((point, index) => ({
+    ...point,
+    order: index + 1
+  }))
+}
+
+function resolveTaskOverallEndMarker(task) {
+  const waypoints = taskStageWaypoints(task)
+  if (waypoints.length > 0) return waypoints.at(-1)
+  if (
+    Number.isFinite(Number(task?.overall_end_x)) &&
+    Number.isFinite(Number(task?.overall_end_y))
+  ) {
+    return {
+      x: Number(task.overall_end_x),
+      y: Number(task.overall_end_y)
+    }
+  }
+  return resolveTaskEndMarker(task)
+}
+
+const manualChainRoutePoints = computed(() => {
+  const task = manualDisplayTask.value
+  if (!task || Number(task.total_stages ?? 1) <= 1) return ''
+  return toSvgPoints(taskRemainingWaypoints(task))
+})
+
+const autoChainRoutePoints = computed(() => {
+  if (!shouldShowAutoPath.value) return ''
+  const task = autoDisplayTask.value
+  if (!task || Number(task.total_stages ?? 1) <= 1) return ''
+  return toSvgPoints(taskRemainingWaypoints(task))
+})
+
+const minimapManualChainRoutePoints = computed(() => {
+  const task = manualDisplayTask.value
+  if (!task || Number(task.total_stages ?? 1) <= 1) return ''
+  return toSvgPoints(taskRemainingWaypoints(task), minimapCellSize.value)
+})
+
+const minimapAutoChainRoutePoints = computed(() => {
+  if (!shouldShowAutoPath.value) return ''
+  const task = autoDisplayTask.value
+  if (!task || Number(task.total_stages ?? 1) <= 1) return ''
+  return toSvgPoints(taskRemainingWaypoints(task), minimapCellSize.value)
+})
 const minimapViewportStyle = computed(() => {
   const scale = minimapScale.value
   const visibleWidth = Math.min(MAP_WIDTH, mapViewportWidth.value / mapZoom.value)
@@ -726,13 +707,21 @@ const manualDisplayTask = computed(() => {
 
 const manualDisplayStartMarker = computed(() => {
   if (trackedManualTaskId.value && manualDisplayTask.value) {
-    return resolveTaskStartMarker(manualDisplayTask.value)
+    const task = manualDisplayTask.value
+    if (Number(task.total_stages ?? 1) > 1) {
+      return resolveTaskStartMarker(task)
+    }
+    return resolveTaskStartMarker(task)
   }
   return startPoint.value ?? manualPathToStart.value.at(-1) ?? manualPathToEnd.value[0] ?? null
 })
 const manualDisplayEndMarker = computed(() => {
   if (trackedManualTaskId.value && manualDisplayTask.value) {
-    return resolveTaskEndMarker(manualDisplayTask.value)
+    const task = manualDisplayTask.value
+    if (Number(task.total_stages ?? 1) > 1) {
+      return resolveTaskOverallEndMarker(task)
+    }
+    return resolveTaskEndMarker(task)
   }
   if (
     taskBuilderMode.value === 'chain' &&
@@ -745,7 +734,11 @@ const manualDisplayEndMarker = computed(() => {
 })
 const autoDisplayStartMarker = computed(() => {
   if (!shouldShowAutoPath.value) return null
-  return resolveTaskStartMarker(autoDisplayTask.value) ?? autoPathToStart.value.at(-1) ?? autoPathToEnd.value[0] ?? null
+  const task = autoDisplayTask.value
+  if (task && Number(task.total_stages ?? 1) > 1) {
+    return resolveTaskStartMarker(task)
+  }
+  return resolveTaskStartMarker(task) ?? autoPathToStart.value.at(-1) ?? autoPathToEnd.value[0] ?? null
 })
 const autoDisplayEndMarker = computed(() => {
   if (!shouldShowAutoPath.value) return null
@@ -756,10 +749,23 @@ const autoDisplayEndMarker = computed(() => {
   ) {
     return null
   }
-  return resolveTaskEndMarker(autoDisplayTask.value) ?? autoPathToEnd.value.at(-1) ?? null
+  const task = autoDisplayTask.value
+  if (task && Number(task.total_stages ?? 1) > 1) {
+    return resolveTaskOverallEndMarker(task)
+  }
+  return resolveTaskEndMarker(task) ?? autoPathToEnd.value.at(-1) ?? null
 })
 const chainMidMarkers = computed(() => {
-  if (!taskChainMapPickActive.value) return []
+  if (!taskChainMapPickActive.value) {
+    const chainTask =
+      (manualDisplayTask.value && Number(manualDisplayTask.value.total_stages ?? 1) > 1
+        ? manualDisplayTask.value
+        : null) ??
+      (shouldShowAutoPath.value && autoDisplayTask.value && Number(autoDisplayTask.value.total_stages ?? 1) > 1
+        ? autoDisplayTask.value
+        : null)
+    return chainTask ? taskChainMidPoints(chainTask) : []
+  }
   const picked = taskChainMapPickPoints.value
   const required = taskChainRequiredPointCount.value
   const incomplete = picked.length < required
@@ -993,6 +999,11 @@ const guideCenterLocale = computed(() => {
     workflowManual: t('dispatch_help_manual'),
     workflowForm: t('dispatch_help_form')
   }
+})
+const toolbarGuideHintText = computed(() => {
+  if (locale.value === 'ja') return '操作説明は「使い方」をご確認ください。'
+  if (locale.value === 'zh') return '操作说明请见“说明中心”。'
+  return 'See "Guide" for operation instructions.'
 })
 const taskChainLocale = computed(() => {
   if (locale.value === 'ja') {
@@ -1570,10 +1581,10 @@ const compareEntryText = computed(() => {
   }
 
   if (recommendedCompareAlgorithm.value) {
-    return `${algorithmCompareLocale.value.title} 路 ${algorithmText(recommendedCompareAlgorithm.value)}`
+    return `${algorithmCompareLocale.value.title} · ${algorithmCompareLocale.value.recommended} ${algorithmText(recommendedCompareAlgorithm.value)}`
   }
 
-  return `${algorithmCompareLocale.value.title} 路 ${algorithmCompareLocale.value.unreachable}`
+  return `${algorithmCompareLocale.value.title} · ${algorithmCompareLocale.value.unreachable}`
 })
 const compareResultEntries = computed(() => Object.entries(pathCompareResult.value?.results ?? {}))
 const experimentRecordCount = computed(() => experimentRecords.value.length)
@@ -2331,30 +2342,11 @@ function taskTemplateTypeText(template) {
 }
 
 function normalizeTemplateStages(template) {
-  const rawStages = Array.isArray(template?.stages) && template.stages.length > 0
-    ? template.stages
-    : [
-        {
-          label: '',
-          start_x: template?.start_x,
-          start_y: template?.start_y,
-          end_x: template?.end_x,
-          end_y: template?.end_y
-        }
-      ]
-
-  return rawStages
-    .map(stage => ({
-      ...createTaskChainStage(stage),
-      label: String(stage?.label ?? '').trim()
-    }))
-    .filter(
-      stage =>
-        isValidGridCoordinate(stage.start_x, GRID_COLS) &&
-        isValidGridCoordinate(stage.start_y, GRID_ROWS) &&
-        isValidGridCoordinate(stage.end_x, GRID_COLS) &&
-        isValidGridCoordinate(stage.end_y, GRID_ROWS)
-    )
+  return normalizeTemplateStagesRaw(template, {
+    createTaskChainStage,
+    gridCols: GRID_COLS,
+    gridRows: GRID_ROWS
+  })
 }
 
 function buildTemplateFromStages({
@@ -2364,22 +2356,13 @@ function buildTemplateFromStages({
   stages,
   custom = true
 }) {
-  const normalizedStages = normalizeTemplateStages({ stages })
-  if (!name || normalizedStages.length === 0) return null
-
-  const firstStage = normalizedStages[0]
-  const lastStage = normalizedStages[normalizedStages.length - 1]
-  return {
-    id,
-    customName: String(name).trim(),
-    start_x: firstStage.start_x,
-    start_y: firstStage.start_y,
-    end_x: lastStage.end_x,
-    end_y: lastStage.end_y,
-    stages: normalizedStages,
-    priority: clampValue(Number(priority), 1, 5),
-    custom
-  }
+  return buildTemplateFromStagesRaw(
+    { id, name, priority, stages, custom },
+    {
+      normalizeStages: normalizeTemplateStages,
+      clampPriority: value => clampValue(value, 1, 5)
+    }
+  )
 }
 
 function formatTemplateMeta(template) {
@@ -2395,78 +2378,24 @@ function formatTemplateStageCount(template) {
   return `${taskChainLocale.value.stageCount}: ${stages.length}`
 }
 
-function applyPointToTaskForm(target, point) {
-  if (target === 'start') {
-    taskForm.value.start_x = point.x
-    taskForm.value.start_y = point.y
-    return
-  }
-
-  taskForm.value.end_x = point.x
-  taskForm.value.end_y = point.y
-}
-
-function resetCustomPointForm() {
-  customPointForm.value = {
-    name: '',
-    zone: '',
-    x: 0,
-    y: 0
-  }
-}
-
-function setPointFormStatus(type, message) {
-  pointFormStatusType.value = type
-  pointFormStatus.value = message
-}
-
-function setTaskTemplateStatus(type, message) {
-  taskTemplateStatusType.value = type
-  taskTemplateStatus.value = message
-}
-
-function setTemplateJsonStatus(type, message) {
-  templateJsonStatusType.value = type
-  templateJsonStatus.value = message
-}
-
-function isValidGridCoordinate(value, max) {
-  return Number.isInteger(value) && value >= 0 && value < max
-}
-
 function buildTaskTemplateSignature(template) {
-  const stages = normalizeTemplateStages(template)
-  return [
-    String(template.customName ?? template.nameKey ?? '').trim().toLowerCase(),
-    template.priority,
-    ...stages.flatMap(stage => [stage.label, stage.start_x, stage.start_y, stage.end_x, stage.end_y])
-  ].join('|')
+   return buildTaskTemplateSignatureRaw(template, {
+    normalizeStages: normalizeTemplateStages
+  })
 }
 
 function normalizeImportedTaskTemplate(template) {
-  const name = String(template?.name ?? template?.customName ?? '').trim()
-  const priority = Number(template?.priority)
-  const stages = normalizeTemplateStages(template)
-
-  if (!name || stages.length === 0 || !Number.isInteger(priority)) {
-    return null
-  }
-
-  return buildTemplateFromStages({
-    name,
-    priority,
-    stages,
-    custom: true
+  return normalizeImportedTaskTemplateRaw(template, {
+    normalizeStages: normalizeTemplateStages,
+    buildTemplate: params => buildTemplateFromStages(params)
   })
 }
 
 function formatTemplateJsonSummary(primaryLabel, primaryCount, skippedCount = 0) {
-  const separator = locale.value === 'en' ? ', ' : '，'
-  const parts = [`${primaryLabel}: ${primaryCount}`]
-  if (skippedCount > 0) {
-    parts.push(`${templateJsonLocale.value.skipped}: ${skippedCount}`)
-  }
-  return parts.join(separator)
+  return formatTemplateJsonSummaryRaw(primaryLabel, primaryCount, skippedCount, {
+    separator: locale.value === 'en' ? ', ' : '，',
+    skippedLabel: templateJsonLocale.value.skipped
+  })
 }
 
 function matchesSearchFields(fields, keyword) {
@@ -2474,134 +2403,91 @@ function matchesSearchFields(fields, keyword) {
   return fields.some(value => String(value ?? '').toLowerCase().includes(keyword))
 }
 
-function loadPanelSections() {
-  try {
-    const raw = window.localStorage.getItem(PANEL_SECTION_STORAGE_KEY)
-    if (!raw) return
+const {
+  loadPanelSections,
+  savePanelSections,
+  loadPanelSummaryMode,
+  savePanelSummaryMode,
+  loadTaskQueueView,
+  saveTaskQueueView,
+  loadExperimentRecords,
+  saveExperimentRecords,
+  loadCustomPoints,
+  saveCustomPoints,
+  loadMapDisplaySettings,
+  saveMapDisplaySettings,
+  loadTaskTemplates,
+  saveTaskTemplates
+} = useLocalPersistence({
+  storageKeys: {
+    panelSections: PANEL_SECTION_STORAGE_KEY,
+    panelSummaryMode: PANEL_SUMMARY_MODE_STORAGE_KEY,
+    taskQueueView: TASK_QUEUE_VIEW_STORAGE_KEY,
+    experimentRecords: EXPERIMENT_RECORDS_STORAGE_KEY,
+    customPoints: CUSTOM_POINTS_STORAGE_KEY,
+    mapDisplay: MAP_DISPLAY_STORAGE_KEY,
+    taskTemplates: TASK_TEMPLATE_STORAGE_KEY
+  },
+  panelSections,
+  panelSummaryMode,
+  queueGroupsCollapsed,
+  taskCardCollapsed,
+  experimentRecords,
+  customPoints,
+  customTaskTemplates,
+  dispatchMode,
+  showAutoPath,
+  showMarkerIcons,
+  showPathArrows,
+  showStatusLegend,
+  statusLegendLayout,
+  statusLegendOpacity,
+  showMinimap,
+  compareDisplayMode,
+  compareFloatingOpacity,
+  clampValue,
+  normalizeCustomPoints: parsed =>
+    normalizeStoredCustomPoints(parsed, {
+      gridCols: GRID_COLS,
+      gridRows: GRID_ROWS,
+      isValidGridCoordinate
+    }),
+  templateFromStored: template =>
+    buildTemplateFromStages({
+      id: typeof template?.id === 'string' ? template.id : undefined,
+      name: template?.customName,
+      priority: template?.priority,
+      stages: normalizeTemplateStages(template),
+      custom: true
+    })
+})
 
-    const parsed = JSON.parse(raw)
-    if (!parsed || typeof parsed !== 'object') return
-
-    panelSections.value = {
-      control: typeof parsed.control === 'boolean' ? parsed.control : panelSections.value.control,
-      queue: typeof parsed.queue === 'boolean' ? parsed.queue : panelSections.value.queue,
-      templates:
-        typeof parsed.templates === 'boolean' ? parsed.templates : panelSections.value.templates,
-      points: typeof parsed.points === 'boolean' ? parsed.points : panelSections.value.points,
-      json: typeof parsed.json === 'boolean' ? parsed.json : panelSections.value.json,
-      experiments:
-        typeof parsed.experiments === 'boolean' ? parsed.experiments : panelSections.value.experiments
-    }
-  } catch (error) {
-    console.error('Load panel sections error:', error)
-  }
-}
-
-function savePanelSections() {
-  try {
-    window.localStorage.setItem(PANEL_SECTION_STORAGE_KEY, JSON.stringify(panelSections.value))
-  } catch (error) {
-    console.error('Save panel sections error:', error)
-  }
-}
-
-function loadPanelSummaryMode() {
-  try {
-    const raw = window.localStorage.getItem(PANEL_SUMMARY_MODE_STORAGE_KEY)
-    if (!raw) return
-    if (['hidden', 'compact', 'full'].includes(raw)) {
-      panelSummaryMode.value = raw
-    }
-  } catch (error) {
-    console.error('Load panel summary mode error:', error)
-  }
-}
-
-function savePanelSummaryMode() {
-  try {
-    window.localStorage.setItem(PANEL_SUMMARY_MODE_STORAGE_KEY, panelSummaryMode.value)
-  } catch (error) {
-    console.error('Save panel summary mode error:', error)
-  }
-}
-
-function loadTaskQueueView() {
-  try {
-    const raw = window.localStorage.getItem(TASK_QUEUE_VIEW_STORAGE_KEY)
-    if (!raw) return
-
-    const parsed = JSON.parse(raw)
-    if (parsed?.groups && typeof parsed.groups === 'object') {
-      queueGroupsCollapsed.value = {
-        ...queueGroupsCollapsed.value,
-        pending: typeof parsed.groups.pending === 'boolean' ? parsed.groups.pending : queueGroupsCollapsed.value.pending,
-        blocked: typeof parsed.groups.blocked === 'boolean' ? parsed.groups.blocked : queueGroupsCollapsed.value.blocked,
-        assigned: typeof parsed.groups.assigned === 'boolean' ? parsed.groups.assigned : queueGroupsCollapsed.value.assigned,
-        running: typeof parsed.groups.running === 'boolean' ? parsed.groups.running : queueGroupsCollapsed.value.running,
-        finished: typeof parsed.groups.finished === 'boolean' ? parsed.groups.finished : queueGroupsCollapsed.value.finished
-      }
-    }
-
-    if (parsed?.cards && typeof parsed.cards === 'object') {
-      taskCardCollapsed.value = Object.fromEntries(
-        Object.entries(parsed.cards)
-          .filter(([taskId, collapsed]) => taskId && typeof collapsed === 'boolean')
-          .map(([taskId, collapsed]) => [String(taskId), collapsed])
-      )
-    }
-  } catch (error) {
-    console.error('Load task queue view error:', error)
-  }
-}
-
-function saveTaskQueueView() {
-  try {
-    window.localStorage.setItem(
-      TASK_QUEUE_VIEW_STORAGE_KEY,
-      JSON.stringify({
-        groups: queueGroupsCollapsed.value,
-        cards: taskCardCollapsed.value
-      })
-    )
-  } catch (error) {
-    console.error('Save task queue view error:', error)
-  }
-}
-
-function loadExperimentRecords() {
-  try {
-    const raw = window.localStorage.getItem(EXPERIMENT_RECORDS_STORAGE_KEY)
-    if (!raw) return
-
-    const parsed = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return
-
-    experimentRecords.value = parsed.filter(
-      record =>
-        record &&
-        typeof record === 'object' &&
-        record.id &&
-        record.saved_at &&
-        record.route_summary &&
-        Array.isArray(record.algorithms)
-    )
-  } catch (error) {
-    console.error('Load experiment records error:', error)
-  }
-}
-
-function saveExperimentRecords() {
-  try {
-    window.localStorage.setItem(EXPERIMENT_RECORDS_STORAGE_KEY, JSON.stringify(experimentRecords.value))
-  } catch (error) {
-    console.error('Save experiment records error:', error)
-  }
-}
-
-function setExperimentStatus(type, message) {
-  experimentStatusType.value = type
-  experimentStatus.value = message
-}
+const {
+  fillTaskJsonExample,
+  downloadTaskJsonExample,
+  saveCurrentExperimentRecord,
+  exportCurrentCompareResultJson,
+  exportCurrentCompareResultCsv,
+  exportAllExperimentRecordsJson,
+  exportAllExperimentRecordsCsv,
+  exportExperimentRecord,
+  deleteExperimentRecord,
+  clearExperimentRecords
+} = useDataExportActions({
+  jsonText,
+  jsonStatus,
+  taskJsonLocale,
+  taskJsonExampleFileLocale,
+  buildTaskJsonExamplePayload,
+  experimentRecords,
+  experimentStatus,
+  experimentStatusType,
+  experimentLocale,
+  panelSections,
+  buildCompareSnapshot,
+  experimentCsvRowsFromRecords,
+  rowsToCsv
+})
 
 function pruneTaskCardCollapsedState() {
   const visibleIds = new Set(tasks.value.map(task => String(task.id)))
@@ -2614,104 +2500,6 @@ function pruneTaskCardCollapsedState() {
   }
 }
 
-function panelSectionRefByKey(sectionKey) {
-  const sectionMap = {
-    control: controlSectionRef.value,
-    queue: queueSectionRef.value,
-    templates: templatesSectionRef.value,
-    points: pointsSectionRef.value,
-    json: jsonSectionRef.value,
-    experiments: experimentsSectionRef.value
-  }
-  return sectionMap[sectionKey] ?? null
-}
-
-function focusPanelSection(sectionKey) {
-  focusedPanelSection.value = sectionKey
-  if (panelSectionFocusTimer) {
-    clearTimeout(panelSectionFocusTimer)
-  }
-  panelSectionFocusTimer = setTimeout(() => {
-    focusedPanelSection.value = ''
-    panelSectionFocusTimer = null
-  }, 1600)
-}
-
-async function jumpToPanelSearchResult(sectionKey) {
-  panelSections.value = {
-    ...panelSections.value,
-    [sectionKey]: true
-  }
-
-  await nextTick()
-
-  const panelSection = panelSectionRefByKey(sectionKey)
-  const panelElement = panelRef.value
-  if (panelSection && panelElement) {
-    const top = Math.max(panelSection.offsetTop - 12, 0)
-    panelElement.scrollTo({ top, behavior: 'smooth' })
-  }
-
-  focusPanelSection(sectionKey)
-}
-
-async function scrollToComparePanel() {
-  panelSections.value = {
-    ...panelSections.value,
-    control: true
-  }
-  comparePanelExpanded.value = true
-
-  await nextTick()
-
-  const panelElement = panelRef.value
-  const comparePanelElement = comparePanelRef.value
-  if (panelElement && comparePanelElement) {
-    const top = Math.max(comparePanelElement.offsetTop - 12, 0)
-    panelElement.scrollTo({ top, behavior: 'smooth' })
-  } else {
-    await jumpToPanelSearchResult('control')
-    return
-  }
-
-  focusPanelSection('control')
-}
-
-function shouldAutoRefreshFloatingCompare() {
-  return compareDisplayMode.value === 'floating' && showFloatingCompare.value
-}
-
-function stopFloatingCompareRefresh() {
-  if (floatingCompareRefreshTimer) {
-    clearTimeout(floatingCompareRefreshTimer)
-    floatingCompareRefreshTimer = null
-  }
-}
-
-function requestFloatingCompareRefresh() {
-  if (!shouldAutoRefreshFloatingCompare()) return
-  stopFloatingCompareRefresh()
-  floatingCompareRefreshTimer = setTimeout(() => {
-    floatingCompareRefreshTimer = null
-    if (pathCompareLoading.value) {
-      requestFloatingCompareRefresh()
-      return
-    }
-    void compareCurrentRoute()
-  }, 360)
-}
-
-function positionFloatingCompareBelowEntry() {
-  const button = compareEntryButtonRef.value
-  if (!button || typeof window === 'undefined') return
-
-  const rect = button.getBoundingClientRect()
-  const floatingWidth = Math.min(360, Math.max(window.innerWidth - 24, 240))
-  const maxX = Math.max(window.innerWidth - floatingWidth - 12, 12)
-  compareFloatingX.value = Math.min(Math.max(rect.left, 12), maxX)
-  compareFloatingY.value = Math.max(rect.bottom + 10, 12)
-}
-
 function buildBlockedBatchRetrySummary(total, scheduledCount, queuedCount, failedCount) {
   if (locale.value === 'ja') {
     return `到達不可タスク ${total} 件を処理しました。即時再試行 ${scheduledCount} 件、待機 ${queuedCount} 件、失敗 ${failedCount} 件。`
@@ -2720,124 +2508,6 @@ function buildBlockedBatchRetrySummary(total, scheduledCount, queuedCount, faile
     return `已处理 ${total} 个不可达任务：立即重试 ${scheduledCount} 个，等待空闲 AGV ${queuedCount} 个，失败 ${failedCount} 个。`
   }
   return `Processed ${total} blocked tasks: ${scheduledCount} retried now, ${queuedCount} queued, ${failedCount} failed.`
-}
-function clearPanelSearch() {
-  panelSearch.value = ''
-}
-
-function fillTaskJsonExample(mode) {
-  jsonText.value = JSON.stringify(buildTaskJsonExamplePayload(mode), null, 2)
-  jsonStatus.value = mode === 'chain' ? taskJsonLocale.value.chainLoaded : taskJsonLocale.value.singleLoaded
-}
-
-function downloadTextFile(filename, payloadText, mimeType = 'application/octet-stream') {
-  const blob = new Blob([payloadText], { type: mimeType })
-  const url = window.URL.createObjectURL(blob)
-  const link = document.createElement('a')
-
-  link.href = url
-  link.download = filename
-  document.body.appendChild(link)
-  link.click()
-  document.body.removeChild(link)
-  window.setTimeout(() => window.URL.revokeObjectURL(url), 0)
-}
-
-function downloadJsonFile(filename, payloadText) {
-  downloadTextFile(filename, payloadText, 'application/json;charset=utf-8')
-}
-
-function downloadCsvFile(filename, csvText) {
-  downloadTextFile(filename, csvText, 'text/csv;charset=utf-8')
-}
-
-function downloadTaskJsonExample(mode) {
-  const payloadText = JSON.stringify(buildTaskJsonExamplePayload(mode), null, 2)
-  const fileName =
-    mode === 'chain' ? 'agv-stage-task-example.json' : 'agv-single-task-example.json'
-
-  downloadJsonFile(fileName, payloadText)
-  jsonStatus.value =
-    mode === 'chain'
-      ? taskJsonExampleFileLocale.value.chainDownloaded
-      : taskJsonExampleFileLocale.value.singleDownloaded
-}
-
-function saveCurrentExperimentRecord() {
-  const snapshot = buildCompareSnapshot()
-  if (!snapshot) {
-    setExperimentStatus('error', experimentLocale.value.noCompare)
-    return
-  }
-
-  experimentRecords.value = [snapshot, ...experimentRecords.value]
-  setExperimentStatus('success', experimentLocale.value.savedOk)
-  panelSections.value = {
-    ...panelSections.value,
-    experiments: true
-  }
-}
-
-function exportCurrentCompareResultJson() {
-  const snapshot = buildCompareSnapshot()
-  if (!snapshot) {
-    setExperimentStatus('error', experimentLocale.value.noCompare)
-    return
-  }
-
-  downloadJsonFile(`agv-compare-${snapshot.id}.json`, JSON.stringify(snapshot, null, 2))
-  setExperimentStatus('success', experimentLocale.value.exportCurrentJsonOk)
-}
-
-function exportCurrentCompareResultCsv() {
-  const snapshot = buildCompareSnapshot()
-  if (!snapshot) {
-    setExperimentStatus('error', experimentLocale.value.noCompare)
-    return
-  }
-
-  downloadCsvFile(`agv-compare-${snapshot.id}.csv`, rowsToCsv(experimentCsvRowsFromRecords([snapshot])))
-  setExperimentStatus('success', experimentLocale.value.exportCurrentCsvOk)
-}
-
-function exportAllExperimentRecordsJson() {
-  if (experimentRecords.value.length === 0) {
-    setExperimentStatus('error', experimentLocale.value.exportEmpty)
-    return
-  }
-
-  downloadJsonFile('agv-experiment-records.json', JSON.stringify(experimentRecords.value, null, 2))
-  setExperimentStatus('success', experimentLocale.value.exportAllJsonOk)
-}
-
-function exportAllExperimentRecordsCsv() {
-  if (experimentRecords.value.length === 0) {
-    setExperimentStatus('error', experimentLocale.value.exportEmpty)
-    return
-  }
-
-  downloadCsvFile('agv-experiment-records.csv', rowsToCsv(experimentCsvRowsFromRecords(experimentRecords.value)))
-  setExperimentStatus('success', experimentLocale.value.exportAllCsvOk)
-}
-
-function exportExperimentRecord(record, format) {
-  if (!record) return
-  if (format === 'csv') {
-    downloadCsvFile(`agv-experiment-${record.id}.csv`, rowsToCsv(experimentCsvRowsFromRecords([record])))
-    return
-  }
-
-  downloadJsonFile(`agv-experiment-${record.id}.json`, JSON.stringify(record, null, 2))
-}
-
-function deleteExperimentRecord(recordId) {
-  experimentRecords.value = experimentRecords.value.filter(record => record.id !== recordId)
-  setExperimentStatus('info', experimentLocale.value.deletedOk)
-}
-
-function clearExperimentRecords() {
-  experimentRecords.value = []
-  setExperimentStatus('info', experimentLocale.value.clearedOk)
 }
 
 function hideTaskBuilderJumpButton() {
@@ -2874,487 +2544,67 @@ async function focusTaskBuilder(mode = taskBuilderMode.value) {
   hideTaskBuilderJumpButton()
 }
 
-function cancelTaskChainMapPick(resetMarkers = true) {
-  taskChainMapPickActive.value = false
-  taskChainMapPickPoints.value = []
-  if (resetMarkers) {
-    if (dispatchMode.value === 'manual') {
-      manualDispatchStep.value = 'idle'
-      startPoint.value = null
-      endPoint.value = null
-      return
-    }
-    clearAutoMarkers()
-  }
-}
-
-function toggleTaskChainMapPick() {
-  if (dispatchMode.value === 'manual' && !getSelectedManualDispatchAgv()) return
-
-  if (taskChainMapPickActive.value) {
-    cancelTaskChainMapPick()
-    return
-  }
-
-  taskBuilderMode.value = 'chain'
-  taskChainMapPickActive.value = true
-  manualDispatchStep.value = 'idle'
-  taskChainMapPickPoints.value = []
-  if (dispatchMode.value === 'manual') {
-    startPoint.value = null
-    endPoint.value = null
-    return
-  }
-  clearAutoMarkers()
-}
-
 function toggleDispatchModeFromSummary() {
   dispatchMode.value = dispatchMode.value === 'auto' ? 'manual' : 'auto'
 }
 
-function loadCustomPoints() {
-  try {
-    const raw = window.localStorage.getItem(CUSTOM_POINTS_STORAGE_KEY)
-    if (!raw) return
-
-    const parsed = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return
-
-    customPoints.value = parsed
-      .filter(point => {
-        return (
-          typeof point?.id === 'string' &&
-          typeof point?.customName === 'string' &&
-          typeof point?.customZone === 'string' &&
-          isValidGridCoordinate(point?.x, GRID_COLS) &&
-          isValidGridCoordinate(point?.y, GRID_ROWS)
-        )
-      })
-      .map(point => ({
-        id: point.id,
-        x: point.x,
-        y: point.y,
-        customName: point.customName.trim(),
-        customZone: point.customZone.trim(),
-        aliases: Array.isArray(point.aliases) ? point.aliases : [],
-        custom: true
-      }))
-  } catch (error) {
-    console.error('Load custom points error:', error)
-  }
-}
-
-function saveCustomPoints() {
-  try {
-    window.localStorage.setItem(CUSTOM_POINTS_STORAGE_KEY, JSON.stringify(customPoints.value))
-  } catch (error) {
-    console.error('Save custom points error:', error)
-  }
-}
-
-function addCustomPoint() {
-  const name = customPointForm.value.name.trim()
-  const zone = customPointForm.value.zone.trim()
-  const x = Number(customPointForm.value.x)
-  const y = Number(customPointForm.value.y)
-
-  if (!name || !zone) {
-    setPointFormStatus('error', t('point_form_invalid_name'))
-    return
-  }
-
-  if (!isValidGridCoordinate(x, GRID_COLS) || !isValidGridCoordinate(y, GRID_ROWS)) {
-    setPointFormStatus('error', t('point_form_invalid_coords'))
-    return
-  }
-
-  customPoints.value = [
-    ...customPoints.value,
-    {
-      id: `custom_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-      x,
-      y,
-      customName: name,
-      customZone: zone,
-      aliases: [name, zone, `${x},${y}`, `${x} ${y}`],
-      custom: true
-    }
-  ]
-
-  resetCustomPointForm()
-  setPointFormStatus('success', t('point_form_saved'))
-}
-
-function deleteCustomPoint(point) {
-  if (!point.custom) return
-  const ok = window.confirm(t('confirm_delete_point'))
-  if (!ok) return
-
-  customPoints.value = customPoints.value.filter(item => item.id !== point.id)
-  setPointFormStatus('success', t('point_form_deleted'))
-}
-
-function loadMapDisplaySettings() {
-  try {
-    const raw = window.localStorage.getItem(MAP_DISPLAY_STORAGE_KEY)
-    if (!raw) return
-
-    const parsed = JSON.parse(raw)
-    if (parsed?.dispatchMode === 'auto' || parsed?.dispatchMode === 'manual') {
-      dispatchMode.value = parsed.dispatchMode
-    }
-    if (typeof parsed?.showAutoPath === 'boolean') {
-      showAutoPath.value = parsed.showAutoPath
-    }
-    if (typeof parsed?.showMarkerIcons === 'boolean') {
-      showMarkerIcons.value = parsed.showMarkerIcons
-    }
-    if (typeof parsed?.showPathArrows === 'boolean') {
-      showPathArrows.value = parsed.showPathArrows
-    }
-    if (typeof parsed?.showStatusLegend === 'boolean') {
-      showStatusLegend.value = parsed.showStatusLegend
-    }
-    if (parsed?.statusLegendLayout === 'horizontal' || parsed?.statusLegendLayout === 'vertical') {
-      statusLegendLayout.value = parsed.statusLegendLayout
-    }
-    if (typeof parsed?.statusLegendOpacity === 'number') {
-      statusLegendOpacity.value = clampValue(parsed.statusLegendOpacity, 0.2, 0.9)
-    }
-    if (typeof parsed?.showMinimap === 'boolean') {
-      showMinimap.value = parsed.showMinimap
-    }
-    if (parsed?.compareDisplayMode === 'panel' || parsed?.compareDisplayMode === 'floating') {
-      compareDisplayMode.value = parsed.compareDisplayMode
-    }
-    if (typeof parsed?.compareFloatingOpacity === 'number') {
-      compareFloatingOpacity.value = clampValue(parsed.compareFloatingOpacity, 0.45, 1)
-    }
-  } catch (error) {
-    console.error('Load map display settings error:', error)
-  }
-}
-
-function saveMapDisplaySettings() {
-  try {
-    window.localStorage.setItem(
-      MAP_DISPLAY_STORAGE_KEY,
-      JSON.stringify({
-        showAutoPath: showAutoPath.value,
-        showMarkerIcons: showMarkerIcons.value,
-        showPathArrows: showPathArrows.value,
-        showStatusLegend: showStatusLegend.value,
-        statusLegendLayout: statusLegendLayout.value,
-        statusLegendOpacity: statusLegendOpacity.value,
-        showMinimap: showMinimap.value,
-        dispatchMode: dispatchMode.value,
-        compareDisplayMode: compareDisplayMode.value,
-        compareFloatingOpacity: compareFloatingOpacity.value
-      })
-    )
-  } catch (error) {
-    console.error('Save map display settings error:', error)
-  }
-}
-
-function loadTaskTemplates() {
-  try {
-    const raw = window.localStorage.getItem(TASK_TEMPLATE_STORAGE_KEY)
-    if (!raw) return
-
-    const parsed = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return
-
-    customTaskTemplates.value = parsed
-      .map(template =>
-        buildTemplateFromStages({
-          id: typeof template?.id === 'string' ? template.id : undefined,
-          name: template?.customName,
-          priority: template?.priority,
-          stages: normalizeTemplateStages(template),
-          custom: true
-        })
-      )
-      .filter(Boolean)
-  } catch (error) {
-    console.error('Load task templates error:', error)
-  }
-}
-
-function saveTaskTemplates() {
-  try {
-    window.localStorage.setItem(TASK_TEMPLATE_STORAGE_KEY, JSON.stringify(customTaskTemplates.value))
-  } catch (error) {
-    console.error('Save task templates error:', error)
-  }
-}
-
-async function applyTaskTemplate(template, options = {}) {
-  const stages = normalizeTemplateStages(template)
-  if (stages.length === 0) return
-
-  const firstStage = stages[0]
-  taskForm.value.start_x = firstStage.start_x
-  taskForm.value.start_y = firstStage.start_y
-  taskForm.value.end_x = firstStage.end_x
-  taskForm.value.end_y = firstStage.end_y
-  taskForm.value.priority = template.priority
-  taskChainStages.value = stages.map(stage => createTaskChainStage(stage))
-  taskBuilderMode.value = stages.length > 1 ? 'chain' : 'single'
-  syncManualDispatchBuilderState()
-
-  if (stages.length > 1) {
-    setTaskTemplateStatus('info', `${taskBuilderLocale.value.loadedChain} ${taskBuilderLocale.value.jumpHint}`)
-  } else {
-    setTaskTemplateStatus('info', `${taskBuilderLocale.value.loadedSingle} ${taskBuilderLocale.value.jumpHint}`)
-  }
-
-  if (options.focus) {
-    hideTaskBuilderJumpButton()
-    await focusTaskBuilder(taskBuilderMode.value)
-    return
-  }
-
-  showTaskBuilderJumpButton()
-}
-
-function onTemplateApplyClick(template) {
-  if (templateApplyClickTimer) {
-    clearTimeout(templateApplyClickTimer)
-  }
-  templateApplyClickTimer = setTimeout(() => {
-    templateApplyClickTimer = null
-    void applyTaskTemplate(template)
-  }, 220)
-}
-
-function onTemplateApplyDoubleClick(template) {
-  if (templateApplyClickTimer) {
-    clearTimeout(templateApplyClickTimer)
-    templateApplyClickTimer = null
-  }
-  void applyTaskTemplate(template, { focus: true })
-}
-
-function saveCurrentTaskAsTemplate() {
-  const name = taskTemplateForm.value.name.trim()
-  if (!name) {
-    setTaskTemplateStatus('error', t('template_form_invalid_name'))
-    return
-  }
-
-  const template = buildTemplateFromStages({
-    name,
-    priority: Number(taskForm.value.priority),
-    stages: [
-      {
-        start_x: Number(taskForm.value.start_x),
-        start_y: Number(taskForm.value.start_y),
-        end_x: Number(taskForm.value.end_x),
-        end_y: Number(taskForm.value.end_y)
-      }
-    ],
-    custom: true
-  })
-  if (!template) {
-    setTaskTemplateStatus('error', t('point_form_invalid_coords'))
-    return
-  }
-
-  customTaskTemplates.value = [
-    ...customTaskTemplates.value,
-    template
-  ]
-
-  taskTemplateForm.value.name = ''
-  hideTaskBuilderJumpButton()
-  setTaskTemplateStatus('success', t('template_form_saved'))
-}
-
-function saveCurrentTaskChainAsTemplate() {
-  const name = taskTemplateForm.value.name.trim()
-  if (!name) {
-    setTaskTemplateStatus('error', t('template_form_invalid_name'))
-    return
-  }
-
-  const template = buildTemplateFromStages({
-    name,
-    priority: Number(taskForm.value.priority),
-    stages: taskChainStages.value,
-    custom: true
-  })
-  if (!template || normalizeTemplateStages(template).length < 2) {
-    setTaskTemplateStatus('error', t('point_form_invalid_coords'))
-    return
-  }
-
-  customTaskTemplates.value = [...customTaskTemplates.value, template]
-  taskTemplateForm.value.name = ''
-  hideTaskBuilderJumpButton()
-  setTaskTemplateStatus('success', t('template_form_saved'))
-}
-
-function deleteTaskTemplate(template) {
-  if (!template.custom) return
-  const ok = window.confirm(t('confirm_delete_template'))
-  if (!ok) return
-
-  customTaskTemplates.value = customTaskTemplates.value.filter(item => item.id !== template.id)
-  hideTaskBuilderJumpButton()
-  setTaskTemplateStatus('success', t('template_form_deleted'))
-}
-
 function buildTemplateExportPayload() {
-  return {
-    version: 2,
-    templates: customTaskTemplates.value.map(template => {
-      const stages = normalizeTemplateStages(template)
-      const firstStage = stages[0]
-      const lastStage = stages[stages.length - 1]
-      return {
-        name: template.customName,
-        start_x: firstStage.start_x,
-        start_y: firstStage.start_y,
-        end_x: lastStage.end_x,
-        end_y: lastStage.end_y,
-        stages: stages.map(stage => ({
-          label: stage.label || undefined,
-          start_x: stage.start_x,
-          start_y: stage.start_y,
-          end_x: stage.end_x,
-          end_y: stage.end_y
-        })),
-        priority: template.priority
-      }
-    })
-  }
+  return buildTemplateExportPayloadRaw(customTaskTemplates.value, {
+    normalizeStages: normalizeTemplateStages
+  })
 }
 
-function exportTaskTemplatesToJson() {
-  if (customTaskTemplates.value.length === 0) {
-    setTemplateJsonStatus('error', templateJsonLocale.value.exportEmpty)
-    return
-  }
-
-  templateJsonText.value = JSON.stringify(buildTemplateExportPayload(), null, 2)
-  setTemplateJsonStatus(
-    'success',
-    formatTemplateJsonSummary(templateJsonLocale.value.exportOk, customTaskTemplates.value.length)
-  )
-}
-
-function clearTemplateJsonText() {
-  templateJsonText.value = ''
-  setTemplateJsonStatus('info', '')
-}
-
-function importTaskTemplatesFromRaw(rawText) {
-  if (!rawText.trim()) return
-  setTemplateJsonStatus('info', '')
-
-  let parsed
-  try {
-    parsed = JSON.parse(rawText)
-  } catch {
-    setTemplateJsonStatus('error', templateJsonLocale.value.importFail)
-    return
-  }
-
-  const templateItems = Array.isArray(parsed) ? parsed : parsed?.templates
-  if (!Array.isArray(templateItems)) {
-    setTemplateJsonStatus('error', templateJsonLocale.value.importFail)
-    return
-  }
-
-  const existingSignatures = new Set(customTaskTemplates.value.map(buildTaskTemplateSignature))
-  const imported = []
-  let skipped = 0
-
-  for (const item of templateItems) {
-    const normalized = normalizeImportedTaskTemplate(item)
-    if (!normalized) {
-      skipped += 1
-      continue
-    }
-
-    const signature = buildTaskTemplateSignature(normalized)
-    if (existingSignatures.has(signature)) {
-      skipped += 1
-      continue
-    }
-
-    existingSignatures.add(signature)
-    imported.push(normalized)
-  }
-
-  if (imported.length === 0) {
-    if (skipped > 0) {
-      setTemplateJsonStatus('info', formatTemplateJsonSummary(templateJsonLocale.value.importOk, 0, skipped))
-      return
-    }
-
-    setTemplateJsonStatus('error', templateJsonLocale.value.importFail)
-    return
-  }
-
-  customTaskTemplates.value = [...customTaskTemplates.value, ...imported]
-  setTemplateJsonStatus(
-    'success',
-    formatTemplateJsonSummary(templateJsonLocale.value.importOk, imported.length, skipped)
-  )
-}
-
-function importTaskTemplatesFromJson() {
-  importTaskTemplatesFromRaw(templateJsonText.value)
-}
-
-function downloadTemplateJsonFile() {
-  if (customTaskTemplates.value.length === 0) {
-    setTemplateJsonStatus('error', templateJsonLocale.value.exportEmpty)
-    return
-  }
-
-  const payloadText = JSON.stringify(buildTemplateExportPayload(), null, 2)
-  templateJsonText.value = payloadText
-
-  const blob = new Blob([payloadText], { type: 'application/json;charset=utf-8' })
-  const url = window.URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  const timestamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')
-
-  link.href = url
-  link.download = `agv-task-templates-${timestamp}.json`
-  document.body.appendChild(link)
-  link.click()
-  document.body.removeChild(link)
-  window.setTimeout(() => window.URL.revokeObjectURL(url), 0)
-
-  setTemplateJsonStatus(
-    'success',
-    formatTemplateJsonSummary(templateJsonLocale.value.exportOk, customTaskTemplates.value.length)
-  )
-}
-
-function triggerTemplateFileImport() {
-  templateFileInputRef.value?.click()
-}
-
-async function handleTemplateFileChange(event) {
-  const file = event.target?.files?.[0]
-  if (!file) return
-
-  try {
-    const text = await file.text()
-    templateJsonText.value = text
-    importTaskTemplatesFromRaw(text)
-  } catch (error) {
-    console.error('Read template json file error:', error)
-    setTemplateJsonStatus('error', templateJsonLocale.value.importFail)
-  } finally {
-    event.target.value = ''
-  }
-}
+const {
+  applyPointToTaskForm,
+  addCustomPoint,
+  deleteCustomPoint,
+  onTemplateApplyClick,
+  onTemplateApplyDoubleClick,
+  saveCurrentTaskAsTemplate,
+  saveCurrentTaskChainAsTemplate,
+  deleteTaskTemplate,
+  exportTaskTemplatesToJson,
+  clearTemplateJsonText,
+  importTaskTemplatesFromRaw,
+  importTaskTemplatesFromJson,
+  downloadTemplateJsonFile,
+  triggerTemplateFileImport,
+  handleTemplateFileChange
+} = useTemplatePointActions({
+  t,
+  GRID_COLS,
+  GRID_ROWS,
+  taskForm,
+  taskChainStages,
+  taskBuilderMode,
+  taskTemplateForm,
+  customPointForm,
+  customPoints,
+  customTaskTemplates,
+  pointFormStatus,
+  pointFormStatusType,
+  taskTemplateStatus,
+  taskTemplateStatusType,
+  templateJsonText,
+  templateJsonStatus,
+  templateJsonStatusType,
+  templateFileInputRef,
+  taskBuilderLocale,
+  templateJsonLocale,
+  normalizeTemplateStages,
+  buildTemplateFromStages,
+  buildTaskTemplateSignature,
+  normalizeImportedTaskTemplate,
+  formatTemplateJsonSummary,
+  buildTemplateExportPayload,
+  isValidGridCoordinate,
+  createTaskChainStage,
+  buildCustomPoint,
+  syncManualDispatchBuilderState,
+  hideTaskBuilderJumpButton,
+  showTaskBuilderJumpButton,
+  focusTaskBuilder
+})
 
 function togglePanelSection(sectionKey) {
   panelSections.value = {
@@ -3384,6 +2634,38 @@ function hasPendingTask() {
 function hasActiveTask() {
   return tasks.value.some(task => task.status === 'assigned' || task.status === 'running')
 }
+
+const { tryAutoSchedule, tryManualBoundSchedule, scheduleAutoIfReady } = useDispatchScheduler({
+  API_BASE,
+  GRID_COLS,
+  GRID_ROWS,
+  algorithm,
+  dispatchMode,
+  obstacleEditMode,
+  obstacleLayoutDirty,
+  agvs,
+  tasks,
+  autoPathToStart,
+  autoPathToEnd,
+  manualPathToStart,
+  manualPathToEnd,
+  selectedAgvId,
+  trackedManualTaskId,
+  startPoint,
+  endPoint,
+  manualDispatchStep,
+  autoScheduling,
+  autoScheduleGuard,
+  manualBoundScheduling,
+  nextTick,
+  fetchAgvs,
+  fetchTasks,
+  hasIdleAgv,
+  hasPendingTask,
+  resolveTaskStartMarker,
+  resolveTaskEndMarker,
+  bumpManualPreviewMinVisible
+})
 
 function clearAutoPaths() {
   autoPathToStart.value = []
@@ -3468,6 +2750,32 @@ function getSelectedManualDispatchAgv(alertOnFailure = true) {
   return selectedBackendAgv.value
 }
 
+const {
+  addTaskChainStage,
+  removeTaskChainStage,
+  resetTaskChainStages,
+  setTaskChainStageCount,
+  setTaskChainMapPickStageCount,
+  toggleTaskBuilderMode,
+  cancelTaskChainMapPick,
+  toggleTaskChainMapPick
+} = useTaskBuilderState({
+  taskBuilderMode,
+  taskChainStages,
+  taskForm,
+  taskChainMapPickStageCount,
+  taskChainMapPickActive,
+  taskChainMapPickPoints,
+  dispatchMode,
+  manualDispatchStep,
+  startPoint,
+  endPoint,
+  buildDefaultTaskChainStages,
+  createTaskChainStage,
+  getSelectedManualDispatchAgv,
+  clearAutoMarkers
+})
+
 function syncManualDispatchBuilderState() {
   const agv = getSelectedManualDispatchAgv(false)
   if (!agv || trackedManualTaskId.value) return
@@ -3515,133 +2823,46 @@ function isCellOccupied(x, y) {
   return displayAgvs.value.some(agv => agv.x === x && agv.y === y)
 }
 
-function syncPanelWidth(nextWidth = panelWidth.value) {
-  if (isCompactLayout.value) return
-  const layoutWidth = layoutRef.value?.clientWidth ?? windowWidth.value
-  const minWidth = 320
-  const maxWidth = Math.max(minWidth, layoutWidth - 280)
-  panelWidth.value = clampValue(Math.round(nextWidth), minWidth, maxWidth)
-}
-
-function centerMapView() {
-  mapOffsetX.value = (mapViewportWidth.value - MAP_WIDTH * mapZoom.value) / 2
-  mapOffsetY.value = (mapViewportHeight.value - MAP_HEIGHT * mapZoom.value) / 2
-  clampMapTransform()
-}
-
-function resetMapView() {
-  mapZoom.value = 1
-  centerMapView()
-}
-
-function updateMapZoom(nextZoom, pointerX = mapViewportWidth.value / 2, pointerY = mapViewportHeight.value / 2) {
-  const clampedZoom = clampValue(Number(nextZoom.toFixed(3)), MIN_ZOOM, MAX_ZOOM)
-  if (clampedZoom === mapZoom.value) return false
-
-  const worldX = (pointerX - mapOffsetX.value) / mapZoom.value
-  const worldY = (pointerY - mapOffsetY.value) / mapZoom.value
-
-  mapZoom.value = clampedZoom
-  mapOffsetX.value = pointerX - worldX * clampedZoom
-  mapOffsetY.value = pointerY - worldY * clampedZoom
-  clampMapTransform()
-  return true
-}
-
-function changeMapZoom(deltaY, pointerX = mapViewportWidth.value / 2, pointerY = mapViewportHeight.value / 2) {
-  const ratio = deltaY < 0 ? 1.12 : 0.88
-  return updateMapZoom(mapZoom.value * ratio, pointerX, pointerY)
-}
-
-function clampMapTransform() {
-  const scaledWidth = MAP_WIDTH * mapZoom.value
-  const scaledHeight = MAP_HEIGHT * mapZoom.value
-
-  if (scaledWidth <= mapViewportWidth.value) {
-    mapOffsetX.value = (mapViewportWidth.value - scaledWidth) / 2
-  } else {
-    mapOffsetX.value = clampValue(mapOffsetX.value, mapViewportWidth.value - scaledWidth, 0)
-  }
-
-  if (scaledHeight <= mapViewportHeight.value) {
-    mapOffsetY.value = (mapViewportHeight.value - scaledHeight) / 2
-  } else {
-    mapOffsetY.value = clampValue(mapOffsetY.value, mapViewportHeight.value - scaledHeight, 0)
-  }
-}
-
-function updateMapViewportMetrics(shouldCenter = false) {
-  const viewport = mapViewportRef.value
-  if (!viewport) return
-
-  mapViewportWidth.value = viewport.clientWidth || MAP_WIDTH
-  mapViewportHeight.value = viewport.clientHeight || MAP_HEIGHT
-
-  if (!mapViewReady || shouldCenter) {
-    centerMapView()
-    mapViewReady = true
-    return
-  }
-
-  clampMapTransform()
-}
-
-function focusMapAtWorld(worldX, worldY) {
-  mapOffsetX.value = mapViewportWidth.value / 2 - worldX * mapZoom.value
-  mapOffsetY.value = mapViewportHeight.value / 2 - worldY * mapZoom.value
-  clampMapTransform()
-}
-
-function getMapPointFromClient(clientX, clientY) {
-  const rect = mapViewportRef.value?.getBoundingClientRect()
-  if (!rect) return null
-
-  const worldX = (clientX - rect.left - mapOffsetX.value) / mapZoom.value
-  const worldY = (clientY - rect.top - mapOffsetY.value) / mapZoom.value
-
-  if (worldX < 0 || worldX >= MAP_WIDTH || worldY < 0 || worldY >= MAP_HEIGHT) {
-    return null
-  }
-
-  return {
-    x: worldX,
-    y: worldY
-  }
-}
-
-function getWorldPointFromMinimapEvent(event) {
-  const rect = minimapRef.value?.getBoundingClientRect()
-  if (!rect) return { x: MAP_WIDTH / 2, y: MAP_HEIGHT / 2 }
-
-  return {
-    x: clampValue((event.clientX - rect.left) / minimapScale.value, 0, MAP_WIDTH),
-    y: clampValue((event.clientY - rect.top) / minimapScale.value, 0, MAP_HEIGHT)
-  }
-}
-
-function getCellFromEvent(event) {
-  const point = getMapPointFromClient(event.clientX, event.clientY)
-  if (!point) return null
-  return {
-    x: clampValue(Math.floor(point.x / CELL_SIZE), 0, GRID_COLS - 1),
-    y: clampValue(Math.floor(point.y / CELL_SIZE), 0, GRID_ROWS - 1)
-  }
-}
-
-function getCellFromClient(clientX, clientY) {
-  const rect = mapViewportRef.value?.getBoundingClientRect()
-  if (!rect) return null
-  if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) {
-    return null
-  }
-
-  const point = getMapPointFromClient(clientX, clientY)
-  if (!point) return null
-  return {
-    x: clampValue(Math.floor(point.x / CELL_SIZE), 0, GRID_COLS - 1),
-    y: clampValue(Math.floor(point.y / CELL_SIZE), 0, GRID_ROWS - 1)
-  }
-}
+const {
+  syncPanelWidth,
+  resetMapView,
+  changeMapZoom,
+  clampMapTransform,
+  updateMapViewportMetrics,
+  getCellFromEvent,
+  getCellFromClient,
+  onMapWheel,
+  startPanelResize,
+  onMinimapMouseDown,
+  onWindowResize,
+  handleGlobalMouseMove,
+  handleGlobalMouseUp
+} = useMapViewport({
+  constants: {
+    MAP_WIDTH,
+    MAP_HEIGHT,
+    MINIMAP_WIDTH,
+    MIN_ZOOM,
+    MAX_ZOOM,
+    CELL_SIZE,
+    GRID_COLS,
+    GRID_ROWS
+  },
+  refs: {
+    layoutRef,
+    mapViewportRef,
+    minimapRef,
+    windowWidth,
+    panelWidth,
+    isCompactLayout,
+    mapZoom,
+    mapOffsetX,
+    mapOffsetY,
+    mapViewportWidth,
+    mapViewportHeight
+  },
+  clampValue
+})
 
 function buildPreviewPathByAlgorithm(sx, sy, ex, ey) {
   return algorithm.value === 'astar'
@@ -3743,15 +2964,6 @@ function onMapClick(event) {
     clickTimer = null
     handleSingleClick(x, y)
   }, 220)
-}
-
-function onMapWheel(event) {
-  const rect = mapViewportRef.value?.getBoundingClientRect()
-  if (!rect) return
-
-  const pointerX = event.clientX - rect.left
-  const pointerY = event.clientY - rect.top
-  changeMapZoom(event.deltaY, pointerX, pointerY)
 }
 
 function toggleMapSettings() {
@@ -3884,6 +3096,7 @@ async function handleTaskChainMapClick(x, y) {
 
   const created = await submitTaskPayload(payload)
   if (created) {
+    taskChainMapPickActive.value = false
     taskChainMapPickPoints.value = []
     if (dispatchMode.value === 'auto') {
       clearAutoMarkers()
@@ -3913,7 +3126,7 @@ async function createTaskAndSchedule(agvId) {
 
   const isAutoMode = dispatchMode.value === 'auto'
   try {
-    autoScheduleGuard = true
+    autoScheduleGuard.value = true
     const createRes = await fetch(`${API_BASE}/task/create`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -3997,7 +3210,7 @@ async function createTaskAndSchedule(agvId) {
     }
     window.alert(error instanceof Error ? error.message : String(error))
   } finally {
-    autoScheduleGuard = false
+    autoScheduleGuard.value = false
   }
 }
 
@@ -4017,34 +3230,6 @@ function scrollPanelToTop() {
   panelRef.value?.scrollTo({ top: 0, behavior: 'smooth' })
 }
 
-function startPanelResize(event) {
-  if (isCompactLayout.value || event.button !== 0) return
-  event.preventDefault()
-  isPanelResizing = true
-  panelResizeStartX = event.clientX
-  panelResizeStartWidth = panelWidth.value
-  document.body.style.cursor = 'col-resize'
-}
-
-function handleMinimapNavigation(event) {
-  const point = getWorldPointFromMinimapEvent(event)
-  focusMapAtWorld(point.x, point.y)
-}
-
-function onMinimapMouseDown(event) {
-  if (event.button !== 0) return
-  event.preventDefault()
-  event.stopPropagation()
-  isMinimapDragging = true
-  handleMinimapNavigation(event)
-}
-
-function onWindowResize() {
-  windowWidth.value = window.innerWidth
-  syncPanelWidth()
-  updateMapViewportMetrics()
-}
-
 function onGlobalMouseMove(event) {
   if (compareFloatingDragging) {
     compareFloatingX.value = Math.max(event.clientX - compareFloatingDragOffsetX, 12)
@@ -4052,14 +3237,7 @@ function onGlobalMouseMove(event) {
     return
   }
 
-  if (isPanelResizing) {
-    const deltaX = event.clientX - panelResizeStartX
-    syncPanelWidth(panelResizeStartWidth - deltaX)
-    return
-  }
-
-  if (isMinimapDragging) {
-    handleMinimapNavigation(event)
+  if (handleGlobalMouseMove(event)) {
     return
   }
 
@@ -4088,14 +3266,7 @@ function onGlobalMouseUp() {
     compareFloatingDragging = false
   }
 
-  if (isPanelResizing) {
-    isPanelResizing = false
-    document.body.style.cursor = ''
-  }
-
-  if (isMinimapDragging) {
-    isMinimapDragging = false
-  }
+  handleGlobalMouseUp()
 
   if (obstaclePaintActive) {
     stopObstaclePaint()
@@ -4108,42 +3279,6 @@ function onGlobalMouseUp() {
     mapPanCandidate = false
     mapPanMoved = false
     isMapPanning.value = false
-  }
-}
-
-async function tryAutoSchedule() {
-  if (autoScheduling) return
-  if (autoScheduleGuard) return
-  if (obstacleEditMode.value || obstacleLayoutDirty.value) return
-  if (!hasIdleAgv() || !hasPendingTask()) return
-
-  autoScheduling = true
-  try {
-    const scheduleRes = await fetch(`${API_BASE}/schedule/with_path`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        task_id: null,
-        agv_id: null,
-        algorithm: algorithm.value,
-        grid_cols: GRID_COLS,
-        grid_rows: GRID_ROWS
-      })
-    })
-    const scheduleData = await scheduleRes.json()
-    if (!scheduleRes.ok) {
-      await fetchTasks()
-      return
-    }
-
-    autoPathToStart.value = scheduleData.path_to_start ?? []
-    autoPathToEnd.value = scheduleData.path_to_end ?? scheduleData.path ?? []
-
-    await Promise.all([fetchAgvs(), fetchTasks()])
-  } catch (error) {
-    console.error('Auto schedule error:', error)
-  } finally {
-    autoScheduling = false
   }
 }
 
@@ -4349,7 +3484,7 @@ async function submitTaskPayload(payload) {
   const shouldGuardAutoSchedule = dispatchMode.value === 'manual'
   try {
     if (shouldGuardAutoSchedule) {
-      autoScheduleGuard = true
+      autoScheduleGuard.value = true
     }
     const res = await fetch(`${API_BASE}/task/create`, {
       method: 'POST',
@@ -4409,70 +3544,8 @@ async function submitTaskPayload(payload) {
     return false
   } finally {
     if (shouldGuardAutoSchedule) {
-      autoScheduleGuard = false
+      autoScheduleGuard.value = false
     }
-  }
-}
-
-async function tryManualBoundSchedule() {
-  if (manualBoundScheduling) return
-  if (obstacleEditMode.value || obstacleLayoutDirty.value) return
-
-  const idleAgvIds = new Set(agvs.value.filter(agv => agv.status === 'idle').map(agv => agv.id))
-  const candidate = tasks.value
-    .filter(
-      task =>
-        task.status === 'pending' &&
-        task.dispatch_mode === 'manual' &&
-        Number.isInteger(task.preferred_agv_id) &&
-        idleAgvIds.has(task.preferred_agv_id)
-    )
-    .sort((a, b) => {
-      const priorityDiff = Number(b.priority ?? 0) - Number(a.priority ?? 0)
-      if (priorityDiff !== 0) return priorityDiff
-      return Number(a.id ?? 0) - Number(b.id ?? 0)
-    })[0]
-
-  if (!candidate) return
-
-  manualBoundScheduling = true
-  try {
-    const scheduleRes = await fetch(`${API_BASE}/schedule/with_path`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        task_id: candidate.id,
-        agv_id: candidate.preferred_agv_id,
-        algorithm: (candidate.dispatch_algorithm || algorithm.value || 'simple').toLowerCase(),
-        grid_cols: GRID_COLS,
-        grid_rows: GRID_ROWS
-      })
-    })
-    const scheduleData = await scheduleRes.json()
-    if (!scheduleRes.ok) {
-      await fetchTasks()
-      return
-    }
-
-    if (
-      dispatchMode.value === 'manual' ||
-      selectedAgvId.value === scheduleData?.agv?.id ||
-      trackedManualTaskId.value === candidate.id
-    ) {
-      manualPathToStart.value = scheduleData.path_to_start ?? []
-      manualPathToEnd.value = scheduleData.path_to_end ?? scheduleData.path ?? []
-      trackedManualTaskId.value = scheduleData?.task?.id ?? candidate.id
-      startPoint.value = resolveTaskStartMarker(scheduleData?.task ?? candidate)
-      endPoint.value = resolveTaskEndMarker(scheduleData?.task ?? candidate)
-      manualDispatchStep.value = 'running'
-      bumpManualPreviewMinVisible()
-    }
-
-    await Promise.all([fetchAgvs(), fetchTasks()])
-  } catch (error) {
-    console.error('Manual bound schedule error:', error)
-  } finally {
-    manualBoundScheduling = false
   }
 }
 
@@ -4664,31 +3737,40 @@ function applyComparedAlgorithm(nextAlgorithm) {
   algorithm.value = nextAlgorithm
 }
 
-async function openCompareDisplay() {
-  if (compareDisplayMode.value === 'floating') {
-    showFloatingCompare.value = true
-    await nextTick()
-    positionFloatingCompareBelowEntry()
-    requestFloatingCompareRefresh()
-    return
-  }
-
-  await scrollToComparePanel()
-  void compareCurrentRoute()
-}
-
-function handleCompareEntryClick() {
-  void openCompareDisplay()
-}
-
-function toggleComparePanelExpanded() {
-  comparePanelExpanded.value = !comparePanelExpanded.value
-}
-
-function closeFloatingCompare() {
-  stopFloatingCompareRefresh()
-  showFloatingCompare.value = false
-}
+const {
+  jumpToPanelSearchResult,
+  scrollToComparePanel,
+  shouldAutoRefreshFloatingCompare,
+  stopFloatingCompareRefresh,
+  requestFloatingCompareRefresh,
+  positionFloatingCompareBelowEntry,
+  clearPanelSearch,
+  handleCompareEntryClick,
+  toggleComparePanelExpanded,
+  closeFloatingCompare,
+  disposePanelCompareUi
+} = usePanelCompareUi({
+  nextTick,
+  panelSections,
+  panelRef,
+  controlSectionRef,
+  queueSectionRef,
+  templatesSectionRef,
+  pointsSectionRef,
+  jsonSectionRef,
+  experimentsSectionRef,
+  focusedPanelSection,
+  comparePanelExpanded,
+  comparePanelRef,
+  compareDisplayMode,
+  showFloatingCompare,
+  compareEntryButtonRef,
+  compareFloatingX,
+  compareFloatingY,
+  pathCompareLoading,
+  panelSearch,
+  compareCurrentRoute
+})
 
 function startFloatingCompareDrag(event) {
   if (event.button !== 0) return
@@ -4710,55 +3792,6 @@ async function addTaskFromForm() {
   if (created) {
     hideTaskBuilderJumpButton()
   }
-}
-
-function addTaskChainStage() {
-  setTaskChainStageCount(taskChainStageCount.value + 1)
-}
-
-function removeTaskChainStage(index) {
-  if (taskChainStages.value.length <= 2) return
-  taskChainStages.value = taskChainStages.value.filter((_, stageIndex) => stageIndex !== index)
-}
-
-function resetTaskChainStages() {
-  taskChainStages.value = buildDefaultTaskChainStages(taskChainStageCount.value, taskForm.value)
-}
-
-function setTaskChainStageCount(nextCount) {
-  const normalizedCount = Math.max(2, Math.floor(Number(nextCount)))
-  if (!Number.isFinite(normalizedCount)) return
-  if (normalizedCount === taskChainStages.value.length) return
-
-  if (normalizedCount < taskChainStages.value.length) {
-    taskChainStages.value = taskChainStages.value.slice(0, normalizedCount)
-    return
-  }
-
-  const stages = [...taskChainStages.value]
-  while (stages.length < normalizedCount) {
-    const previousStage = stages.at(-1)
-    stages.push(
-      createTaskChainStage({
-        start_x: previousStage?.end_x ?? 0,
-        start_y: previousStage?.end_y ?? 0,
-        end_x: previousStage?.end_x ?? 0,
-        end_y: previousStage?.end_y ?? 0
-      })
-    )
-  }
-
-  taskChainStages.value = stages
-}
-
-function setTaskChainMapPickStageCount(nextCount) {
-  const normalizedCount = Math.max(2, Math.floor(Number(nextCount)))
-  if (!Number.isFinite(normalizedCount)) return
-  taskChainMapPickStageCount.value = normalizedCount
-}
-
-function toggleTaskBuilderMode() {
-  taskBuilderMode.value = taskBuilderMode.value === 'chain' ? 'single' : 'chain'
 }
 
 async function addTaskChainFromForm() {
@@ -5327,11 +4360,6 @@ async function refreshCoreState() {
   syncDisplayedPathsFromTasks()
 }
 
-async function scheduleAutoIfReady() {
-  await nextTick()
-  await tryAutoSchedule()
-}
-
 function setFaultPanelStatus(message, type = 'info') {
   faultPanelStatus.value = message
   faultPanelStatusType.value = type
@@ -5765,10 +4793,8 @@ onBeforeUnmount(() => {
   if (clickTimer) clearTimeout(clickTimer)
   if (previewTimer) clearTimeout(previewTimer)
   if (manualPreviewHoldTimer) clearTimeout(manualPreviewHoldTimer)
-  if (templateApplyClickTimer) clearTimeout(templateApplyClickTimer)
   if (taskBuilderJumpTimer) clearTimeout(taskBuilderJumpTimer)
-  if (panelSectionFocusTimer) clearTimeout(panelSectionFocusTimer)
-  stopFloatingCompareRefresh()
+  disposePanelCompareUi()
   if (mapResizeObserver) mapResizeObserver.disconnect()
   stopObstaclePaint()
   document.body.style.cursor = ''
@@ -5837,6 +4863,7 @@ onBeforeUnmount(() => {
     </div>
 
     <p class="toolbar-hint">{{ t('hint') }}</p>
+    <p class="toolbar-hint toolbar-hint-secondary">{{ toolbarGuideHintText }}</p>
       </div>
 
       <div class="page-top-spacer"></div>
@@ -6005,6 +5032,22 @@ onBeforeUnmount(() => {
                 :points="autoPathToEndPoints"
                 fill="none"
                 stroke-width="2"
+              />
+              <polyline
+                v-if="manualChainRoutePoints"
+                class="path-chain-route path-chain-manual"
+                :points="manualChainRoutePoints"
+                fill="none"
+                stroke-width="2"
+                stroke-dasharray="3 4"
+              />
+              <polyline
+                v-if="autoChainRoutePoints"
+                class="path-chain-route path-chain-auto"
+                :points="autoChainRoutePoints"
+                fill="none"
+                stroke-width="2"
+                stroke-dasharray="3 4"
               />
               <polyline
                 v-if="previewTaskId"
@@ -6385,6 +5428,22 @@ onBeforeUnmount(() => {
                 stroke-width="1.4"
               />
               <polyline
+                v-if="minimapManualChainRoutePoints"
+                class="path-chain-route path-chain-manual minimap-path"
+                :points="minimapManualChainRoutePoints"
+                fill="none"
+                stroke-width="1.2"
+                stroke-dasharray="2 3"
+              />
+              <polyline
+                v-if="minimapAutoChainRoutePoints"
+                class="path-chain-route path-chain-auto minimap-path"
+                :points="minimapAutoChainRoutePoints"
+                fill="none"
+                stroke-width="1.2"
+                stroke-dasharray="2 3"
+              />
+              <polyline
                 v-if="previewTaskId"
                 class="path-preview minimap-path"
                 :points="minimapPreviewPathPoints"
@@ -6520,10 +5579,6 @@ onBeforeUnmount(() => {
                 <span class="dispatch-summary-label">{{ panelLocale.currentMode }}</span>
                 <strong>{{ currentDispatchModeLabel }}</strong>
               </button>
-              <button class="btn-ghost dispatch-guide-link" type="button" @click="openGuideCenter">
-                {{ guideCenterLocale.open }}
-              </button>
-
               <div class="dispatch-summary dispatch-algorithm-note">
                 <span class="dispatch-summary-label">{{ t('algorithm') }}</span>
                 <strong>{{ algorithmText(algorithm) }}</strong>
