@@ -512,14 +512,6 @@ const selectedAgvTask = computed(() => {
     null
   )
 })
-const manualDispatchOrigin = computed(() => {
-  if (dispatchMode.value !== 'manual') return null
-  if (!selectedBackendAgv.value) return null
-  return {
-    x: Number(selectedBackendAgv.value.x),
-    y: Number(selectedBackendAgv.value.y)
-  }
-})
 const manualDispatchReady = computed(() => {
   if (dispatchMode.value !== 'manual') return true
   return Boolean(selectedBackendAgv.value && selectedBackendAgv.value.status === 'idle')
@@ -993,9 +985,9 @@ const guideCenterLocale = computed(() => {
     modeAutoTitle: 'Auto Dispatch',
     modeManualTitle: 'Manual Dispatch',
     shortcutsTitle: 'Shortcuts',
-    shortcutCancel: 'Right click on map/ F: Clear AGV selection',
+    shortcutCancel: 'Right click on map / F: Clear AGV selection',
     shortcutAlgorithm: 'R: Toggle simple / A*',
-    shortcutContext: 'Right click on map:  cancel stage point-picking',
+    shortcutContext: 'Right click on map: cancel stage point-picking',
     workflowTitle: 'Basic Workflow',
     workflowAuto: t('dispatch_help_auto'),
     workflowManual: t('dispatch_help_manual'),
@@ -1161,35 +1153,6 @@ const taskJsonExampleFileLocale = computed(() => {
     chainDownload: 'Download Stage Sample',
     singleDownloaded: 'Downloaded a single-task JSON sample.',
     chainDownloaded: 'Downloaded a stage-task JSON sample.'
-  }
-})
-const taskChainMapPickLocale = computed(() => {
-  if (locale.value === 'ja') {
-    return {
-      start: '地図選点',
-      cancel: '入力取消',
-      step1: '1 点目：始点 A をクリック',
-      step2: '2 点目：中継点 B をクリック',
-      step3: '3 点目：終点 C をクリック'
-    }
-  }
-
-  if (locale.value === 'zh') {
-    return {
-      start: '地图选点',
-      cancel: '取消地图选点',
-      step1: '第 1 点：点击起点 A',
-      step2: '第 2 点：点击中转点 B',
-      step3: '第 3 点：点击终点 C'
-    }
-  }
-
-  return {
-    start: 'Map Pick',
-    cancel: 'Cancel Picking',
-    step1: 'Point 1: click start A',
-    step2: 'Point 2: click transfer B',
-    step3: 'Point 3: click end C'
   }
 })
 const taskChainMapPickUiLocale = computed(() => {
@@ -2419,10 +2382,6 @@ function buildTemplateFromStages({
   }
 }
 
-function isTaskChainTemplate(template) {
-  return normalizeTemplateStages(template).length > 1
-}
-
 function formatTemplateMeta(template) {
   const stages = normalizeTemplateStages(template)
   const firstStage = stages[0]
@@ -3512,10 +3471,6 @@ function getSelectedManualDispatchAgv(alertOnFailure = true) {
 function syncManualDispatchBuilderState() {
   const agv = getSelectedManualDispatchAgv(false)
   if (!agv || trackedManualTaskId.value) return
-}
-
-function findAgvById(id) {
-  return displayAgvs.value.find(agv => agv.id === id)
 }
 
 function activeTaskSort(a, b) {
