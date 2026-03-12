@@ -2,6 +2,18 @@
 import './assets/agv-map.css'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { LOCALE_TEXTS } from './locales'
+import {
+  buildDefaultTaskChainStages,
+  buildTaskJsonExamplePayload,
+  createTaskChainStage,
+  currentTaskStage,
+  isTaskChain,
+  normalizeTaskStages,
+  overallTaskEnd,
+  overallTaskStart
+} from './utils/taskChain'
+import { buildAStarPath, buildSimplePath } from './utils/pathPreview'
+import { rowsToCsv } from './utils/csv'
 
 const GRID_COLS = 10
 const GRID_ROWS = 8
@@ -55,7 +67,7 @@ const taskForm = ref({
   end_y: 0,
   priority: 3
 })
-const taskChainStages = ref(buildDefaultTaskChainStages())
+const taskChainStages = ref(buildDefaultTaskChainStages(2, taskForm.value))
 const taskBuilderMode = ref('single')
 const taskChainMapPickActive = ref(false)
 const taskChainMapPickStageCount = ref(2)
@@ -122,10 +134,10 @@ const summaryZoomArmed = ref(false)
 const selectedAgvId = ref(null)
 const trackedManualTaskId = ref(null)
 const manualDispatchStep = ref('idle')
+const manualPreviewMinVisibleUntil = ref(0)
 const startPoint = ref(null)
 const endPoint = ref(null)
-const showDispatchHelp = ref(false)
-const dispatchHelpPinned = ref(false)
+const showGuideCenter = ref(false)
 
 const manualPathToStart = ref([])
 const manualPathToEnd = ref([])
@@ -184,12 +196,12 @@ const compareFloatingY = ref(140)
 let timer = null
 let clickTimer = null
 let previewTimer = null
-let dispatchHelpTimer = null
 let templateApplyClickTimer = null
 let taskBuilderJumpTimer = null
 let localNextId = 1000
 let autoScheduling = false
 let autoScheduleGuard = false
+let manualBoundScheduling = false
 let polling = false
 let mapResizeObserver = null
 let mapViewReady = false
@@ -212,6 +224,7 @@ let compareFloatingDragging = false
 let compareFloatingDragOffsetX = 0
 let compareFloatingDragOffsetY = 0
 let floatingCompareRefreshTimer = null
+let manualPreviewHoldTimer = null
 
 const messages = {
   zh: LOCALE_TEXTS.zh.messages,
@@ -435,6 +448,16 @@ function localizeApiErrorDetail(detail, fallbackMessage = '') {
 
 function localizeDispatchReason(reason) {
   if (!reason || typeof reason !== 'string') return ''
+
+  if (
+    /自动调度队列已暂停/.test(reason) ||
+    /Auto dispatch queue is paused while manual dispatch mode is active/i.test(reason) ||
+    /手動モード.*自動調度キュー/.test(reason)
+  ) {
+    if (locale.value === 'ja') return 'タスクは自動調度キューで割当待ちです（手動モードでも継続）。'
+    if (locale.value === 'zh') return '任务正在自动调度队列中等待分配（手动模式不会暂停自动调度）。'
+    return 'The task is waiting in the auto dispatch queue (manual mode does not pause auto scheduling).'
+  }
 
   if (reason === 'cell_occupied_waiting') {
     if (locale.value === 'ja') return '前方セルがほかの AGV に占有されているため、その場で待機しています。'
@@ -701,7 +724,13 @@ function taskDispatchOrigin(task) {
 }
 
 const autoDisplayTask = computed(() => findLatestActiveTask('auto'))
-const manualDisplayTask = computed(() => findLatestActiveTask('manual'))
+const manualDisplayTask = computed(() => {
+  if (trackedManualTaskId.value) {
+    const trackedTask = tasks.value.find(task => task.id === trackedManualTaskId.value)
+    if (trackedTask) return trackedTask
+  }
+  return findLatestActiveTask('manual')
+})
 
 const manualDisplayStartMarker = computed(() => {
   if (trackedManualTaskId.value && manualDisplayTask.value) {
@@ -714,7 +743,6 @@ const manualDisplayEndMarker = computed(() => {
     return resolveTaskEndMarker(manualDisplayTask.value)
   }
   if (
-    dispatchMode.value === 'manual' &&
     taskBuilderMode.value === 'chain' &&
     taskChainMapPickActive.value &&
     taskChainMapPickPoints.value.length < taskChainRequiredPointCount.value
@@ -729,19 +757,28 @@ const autoDisplayStartMarker = computed(() => {
 })
 const autoDisplayEndMarker = computed(() => {
   if (!shouldShowAutoPath.value) return null
+  if (
+    taskBuilderMode.value === 'chain' &&
+    taskChainMapPickActive.value &&
+    taskChainMapPickPoints.value.length < taskChainRequiredPointCount.value
+  ) {
+    return null
+  }
   return resolveTaskEndMarker(autoDisplayTask.value) ?? autoPathToEnd.value.at(-1) ?? null
 })
 const chainMidMarkers = computed(() => {
   if (!taskChainMapPickActive.value) return []
-  const points = (() => {
-    if (dispatchMode.value === 'manual') {
-      if (taskChainMapPickPoints.value.length < taskChainRequiredPointCount.value) {
-        return taskChainMapPickPoints.value
-      }
-      return taskChainMapPickPoints.value.slice(0, -1)
-    }
-    return taskChainMapPickPoints.value.slice(1, -1)
-  })()
+  const picked = taskChainMapPickPoints.value
+  const required = taskChainRequiredPointCount.value
+  const incomplete = picked.length < required
+  const points =
+    dispatchMode.value === 'manual'
+      ? incomplete
+        ? picked
+        : picked.slice(0, -1)
+      : incomplete
+        ? picked.slice(1)
+        : picked.slice(1, -1)
   return points.map((point, index) => ({
     ...point,
     order: index + 1
@@ -909,6 +946,62 @@ const panelSearchLocale = computed(() => {
 })
 const panelSummaryLocale = computed(() => localeTexts.value.panelSummary ?? LOCALE_TEXTS.en.panelSummary)
 const settingsLocale = computed(() => localeTexts.value.settings ?? LOCALE_TEXTS.en.settings)
+const guideCenterLocale = computed(() => {
+  if (locale.value === 'ja') {
+    return {
+      open: '使い方',
+      title: '操作ガイド',
+      close: '閉じる',
+      modeTitle: 'モード説明',
+      modeAutoTitle: '自動配車',
+      modeManualTitle: '手動配車',
+      shortcutsTitle: 'ショートカット',
+      shortcutCancel: '地図で右クリック / F: AGV 選択を解除',
+      shortcutAlgorithm: 'R: simple / A* を切替',
+      shortcutContext: '地図で右クリック: 段階選点のキャンセル',
+      workflowTitle: '基本フロー',
+      workflowAuto: t('dispatch_help_auto'),
+      workflowManual: t('dispatch_help_manual'),
+      workflowForm: t('dispatch_help_form')
+    }
+  }
+
+  if (locale.value === 'zh') {
+    return {
+      open: '使用说明',
+      title: '操作说明中心',
+      close: '关闭',
+      modeTitle: '模式说明',
+      modeAutoTitle: '自动调度',
+      modeManualTitle: '手动调车',
+      shortcutsTitle: '快捷键',
+      shortcutCancel: '地图右键 / F：取消 AGV 选中',
+      shortcutAlgorithm: 'R：切换 simple / A*',
+      shortcutContext: '地图右键：多段选点时可取消当前选点流程',
+      workflowTitle: '基础流程',
+      workflowAuto: t('dispatch_help_auto'),
+      workflowManual: t('dispatch_help_manual'),
+      workflowForm: t('dispatch_help_form')
+    }
+  }
+
+  return {
+    open: 'Guide',
+    title: 'Operation Guide',
+    close: 'Close',
+    modeTitle: 'Mode Guide',
+    modeAutoTitle: 'Auto Dispatch',
+    modeManualTitle: 'Manual Dispatch',
+    shortcutsTitle: 'Shortcuts',
+    shortcutCancel: 'Right click on map/ F: Clear AGV selection',
+    shortcutAlgorithm: 'R: Toggle simple / A*',
+    shortcutContext: 'Right click on map:  cancel stage point-picking',
+    workflowTitle: 'Basic Workflow',
+    workflowAuto: t('dispatch_help_auto'),
+    workflowManual: t('dispatch_help_manual'),
+    workflowForm: t('dispatch_help_form')
+  }
+})
 const taskChainLocale = computed(() => {
   if (locale.value === 'ja') {
     return {
@@ -1376,6 +1469,58 @@ function buildManualTaskCreateMeta(manualAgv, reason = 'waiting_for_bound_agv') 
     dispatch_reason: reason
   }
 }
+
+function manualTaskQueuedText(task) {
+  const agvId = task?.preferred_agv_id ?? task?.agv_id ?? selectedBackendAgv.value?.id ?? '?'
+  if (locale.value === 'ja') {
+    return `タスクは作成されました。指定 AGV #${agvId} の空きを待って自動実行します。`
+  }
+  if (locale.value === 'zh') {
+    return `任务已创建，正在等待指定 AGV #${agvId} 空闲后自动执行。`
+  }
+  return `Task created. Waiting for bound AGV #${agvId} to become idle before execution.`
+}
+
+async function handleManualScheduleFailure(createdTaskId, scheduleData) {
+  await fetchTasks()
+  const latestTask = tasks.value.find(task => task.id === createdTaskId)
+
+  if (latestTask?.status === 'blocked') {
+    window.alert(blockedTaskAlertText(latestTask))
+    trackedManualTaskId.value = null
+    manualDispatchStep.value = 'idle'
+    clearManualDestination()
+    return false
+  }
+
+  if (latestTask && ['assigned', 'running'].includes(latestTask.status)) {
+    manualPathToStart.value = latestTask.path_to_start ?? []
+    manualPathToEnd.value = latestTask.path_to_end ?? []
+    trackedManualTaskId.value = latestTask.id
+    startPoint.value = resolveTaskStartMarker(latestTask)
+    endPoint.value = resolveTaskEndMarker(latestTask)
+    manualDispatchStep.value = 'running'
+    bumpManualPreviewMinVisible()
+    await fetchAgvs()
+    return true
+  }
+
+  if (latestTask?.status === 'pending') {
+    trackedManualTaskId.value = latestTask.id
+    startPoint.value = resolveTaskStartMarker(latestTask)
+    endPoint.value = resolveTaskEndMarker(latestTask)
+    manualDispatchStep.value = 'running'
+    bumpManualPreviewMinVisible()
+    window.alert(manualTaskQueuedText(latestTask))
+    return true
+  }
+
+  window.alert(localizeApiErrorDetail(scheduleData?.detail, t('task_manual_unreachable')))
+  trackedManualTaskId.value = null
+  manualDispatchStep.value = 'idle'
+  clearManualDestination()
+  return false
+}
 const taskChainMapPickButtonText = computed(() =>
   taskChainMapPickActive.value ? taskChainMapPickUiLocale.value.cancel : taskChainMapPickUiLocale.value.start
 )
@@ -1809,116 +1954,6 @@ function clampValue(value, min, max) {
   return Math.min(Math.max(value, min), max)
 }
 
-function createTaskChainStage(seed = {}) {
-  return {
-    label: seed.label ?? '',
-    start_x: Number(seed.start_x ?? 0),
-    start_y: Number(seed.start_y ?? 0),
-    end_x: Number(seed.end_x ?? 0),
-    end_y: Number(seed.end_y ?? 0)
-  }
-}
-
-function buildDefaultTaskChainStages(stageCount = 2) {
-  const normalizedCount = Math.max(2, Math.floor(Number(stageCount) || 2))
-  const firstStage = createTaskChainStage({
-    start_x: Number(taskForm.value.start_x),
-    start_y: Number(taskForm.value.start_y),
-    end_x: Number(taskForm.value.end_x),
-    end_y: Number(taskForm.value.end_y)
-  })
-  const stages = [firstStage]
-
-  while (stages.length < normalizedCount) {
-    const previousStage = stages.at(-1)
-    stages.push(
-      createTaskChainStage({
-        start_x: previousStage?.end_x ?? 0,
-        start_y: previousStage?.end_y ?? 0,
-        end_x: previousStage?.end_x ?? 0,
-        end_y: previousStage?.end_y ?? 0
-      })
-    )
-  }
-
-  return stages
-}
-
-function buildTaskJsonExamplePayload(mode) {
-  if (mode === 'chain') {
-    return {
-      version: 2,
-      tasks: [
-        {
-          priority: 4,
-          stages: [
-            { label: '入库', start_x: 1, start_y: 1, end_x: 4, end_y: 1 },
-            { label: '装配', start_x: 4, start_y: 1, end_x: 4, end_y: 5 },
-            { label: '出库', start_x: 4, start_y: 5, end_x: 8, end_y: 5 }
-          ]
-        },
-        {
-          priority: 2,
-          stages: [
-            { label: '取货', start_x: 0, start_y: 6, end_x: 3, end_y: 6 },
-            { label: '补货', start_x: 3, start_y: 6, end_x: 3, end_y: 2 }
-          ]
-        }
-      ]
-    }
-  }
-
-  return {
-    tasks: [
-      { start_x: 1, start_y: 1, end_x: 7, end_y: 1, priority: 3 },
-      { start_x: 2, start_y: 6, end_x: 8, end_y: 4, priority: 5 },
-      { start_x: 0, start_y: 0, end_x: 5, end_y: 3, priority: 2 }
-    ]
-  }
-}
-
-function normalizeTaskStages(task) {
-  if (Array.isArray(task.stages) && task.stages.length > 0) {
-    return task.stages
-  }
-  return [
-    {
-      index: 0,
-      start_x: task.start_x,
-      start_y: task.start_y,
-      end_x: task.end_x,
-      end_y: task.end_y,
-      label: ''
-    }
-  ]
-}
-
-function isTaskChain(task) {
-  return Number(task.total_stages ?? normalizeTaskStages(task).length) > 1
-}
-
-function overallTaskStart(task) {
-  return {
-    x: task.overall_start_x ?? normalizeTaskStages(task)[0]?.start_x ?? task.start_x,
-    y: task.overall_start_y ?? normalizeTaskStages(task)[0]?.start_y ?? task.start_y
-  }
-}
-
-function overallTaskEnd(task) {
-  const stages = normalizeTaskStages(task)
-  const lastStage = stages[stages.length - 1]
-  return {
-    x: task.overall_end_x ?? lastStage?.end_x ?? task.end_x,
-    y: task.overall_end_y ?? lastStage?.end_y ?? task.end_y
-  }
-}
-
-function currentTaskStage(task) {
-  const stages = normalizeTaskStages(task)
-  const index = clampValue(Number(task.current_stage_index ?? 0), 0, stages.length - 1)
-  return stages[index]
-}
-
 function pointStyle(point, cellSize = CELL_SIZE, size = 12) {
   return {
     left: `${point.x * cellSize + cellSize / 2 - size / 2}px`,
@@ -2178,9 +2213,9 @@ function formatDispatchReason(task) {
       return t('dispatch_waiting')
     }
     if (!task.dispatch_mode) {
-      if (locale.value === 'ja') return '自動調度キューで待機中です。'
-      if (locale.value === 'zh') return '任务正在自动调度队列中等待分配。'
-      return 'Waiting in the auto dispatch queue.'
+      if (locale.value === 'ja') return '自動調度キューで待機中です（手動モードでも継続）。'
+      if (locale.value === 'zh') return '任务正在自动调度队列中等待分配（手动模式不会暂停自动调度）。'
+      return 'Waiting in the auto dispatch queue (manual mode does not pause auto scheduling).'
     }
   }
   if (task.status === 'blocked' && task.dispatch_reason) {
@@ -3426,13 +3461,22 @@ function clearManualPaths() {
 }
 
 function clearManualDispatchPreview() {
+  if (manualPreviewHoldTimer) {
+    clearTimeout(manualPreviewHoldTimer)
+    manualPreviewHoldTimer = null
+  }
   trackedManualTaskId.value = null
   manualDispatchStep.value = 'idle'
+  manualPreviewMinVisibleUntil.value = 0
   taskChainMapPickActive.value = false
   taskChainMapPickPoints.value = []
   startPoint.value = null
   endPoint.value = null
   clearManualPaths()
+}
+
+function bumpManualPreviewMinVisible(durationMs = 1400) {
+  manualPreviewMinVisibleUntil.value = Date.now() + durationMs
 }
 
 function cancelSelection() {
@@ -3499,12 +3543,16 @@ function syncDisplayedPathsFromTasks() {
     clearAutoPaths()
   }
 
-  const manualTask = findLatestActiveTask('manual')
+  const manualTask = manualDisplayTask.value
   if (manualTask) {
     manualPathToStart.value = manualTask.path_to_start ?? []
     manualPathToEnd.value = manualTask.path_to_end ?? []
   } else {
-    clearManualPaths()
+    const shouldHoldManualPreview =
+      Boolean(trackedManualTaskId.value) && manualPreviewMinVisibleUntil.value > Date.now()
+    if (!shouldHoldManualPreview) {
+      clearManualPaths()
+    }
   }
 }
 
@@ -3640,100 +3688,10 @@ function getCellFromClient(clientX, clientY) {
   }
 }
 
-function buildSimpleCandidatePath(sx, sy, ex, ey, axisOrder) {
-  const path = [{ x: sx, y: sy }]
-  let x = sx
-  let y = sy
-
-  for (const axis of axisOrder) {
-    if (axis === 'x') {
-      while (x !== ex) {
-        x += ex > x ? 1 : -1
-        if (isBlockedCell(x, y)) return []
-        path.push({ x, y })
-      }
-    } else {
-      while (y !== ey) {
-        y += ey > y ? 1 : -1
-        if (isBlockedCell(x, y)) return []
-        path.push({ x, y })
-      }
-    }
-  }
-
-  return path
-}
-
-function buildSimplePath(sx, sy, ex, ey) {
-  if (isBlockedCell(sx, sy) || isBlockedCell(ex, ey)) return []
-  if (sx === ex && sy === ey) return [{ x: sx, y: sy }]
-
-  const xFirst = buildSimpleCandidatePath(sx, sy, ex, ey, ['x', 'y'])
-  if (xFirst.length > 0) return xFirst
-
-  return buildSimpleCandidatePath(sx, sy, ex, ey, ['y', 'x'])
-}
-
-function buildAStarPath(sx, sy, ex, ey) {
-  if (isBlockedCell(sx, sy) || isBlockedCell(ex, ey)) return []
-  if (sx === ex && sy === ey) return [{ x: sx, y: sy }]
-
-  const startKey = blockedCellKey(sx, sy)
-  const goalKey = blockedCellKey(ex, ey)
-  const open = [{ x: sx, y: sy, key: startKey, f: 0 }]
-  const cameFrom = new Map()
-  const gScore = new Map([[startKey, 0]])
-
-  while (open.length > 0) {
-    open.sort((a, b) => a.f - b.f)
-    const current = open.shift()
-    if (!current) break
-
-    if (current.x === ex && current.y === ey) {
-      const path = [{ x: ex, y: ey }]
-      let cursorKey = goalKey
-      while (cameFrom.has(cursorKey)) {
-        const previous = cameFrom.get(cursorKey)
-        path.push({ x: previous.x, y: previous.y })
-        cursorKey = blockedCellKey(previous.x, previous.y)
-      }
-      path.reverse()
-      return path
-    }
-
-    for (const [dx, dy] of [
-      [1, 0],
-      [-1, 0],
-      [0, 1],
-      [0, -1]
-    ]) {
-      const nx = current.x + dx
-      const ny = current.y + dy
-      if (nx < 0 || nx >= GRID_COLS || ny < 0 || ny >= GRID_ROWS) continue
-      if (isBlockedCell(nx, ny)) continue
-
-      const neighborKey = blockedCellKey(nx, ny)
-      const tentative = (gScore.get(current.key) ?? 0) + 1
-      if (tentative >= (gScore.get(neighborKey) ?? Number.POSITIVE_INFINITY)) continue
-
-      cameFrom.set(neighborKey, { x: current.x, y: current.y })
-      gScore.set(neighborKey, tentative)
-      const heuristic = Math.abs(nx - ex) + Math.abs(ny - ey)
-      const existing = open.find(item => item.key === neighborKey)
-      const nextNode = { x: nx, y: ny, key: neighborKey, f: tentative + heuristic }
-      if (existing) {
-        existing.f = nextNode.f
-      } else {
-        open.push(nextNode)
-      }
-    }
-  }
-
-  return []
-}
-
 function buildPreviewPathByAlgorithm(sx, sy, ex, ey) {
-  return algorithm.value === 'astar' ? buildAStarPath(sx, sy, ex, ey) : buildSimplePath(sx, sy, ex, ey)
+  return algorithm.value === 'astar'
+    ? buildAStarPath(sx, sy, ex, ey, GRID_COLS, GRID_ROWS, isBlockedCell)
+    : buildSimplePath(sx, sy, ex, ey, isBlockedCell)
 }
 
 function blockedCellAlertText() {
@@ -3984,6 +3942,9 @@ async function confirmAndSchedule(x, y, agvId = null) {
   endPoint.value = { x, y }
   if (dispatchMode.value === 'manual') {
     manualDispatchStep.value = 'running'
+    bumpManualPreviewMinVisible()
+    await nextTick()
+    await new Promise(resolve => setTimeout(resolve, 180))
   }
   await createTaskAndSchedule(agvId)
 }
@@ -3997,9 +3958,7 @@ async function createTaskAndSchedule(agvId) {
 
   const isAutoMode = dispatchMode.value === 'auto'
   try {
-    if (isAutoMode) {
-      autoScheduleGuard = true
-    }
+    autoScheduleGuard = true
     const createRes = await fetch(`${API_BASE}/task/create`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -4062,59 +4021,37 @@ async function createTaskAndSchedule(agvId) {
     })
     const scheduleData = await scheduleRes.json()
     if (!scheduleRes.ok) {
-      throw createApiError(scheduleData, 'Schedule failed')
+      await handleManualScheduleFailure(createData.task.id, scheduleData)
+      return
     }
 
-    startPoint.value = {
-      x: scheduleData.task.start_x,
-      y: scheduleData.task.start_y
-    }
-    endPoint.value = {
-      x: scheduleData.task.end_x,
-      y: scheduleData.task.end_y
-    }
+    startPoint.value = resolveTaskStartMarker(scheduleData.task)
+    endPoint.value = resolveTaskEndMarker(scheduleData.task)
     manualPathToStart.value = scheduleData.path_to_start ?? []
     manualPathToEnd.value = scheduleData.path_to_end ?? scheduleData.path ?? []
     trackedManualTaskId.value = scheduleData.task.id
+    bumpManualPreviewMinVisible()
 
     await Promise.all([fetchAgvs(), fetchTasks()])
   } catch (error) {
     console.error('Schedule error:', error)
     if (!isAutoMode) {
       trackedManualTaskId.value = null
+      manualDispatchStep.value = 'idle'
       clearManualDestination()
     }
+    window.alert(error instanceof Error ? error.message : String(error))
   } finally {
-    if (isAutoMode) {
-      autoScheduleGuard = false
-    }
+    autoScheduleGuard = false
   }
 }
 
-function onDispatchHelpEnter() {
-  if (dispatchHelpTimer) {
-    clearTimeout(dispatchHelpTimer)
-  }
-  dispatchHelpTimer = setTimeout(() => {
-    if (!dispatchHelpPinned.value) {
-      showDispatchHelp.value = true
-    }
-  }, 450)
+function openGuideCenter() {
+  showGuideCenter.value = true
 }
 
-function onDispatchHelpLeave() {
-  if (dispatchHelpTimer) {
-    clearTimeout(dispatchHelpTimer)
-    dispatchHelpTimer = null
-  }
-  if (!dispatchHelpPinned.value) {
-    showDispatchHelp.value = false
-  }
-}
-
-function toggleDispatchHelp() {
-  dispatchHelpPinned.value = !dispatchHelpPinned.value
-  showDispatchHelp.value = dispatchHelpPinned.value
+function closeGuideCenter() {
+  showGuideCenter.value = false
 }
 
 function onPanelScroll() {
@@ -4220,7 +4157,6 @@ function onGlobalMouseUp() {
 }
 
 async function tryAutoSchedule() {
-  if (dispatchMode.value !== 'auto') return
   if (autoScheduling) return
   if (autoScheduleGuard) return
   if (obstacleEditMode.value || obstacleLayoutDirty.value) return
@@ -4455,7 +4391,11 @@ async function submitTaskPayload(payload) {
     }
   }
 
+  const shouldGuardAutoSchedule = dispatchMode.value === 'manual'
   try {
+    if (shouldGuardAutoSchedule) {
+      autoScheduleGuard = true
+    }
     const res = await fetch(`${API_BASE}/task/create`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -4491,31 +4431,16 @@ async function submitTaskPayload(payload) {
       })
       const scheduleData = await scheduleRes.json()
       if (!scheduleRes.ok) {
-        await fetchTasks()
-        const latestTask = tasks.value.find(task => task.id === data.task.id)
-        if (latestTask?.status === 'blocked') {
-          window.alert(blockedTaskAlertText(latestTask))
-        } else {
-          window.alert(localizeApiErrorDetail(scheduleData?.detail, t('task_manual_unreachable')))
-        }
-        trackedManualTaskId.value = null
-        manualDispatchStep.value = 'awaiting_end'
-        clearManualDestination()
-        return false
+        return await handleManualScheduleFailure(data.task.id, scheduleData)
       }
 
-      startPoint.value = {
-        x: scheduleData.task.start_x,
-        y: scheduleData.task.start_y
-      }
-      endPoint.value = {
-        x: scheduleData.task.end_x,
-        y: scheduleData.task.end_y
-      }
+      startPoint.value = resolveTaskStartMarker(scheduleData.task)
+      endPoint.value = resolveTaskEndMarker(scheduleData.task)
       manualPathToStart.value = scheduleData.path_to_start ?? []
       manualPathToEnd.value = scheduleData.path_to_end ?? scheduleData.path ?? []
       trackedManualTaskId.value = scheduleData.task.id
       manualDispatchStep.value = 'running'
+      bumpManualPreviewMinVisible()
       await Promise.all([fetchAgvs(), fetchTasks()])
       return tasks.value.find(task => task.id === scheduleData.task.id) ?? scheduleData.task
     }
@@ -4527,6 +4452,72 @@ async function submitTaskPayload(payload) {
     }
     window.alert(error instanceof Error ? error.message : String(error))
     return false
+  } finally {
+    if (shouldGuardAutoSchedule) {
+      autoScheduleGuard = false
+    }
+  }
+}
+
+async function tryManualBoundSchedule() {
+  if (manualBoundScheduling) return
+  if (obstacleEditMode.value || obstacleLayoutDirty.value) return
+
+  const idleAgvIds = new Set(agvs.value.filter(agv => agv.status === 'idle').map(agv => agv.id))
+  const candidate = tasks.value
+    .filter(
+      task =>
+        task.status === 'pending' &&
+        task.dispatch_mode === 'manual' &&
+        Number.isInteger(task.preferred_agv_id) &&
+        idleAgvIds.has(task.preferred_agv_id)
+    )
+    .sort((a, b) => {
+      const priorityDiff = Number(b.priority ?? 0) - Number(a.priority ?? 0)
+      if (priorityDiff !== 0) return priorityDiff
+      return Number(a.id ?? 0) - Number(b.id ?? 0)
+    })[0]
+
+  if (!candidate) return
+
+  manualBoundScheduling = true
+  try {
+    const scheduleRes = await fetch(`${API_BASE}/schedule/with_path`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        task_id: candidate.id,
+        agv_id: candidate.preferred_agv_id,
+        algorithm: (candidate.dispatch_algorithm || algorithm.value || 'simple').toLowerCase(),
+        grid_cols: GRID_COLS,
+        grid_rows: GRID_ROWS
+      })
+    })
+    const scheduleData = await scheduleRes.json()
+    if (!scheduleRes.ok) {
+      await fetchTasks()
+      return
+    }
+
+    if (
+      dispatchMode.value === 'manual' ||
+      selectedAgvId.value === scheduleData?.agv?.id ||
+      trackedManualTaskId.value === candidate.id
+    ) {
+      manualPathToStart.value = scheduleData.path_to_start ?? []
+      manualPathToEnd.value = scheduleData.path_to_end ?? scheduleData.path ?? []
+      trackedManualTaskId.value = scheduleData?.task?.id ?? candidate.id
+      startPoint.value = resolveTaskStartMarker(scheduleData?.task ?? candidate)
+      endPoint.value = resolveTaskEndMarker(scheduleData?.task ?? candidate)
+      manualDispatchStep.value = 'running'
+      bumpManualPreviewMinVisible()
+    }
+
+    await Promise.all([fetchAgvs(), fetchTasks()])
+  } catch (error) {
+    console.error('Manual bound schedule error:', error)
+  } finally {
+    manualBoundScheduling = false
   }
 }
 
@@ -4627,18 +4618,6 @@ function experimentCsvRowsFromRecords(records) {
       stage_lengths: item.stage_lengths ?? ''
     }))
   )
-}
-
-function rowsToCsv(rows) {
-  if (!rows.length) return ''
-
-  const headers = Object.keys(rows[0])
-  const escapeCsvValue = value => `"${String(value ?? '').replace(/"/g, '""')}"`
-  const lines = [
-    headers.map(escapeCsvValue).join(','),
-    ...rows.map(row => headers.map(header => escapeCsvValue(row[header])).join(','))
-  ]
-  return `\ufeff${lines.join('\n')}`
 }
 
 function buildPathComparePayload() {
@@ -4788,7 +4767,7 @@ function removeTaskChainStage(index) {
 }
 
 function resetTaskChainStages() {
-  taskChainStages.value = buildDefaultTaskChainStages(taskChainStageCount.value)
+  taskChainStages.value = buildDefaultTaskChainStages(taskChainStageCount.value, taskForm.value)
 }
 
 function setTaskChainStageCount(nextCount) {
@@ -4890,9 +4869,7 @@ async function importTasksFromJson() {
     }
     jsonStatus.value = t('json_import_ok')
     await fetchTasks()
-    if (dispatchMode.value === 'auto') {
-      await tryAutoSchedule()
-    }
+    await tryAutoSchedule()
   } catch (error) {
     console.error('Import json error:', error)
     jsonStatus.value = t('json_import_fail')
@@ -4918,15 +4895,29 @@ function clearJsonText() {
   jsonStatus.value = ''
 }
 
+function canPreviewTask(task) {
+  return ['pending', 'blocked', 'assigned', 'running'].includes(task?.status)
+}
+
+function refreshTaskPreview(task) {
+  if (!task) return
+  const stage = currentTaskStage(task)
+  const startX = Number(stage?.start_x ?? task.start_x)
+  const startY = Number(stage?.start_y ?? task.start_y)
+  const endX = Number(stage?.end_x ?? task.end_x)
+  const endY = Number(stage?.end_y ?? task.end_y)
+  if (![startX, startY, endX, endY].every(Number.isFinite)) return
+
+  previewTaskId.value = task.id
+  previewStart.value = { x: startX, y: startY }
+  previewEnd.value = { x: endX, y: endY }
+  previewPath.value = buildPreviewPathByAlgorithm(startX, startY, endX, endY)
+}
+
 function onTaskHover(task) {
-  if (!['pending', 'blocked'].includes(task.status)) return
+  if (!canPreviewTask(task)) return
   if (previewTimer) clearTimeout(previewTimer)
-  previewTimer = setTimeout(() => {
-    previewTaskId.value = task.id
-    previewStart.value = { x: task.start_x, y: task.start_y }
-    previewEnd.value = { x: task.end_x, y: task.end_y }
-    previewPath.value = buildPreviewPathByAlgorithm(task.start_x, task.start_y, task.end_x, task.end_y)
-  }, 400)
+  refreshTaskPreview(task)
 }
 
 function onTaskLeave() {
@@ -5382,7 +5373,6 @@ async function refreshCoreState() {
 }
 
 async function scheduleAutoIfReady() {
-  if (dispatchMode.value !== 'auto') return
   await nextTick()
   await tryAutoSchedule()
 }
@@ -5405,12 +5395,11 @@ async function refreshState() {
   polling = true
   try {
     await refreshCoreState()
-    if (dispatchMode.value === 'auto') {
-      if (!hasActiveTask()) {
-        clearAutoPaths()
-      }
-      await tryAutoSchedule()
+    await tryManualBoundSchedule()
+    if (dispatchMode.value === 'auto' && !hasActiveTask()) {
+      clearAutoPaths()
     }
+    await tryAutoSchedule()
   } finally {
     polling = false
   }
@@ -5514,8 +5503,23 @@ async function resolveFaultEventItem(eventItem) {
 }
 
 function onKeyDown(event) {
+  const target = event.target
+  const isTypingTarget =
+    target instanceof HTMLElement &&
+    (target.tagName === 'INPUT' ||
+      target.tagName === 'TEXTAREA' ||
+      target.tagName === 'SELECT' ||
+      target.isContentEditable)
+  if (isTypingTarget) return
+
   if (event.key === 'f' || event.key === 'F') {
     cancelSelection()
+    return
+  }
+
+  if (event.key === 'r' || event.key === 'R') {
+    event.preventDefault()
+    algorithm.value = algorithm.value === 'simple' ? 'astar' : 'simple'
   }
 }
 
@@ -5527,8 +5531,6 @@ function onMapContextMenu(event) {
 watch(dispatchMode, mode => {
   cancelSelection()
   clearPreview()
-  dispatchHelpPinned.value = false
-  showDispatchHelp.value = false
   if (mode !== 'auto') {
     cancelTaskChainMapPick(false)
   }
@@ -5636,6 +5638,7 @@ onMounted(() => {
   window.addEventListener('resize', onWindowResize)
   window.addEventListener('mousemove', onGlobalMouseMove)
   window.addEventListener('mouseup', onGlobalMouseUp)
+  showGuideCenter.value = true
 })
 
 watch(
@@ -5731,7 +5734,7 @@ watch(
   () => {
     if (dispatchMode.value !== 'manual') return
     if (!trackedManualTaskId.value) {
-      if (manualDispatchStep.value === 'awaiting_end') {
+      if (manualDispatchStep.value !== 'idle') {
         return
       }
       if (selectedBackendAgv.value?.status === 'idle' && !taskChainMapPickActive.value) {
@@ -5746,6 +5749,17 @@ watch(
 
     const trackedTask = tasks.value.find(task => task.id === trackedManualTaskId.value)
     if (!trackedTask || ['finished', 'blocked', 'failed'].includes(trackedTask.status)) {
+      const remainingMs = manualPreviewMinVisibleUntil.value - Date.now()
+      if (remainingMs > 0) {
+        if (manualPreviewHoldTimer) {
+          clearTimeout(manualPreviewHoldTimer)
+        }
+        manualPreviewHoldTimer = setTimeout(() => {
+          manualPreviewHoldTimer = null
+          cancelSelection()
+        }, remainingMs + 20)
+        return
+      }
       cancelSelection()
       return
     }
@@ -5777,11 +5791,25 @@ watch(
   { deep: true }
 )
 
+watch(
+  [algorithm, blockedCells, tasks, previewTaskId],
+  () => {
+    if (!previewTaskId.value) return
+    const previewTask = tasks.value.find(task => task.id === previewTaskId.value)
+    if (!previewTask || !canPreviewTask(previewTask)) {
+      clearPreview()
+      return
+    }
+    refreshTaskPreview(previewTask)
+  },
+  { deep: true }
+)
+
 onBeforeUnmount(() => {
   if (timer) clearInterval(timer)
   if (clickTimer) clearTimeout(clickTimer)
   if (previewTimer) clearTimeout(previewTimer)
-  if (dispatchHelpTimer) clearTimeout(dispatchHelpTimer)
+  if (manualPreviewHoldTimer) clearTimeout(manualPreviewHoldTimer)
   if (templateApplyClickTimer) clearTimeout(templateApplyClickTimer)
   if (taskBuilderJumpTimer) clearTimeout(taskBuilderJumpTimer)
   if (panelSectionFocusTimer) clearTimeout(panelSectionFocusTimer)
@@ -5812,41 +5840,17 @@ onBeforeUnmount(() => {
         </select>
       </label>
 
-      <div class="field field-with-help">
-        <span class="field-label">
-          {{ t('dispatch') }}
-          <span
-            class="help-anchor"
-            @mouseenter="onDispatchHelpEnter"
-            @mouseleave="onDispatchHelpLeave"
-          >
-            <button
-              class="info-button"
-              :class="{ active: showDispatchHelp }"
-              type="button"
-              :title="t('dispatch_help_trigger')"
-              @click.stop="toggleDispatchHelp"
-            >
-              i
-            </button>
-            <div
-              v-if="showDispatchHelp"
-              class="help-popover"
-              @mouseenter="onDispatchHelpEnter"
-              @mouseleave="onDispatchHelpLeave"
-            >
-              <div class="help-title">{{ t('dispatch_help_title') }}</div>
-              <div class="help-line">{{ t('dispatch_help_auto') }}</div>
-              <div class="help-line">{{ t('dispatch_help_manual') }}</div>
-              <div class="help-line">{{ t('dispatch_help_form') }}</div>
-            </div>
-          </span>
-        </span>
+      <div class="field">
+        <span class="field-label">{{ t('dispatch') }}</span>
         <select v-model="dispatchMode">
           <option value="auto">{{ t('dispatch_auto') }}</option>
           <option value="manual">{{ t('dispatch_manual') }}</option>
         </select>
       </div>
+
+      <button class="toolbar-guide-entry" type="button" @click="openGuideCenter">
+        {{ guideCenterLocale.open }}
+      </button>
 
       <label class="field">
         {{ t('algorithm') }}
@@ -6190,6 +6194,9 @@ onBeforeUnmount(() => {
             </button>
             <div v-if="showMapSettings" class="map-settings-panel">
               <div class="map-settings-title">{{ settingsLocale.title }}</div>
+              <button class="map-settings-guide-button" type="button" @click="openGuideCenter">
+                {{ guideCenterLocale.open }}
+              </button>
               <div class="map-settings-group">
                 <div class="map-settings-subtitle">{{ settingsLocale.mapGroup }}</div>
                 <label class="map-setting-row">
@@ -6557,7 +6564,9 @@ onBeforeUnmount(() => {
               <button class="dispatch-summary dispatch-summary-button" type="button" @click="toggleDispatchModeFromSummary">
                 <span class="dispatch-summary-label">{{ panelLocale.currentMode }}</span>
                 <strong>{{ currentDispatchModeLabel }}</strong>
-                <p>{{ currentDispatchModeHint }}</p>
+              </button>
+              <button class="btn-ghost dispatch-guide-link" type="button" @click="openGuideCenter">
+                {{ guideCenterLocale.open }}
               </button>
 
               <div class="dispatch-summary dispatch-algorithm-note">
@@ -7538,6 +7547,40 @@ onBeforeUnmount(() => {
       </aside>
     </div>
 
+    <div v-if="showGuideCenter" class="guide-modal-mask" @click.self="closeGuideCenter">
+      <section class="guide-modal" role="dialog" aria-modal="true">
+        <header class="guide-modal-header">
+          <strong>{{ guideCenterLocale.title }}</strong>
+          <button class="btn-ghost" type="button" @click="closeGuideCenter">
+            {{ guideCenterLocale.close }}
+          </button>
+        </header>
+        <div class="guide-modal-body">
+          <div class="guide-section">
+            <div class="guide-section-title">{{ guideCenterLocale.modeTitle }}</div>
+            <div class="guide-line">
+              {{ guideCenterLocale.modeAutoTitle }}：{{ panelLocale.modeAutoHint }}
+            </div>
+            <div class="guide-line">
+              {{ guideCenterLocale.modeManualTitle }}：{{ panelLocale.modeManualHint }}
+            </div>
+          </div>
+          <div class="guide-section">
+            <div class="guide-section-title">{{ guideCenterLocale.shortcutsTitle }}</div>
+            <div class="guide-line">{{ guideCenterLocale.shortcutCancel }}</div>
+            <div class="guide-line">{{ guideCenterLocale.shortcutAlgorithm }}</div>
+            <div class="guide-line">{{ guideCenterLocale.shortcutContext }}</div>
+          </div>
+          <div class="guide-section">
+            <div class="guide-section-title">{{ guideCenterLocale.workflowTitle }}</div>
+            <div class="guide-line">{{ guideCenterLocale.workflowAuto }}</div>
+            <div class="guide-line">{{ guideCenterLocale.workflowManual }}</div>
+            <div class="guide-line">{{ guideCenterLocale.workflowForm }}</div>
+          </div>
+        </div>
+      </section>
+    </div>
+
     <div
       v-if="compareDisplayMode === 'floating' && showFloatingCompare"
       class="floating-compare-panel"
@@ -7603,3 +7646,4 @@ onBeforeUnmount(() => {
     </div>
   </div>
 </template>
+

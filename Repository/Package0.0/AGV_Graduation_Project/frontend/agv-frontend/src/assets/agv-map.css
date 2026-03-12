@@ -134,6 +134,22 @@ h2 {
   cursor: pointer;
 }
 
+.toolbar-guide-entry {
+  padding: 8px 12px;
+  border: 1px solid #d8d0c5;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.74);
+  color: #5f564b;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.toolbar-guide-entry:hover {
+  border-color: #c5b79f;
+  background: rgba(255, 255, 255, 0.9);
+}
+
 .page-top {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 10px 380px;
@@ -610,6 +626,24 @@ h2 {
   margin-bottom: 8px;
   font-size: 13px;
   font-weight: 700;
+}
+
+.map-settings-guide-button {
+  width: 100%;
+  margin-bottom: 10px;
+  padding: 7px 10px;
+  border: 1px solid #d8d0c5;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.82);
+  color: #5f564b;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.map-settings-guide-button:hover {
+  border-color: #c5b79f;
+  background: rgba(255, 255, 255, 0.94);
 }
 
 .map-settings-group + .map-settings-group {
@@ -1281,6 +1315,11 @@ h2 {
   color: var(--muted-text);
 }
 
+.dispatch-guide-link {
+  margin: -8px 0 12px;
+  width: 100%;
+}
+
 .dispatch-algorithm-note {
   margin-top: -4px;
 }
@@ -1506,6 +1545,67 @@ h2 {
   border-radius: 16px;
   background: rgba(255, 253, 249, 0.96);
   box-shadow: 0 18px 38px rgba(31, 26, 20, 0.22);
+}
+
+.guide-modal-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  background: rgba(20, 16, 11, 0.44);
+}
+
+.guide-modal {
+  width: min(760px, 100%);
+  max-height: min(82vh, 720px);
+  overflow: auto;
+  border: 1px solid #d8d0c5;
+  border-radius: 16px;
+  background: rgba(255, 253, 249, 0.98);
+  box-shadow: 0 16px 40px rgba(60, 45, 30, 0.24);
+}
+
+.guide-modal-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid #ece3d7;
+  background: rgba(255, 253, 249, 0.98);
+}
+
+.guide-modal-body {
+  display: grid;
+  gap: 12px;
+  padding: 14px 16px 16px;
+}
+
+.guide-section {
+  border: 1px solid #ece3d7;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.78);
+  padding: 12px;
+}
+
+.guide-section-title {
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--strong-text);
+}
+
+.guide-line {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--muted-text);
 }
 
 .floating-compare-head {
