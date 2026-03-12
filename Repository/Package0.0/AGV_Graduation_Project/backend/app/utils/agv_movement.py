@@ -1,4 +1,4 @@
-import threading
+﻿import threading
 import time
 from datetime import datetime
 
@@ -45,10 +45,11 @@ def is_cell_occupied_by_other_agv(agv_id: int, x: int, y: int):
     return any(other.id != agv_id and other.x == x and other.y == y for other in agv_list)
 
 
-def move_to_point_with_collision_guard(agv, task, point, algorithm: str):
+def move_to_point_with_collision_guard(agv, task, point, algorithm: str, active_status: str):
     target_x = int(point["x"])
     target_y = int(point["y"])
-    deadline = time.time() + MOVE_WAIT_TIMEOUT_SEC
+    previous_reason = task.dispatch_reason
+    waiting_noted = False
 
     while True:
         if should_interrupt_agv(agv, task, algorithm):
@@ -62,14 +63,17 @@ def move_to_point_with_collision_guard(agv, task, point, algorithm: str):
                 moved = True
 
         if moved:
+            agv.status = active_status
+            if waiting_noted:
+                task.dispatch_reason = previous_reason
             time.sleep(1)
             return True
 
-        if time.time() >= deadline:
-            mark_task_blocked(task, "cell_occupied", algorithm)
-            agv.status = "idle"
-            agv.task_id = None
-            return False
+        if not waiting_noted:
+            task.dispatch_reason = "cell_occupied_waiting"
+            waiting_noted = True
+
+        agv.status = active_status
 
         time.sleep(MOVE_WAIT_INTERVAL_SEC)
 
@@ -111,7 +115,7 @@ def move_agv(
                 grid_rows,
             )
             if not path_to_start or not path_to_end:
-                mark_task_blocked(task, f"当前算法 {algorithm} 下，任务路径不可达，请切换算法或修改点位", algorithm)
+                mark_task_blocked(task, f"task_route_unreachable:{algorithm}", algorithm)
                 agv.status = "idle"
                 agv.task_id = None
                 return
@@ -121,7 +125,7 @@ def move_agv(
             if len(path_to_start) > 1:
                 agv.status = "relocating"
                 for point in path_to_start:
-                    if not move_to_point_with_collision_guard(agv, task, point, algorithm):
+                    if not move_to_point_with_collision_guard(agv, task, point, algorithm, "relocating"):
                         return
 
             task.status = "running"
@@ -136,7 +140,7 @@ def move_agv(
                 start_index = 1
 
             for point in path_to_end[start_index:]:
-                if not move_to_point_with_collision_guard(agv, task, point, algorithm):
+                if not move_to_point_with_collision_guard(agv, task, point, algorithm, "running"):
                     return
 
             stage.finished_at = now_iso()
@@ -168,7 +172,7 @@ def move_agv(
                 grid_rows,
             )
             if not next_path_to_start or not next_path_to_end:
-                mark_task_blocked(task, f"当前算法 {algorithm} 下，下一阶段路径不可达，请切换算法或修改点位", algorithm)
+                mark_task_blocked(task, f"task_route_unreachable:{algorithm}", algorithm)
                 agv.status = "idle"
                 agv.task_id = None
                 return
@@ -179,3 +183,4 @@ def move_agv(
 
     thread = threading.Thread(target=run, daemon=True)
     thread.start()
+

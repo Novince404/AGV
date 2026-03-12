@@ -362,6 +362,32 @@ def _pick_task_and_agv_resolved(
     for pending_task in pending_tasks:
         reachable = False
         task_algorithm = _resolve_task_algorithm(pending_task, algorithm)
+        preferred_agv_id = getattr(pending_task, "preferred_agv_id", None)
+        if pending_task.dispatch_mode == "manual" and preferred_agv_id is not None:
+            preferred_agv = next((agv for agv in idle_agvs if agv.id == preferred_agv_id), None)
+            if preferred_agv is None:
+                continue
+            distance = _path_length(
+                task_algorithm,
+                preferred_agv.x,
+                preferred_agv.y,
+                pending_task.start_x,
+                pending_task.start_y,
+                grid_cols,
+                grid_rows,
+            )
+            if distance is None:
+                continue
+            reachable = True
+            key = (-pending_task.priority, distance, pending_task.id, preferred_agv.id)
+            if best_key is None or key < best_key:
+                best_key = key
+                best_pair = (pending_task, preferred_agv)
+                best_distance = distance
+                best_algorithm = task_algorithm
+            if reachable and pending_task.status == "blocked":
+                mark_task_pending(pending_task)
+            continue
         for agv in idle_agvs:
             distance = _path_length(
                 task_algorithm,
@@ -536,6 +562,10 @@ def _schedule_task(
 
     task.status = "assigned"
     task.agv_id = agv.id
+    task.preferred_agv_id = agv.id if schedule_mode == "manual" else None
+    if schedule_mode == "manual" and task.dispatch_origin_x is None and task.dispatch_origin_y is None:
+        task.dispatch_origin_x = agv.x
+        task.dispatch_origin_y = agv.y
     task.assigned_at = now_iso()
 
     agv.task_id = task.id
@@ -646,6 +676,33 @@ def retry_blocked_task(task_id: int, req: RetryBlockedTaskRequest):
         raise_api_error(400, "task_not_blocked")
 
     task.dispatch_algorithm = algorithm
+
+    preferred_agv_id = getattr(task, "preferred_agv_id", None)
+    if task.dispatch_mode == "manual" and preferred_agv_id is not None:
+        preferred_agv = next((agv for agv in agv_list if agv.id == preferred_agv_id), None)
+        if preferred_agv is None:
+            raise_api_error(404, "agv_not_found")
+        if preferred_agv.status != "idle":
+            mark_task_pending(task)
+            task.dispatch_algorithm = algorithm
+            task.dispatch_mode = "manual"
+            task.dispatch_reason = "retry_waiting_for_bound_agv:astar"
+            return {
+                "message": "Task queued for A* retry on bound AGV",
+                "queued": True,
+                "algorithm": algorithm,
+                "task": {
+                    "id": task.id,
+                    "status": task.status,
+                    "dispatch_algorithm": task.dispatch_algorithm,
+                    "dispatch_reason": task.dispatch_reason,
+                    "preferred_agv_id": task.preferred_agv_id,
+                },
+                "blocked_cells": get_blocked_cell_payload(req.grid_cols, req.grid_rows),
+            }
+        result = _schedule_task(task_id, preferred_agv_id, algorithm, req.grid_cols, req.grid_rows)
+        result["queued"] = False
+        return result
 
     if not _get_idle_agvs():
         mark_task_pending(task)

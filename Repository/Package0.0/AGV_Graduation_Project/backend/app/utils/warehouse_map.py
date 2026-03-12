@@ -1,4 +1,4 @@
-DEFAULT_GRID_COLS = 10
+﻿DEFAULT_GRID_COLS = 10
 DEFAULT_GRID_ROWS = 8
 
 # Fixed shelf layout for the current warehouse demo map.
@@ -28,7 +28,7 @@ DEFAULT_MAP_PRESETS = {
         },
         "description": {
             "zh": "两列货架，中间保留关键通道，适合基础算法对比。",
-            "ja": "2 列の棚と通路を持つ標準配置で、基本比較に適しています。",
+            "ja": "2 列の棚と通路を保つ標準配置で、基本的なアルゴリズム比較に適しています。",
             "en": "Two shelf columns with corridor gaps for baseline algorithm comparison.",
         },
         "cells": DEFAULT_BLOCKED_CELLS,
@@ -41,7 +41,7 @@ DEFAULT_MAP_PRESETS = {
         },
         "description": {
             "zh": "中部形成连续障碍，适合验证绕行能力。",
-            "ja": "中央に連続障害物を配置し、迂回性能を検証します。",
+            "ja": "中央に連続障害を配置し、迂回性能の検証に適しています。",
             "en": "A central obstacle cluster for testing detour capability.",
         },
         "cells": {
@@ -65,7 +65,7 @@ DEFAULT_MAP_PRESETS = {
         },
         "description": {
             "zh": "形成交错通道，适合测试多拐点路径规划。",
-            "ja": "交互する通路を形成し、多折れ経路の計画を検証します。",
+            "ja": "交差する通路を形成し、多折れ経路の計画検証に適しています。",
             "en": "Interleaved aisles suited for multi-turn path planning tests.",
         },
         "cells": {

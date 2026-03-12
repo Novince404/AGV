@@ -14,6 +14,7 @@ const TASK_TEMPLATE_STORAGE_KEY = 'agv_task_templates'
 const PANEL_SECTION_STORAGE_KEY = 'agv_panel_sections'
 const PANEL_SUMMARY_MODE_STORAGE_KEY = 'agv_panel_summary_mode'
 const TASK_QUEUE_VIEW_STORAGE_KEY = 'agv_task_queue_view'
+const EXPERIMENT_RECORDS_STORAGE_KEY = 'agv_experiment_records'
 const MAP_WIDTH = GRID_COLS * CELL_SIZE
 const MAP_HEIGHT = GRID_ROWS * CELL_SIZE
 const MINIMAP_WIDTH = 168
@@ -84,6 +85,9 @@ const templateJsonStatusType = ref('info')
 const taskTemplateJumpReady = ref(false)
 const jsonText = ref('')
 const jsonStatus = ref('')
+const experimentRecords = ref([])
+const experimentStatus = ref('')
+const experimentStatusType = ref('info')
 const pathCompareResult = ref(null)
 const pathCompareLoading = ref(false)
 const pathCompareError = ref('')
@@ -108,7 +112,8 @@ const panelSections = ref({
   queue: true,
   templates: false,
   points: false,
-  json: false
+  json: false,
+  experiments: false
 })
 const queueGroupsCollapsed = ref(buildDefaultQueueGroupState())
 const taskCardCollapsed = ref({})
@@ -116,6 +121,7 @@ const summaryZoomArmed = ref(false)
 
 const selectedAgvId = ref(null)
 const trackedManualTaskId = ref(null)
+const manualDispatchStep = ref('idle')
 const startPoint = ref(null)
 const endPoint = ref(null)
 const showDispatchHelp = ref(false)
@@ -136,11 +142,13 @@ const minimapRef = ref(null)
 const panelRef = ref(null)
 const compareEntryButtonRef = ref(null)
 const controlSectionRef = ref(null)
+const taskBuilderRef = ref(null)
 const comparePanelRef = ref(null)
 const queueSectionRef = ref(null)
 const templatesSectionRef = ref(null)
 const pointsSectionRef = ref(null)
 const jsonSectionRef = ref(null)
+const experimentsSectionRef = ref(null)
 const panelWidth = ref(380)
 const showPanelBackToTop = ref(false)
 const windowWidth = ref(typeof window !== 'undefined' ? window.innerWidth : 1280)
@@ -162,6 +170,7 @@ const obstacleMapSaving = ref(false)
 const syncedBlockedCells = ref([...DEFAULT_BLOCKED_CELLS])
 const obstaclePresets = ref([])
 const selectedObstaclePreset = ref('default_shelves')
+const appliedObstacleSceneKey = ref('default_shelves')
 const obstacleLayoutStatus = ref('')
 const obstacleLayoutStatusType = ref('info')
 const obstacleLayoutFileInputRef = ref(null)
@@ -427,6 +436,12 @@ function localizeApiErrorDetail(detail, fallbackMessage = '') {
 function localizeDispatchReason(reason) {
   if (!reason || typeof reason !== 'string') return ''
 
+  if (reason === 'cell_occupied_waiting') {
+    if (locale.value === 'ja') return '前方セルがほかの AGV に占有されているため、その場で待機しています。'
+    if (locale.value === 'zh') return '前方格子正被其他 AGV 占用，当前任务正在原地等待通行。'
+    return 'The next cell is occupied by another AGV. Waiting in place for the path to clear.'
+  }
+
   const directReason =
     localeTexts.value.dispatchReasonText?.[reason] ??
     LOCALE_TEXTS.en.dispatchReasonText?.[reason] ??
@@ -436,7 +451,7 @@ function localizeDispatchReason(reason) {
   const [errorCode, rawAlgorithm] = reason.split(':')
   if (!rawAlgorithm) return ''
 
-  if (!['task_start_unreachable', 'task_route_unreachable', 'retry_waiting_for_idle_agv'].includes(errorCode)) {
+  if (!['task_start_unreachable', 'task_route_unreachable', 'retry_waiting_for_idle_agv', 'retry_waiting_for_bound_agv'].includes(errorCode)) {
     return ''
   }
 
@@ -473,6 +488,18 @@ const selectedAgvTask = computed(() => {
     tasks.value.find(task => task.agv_id === selectedBackendAgv.value.id && ['assigned', 'running'].includes(task.status)) ??
     null
   )
+})
+const manualDispatchOrigin = computed(() => {
+  if (dispatchMode.value !== 'manual') return null
+  if (!selectedBackendAgv.value) return null
+  return {
+    x: Number(selectedBackendAgv.value.x),
+    y: Number(selectedBackendAgv.value.y)
+  }
+})
+const manualDispatchReady = computed(() => {
+  if (dispatchMode.value !== 'manual') return true
+  return Boolean(selectedBackendAgv.value && selectedBackendAgv.value.status === 'idle')
 })
 const filteredFaultEvents = computed(() => {
   if (faultEventFilter.value === 'all') return faultEvents.value
@@ -586,9 +613,26 @@ const minimapCellSize = computed(() => CELL_SIZE * minimapScale.value)
 const blockedCellSet = computed(
   () => new Set(blockedCells.value.map(cell => `${cell.x},${cell.y}`))
 )
+const occupiedCellSet = computed(() => {
+  const keys = new Set()
+  for (const agv of [...agvs.value, ...localAgvs.value]) {
+    if (Number.isInteger(agv?.x) && Number.isInteger(agv?.y)) {
+      keys.add(blockedCellKey(agv.x, agv.y))
+    }
+  }
+  return keys
+})
+const obstacleMutationLocked = computed(
+  () =>
+    agvs.value.some(agv => ['running', 'relocating'].includes(agv.status)) ||
+    tasks.value.some(task => ['assigned', 'running'].includes(task.status))
+)
 const blockedCellCount = computed(() => blockedCells.value.length)
 const selectedObstaclePresetInfo = computed(
   () => obstaclePresets.value.find(preset => preset.key === selectedObstaclePreset.value) ?? null
+)
+const appliedObstaclePresetInfo = computed(
+  () => obstaclePresets.value.find(preset => preset.key === appliedObstacleSceneKey.value) ?? null
 )
 const syncedBlockedCellSet = computed(
   () => new Set(syncedBlockedCells.value.map(cell => `${cell.x},${cell.y}`))
@@ -627,32 +671,86 @@ const minimapViewportStyle = computed(() => {
     height: `${visibleHeight * scale}px`
   }
 })
-const mainStartMarker = computed(() => {
-  return (
-    startPoint.value ??
-    manualPathToStart.value.at(-1) ??
-    manualPathToEnd.value[0] ??
-    (shouldShowAutoPath.value ? autoPathToStart.value.at(-1) ?? autoPathToEnd.value[0] : null) ??
-    null
-  )
+function resolveTaskStartMarker(task) {
+  if (!task) return null
+  const stage = currentTaskStage(task)
+  return stage?.path_to_start?.at(-1) ?? stage?.path_to_end?.[0] ?? { x: stage?.start_x ?? task.start_x, y: stage?.start_y ?? task.start_y }
+}
+
+function resolveTaskEndMarker(task) {
+  if (!task) return null
+  const stage = currentTaskStage(task)
+  return stage?.path_to_end?.at(-1) ?? { x: stage?.end_x ?? task.end_x, y: stage?.end_y ?? task.end_y }
+}
+
+function taskDispatchOrigin(task) {
+  if (task?.dispatch_origin_x !== null && task?.dispatch_origin_x !== undefined && task?.dispatch_origin_y !== null && task?.dispatch_origin_y !== undefined) {
+    return {
+      x: Number(task.dispatch_origin_x),
+      y: Number(task.dispatch_origin_y)
+    }
+  }
+  const firstPoint = task?.path_to_start?.[0]
+  if (firstPoint && Number.isFinite(Number(firstPoint.x)) && Number.isFinite(Number(firstPoint.y))) {
+    return {
+      x: Number(firstPoint.x),
+      y: Number(firstPoint.y)
+    }
+  }
+  return null
+}
+
+const autoDisplayTask = computed(() => findLatestActiveTask('auto'))
+const manualDisplayTask = computed(() => findLatestActiveTask('manual'))
+
+const manualDisplayStartMarker = computed(() => {
+  if (trackedManualTaskId.value && manualDisplayTask.value) {
+    return resolveTaskStartMarker(manualDisplayTask.value)
+  }
+  return startPoint.value ?? manualPathToStart.value.at(-1) ?? manualPathToEnd.value[0] ?? null
 })
-const mainEndMarker = computed(() => {
-  return (
-    endPoint.value ??
-    manualPathToEnd.value.at(-1) ??
-    (shouldShowAutoPath.value ? autoPathToEnd.value.at(-1) : null) ??
-    null
-  )
+const manualDisplayEndMarker = computed(() => {
+  if (trackedManualTaskId.value && manualDisplayTask.value) {
+    return resolveTaskEndMarker(manualDisplayTask.value)
+  }
+  if (
+    dispatchMode.value === 'manual' &&
+    taskBuilderMode.value === 'chain' &&
+    taskChainMapPickActive.value &&
+    taskChainMapPickPoints.value.length < taskChainRequiredPointCount.value
+  ) {
+    return null
+  }
+  return endPoint.value ?? manualPathToEnd.value.at(-1) ?? null
+})
+const autoDisplayStartMarker = computed(() => {
+  if (!shouldShowAutoPath.value) return null
+  return resolveTaskStartMarker(autoDisplayTask.value) ?? autoPathToStart.value.at(-1) ?? autoPathToEnd.value[0] ?? null
+})
+const autoDisplayEndMarker = computed(() => {
+  if (!shouldShowAutoPath.value) return null
+  return resolveTaskEndMarker(autoDisplayTask.value) ?? autoPathToEnd.value.at(-1) ?? null
 })
 const chainMidMarkers = computed(() => {
   if (!taskChainMapPickActive.value) return []
-  return taskChainMapPickPoints.value.slice(1, -1).map((point, index) => ({
+  const points = (() => {
+    if (dispatchMode.value === 'manual') {
+      if (taskChainMapPickPoints.value.length < taskChainRequiredPointCount.value) {
+        return taskChainMapPickPoints.value
+      }
+      return taskChainMapPickPoints.value.slice(0, -1)
+    }
+    return taskChainMapPickPoints.value.slice(1, -1)
+  })()
+  return points.map((point, index) => ({
     ...point,
     order: index + 1
   }))
 })
-const minimapStartMarker = computed(() => mainStartMarker.value)
-const minimapEndMarker = computed(() => mainEndMarker.value)
+const minimapManualStartMarker = computed(() => manualDisplayStartMarker.value)
+const minimapManualEndMarker = computed(() => manualDisplayEndMarker.value)
+const minimapAutoStartMarker = computed(() => autoDisplayStartMarker.value)
+const minimapAutoEndMarker = computed(() => autoDisplayEndMarker.value)
 const pointLibrary = computed(() => [...DEFAULT_POINT_LIBRARY, ...customPoints.value])
 const taskTemplates = computed(() => [...DEFAULT_TASK_TEMPLATES, ...customTaskTemplates.value])
 const templateJsonLocale = computed(() => {
@@ -719,7 +817,8 @@ const panelLocale = computed(() => {
         queue: 'タスクキュー',
         templates: 'タスクテンプレート',
         points: '共通ポイント',
-        json: 'JSON ツール'
+        json: 'JSON ツール',
+        experiments: '実験記録'
       },
       expandAll: 'すべて展開',
       collapseAll: 'すべて折りたたむ',
@@ -740,7 +839,8 @@ const panelLocale = computed(() => {
         queue: '任务队列',
         templates: '任务模板',
         points: '常用点位',
-        json: 'JSON 工具'
+        json: 'JSON 工具',
+        experiments: '实验记录'
       },
       expandAll: '全部展开',
       collapseAll: '全部收起',
@@ -760,7 +860,8 @@ const panelLocale = computed(() => {
       queue: 'Task Queue',
       templates: 'Task Templates',
       points: 'Common Points',
-      json: 'JSON Tools'
+      json: 'JSON Tools',
+      experiments: 'Experiment Records'
     },
     expandAll: 'Expand All',
     collapseAll: 'Collapse All',
@@ -1056,6 +1157,98 @@ const queueViewLocale = computed(() => {
     expandCards: 'Expand Cards'
   }
 })
+const experimentLocale = computed(() => {
+  if (locale.value === 'ja') {
+    return {
+      title: '実験記録',
+      hint: '現在の比較結果を保存し、JSON / CSV として書き出せます。',
+      saveCurrent: '現在結果を保存',
+      exportCurrentJson: '現在結果 JSON',
+      exportCurrentCsv: '現在結果 CSV',
+      exportAllJson: '全記録 JSON',
+      exportAllCsv: '全記録 CSV',
+      clearAll: '全削除',
+      empty: '保存済みの実験記録はありません',
+      noCompare: '先にアルゴリズム比較を実行してください。',
+      savedOk: '実験記録を保存しました。',
+      deletedOk: '実験記録を削除しました。',
+      clearedOk: '実験記録をすべて削除しました。',
+      exportEmpty: '書き出す実験記録がありません。',
+      exportCurrentJsonOk: '現在結果の JSON を書き出しました。',
+      exportCurrentCsvOk: '現在結果の CSV を書き出しました。',
+      exportAllJsonOk: '全実験記録の JSON を書き出しました。',
+      exportAllCsvOk: '全実験記録の CSV を書き出しました。',
+      route: '経路',
+      scene: 'シーン',
+      obstacles: '障害セル',
+      savedAt: '保存時刻',
+      currentAlgorithm: '現在アルゴリズム',
+      recommendedAlgorithm: '推奨アルゴリズム',
+      delete: '削除',
+      recordPrefix: '記録'
+    }
+  }
+
+  if (locale.value === 'zh') {
+    return {
+      title: '实验记录',
+      hint: '可保存当前算法对比结果，并导出为 JSON / CSV。',
+      saveCurrent: '保存当前结果',
+      exportCurrentJson: '导出当前 JSON',
+      exportCurrentCsv: '导出当前 CSV',
+      exportAllJson: '导出全部 JSON',
+      exportAllCsv: '导出全部 CSV',
+      clearAll: '清空记录',
+      empty: '当前没有已保存的实验记录',
+      noCompare: '请先执行算法对比。',
+      savedOk: '实验记录已保存。',
+      deletedOk: '实验记录已删除。',
+      clearedOk: '实验记录已清空。',
+      exportEmpty: '当前没有可导出的实验记录。',
+      exportCurrentJsonOk: '已导出当前结果 JSON。',
+      exportCurrentCsvOk: '已导出当前结果 CSV。',
+      exportAllJsonOk: '已导出全部实验记录 JSON。',
+      exportAllCsvOk: '已导出全部实验记录 CSV。',
+      route: '路线',
+      scene: '场景',
+      obstacles: '障碍格',
+      savedAt: '保存时间',
+      currentAlgorithm: '当前算法',
+      recommendedAlgorithm: '推荐算法',
+      delete: '删除',
+      recordPrefix: '记录'
+    }
+  }
+
+  return {
+    title: 'Experiment Records',
+    hint: 'Save the current compare result and export it as JSON / CSV.',
+    saveCurrent: 'Save Current Result',
+    exportCurrentJson: 'Export Current JSON',
+    exportCurrentCsv: 'Export Current CSV',
+    exportAllJson: 'Export All JSON',
+    exportAllCsv: 'Export All CSV',
+    clearAll: 'Clear Records',
+    empty: 'There are no saved experiment records.',
+    noCompare: 'Run an algorithm comparison first.',
+    savedOk: 'Experiment record saved.',
+    deletedOk: 'Experiment record deleted.',
+    clearedOk: 'Experiment records cleared.',
+    exportEmpty: 'There are no experiment records to export.',
+    exportCurrentJsonOk: 'Exported the current result JSON.',
+    exportCurrentCsvOk: 'Exported the current result CSV.',
+    exportAllJsonOk: 'Exported all experiment records as JSON.',
+    exportAllCsvOk: 'Exported all experiment records as CSV.',
+    route: 'Route',
+    scene: 'Scene',
+    obstacles: 'Blocked Cells',
+    savedAt: 'Saved At',
+    currentAlgorithm: 'Current Algorithm',
+    recommendedAlgorithm: 'Recommended Algorithm',
+    delete: 'Delete',
+    recordPrefix: 'Record'
+  }
+})
 const currentTaskBuilderModeCompactLabel = computed(() =>
   taskBuilderMode.value === 'chain' ? taskBuilderLocale.value.chainCompact : taskBuilderLocale.value.singleCompact
 )
@@ -1067,10 +1260,90 @@ const taskChainMapPickStageCountInput = computed({
   }
 })
 const taskChainRequiredPointCount = computed(() => taskChainMapPickStageCount.value + 1)
-const currentTaskBuilderHint = computed(() =>
-  taskBuilderMode.value === 'chain' ? taskChainLocale.value.hint : taskBuilderLocale.value.singleHint
-)
+const currentTaskBuilderHint = computed(() => {
+  if (dispatchMode.value !== 'manual') {
+    return taskBuilderMode.value === 'chain' ? taskChainLocale.value.hint : taskBuilderLocale.value.singleHint
+  }
+
+  if (!selectedBackendAgv.value) {
+    if (locale.value === 'ja') {
+      return '手動派車では先に空き AGV を選択してください。'
+    }
+    if (locale.value === 'zh') {
+      return '手动派车需要先选中一台空闲 AGV。'
+    }
+    return 'Manual dispatch requires selecting one idle AGV first.'
+  }
+
+  if (taskBuilderMode.value === 'single' && manualDispatchStep.value === 'awaiting_end') {
+    if (locale.value === 'ja') {
+      return '手動派車の始点を選択済みです。続けて終点を選択してください。'
+    }
+    if (locale.value === 'zh') {
+      return '已选定手动派车起点，请继续选择终点。'
+    }
+    return 'The manual dispatch start point is selected. Choose the end point next.'
+  }
+
+  if (taskBuilderMode.value === 'chain') {
+    if (locale.value === 'ja') {
+      return '手動派車では選択中 AGV の初期位置から第1段の始点へ先に就位し、その後に設定した多段タスクを実行します。'
+    }
+    if (locale.value === 'zh') {
+      return '手动派车会先从所选 AGV 的初始点就位到第一段起点，再执行你设置的多段任务。'
+    }
+    return 'Manual dispatch first relocates the selected AGV from its initial position to the first stage start, then runs the configured multi-stage task.'
+  }
+
+  if (locale.value === 'ja') {
+    return '手動派車では AGV の初期位置からタスク始点へ先に就位し、その後に始点から終点まで実行します。'
+  }
+  if (locale.value === 'zh') {
+    return '手动派车会先从所选 AGV 的初始点到任务起点就位，再执行起点到终点的任务。'
+  }
+  return 'Manual dispatch first relocates the selected AGV from its initial position to the task start, then executes the route to the end point.'
+})
+const taskBuilderTitleText = computed(() => {
+  if (dispatchMode.value !== 'manual') return taskBuilderLocale.value.title
+  if (locale.value === 'ja') return '手動派車'
+  if (locale.value === 'zh') return '手动派车'
+  return 'Manual Dispatch'
+})
+const singleTaskStartLabelX = computed(() => {
+  return t('form_start_x')
+})
+const singleTaskStartLabelY = computed(() => {
+  return t('form_start_y')
+})
+const singleTaskEndLabelX = computed(() => {
+  return t('form_end_x')
+})
+const singleTaskEndLabelY = computed(() => {
+  return t('form_end_y')
+})
+const singleTaskSubmitText = computed(() => {
+  if (dispatchMode.value !== 'manual') return t('add_task')
+  if (locale.value === 'ja') return '手動派車を実行'
+  if (locale.value === 'zh') return '执行手动派车'
+  return 'Dispatch Manually'
+})
+const chainTaskSubmitText = computed(() => {
+  if (dispatchMode.value !== 'manual') return taskChainLocale.value.createTask
+  if (locale.value === 'ja') return '多段手動派車を実行'
+  if (locale.value === 'zh') return '执行多段手动派车'
+  return 'Dispatch Multi-stage Task'
+})
 const taskChainMapPickStatusText = computed(() => {
+  if (dispatchMode.value === 'manual' && !selectedBackendAgv.value) {
+    if (locale.value === 'ja') {
+      return '先に空き AGV を選択してから多段選点を開始してください。'
+    }
+    if (locale.value === 'zh') {
+      return '请先选中一台空闲 AGV，再开始多段选点。'
+    }
+    return 'Select one idle AGV before starting multi-point manual dispatch.'
+  }
+
   if (!taskChainMapPickActive.value) {
     return taskChainMapPickUiLocale.value.idle(taskChainRequiredPointCount.value, taskChainMapPickStageCount.value)
   }
@@ -1081,6 +1354,28 @@ const taskChainMapPickStatusText = computed(() => {
     taskChainMapPickStageCount.value
   )
 })
+const manualDispatchOriginText = computed(() => {
+  if (dispatchMode.value !== 'manual' || !selectedBackendAgv.value) return ''
+  if (locale.value === 'ja') {
+    return `初期位置: AGV #${selectedBackendAgv.value.id} (${selectedBackendAgv.value.x}, ${selectedBackendAgv.value.y})`
+  }
+  if (locale.value === 'zh') {
+    return `初始点: AGV #${selectedBackendAgv.value.id} (${selectedBackendAgv.value.x}, ${selectedBackendAgv.value.y})`
+  }
+  return `Initial point: AGV #${selectedBackendAgv.value.id} (${selectedBackendAgv.value.x}, ${selectedBackendAgv.value.y})`
+})
+
+function buildManualTaskCreateMeta(manualAgv, reason = 'waiting_for_bound_agv') {
+  if (!manualAgv) return {}
+  return {
+    dispatch_mode: 'manual',
+    preferred_agv_id: manualAgv.id,
+    dispatch_origin_x: Number(manualAgv.x),
+    dispatch_origin_y: Number(manualAgv.y),
+    dispatch_algorithm: algorithm.value,
+    dispatch_reason: reason
+  }
+}
 const taskChainMapPickButtonText = computed(() =>
   taskChainMapPickActive.value ? taskChainMapPickUiLocale.value.cancel : taskChainMapPickUiLocale.value.start
 )
@@ -1173,6 +1468,7 @@ const compareEntryText = computed(() => {
   return `${algorithmCompareLocale.value.title} 路 ${algorithmCompareLocale.value.unreachable}`
 })
 const compareResultEntries = computed(() => Object.entries(pathCompareResult.value?.results ?? {}))
+const experimentRecordCount = computed(() => experimentRecords.value.length)
 const compareFloatingStyle = computed(() => ({
   left: `${compareFloatingX.value}px`,
   top: `${compareFloatingY.value}px`,
@@ -1368,6 +1664,26 @@ const matchedPointIds = computed(() => {
     )
     .map(point => point.id)
 })
+const matchedExperimentRecordIds = computed(() => {
+  const keyword = normalizedPanelSearch.value
+  if (!keyword) return []
+
+  return experimentRecords.value
+    .filter(record =>
+      matchesSearchFields(
+        [
+          record.scene_name,
+          record.route_summary,
+          record.current_algorithm,
+          record.recommended_algorithm,
+          record.saved_at,
+          ...(record.algorithms ?? []).flatMap(item => [item.algorithm, item.reachable_text, String(item.total_length ?? '')])
+        ],
+        keyword
+      )
+    )
+    .map(record => record.id)
+})
 const panelSearchResults = computed(() => {
   const keyword = normalizedPanelSearch.value
   if (!keyword) return []
@@ -1421,6 +1737,14 @@ const panelSearchResults = computed(() => {
       label: panelLocale.value.sections.json,
       matched: matchesSearchFields([panelLocale.value.sections.json, t('json_tools')], keyword),
       count: 0
+    },
+    {
+      key: 'experiments',
+      label: panelLocale.value.sections.experiments,
+      matched:
+        matchedExperimentRecordIds.value.length > 0 ||
+        matchesSearchFields([panelLocale.value.sections.experiments, experimentLocale.value.title], keyword),
+      count: matchedExperimentRecordIds.value.length
     }
   ]
 
@@ -1733,6 +2057,24 @@ function compareResultBadgeText(key) {
   return algorithmCompareLocale.value.switchTo
 }
 
+function formatExperimentSavedAt(value) {
+  if (!value) return '--'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString()
+}
+
+function formatExperimentAlgorithms(record) {
+  return (record.algorithms ?? [])
+    .map(item => {
+      const label = item.reachable
+        ? `${algorithmText(item.algorithm)} / ${algorithmCompareLocale.value.total}: ${item.total_length ?? '--'}`
+        : `${algorithmText(item.algorithm)} / ${algorithmCompareLocale.value.unreachable}`
+      return label
+    })
+    .join(' | ')
+}
+
 function dispatchModeText(value) {
   return value === 'manual' ? t('reason_manual') : t('reason_auto')
 }
@@ -1798,8 +2140,48 @@ function formatDispatchReason(task) {
     const localizedReason = localizeDispatchReason(task.dispatch_reason)
     if (localizedReason) return localizedReason
   }
-  if (!task.dispatch_mode && task.status === 'pending') {
-    return t('dispatch_waiting')
+  if (task.status === 'pending') {
+    if (task.dispatch_mode === 'manual' && task.preferred_agv_id) {
+      if (task.dispatch_algorithm && task.dispatch_reason?.startsWith('retry_waiting_for_bound_agv')) {
+        if (locale.value === 'ja') return `指定 AGV #${task.preferred_agv_id} の空きを待っています。${algorithmText(task.dispatch_algorithm)} で再試行します。`
+        if (locale.value === 'zh') return `任务已绑定 AGV #${task.preferred_agv_id}，当前正在等待该车辆空闲后按 ${algorithmText(task.dispatch_algorithm)} 重试。`
+        return `Waiting for bound AGV #${task.preferred_agv_id} to become idle before retrying with ${algorithmText(task.dispatch_algorithm)}.`
+      }
+      if (locale.value === 'ja') return `手動派車タスクは指定 AGV #${task.preferred_agv_id} を待機中です。`
+      if (locale.value === 'zh') return `该手动派车任务正在等待指定 AGV #${task.preferred_agv_id} 执行。`
+      return `This manual dispatch task is waiting for bound AGV #${task.preferred_agv_id}.`
+    }
+    if (task.dispatch_mode === 'manual') {
+      if (locale.value === 'ja') return '手動派車タスクは指定 AGV への割当を待機中です。'
+      if (locale.value === 'zh') return '该手动派车任务正在等待指定车辆执行。'
+      return 'This manual dispatch task is waiting for its assigned AGV.'
+    }
+    if (obstacleEditMode.value) {
+      if (locale.value === 'ja') return '障害編集モード中のため、自動調度を一時停止しています。'
+      if (locale.value === 'zh') return '当前处于障碍编辑模式，自动调度已暂停。'
+      return 'Auto dispatch is paused while obstacle editing is active.'
+    }
+    if (obstacleLayoutDirty.value) {
+      return obstacleSaveRequiredText()
+    }
+    if (task.dispatch_algorithm && !hasIdleAgv()) {
+      if (locale.value === 'ja') return `${algorithmText(task.dispatch_algorithm)} で再調度待機中です。空き AGV を待っています。`
+      if (locale.value === 'zh') return `任务将按 ${algorithmText(task.dispatch_algorithm)} 重试，当前正在等待空闲 AGV。`
+      return `Waiting for an idle AGV to retry this task with ${algorithmText(task.dispatch_algorithm)}.`
+    }
+    if (!hasIdleAgv()) {
+      if (agvs.value.some(agv => ['fault', 'emergency_stop'].includes(agv.status))) {
+        if (locale.value === 'ja') return '使用可能な AGV がなく、故障または急停からの復帰を待っています。'
+        if (locale.value === 'zh') return '当前没有可用 AGV，系统正在等待故障或急停中的车辆恢复。'
+        return 'No AGV is currently available. Waiting for faulted or emergency-stopped AGVs to recover.'
+      }
+      return t('dispatch_waiting')
+    }
+    if (!task.dispatch_mode) {
+      if (locale.value === 'ja') return '自動調度キューで待機中です。'
+      if (locale.value === 'zh') return '任务正在自动调度队列中等待分配。'
+      return 'Waiting in the auto dispatch queue.'
+    }
   }
   if (task.status === 'blocked' && task.dispatch_reason) {
     return localizeDispatchReason(task.dispatch_reason) || task.dispatch_reason
@@ -1856,12 +2238,26 @@ function formatTaskPathStats(task) {
   return parts.join(' | ')
 }
 
+function formatTaskInitialPoint(task) {
+  if (task?.dispatch_mode !== 'manual') return ''
+  const origin = taskDispatchOrigin(task)
+  if (!origin) return ''
+  if (locale.value === 'ja') {
+    return `初期位置 (${origin.x},${origin.y})`
+  }
+  if (locale.value === 'zh') {
+    return `初始点 (${origin.x},${origin.y})`
+  }
+  return `Initial (${origin.x},${origin.y})`
+}
+
 function blockedTaskAlertText(task) {
   return localizeDispatchReason(task?.dispatch_reason) || task?.dispatch_reason || t('task_blocked_alert')
 }
 
 function buildTaskChainPayloadFromPoints(points) {
   if (points.length < taskChainRequiredPointCount.value) return null
+  if (points.length < taskChainMapPickStageCount.value + 1) return null
 
   return {
     priority: Number(taskForm.value.priority),
@@ -2098,7 +2494,9 @@ function loadPanelSections() {
       templates:
         typeof parsed.templates === 'boolean' ? parsed.templates : panelSections.value.templates,
       points: typeof parsed.points === 'boolean' ? parsed.points : panelSections.value.points,
-      json: typeof parsed.json === 'boolean' ? parsed.json : panelSections.value.json
+      json: typeof parsed.json === 'boolean' ? parsed.json : panelSections.value.json,
+      experiments:
+        typeof parsed.experiments === 'boolean' ? parsed.experiments : panelSections.value.experiments
     }
   } catch (error) {
     console.error('Load panel sections error:', error)
@@ -2176,6 +2574,41 @@ function saveTaskQueueView() {
   }
 }
 
+function loadExperimentRecords() {
+  try {
+    const raw = window.localStorage.getItem(EXPERIMENT_RECORDS_STORAGE_KEY)
+    if (!raw) return
+
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return
+
+    experimentRecords.value = parsed.filter(
+      record =>
+        record &&
+        typeof record === 'object' &&
+        record.id &&
+        record.saved_at &&
+        record.route_summary &&
+        Array.isArray(record.algorithms)
+    )
+  } catch (error) {
+    console.error('Load experiment records error:', error)
+  }
+}
+
+function saveExperimentRecords() {
+  try {
+    window.localStorage.setItem(EXPERIMENT_RECORDS_STORAGE_KEY, JSON.stringify(experimentRecords.value))
+  } catch (error) {
+    console.error('Save experiment records error:', error)
+  }
+}
+
+function setExperimentStatus(type, message) {
+  experimentStatusType.value = type
+  experimentStatus.value = message
+}
+
 function pruneTaskCardCollapsedState() {
   const visibleIds = new Set(tasks.value.map(task => String(task.id)))
   const nextState = Object.fromEntries(
@@ -2193,7 +2626,8 @@ function panelSectionRefByKey(sectionKey) {
     queue: queueSectionRef.value,
     templates: templatesSectionRef.value,
     points: pointsSectionRef.value,
-    json: jsonSectionRef.value
+    json: jsonSectionRef.value,
+    experiments: experimentsSectionRef.value
   }
   return sectionMap[sectionKey] ?? null
 }
@@ -2302,8 +2736,8 @@ function fillTaskJsonExample(mode) {
   jsonStatus.value = mode === 'chain' ? taskJsonLocale.value.chainLoaded : taskJsonLocale.value.singleLoaded
 }
 
-function downloadJsonFile(filename, payloadText) {
-  const blob = new Blob([payloadText], { type: 'application/json;charset=utf-8' })
+function downloadTextFile(filename, payloadText, mimeType = 'application/octet-stream') {
+  const blob = new Blob([payloadText], { type: mimeType })
   const url = window.URL.createObjectURL(blob)
   const link = document.createElement('a')
 
@@ -2313,6 +2747,14 @@ function downloadJsonFile(filename, payloadText) {
   link.click()
   document.body.removeChild(link)
   window.setTimeout(() => window.URL.revokeObjectURL(url), 0)
+}
+
+function downloadJsonFile(filename, payloadText) {
+  downloadTextFile(filename, payloadText, 'application/json;charset=utf-8')
+}
+
+function downloadCsvFile(filename, csvText) {
+  downloadTextFile(filename, csvText, 'text/csv;charset=utf-8')
 }
 
 function downloadTaskJsonExample(mode) {
@@ -2325,6 +2767,83 @@ function downloadTaskJsonExample(mode) {
     mode === 'chain'
       ? taskJsonExampleFileLocale.value.chainDownloaded
       : taskJsonExampleFileLocale.value.singleDownloaded
+}
+
+function saveCurrentExperimentRecord() {
+  const snapshot = buildCompareSnapshot()
+  if (!snapshot) {
+    setExperimentStatus('error', experimentLocale.value.noCompare)
+    return
+  }
+
+  experimentRecords.value = [snapshot, ...experimentRecords.value]
+  setExperimentStatus('success', experimentLocale.value.savedOk)
+  panelSections.value = {
+    ...panelSections.value,
+    experiments: true
+  }
+}
+
+function exportCurrentCompareResultJson() {
+  const snapshot = buildCompareSnapshot()
+  if (!snapshot) {
+    setExperimentStatus('error', experimentLocale.value.noCompare)
+    return
+  }
+
+  downloadJsonFile(`agv-compare-${snapshot.id}.json`, JSON.stringify(snapshot, null, 2))
+  setExperimentStatus('success', experimentLocale.value.exportCurrentJsonOk)
+}
+
+function exportCurrentCompareResultCsv() {
+  const snapshot = buildCompareSnapshot()
+  if (!snapshot) {
+    setExperimentStatus('error', experimentLocale.value.noCompare)
+    return
+  }
+
+  downloadCsvFile(`agv-compare-${snapshot.id}.csv`, rowsToCsv(experimentCsvRowsFromRecords([snapshot])))
+  setExperimentStatus('success', experimentLocale.value.exportCurrentCsvOk)
+}
+
+function exportAllExperimentRecordsJson() {
+  if (experimentRecords.value.length === 0) {
+    setExperimentStatus('error', experimentLocale.value.exportEmpty)
+    return
+  }
+
+  downloadJsonFile('agv-experiment-records.json', JSON.stringify(experimentRecords.value, null, 2))
+  setExperimentStatus('success', experimentLocale.value.exportAllJsonOk)
+}
+
+function exportAllExperimentRecordsCsv() {
+  if (experimentRecords.value.length === 0) {
+    setExperimentStatus('error', experimentLocale.value.exportEmpty)
+    return
+  }
+
+  downloadCsvFile('agv-experiment-records.csv', rowsToCsv(experimentCsvRowsFromRecords(experimentRecords.value)))
+  setExperimentStatus('success', experimentLocale.value.exportAllCsvOk)
+}
+
+function exportExperimentRecord(record, format) {
+  if (!record) return
+  if (format === 'csv') {
+    downloadCsvFile(`agv-experiment-${record.id}.csv`, rowsToCsv(experimentCsvRowsFromRecords([record])))
+    return
+  }
+
+  downloadJsonFile(`agv-experiment-${record.id}.json`, JSON.stringify(record, null, 2))
+}
+
+function deleteExperimentRecord(recordId) {
+  experimentRecords.value = experimentRecords.value.filter(record => record.id !== recordId)
+  setExperimentStatus('info', experimentLocale.value.deletedOk)
+}
+
+function clearExperimentRecords() {
+  experimentRecords.value = []
+  setExperimentStatus('info', experimentLocale.value.clearedOk)
 }
 
 function hideTaskBuilderJumpButton() {
@@ -2349,6 +2868,15 @@ function showTaskBuilderJumpButton() {
 async function focusTaskBuilder(mode = taskBuilderMode.value) {
   taskBuilderMode.value = mode
   await jumpToPanelSearchResult('control')
+  await nextTick()
+  const panelElement = panelRef.value
+  const builderElement = taskBuilderRef.value
+  if (panelElement && builderElement) {
+    const panelRect = panelElement.getBoundingClientRect()
+    const builderRect = builderElement.getBoundingClientRect()
+    const top = Math.max(panelElement.scrollTop + (builderRect.top - panelRect.top) - 12, 0)
+    panelElement.scrollTo({ top, behavior: 'smooth' })
+  }
   hideTaskBuilderJumpButton()
 }
 
@@ -2356,12 +2884,18 @@ function cancelTaskChainMapPick(resetMarkers = true) {
   taskChainMapPickActive.value = false
   taskChainMapPickPoints.value = []
   if (resetMarkers) {
+    if (dispatchMode.value === 'manual') {
+      manualDispatchStep.value = 'idle'
+      startPoint.value = null
+      endPoint.value = null
+      return
+    }
     clearAutoMarkers()
   }
 }
 
 function toggleTaskChainMapPick() {
-  if (dispatchMode.value !== 'auto') return
+  if (dispatchMode.value === 'manual' && !getSelectedManualDispatchAgv()) return
 
   if (taskChainMapPickActive.value) {
     cancelTaskChainMapPick()
@@ -2370,7 +2904,13 @@ function toggleTaskChainMapPick() {
 
   taskBuilderMode.value = 'chain'
   taskChainMapPickActive.value = true
+  manualDispatchStep.value = 'idle'
   taskChainMapPickPoints.value = []
+  if (dispatchMode.value === 'manual') {
+    startPoint.value = null
+    endPoint.value = null
+    return
+  }
   clearAutoMarkers()
 }
 
@@ -2466,6 +3006,9 @@ function loadMapDisplaySettings() {
     if (!raw) return
 
     const parsed = JSON.parse(raw)
+    if (parsed?.dispatchMode === 'auto' || parsed?.dispatchMode === 'manual') {
+      dispatchMode.value = parsed.dispatchMode
+    }
     if (typeof parsed?.showAutoPath === 'boolean') {
       showAutoPath.value = parsed.showAutoPath
     }
@@ -2510,6 +3053,7 @@ function saveMapDisplaySettings() {
         statusLegendLayout: statusLegendLayout.value,
         statusLegendOpacity: statusLegendOpacity.value,
         showMinimap: showMinimap.value,
+        dispatchMode: dispatchMode.value,
         compareDisplayMode: compareDisplayMode.value,
         compareFloatingOpacity: compareFloatingOpacity.value
       })
@@ -2563,6 +3107,7 @@ async function applyTaskTemplate(template, options = {}) {
   taskForm.value.priority = template.priority
   taskChainStages.value = stages.map(stage => createTaskChainStage(stage))
   taskBuilderMode.value = stages.length > 1 ? 'chain' : 'single'
+  syncManualDispatchBuilderState()
 
   if (stages.length > 1) {
     setTaskTemplateStatus('info', `${taskBuilderLocale.value.loadedChain} ${taskBuilderLocale.value.jumpHint}`)
@@ -2880,12 +3425,49 @@ function clearManualPaths() {
   manualPathToEnd.value = []
 }
 
+function clearManualDispatchPreview() {
+  trackedManualTaskId.value = null
+  manualDispatchStep.value = 'idle'
+  taskChainMapPickActive.value = false
+  taskChainMapPickPoints.value = []
+  startPoint.value = null
+  endPoint.value = null
+  clearManualPaths()
+}
+
 function cancelSelection() {
   selectedAgvId.value = null
-  trackedManualTaskId.value = null
-  startPoint.value = null
+  clearManualDispatchPreview()
   clearManualDestination()
   showFaultReportForm.value = false
+}
+
+function getSelectedManualDispatchAgv(alertOnFailure = true) {
+  if (dispatchMode.value !== 'manual') return null
+  if (!selectedBackendAgv.value) {
+    if (alertOnFailure) {
+      window.alert(currentTaskBuilderHint.value)
+    }
+    return null
+  }
+  if (selectedBackendAgv.value.status !== 'idle') {
+    if (alertOnFailure) {
+      if (locale.value === 'ja') {
+        window.alert('手動派車では空き AGV のみ指定できます。')
+      } else if (locale.value === 'zh') {
+        window.alert('手动派车只能指定空闲 AGV。')
+      } else {
+        window.alert('Manual dispatch can only target idle AGVs.')
+      }
+    }
+    return null
+  }
+  return selectedBackendAgv.value
+}
+
+function syncManualDispatchBuilderState() {
+  const agv = getSelectedManualDispatchAgv(false)
+  if (!agv || trackedManualTaskId.value) return
 }
 
 function findAgvById(id) {
@@ -3166,7 +3748,7 @@ function onAgvClick(agv, event) {
   selectedAgvId.value = agv.id
   if (dispatchMode.value !== 'manual') return
   if (agv.status !== 'idle') return
-  startPoint.value = { x: agv.x, y: agv.y }
+  syncManualDispatchBuilderState()
   clearManualDestination()
 }
 
@@ -3326,18 +3908,20 @@ function handleSingleClick(x, y) {
     return
   }
 
-  if (dispatchMode.value === 'manual') {
-    if (!selectedAgvId.value) return
-    const agv = findAgvById(selectedAgvId.value)
-    if (!agv || agv.status !== 'idle') return
-
-    startPoint.value = { x: agv.x, y: agv.y }
-    void confirmAndSchedule(x, y, agv.id)
+  if (taskBuilderMode.value === 'chain' && taskChainMapPickActive.value) {
+    if (dispatchMode.value === 'manual' && !getSelectedManualDispatchAgv()) return
+    void handleTaskChainMapClick(x, y)
     return
   }
 
-  if (dispatchMode.value === 'auto' && taskBuilderMode.value === 'chain' && taskChainMapPickActive.value) {
-    void handleTaskChainMapClick(x, y)
+  if (dispatchMode.value === 'manual') {
+    const agv = getSelectedManualDispatchAgv()
+    if (!agv) return
+    startPoint.value = { x: agv.x, y: agv.y }
+    endPoint.value = null
+    manualPathToStart.value = []
+    manualPathToEnd.value = []
+    void confirmAndSchedule(x, y, agv.id)
     return
   }
 
@@ -3363,6 +3947,9 @@ async function handleTaskChainMapClick(x, y) {
     return
   }
 
+  const manualAgv = dispatchMode.value === 'manual' ? getSelectedManualDispatchAgv() : null
+  if (dispatchMode.value === 'manual' && !manualAgv) return
+
   const requiredPoints = taskChainRequiredPointCount.value
   const nextPoints = [...taskChainMapPickPoints.value, { x, y }].slice(0, requiredPoints)
   taskChainMapPickPoints.value = nextPoints
@@ -3384,8 +3971,10 @@ async function handleTaskChainMapClick(x, y) {
 
   const created = await submitTaskPayload(payload)
   if (created) {
-    clearAutoMarkers()
     taskChainMapPickPoints.value = []
+    if (dispatchMode.value === 'auto') {
+      clearAutoMarkers()
+    }
   }
 }
 
@@ -3393,12 +3982,18 @@ async function confirmAndSchedule(x, y, agvId = null) {
   const ok = window.confirm(t('confirm_dispatch'))
   if (!ok) return
   endPoint.value = { x, y }
+  if (dispatchMode.value === 'manual') {
+    manualDispatchStep.value = 'running'
+  }
   await createTaskAndSchedule(agvId)
 }
 
 async function createTaskAndSchedule(agvId) {
   if (!startPoint.value || !endPoint.value) return
-  if (!(await ensureBlockedCellsSynced())) return
+  if (!(await ensureBlockedCellsSynced())) {
+    window.alert(obstacleSaveRequiredText())
+    return
+  }
 
   const isAutoMode = dispatchMode.value === 'auto'
   try {
@@ -3413,7 +4008,8 @@ async function createTaskAndSchedule(agvId) {
         start_y: startPoint.value.y,
         end_x: endPoint.value.x,
         end_y: endPoint.value.y,
-        priority: taskPriority.value
+        priority: taskPriority.value,
+        ...(dispatchMode.value === 'manual' ? buildManualTaskCreateMeta(getSelectedManualDispatchAgv(false)) : {})
       })
     })
     const createData = await createRes.json()
@@ -3684,6 +4280,10 @@ async function deleteTask(task) {
 
 async function retryBlockedTaskWithAStar(task) {
   if (task.status !== 'blocked') return
+  if (!(await ensureBlockedCellsSynced())) {
+    window.alert(obstacleSaveRequiredText())
+    return
+  }
 
   try {
     const res = await fetch(`${API_BASE}/schedule/retry_blocked/${task.id}`, {
@@ -3700,9 +4300,26 @@ async function retryBlockedTaskWithAStar(task) {
       throw createApiError(data, 'Retry task with A* failed')
     }
 
+    const isManualRetry = (data?.task?.dispatch_mode ?? task.dispatch_mode) === 'manual'
     if (data?.queued) {
-      clearAutoPaths()
+      if (isManualRetry) {
+        const boundAgvId = data?.task?.preferred_agv_id ?? task.preferred_agv_id ?? null
+        if (boundAgvId) {
+          selectedAgvId.value = boundAgvId
+        }
+      } else {
+        clearAutoPaths()
+      }
       window.alert(t('task_retry_astar_queued'))
+    } else if (isManualRetry) {
+      if (data?.task?.agv_id ?? task.preferred_agv_id) {
+        selectedAgvId.value = data?.task?.agv_id ?? task.preferred_agv_id
+      }
+      manualPathToStart.value = data.path_to_start ?? []
+      manualPathToEnd.value = data.path_to_end ?? data.path ?? []
+      trackedManualTaskId.value = data?.task?.id ?? task.id
+      startPoint.value = resolveTaskStartMarker(data?.task ?? task)
+      endPoint.value = resolveTaskEndMarker(data?.task ?? task)
     } else {
       autoPathToStart.value = data.path_to_start ?? []
       autoPathToEnd.value = data.path_to_end ?? data.path ?? []
@@ -3718,6 +4335,10 @@ async function retryBlockedTaskWithAStar(task) {
 async function retryAllBlockedTasksWithAStar(taskGroup) {
   const blockedTasks = (taskGroup?.tasks ?? []).filter(task => task.status === 'blocked')
   if (blockedTasks.length === 0) return
+  if (!(await ensureBlockedCellsSynced())) {
+    window.alert(obstacleSaveRequiredText())
+    return
+  }
 
   let scheduledCount = 0
   let queuedCount = 0
@@ -3758,7 +4379,14 @@ async function retryAllBlockedTasksWithAStar(taskGroup) {
 }
 
 async function submitTaskPayload(payload) {
-  if (!(await ensureBlockedCellsSynced())) return false
+  if (!(await ensureBlockedCellsSynced())) {
+    window.alert(obstacleSaveRequiredText())
+    return false
+  }
+  const manualAgv = dispatchMode.value === 'manual' ? getSelectedManualDispatchAgv() : null
+  if (dispatchMode.value === 'manual' && !manualAgv) {
+    return false
+  }
   const hasStages = Array.isArray(payload.stages) && payload.stages.length > 0
   if (hasStages) {
     const normalizedStages = payload.stages
@@ -3820,6 +4448,13 @@ async function submitTaskPayload(payload) {
     return false
   }
 
+  if (dispatchMode.value === 'manual' && manualAgv) {
+    payload = {
+      ...payload,
+      ...buildManualTaskCreateMeta(manualAgv)
+    }
+  }
+
   try {
     const res = await fetch(`${API_BASE}/task/create`, {
       method: 'POST',
@@ -3839,10 +4474,57 @@ async function submitTaskPayload(payload) {
       if (createdTask?.status === 'blocked') {
         window.alert(blockedTaskAlertText(createdTask))
       }
+      return createdTask
+    }
+
+    if (dispatchMode.value === 'manual' && manualAgv) {
+      const scheduleRes = await fetch(`${API_BASE}/schedule/with_path`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          task_id: data.task.id,
+          agv_id: manualAgv.id,
+          algorithm: algorithm.value,
+          grid_cols: GRID_COLS,
+          grid_rows: GRID_ROWS
+        })
+      })
+      const scheduleData = await scheduleRes.json()
+      if (!scheduleRes.ok) {
+        await fetchTasks()
+        const latestTask = tasks.value.find(task => task.id === data.task.id)
+        if (latestTask?.status === 'blocked') {
+          window.alert(blockedTaskAlertText(latestTask))
+        } else {
+          window.alert(localizeApiErrorDetail(scheduleData?.detail, t('task_manual_unreachable')))
+        }
+        trackedManualTaskId.value = null
+        manualDispatchStep.value = 'awaiting_end'
+        clearManualDestination()
+        return false
+      }
+
+      startPoint.value = {
+        x: scheduleData.task.start_x,
+        y: scheduleData.task.start_y
+      }
+      endPoint.value = {
+        x: scheduleData.task.end_x,
+        y: scheduleData.task.end_y
+      }
+      manualPathToStart.value = scheduleData.path_to_start ?? []
+      manualPathToEnd.value = scheduleData.path_to_end ?? scheduleData.path ?? []
+      trackedManualTaskId.value = scheduleData.task.id
+      manualDispatchStep.value = 'running'
+      await Promise.all([fetchAgvs(), fetchTasks()])
+      return tasks.value.find(task => task.id === scheduleData.task.id) ?? scheduleData.task
     }
     return createdTask
   } catch (error) {
     console.error('Create task form error:', error)
+    if (dispatchMode.value === 'manual') {
+      manualDispatchStep.value = startPoint.value ? 'awaiting_end' : 'idle'
+    }
     window.alert(error instanceof Error ? error.message : String(error))
     return false
   }
@@ -3853,9 +4535,115 @@ function clearPathCompare() {
   pathCompareError.value = ''
 }
 
+function currentSceneLabel() {
+  if (!obstacleLayoutDirty.value && appliedObstaclePresetInfo.value) {
+    return obstaclePresetName(appliedObstaclePresetInfo.value)
+  }
+
+  if (locale.value === 'ja') return 'カスタム障害レイアウト'
+  if (locale.value === 'zh') return '自定义障碍布局'
+  return 'Custom obstacle layout'
+}
+
+function buildRouteSummaryFromPayload(payload) {
+  if (!payload) return ''
+  if (Array.isArray(payload.stages)) {
+    return payload.stages
+      .map(stage => `(${stage.start_x},${stage.start_y})->(${stage.end_x},${stage.end_y})`)
+      .join(' | ')
+  }
+  return `(${payload.start_x},${payload.start_y})->(${payload.end_x},${payload.end_y})`
+}
+
+function formatStageLengthsForExport(stageResults) {
+  if (!Array.isArray(stageResults) || stageResults.length === 0) return ''
+  return stageResults
+    .map(stage =>
+      stage.reachable ? `${Number(stage.index) + 1}:${stage.path_length}` : `${Number(stage.index) + 1}:X`
+    )
+    .join('|')
+}
+
+function buildCompareSnapshot() {
+  if (!pathCompareResult.value) return null
+
+  const payload = buildPathComparePayload()
+  const appliedSceneKey = obstacleLayoutDirty.value ? 'custom' : appliedObstacleSceneKey.value
+  const algorithms = ['simple', 'astar'].map(key => {
+    const result = pathCompareResult.value?.results?.[key] ?? null
+    return {
+      algorithm: key,
+      reachable: Boolean(result?.reachable),
+      reachable_text: formatCompareResultStatus(result),
+      total_length: result?.total_length ?? null,
+      failed_stage_index: result?.failed_stage_index ?? null,
+      failed_stage_label:
+        result?.failed_stage_index === null || result?.failed_stage_index === undefined
+          ? ''
+          : Number(result.failed_stage_index) + 1,
+      stage_lengths: formatStageLengthsForExport(result?.stage_results),
+      stage_results: result?.stage_results ?? []
+    }
+  })
+
+  return {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    saved_at: new Date().toISOString(),
+    scene_key: appliedSceneKey,
+    scene_name: currentSceneLabel(),
+    grid_cols: GRID_COLS,
+    grid_rows: GRID_ROWS,
+    obstacle_count: blockedCellCount.value,
+    task_mode: taskBuilderMode.value,
+    stage_count: pathCompareResult.value?.stage_count ?? (Array.isArray(payload?.stages) ? payload.stages.length : 1),
+    route_summary: buildRouteSummaryFromPayload(payload),
+    current_algorithm: algorithm.value,
+    recommended_algorithm: recommendedCompareAlgorithm.value,
+    payload,
+    algorithms
+  }
+}
+
+function experimentCsvRowsFromRecords(records) {
+  return records.flatMap(record =>
+    (record.algorithms ?? []).map(item => ({
+      record_id: record.id,
+      saved_at: record.saved_at,
+      scene_key: record.scene_key ?? '',
+      scene_name: record.scene_name ?? '',
+      grid_cols: record.grid_cols ?? '',
+      grid_rows: record.grid_rows ?? '',
+      task_mode: record.task_mode ?? '',
+      stage_count: record.stage_count ?? '',
+      route_summary: record.route_summary ?? '',
+      obstacle_count: record.obstacle_count ?? '',
+      current_algorithm: record.current_algorithm ?? '',
+      recommended_algorithm: record.recommended_algorithm ?? '',
+      algorithm: item.algorithm ?? '',
+      reachable: item.reachable ? 'true' : 'false',
+      reachable_text: item.reachable_text ?? '',
+      total_length: item.total_length ?? '',
+      failed_stage: item.failed_stage_label ?? '',
+      stage_lengths: item.stage_lengths ?? ''
+    }))
+  )
+}
+
+function rowsToCsv(rows) {
+  if (!rows.length) return ''
+
+  const headers = Object.keys(rows[0])
+  const escapeCsvValue = value => `"${String(value ?? '').replace(/"/g, '""')}"`
+  const lines = [
+    headers.map(escapeCsvValue).join(','),
+    ...rows.map(row => headers.map(header => escapeCsvValue(row[header])).join(','))
+  ]
+  return `\ufeff${lines.join('\n')}`
+}
+
 function buildPathComparePayload() {
   if (taskBuilderMode.value === 'chain') {
-    const stages = taskChainStages.value.map(stage => ({
+    const stages = taskChainStages.value.map((stage, index) => ({
       label: String(stage.label ?? '').trim() || null,
       start_x: Number(stage.start_x),
       start_y: Number(stage.start_y),
@@ -3906,7 +4694,7 @@ function buildPathComparePayload() {
 
 async function compareCurrentRoute() {
   if (!(await ensureBlockedCellsSynced())) {
-    pathCompareError.value = algorithmCompareLocale.value.invalid
+    pathCompareError.value = obstacleSaveRequiredText()
     return
   }
   const payload = buildPathComparePayload()
@@ -4150,6 +4938,43 @@ function setObstacleLayoutStatus(type, message) {
   obstacleLayoutStatus.value = message
 }
 
+function obstacleSaveRequiredText() {
+  if (locale.value === 'ja') return '障害レイアウトに未保存の変更があります。先に保存してください。'
+  if (locale.value === 'zh') return '当前障碍布局有未保存修改，请先点击“保存障碍”。'
+  return 'The obstacle layout has unsaved changes. Please save it first.'
+}
+
+function confirmDiscardObstacleChangesText() {
+  if (locale.value === 'ja') return '未保存の障害変更があります。破棄して新しいレイアウトを適用しますか？'
+  if (locale.value === 'zh') return '当前有未保存的障碍修改，是否放弃这些修改并继续应用新布局？'
+  return 'There are unsaved obstacle changes. Discard them and continue?'
+}
+
+function obstacleImportedPendingSaveText() {
+  if (locale.value === 'ja') return '障害レイアウトを読み込みました。保存後に比較や調度へ反映されます。'
+  if (locale.value === 'zh') return '已导入障碍布局，请点击“保存障碍”后再用于算法对比和调度。'
+  return 'Obstacle layout imported. Save it before using it for comparison or dispatch.'
+}
+
+function obstacleMutationLockedText() {
+  if (locale.value === 'ja') return '実行中または到着待ちの AGV があるため、障害レイアウトは変更できません。タスク完了後に再試行してください。'
+  if (locale.value === 'zh') return '当前存在运行中或就位中的 AGV，禁止修改障碍布局。请等待任务完成后再操作。'
+  return 'Obstacle layout changes are blocked while AGVs are running or relocating. Wait until active tasks finish.'
+}
+
+function obstacleSkippedOccupiedText(count) {
+  if (!count) return ''
+  if (locale.value === 'ja') return `AGV が占有中の ${count} マスは障害から除外しました。`
+  if (locale.value === 'zh') return `已跳过 ${count} 个被 AGV 占用的障碍格。`
+  return `Skipped ${count} obstacle cells currently occupied by AGVs.`
+}
+
+function mergeObstacleStatusMessage(baseMessage, skippedCount = 0) {
+  const skippedText = obstacleSkippedOccupiedText(skippedCount)
+  if (!skippedText) return baseMessage
+  return `${baseMessage} ${skippedText}`
+}
+
 function obstaclePresetName(preset) {
   if (!preset?.name) return preset?.key ?? ''
   if (typeof preset.name === 'string') return preset.name
@@ -4167,6 +4992,22 @@ function obstaclePresetDescription(preset) {
   )
 }
 
+function detectObstacleSceneKey(cells) {
+  const normalizedCells = normalizeBlockedCellList(cells)
+  const currentKeys = normalizedCells.map(cell => blockedCellKey(cell.x, cell.y))
+
+  for (const preset of obstaclePresets.value) {
+    const presetCells = normalizeBlockedCellList(preset.blocked_cells ?? [])
+    const presetKeys = presetCells.map(cell => blockedCellKey(cell.x, cell.y))
+    if (presetKeys.length !== currentKeys.length) continue
+    if (presetKeys.every((key, index) => key === currentKeys[index])) {
+      return preset.key
+    }
+  }
+
+  return 'custom'
+}
+
 function normalizeBlockedCellList(cells) {
   return Array.from(new Set(
     cells
@@ -4180,7 +5021,37 @@ function normalizeBlockedCellList(cells) {
     .sort((a, b) => a.x - b.x || a.y - b.y)
 }
 
+function filterBlockedCellsAgainstOccupied(cells) {
+  const normalized = normalizeBlockedCellList(cells)
+  const filtered = []
+  const skipped = []
+
+  for (const cell of normalized) {
+    if (occupiedCellSet.value.has(blockedCellKey(cell.x, cell.y))) {
+      skipped.push(cell)
+      continue
+    }
+    filtered.push(cell)
+  }
+
+  return { filtered, skipped }
+}
+
+function hasObstacleMutationLock() {
+  return obstacleMutationLocked.value
+}
+
+function ensureObstacleMutationAllowed() {
+  if (!hasObstacleMutationLock()) return true
+  const message = obstacleMutationLockedText()
+  setObstacleLayoutStatus('error', message)
+  return false
+}
+
 function toggleObstacleEditMode() {
+  if (!obstacleEditMode.value && !ensureObstacleMutationAllowed()) {
+    return
+  }
   obstacleEditMode.value = !obstacleEditMode.value
   if (obstacleEditMode.value) {
     cancelSelection()
@@ -4222,13 +5093,17 @@ function stopObstaclePaint() {
 }
 
 async function saveBlockedCells() {
+  if (!ensureObstacleMutationAllowed()) {
+    return false
+  }
   obstacleMapSaving.value = true
   try {
+    const { filtered, skipped } = filterBlockedCellsAgainstOccupied(blockedCells.value)
     const res = await fetch(`${API_BASE}/status/map`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        blocked_cells: normalizeBlockedCellList(blockedCells.value),
+        blocked_cells: filtered,
         grid_cols: GRID_COLS,
         grid_rows: GRID_ROWS
       })
@@ -4237,12 +5112,18 @@ async function saveBlockedCells() {
     if (!res.ok) {
       throw createApiError(data, 'Save blocked cells failed')
     }
-    const normalized = normalizeBlockedCellList(data.blocked_cells ?? [])
+    const normalized = normalizeBlockedCellList(data.blocked_cells ?? filtered)
     blockedCells.value = normalized
     syncedBlockedCells.value = normalized
+    appliedObstacleSceneKey.value = detectObstacleSceneKey(normalized)
+    if (appliedObstacleSceneKey.value !== 'custom') {
+      selectedObstaclePreset.value = appliedObstacleSceneKey.value
+    }
     clearPreview()
     cancelSelection()
-    setObstacleLayoutStatus('success', settingsLocale.value.obstacleSaved)
+    const skippedCount = Number(data?.skipped_occupied_count ?? skipped.length ?? 0)
+    setObstacleLayoutStatus('success', mergeObstacleStatusMessage(settingsLocale.value.obstacleSaved, skippedCount))
+    await scheduleAutoIfReady()
     return true
   } catch (error) {
     console.error('Save blocked cells error:', error)
@@ -4254,6 +5135,12 @@ async function saveBlockedCells() {
 }
 
 async function resetBlockedCellsToDefault() {
+  if (!ensureObstacleMutationAllowed()) {
+    return false
+  }
+  if (obstacleLayoutDirty.value && !window.confirm(confirmDiscardObstacleChangesText())) {
+    return false
+  }
   obstacleMapSaving.value = true
   try {
     const res = await fetch(`${API_BASE}/status/map/reset`, {
@@ -4264,11 +5151,23 @@ async function resetBlockedCellsToDefault() {
       throw createApiError(data, 'Reset blocked cells failed')
     }
     const normalized = normalizeBlockedCellList(data.blocked_cells ?? [])
-    blockedCells.value = normalized
-    syncedBlockedCells.value = normalized
+    const { filtered, skipped } = filterBlockedCellsAgainstOccupied(normalized)
+    blockedCells.value = filtered
+    syncedBlockedCells.value = filtered
+    appliedObstacleSceneKey.value = detectObstacleSceneKey(filtered)
+    if (appliedObstacleSceneKey.value !== 'custom') {
+      selectedObstaclePreset.value = appliedObstacleSceneKey.value
+    }
     clearPreview()
     cancelSelection()
-    setObstacleLayoutStatus('success', settingsLocale.value.obstacleResetDone)
+    setObstacleLayoutStatus(
+      'success',
+      mergeObstacleStatusMessage(
+        settingsLocale.value.obstacleResetDone,
+        Number(data?.skipped_occupied_count ?? 0) + skipped.length
+      )
+    )
+    await scheduleAutoIfReady()
     return true
   } catch (error) {
     console.error('Reset blocked cells error:', error)
@@ -4281,7 +5180,8 @@ async function resetBlockedCellsToDefault() {
 
 async function ensureBlockedCellsSynced() {
   if (!obstacleLayoutDirty.value) return true
-  return await saveBlockedCells()
+  setObstacleLayoutStatus('error', obstacleSaveRequiredText())
+  return false
 }
 
 async function fetchMapPresets() {
@@ -4298,6 +5198,7 @@ async function fetchMapPresets() {
     ) {
       selectedObstaclePreset.value = obstaclePresets.value[0].key
     }
+    appliedObstacleSceneKey.value = detectObstacleSceneKey(blockedCells.value)
   } catch (error) {
     console.error('Fetch map presets error:', error)
     obstaclePresets.value = []
@@ -4315,6 +5216,8 @@ async function fetchMapLayout() {
     if (!Array.isArray(data?.blocked_cells)) {
       blockedCells.value = [...DEFAULT_BLOCKED_CELLS]
       syncedBlockedCells.value = [...DEFAULT_BLOCKED_CELLS]
+      appliedObstacleSceneKey.value = 'default_shelves'
+      selectedObstaclePreset.value = 'default_shelves'
       return
     }
 
@@ -4324,18 +5227,34 @@ async function fetchMapLayout() {
         y: Number(cell.y)
       }))
     )
-    blockedCells.value = normalized
-    syncedBlockedCells.value = normalized
+    const { filtered, skipped } = filterBlockedCellsAgainstOccupied(normalized)
+    blockedCells.value = filtered
+    syncedBlockedCells.value = filtered
+    appliedObstacleSceneKey.value = detectObstacleSceneKey(filtered)
+    if (appliedObstacleSceneKey.value !== 'custom') {
+      selectedObstaclePreset.value = appliedObstacleSceneKey.value
+    }
+    if (skipped.length > 0) {
+      setObstacleLayoutStatus('info', obstacleSkippedOccupiedText(skipped.length))
+    }
   } catch (error) {
     console.error('Fetch map layout error:', error)
     blockedCells.value = [...DEFAULT_BLOCKED_CELLS]
     syncedBlockedCells.value = [...DEFAULT_BLOCKED_CELLS]
+    appliedObstacleSceneKey.value = 'default_shelves'
+    selectedObstaclePreset.value = 'default_shelves'
   }
 }
 
 async function applyObstaclePreset() {
+  if (!ensureObstacleMutationAllowed()) {
+    return false
+  }
   if (!selectedObstaclePreset.value) {
     setObstacleLayoutStatus('error', settingsLocale.value.obstaclePresetNone)
+    return false
+  }
+  if (obstacleLayoutDirty.value && !window.confirm(confirmDiscardObstacleChangesText())) {
     return false
   }
 
@@ -4349,11 +5268,23 @@ async function applyObstaclePreset() {
       throw createApiError(data, 'Apply obstacle preset failed')
     }
     const normalized = normalizeBlockedCellList(data.blocked_cells ?? [])
-    blockedCells.value = normalized
-    syncedBlockedCells.value = normalized
+    const { filtered, skipped } = filterBlockedCellsAgainstOccupied(normalized)
+    blockedCells.value = filtered
+    syncedBlockedCells.value = filtered
+    appliedObstacleSceneKey.value = detectObstacleSceneKey(filtered)
+    if (appliedObstacleSceneKey.value !== 'custom') {
+      selectedObstaclePreset.value = appliedObstacleSceneKey.value
+    }
     clearPreview()
     cancelSelection()
-    setObstacleLayoutStatus('success', settingsLocale.value.obstacleApplied)
+    setObstacleLayoutStatus(
+      'success',
+      mergeObstacleStatusMessage(
+        settingsLocale.value.obstacleApplied,
+        Number(data?.skipped_occupied_count ?? 0) + skipped.length
+      )
+    )
+    await scheduleAutoIfReady()
     return true
   } catch (error) {
     console.error('Apply obstacle preset error:', error)
@@ -4374,11 +5305,20 @@ function downloadObstacleLayout() {
 }
 
 function triggerObstacleLayoutImport() {
+  if (!ensureObstacleMutationAllowed()) {
+    return
+  }
   obstacleLayoutFileInputRef.value?.click()
 }
 
 async function importObstacleLayout(rawText) {
   try {
+    if (!ensureObstacleMutationAllowed()) {
+      return
+    }
+    if (obstacleLayoutDirty.value && !window.confirm(confirmDiscardObstacleChangesText())) {
+      return
+    }
     const parsed = JSON.parse(rawText)
     const rawCells = Array.isArray(parsed)
       ? parsed
@@ -4389,16 +5329,19 @@ async function importObstacleLayout(rawText) {
       throw new Error('Invalid obstacle layout')
     }
 
-    blockedCells.value = normalizeBlockedCellList(
+    const normalized = normalizeBlockedCellList(
       rawCells.map(cell => ({
         x: Number(cell?.x),
         y: Number(cell?.y)
       }))
     )
-    const saved = await saveBlockedCells()
-    if (saved) {
-      setObstacleLayoutStatus('success', settingsLocale.value.obstacleImported)
+    const { filtered, skipped } = filterBlockedCellsAgainstOccupied(normalized)
+    blockedCells.value = filtered
+    appliedObstacleSceneKey.value = detectObstacleSceneKey(filtered)
+    if (appliedObstacleSceneKey.value !== 'custom') {
+      selectedObstaclePreset.value = appliedObstacleSceneKey.value
     }
+    setObstacleLayoutStatus('info', mergeObstacleStatusMessage(obstacleImportedPendingSaveText(), skipped.length))
   } catch (error) {
     console.error('Import obstacle layout error:', error)
     setObstacleLayoutStatus('error', error?.message || 'Import obstacle layout failed')
@@ -4436,6 +5379,12 @@ async function fetchFaultEvents() {
 async function refreshCoreState() {
   await Promise.all([fetchAgvs(), fetchTasks(), fetchFaultEvents()])
   syncDisplayedPathsFromTasks()
+}
+
+async function scheduleAutoIfReady() {
+  if (dispatchMode.value !== 'auto') return
+  await nextTick()
+  await tryAutoSchedule()
 }
 
 function setFaultPanelStatus(message, type = 'info') {
@@ -4503,6 +5452,7 @@ async function resumeSelectedAgv() {
     }
     setFaultPanelStatus(faultLocale.value.resumeSuccess, 'success')
     await refreshCoreState()
+    await scheduleAutoIfReady()
   } catch (error) {
     console.error('Resume AGV error:', error)
     setFaultPanelStatus(error?.message || faultLocale.value.resume, 'error')
@@ -4554,6 +5504,7 @@ async function resolveFaultEventItem(eventItem) {
     }
     setFaultPanelStatus(faultLocale.value.faultResolved, 'success')
     await refreshCoreState()
+    await scheduleAutoIfReady()
   } catch (error) {
     console.error('Resolve fault event error:', error)
     setFaultPanelStatus(error?.message || faultLocale.value.resolve, 'error')
@@ -4585,6 +5536,7 @@ watch(dispatchMode, mode => {
     clearAutoPaths()
     clearAutoMarkers()
   }
+  saveMapDisplaySettings()
 })
 
 watch(obstacleEditMode, enabled => {
@@ -4593,6 +5545,21 @@ watch(obstacleEditMode, enabled => {
   cancelSelection()
   clearPreview()
   cancelTaskChainMapPick(false)
+})
+
+watch(obstacleMutationLocked, locked => {
+  if (locked) {
+    if (obstacleEditMode.value) {
+      obstacleEditMode.value = false
+    }
+    setObstacleLayoutStatus('error', obstacleMutationLockedText())
+    return
+  }
+  if (obstacleLayoutDirty.value) {
+    setObstacleLayoutStatus('info', settingsLocale.value.obstacleDirty)
+    return
+  }
+  setObstacleLayoutStatus('success', settingsLocale.value.obstacleSaved)
 })
 
 watch(taskBuilderMode, mode => {
@@ -4643,6 +5610,7 @@ watch(
 onMounted(() => {
   loadCustomPoints()
   loadTaskTemplates()
+  loadExperimentRecords()
   loadMapDisplaySettings()
   loadPanelSections()
   loadPanelSummaryMode()
@@ -4682,6 +5650,14 @@ watch(
   customTaskTemplates,
   () => {
     saveTaskTemplates()
+  },
+  { deep: true }
+)
+
+watch(
+  experimentRecords,
+  () => {
+    saveExperimentRecords()
   },
   { deep: true }
 )
@@ -4733,18 +5709,38 @@ watch(faultEventFilter, () => {
 })
 
 watch(selectedBackendAgv, agv => {
+  if (dispatchMode.value === 'manual' && agv && agv.status === 'idle' && !trackedManualTaskId.value) {
+    syncManualDispatchBuilderState()
+    return
+  }
   if (agv) return
   showFaultReportForm.value = false
   resetFaultReportForm()
 })
 
 watch(
-  [tasks, agvs, trackedManualTaskId, selectedBackendAgv, dispatchMode],
+  [dispatchMode, selectedAgvId, taskBuilderMode],
   () => {
     if (dispatchMode.value !== 'manual') return
-    if (!trackedManualTaskId.value) return
+    syncManualDispatchBuilderState()
+  }
+)
+
+watch(
+  [tasks, agvs, trackedManualTaskId, selectedBackendAgv, dispatchMode, manualDispatchStep],
+  () => {
+    if (dispatchMode.value !== 'manual') return
+    if (!trackedManualTaskId.value) {
+      if (manualDispatchStep.value === 'awaiting_end') {
+        return
+      }
+      if (selectedBackendAgv.value?.status === 'idle' && !taskChainMapPickActive.value) {
+        clearManualDispatchPreview()
+      }
+      return
+    }
     if (!selectedBackendAgv.value) {
-      trackedManualTaskId.value = null
+      clearManualDispatchPreview()
       return
     }
 
@@ -4755,7 +5751,11 @@ watch(
     }
 
     if (trackedTask.agv_id !== selectedBackendAgv.value.id) {
-      trackedManualTaskId.value = null
+      if (selectedBackendAgv.value.status === 'idle') {
+        cancelSelection()
+        return
+      }
+      clearManualDispatchPreview()
       return
     }
 
@@ -5108,17 +6108,33 @@ onBeforeUnmount(() => {
             </svg>
 
             <div
-              v-if="mainStartMarker"
-              :class="showMarkerIcons ? 'point-icon point-icon-start' : 'marker start'"
-              :style="pointStyle(mainStartMarker, CELL_SIZE, showMarkerIcons ? 24 : 12)"
+              v-if="autoDisplayStartMarker"
+              :class="showMarkerIcons ? 'point-icon point-icon-start point-icon-auto' : 'marker start'"
+              :style="pointStyle(autoDisplayStartMarker, CELL_SIZE, showMarkerIcons ? 24 : 12)"
             >
               <span v-if="showMarkerIcons">S</span>
             </div>
 
             <div
-              v-if="mainEndMarker"
-              :class="showMarkerIcons ? 'point-icon point-icon-end' : 'marker end'"
-              :style="pointStyle(mainEndMarker, CELL_SIZE, showMarkerIcons ? 24 : 12)"
+              v-if="autoDisplayEndMarker"
+              :class="showMarkerIcons ? 'point-icon point-icon-end point-icon-auto' : 'marker end'"
+              :style="pointStyle(autoDisplayEndMarker, CELL_SIZE, showMarkerIcons ? 24 : 12)"
+            >
+              <span v-if="showMarkerIcons">E</span>
+            </div>
+
+            <div
+              v-if="manualDisplayStartMarker"
+              :class="showMarkerIcons ? 'point-icon point-icon-start point-icon-manual' : 'marker start'"
+              :style="pointStyle(manualDisplayStartMarker, CELL_SIZE, showMarkerIcons ? 24 : 12)"
+            >
+              <span v-if="showMarkerIcons">S</span>
+            </div>
+
+            <div
+              v-if="manualDisplayEndMarker"
+              :class="showMarkerIcons ? 'point-icon point-icon-end point-icon-manual' : 'marker end'"
+              :style="pointStyle(manualDisplayEndMarker, CELL_SIZE, showMarkerIcons ? 24 : 12)"
             >
               <span v-if="showMarkerIcons">E</span>
             </div>
@@ -5196,10 +6212,18 @@ onBeforeUnmount(() => {
               <div class="map-settings-group">
                 <div class="map-settings-subtitle">{{ settingsLocale.obstacleGroup }}</div>
                 <label class="map-setting-row">
-                  <input :checked="obstacleEditMode" type="checkbox" @change="toggleObstacleEditMode" />
+                  <input
+                    :checked="obstacleEditMode"
+                    type="checkbox"
+                    :disabled="obstacleMutationLocked"
+                    @change="toggleObstacleEditMode"
+                  />
                   <span>{{ settingsLocale.obstacleEdit }}</span>
                 </label>
                 <p class="panel-hint map-settings-hint">{{ settingsLocale.obstacleHint }}</p>
+                <p v-if="obstacleMutationLocked" class="panel-hint map-settings-hint">
+                  {{ obstacleMutationLockedText() }}
+                </p>
                 <div class="map-settings-select-group">
                   <label class="map-settings-select-label" for="obstacle-preset-select">
                     {{ settingsLocale.obstaclePreset }}
@@ -5235,7 +6259,7 @@ onBeforeUnmount(() => {
                   <button
                     class="btn-secondary"
                     type="button"
-                    :disabled="obstacleMapSaving || obstaclePresets.length === 0"
+                    :disabled="obstacleMapSaving || obstacleMutationLocked || obstaclePresets.length === 0"
                     @click="applyObstaclePreset"
                   >
                     {{ settingsLocale.obstaclePresetApply }}
@@ -5243,7 +6267,7 @@ onBeforeUnmount(() => {
                   <button
                     class="btn-secondary"
                     type="button"
-                    :disabled="obstacleMapSaving || !obstacleLayoutDirty"
+                    :disabled="obstacleMapSaving || obstacleMutationLocked || !obstacleLayoutDirty"
                     @click="saveBlockedCells"
                   >
                     {{ settingsLocale.obstacleSave }}
@@ -5251,13 +6275,18 @@ onBeforeUnmount(() => {
                   <button class="btn-ghost" type="button" @click="downloadObstacleLayout">
                     {{ settingsLocale.obstacleExport }}
                   </button>
-                  <button class="btn-ghost" type="button" @click="triggerObstacleLayoutImport">
+                  <button
+                    class="btn-ghost"
+                    type="button"
+                    :disabled="obstacleMutationLocked"
+                    @click="triggerObstacleLayoutImport"
+                  >
                     {{ settingsLocale.obstacleImport }}
                   </button>
                   <button
                     class="btn-ghost"
                     type="button"
-                    :disabled="obstacleMapSaving"
+                    :disabled="obstacleMapSaving || obstacleMutationLocked"
                     @click="resetBlockedCellsToDefault"
                   >
                     {{ settingsLocale.obstacleReset }}
@@ -5413,16 +6442,30 @@ onBeforeUnmount(() => {
               }"
             ></div>
             <div
-              v-if="minimapStartMarker"
-              :class="showMarkerIcons ? 'minimap-point-icon minimap-point-start' : 'marker start minimap-marker-dot'"
-              :style="pointStyle(minimapStartMarker, minimapCellSize, showMarkerIcons ? 12 : 8)"
+              v-if="minimapAutoStartMarker"
+              :class="showMarkerIcons ? 'minimap-point-icon minimap-point-start minimap-point-auto' : 'marker start minimap-marker-dot'"
+              :style="pointStyle(minimapAutoStartMarker, minimapCellSize, showMarkerIcons ? 12 : 8)"
             >
               <span v-if="showMarkerIcons">S</span>
             </div>
             <div
-              v-if="minimapEndMarker"
-              :class="showMarkerIcons ? 'minimap-point-icon minimap-point-end' : 'marker end minimap-marker-dot'"
-              :style="pointStyle(minimapEndMarker, minimapCellSize, showMarkerIcons ? 12 : 8)"
+              v-if="minimapAutoEndMarker"
+              :class="showMarkerIcons ? 'minimap-point-icon minimap-point-end minimap-point-auto' : 'marker end minimap-marker-dot'"
+              :style="pointStyle(minimapAutoEndMarker, minimapCellSize, showMarkerIcons ? 12 : 8)"
+            >
+              <span v-if="showMarkerIcons">E</span>
+            </div>
+            <div
+              v-if="minimapManualStartMarker"
+              :class="showMarkerIcons ? 'minimap-point-icon minimap-point-start minimap-point-manual' : 'marker start minimap-marker-dot'"
+              :style="pointStyle(minimapManualStartMarker, minimapCellSize, showMarkerIcons ? 12 : 8)"
+            >
+              <span v-if="showMarkerIcons">S</span>
+            </div>
+            <div
+              v-if="minimapManualEndMarker"
+              :class="showMarkerIcons ? 'minimap-point-icon minimap-point-end minimap-point-manual' : 'marker end minimap-marker-dot'"
+              :style="pointStyle(minimapManualEndMarker, minimapCellSize, showMarkerIcons ? 12 : 8)"
             >
               <span v-if="showMarkerIcons">E</span>
             </div>
@@ -5584,6 +6627,17 @@ onBeforeUnmount(() => {
                         {{ algorithmCompareLocale.failedStage }}: {{ Number(entry[1].failed_stage_index) + 1 }}
                       </div>
                     </article>
+                  </div>
+                  <div v-if="pathCompareResult" class="json-actions">
+                    <button class="btn-primary" type="button" @click="saveCurrentExperimentRecord">
+                      {{ experimentLocale.saveCurrent }}
+                    </button>
+                    <button class="btn-secondary" type="button" @click="exportCurrentCompareResultJson">
+                      {{ experimentLocale.exportCurrentJson }}
+                    </button>
+                    <button class="btn-secondary" type="button" @click="exportCurrentCompareResultCsv">
+                      {{ experimentLocale.exportCurrentCsv }}
+                    </button>
                   </div>
                 </template>
               </div>
@@ -5765,15 +6819,16 @@ onBeforeUnmount(() => {
                 </div>
               </div>
 
-              <div class="task-form task-builder">
+              <div ref="taskBuilderRef" class="task-form task-builder">
                 <div class="task-builder-header">
-                  <h2>{{ taskBuilderLocale.title }}</h2>
+                  <h2>{{ taskBuilderTitleText }}</h2>
                   <button class="task-builder-mode-toggle" type="button" @click="toggleTaskBuilderMode">
                     <span class="task-builder-mode-toggle-label">{{ taskBuilderLocale.switchLabel }}</span>
                     <strong>{{ currentTaskBuilderModeCompactLabel }}</strong>
                   </button>
                 </div>
                 <p class="panel-hint">{{ currentTaskBuilderHint }}</p>
+                <p v-if="manualDispatchOriginText" class="panel-hint">{{ manualDispatchOriginText }}</p>
                 <p v-if="taskBuilderMode === 'chain'" class="panel-hint">{{ taskChainLocale.priorityHint }}</p>
                 <div class="task-builder-meta">
                   <div class="task-builder-meta-group">
@@ -5811,17 +6866,17 @@ onBeforeUnmount(() => {
 
                 <template v-if="taskBuilderMode === 'single'">
                   <div class="form-grid">
-                    <label>{{ t('form_start_x') }}</label>
+                    <label>{{ singleTaskStartLabelX }}</label>
                     <input v-model.number="taskForm.start_x" type="number" min="0" :max="GRID_COLS - 1" />
-                    <label>{{ t('form_start_y') }}</label>
+                    <label>{{ singleTaskStartLabelY }}</label>
                     <input v-model.number="taskForm.start_y" type="number" min="0" :max="GRID_ROWS - 1" />
-                    <label>{{ t('form_end_x') }}</label>
+                    <label>{{ singleTaskEndLabelX }}</label>
                     <input v-model.number="taskForm.end_x" type="number" min="0" :max="GRID_COLS - 1" />
-                    <label>{{ t('form_end_y') }}</label>
+                    <label>{{ singleTaskEndLabelY }}</label>
                     <input v-model.number="taskForm.end_y" type="number" min="0" :max="GRID_ROWS - 1" />
                   </div>
-                  <button class="btn-primary full-width" type="button" @click="addTaskFromForm">
-                    {{ t('add_task') }}
+                  <button class="btn-primary full-width" type="button" :disabled="!manualDispatchReady" @click="addTaskFromForm">
+                    {{ singleTaskSubmitText }}
                   </button>
                 </template>
 
@@ -5832,6 +6887,7 @@ onBeforeUnmount(() => {
                         class="btn-secondary"
                         type="button"
                         :class="{ active: taskChainMapPickActive }"
+                        :disabled="dispatchMode === 'manual' && !manualDispatchReady"
                         @click="toggleTaskChainMapPick"
                       >
                         {{ taskChainMapPickButtonText }}
@@ -5903,10 +6959,10 @@ onBeforeUnmount(() => {
                   <button
                     class="btn-primary full-width"
                     type="button"
-                    :disabled="taskChainStages.length < 2"
+                    :disabled="taskChainStages.length < 2 || !manualDispatchReady"
                     @click="addTaskChainFromForm"
                   >
-                    {{ taskChainLocale.createTask }}
+                    {{ chainTaskSubmitText }}
                   </button>
                 </template>
               </div>
@@ -6015,6 +7071,7 @@ onBeforeUnmount(() => {
                         <div v-if="formatTaskCurrentStage(task)" class="task-line">{{ formatTaskCurrentStage(task) }}</div>
                         <div class="task-line">{{ t('task_priority') }}: {{ task.priority }}</div>
                         <div v-if="formatTaskAlgorithm(task)" class="task-line">{{ formatTaskAlgorithm(task) }}</div>
+                        <div v-if="formatTaskInitialPoint(task)" class="task-line">{{ formatTaskInitialPoint(task) }}</div>
                         <div class="task-line">{{ formatTaskAgv(task) }}</div>
                         <div v-if="formatTaskPathStats(task)" class="task-line">{{ formatTaskPathStats(task) }}</div>
                         <div class="task-line task-reason">
@@ -6354,6 +7411,112 @@ onBeforeUnmount(() => {
               </div>
             </div>
           </section>
+
+          <section
+            ref="experimentsSectionRef"
+            class="panel-section"
+            :class="{
+              collapsed: !panelSections.experiments,
+              'search-hit': matchedPanelSectionKeys.includes('experiments'),
+              focused: focusedPanelSection === 'experiments'
+            }"
+          >
+            <button
+              class="panel-section-toggle"
+              type="button"
+              :aria-expanded="panelSections.experiments"
+              @click="togglePanelSection('experiments')"
+            >
+              <span>{{ panelLocale.sections.experiments }}</span>
+              <span class="panel-section-toggle-text">
+                {{ panelSections.experiments ? panelLocale.collapse : panelLocale.expand }}
+              </span>
+            </button>
+            <div v-show="panelSections.experiments" class="panel-section-body">
+              <div class="experiment-panel">
+                <h2>{{ experimentLocale.title }}</h2>
+                <p class="panel-hint">{{ experimentLocale.hint }}</p>
+
+                <div class="json-actions">
+                  <button class="btn-primary" type="button" @click="saveCurrentExperimentRecord">
+                    {{ experimentLocale.saveCurrent }}
+                  </button>
+                  <button class="btn-secondary" type="button" @click="exportCurrentCompareResultJson">
+                    {{ experimentLocale.exportCurrentJson }}
+                  </button>
+                  <button class="btn-secondary" type="button" @click="exportCurrentCompareResultCsv">
+                    {{ experimentLocale.exportCurrentCsv }}
+                  </button>
+                </div>
+
+                <div class="json-actions">
+                  <button class="btn-secondary" type="button" @click="exportAllExperimentRecordsJson">
+                    {{ experimentLocale.exportAllJson }}
+                  </button>
+                  <button class="btn-secondary" type="button" @click="exportAllExperimentRecordsCsv">
+                    {{ experimentLocale.exportAllCsv }}
+                  </button>
+                  <button class="btn-ghost" type="button" :disabled="experimentRecordCount === 0" @click="clearExperimentRecords">
+                    {{ experimentLocale.clearAll }}
+                  </button>
+                </div>
+
+                <div v-if="experimentStatus" class="template-status" :class="experimentStatusType">
+                  {{ experimentStatus }}
+                </div>
+
+                <div v-if="experimentRecordCount === 0" class="empty-note">
+                  {{ experimentLocale.empty }}
+                </div>
+
+                <div v-else class="experiment-record-list">
+                  <article
+                    v-for="record in experimentRecords"
+                    :key="record.id"
+                    class="experiment-record-card"
+                    :class="{ 'search-hit': matchedExperimentRecordIds.includes(record.id) }"
+                  >
+                    <div class="experiment-record-head">
+                      <strong>{{ experimentLocale.recordPrefix }} #{{ record.id }}</strong>
+                      <span class="point-badge">{{ record.task_mode === 'chain' ? taskChainLocale.title : taskBuilderLocale.single }}</span>
+                    </div>
+                    <div class="task-line">
+                      {{ experimentLocale.scene }}: {{ record.scene_name }}
+                    </div>
+                    <div class="task-line">
+                      {{ t('task_stages') }}: {{ record.stage_count }} | {{ experimentLocale.obstacles }}: {{ record.obstacle_count }} | {{ record.grid_cols }}x{{ record.grid_rows }}
+                    </div>
+                    <div class="task-line">
+                      {{ experimentLocale.route }}: {{ record.route_summary }}
+                    </div>
+                    <div class="task-line">
+                      {{ experimentLocale.currentAlgorithm }}: {{ algorithmText(record.current_algorithm) }}
+                    </div>
+                    <div v-if="record.recommended_algorithm" class="task-line">
+                      {{ experimentLocale.recommendedAlgorithm }}: {{ algorithmText(record.recommended_algorithm) }}
+                    </div>
+                    <div class="task-line">
+                      {{ formatExperimentAlgorithms(record) }}
+                    </div>
+                    <div class="task-line task-time">
+                      {{ experimentLocale.savedAt }}: {{ formatExperimentSavedAt(record.saved_at) }}
+                    </div>
+                    <div class="task-actions">
+                      <button class="btn-secondary task-action-button" type="button" @click="exportExperimentRecord(record, 'json')">
+                        JSON
+                      </button>
+                      <button class="btn-secondary task-action-button" type="button" @click="exportExperimentRecord(record, 'csv')">
+                        CSV
+                      </button>
+                      <button class="btn-delete task-action-button" type="button" @click="deleteExperimentRecord(record.id)">
+                        {{ experimentLocale.delete }}
+                      </button>
+                    </div>
+                  </article>
+                </div>
+              </div>
+            </div>
+          </section>
         </div>
         <button
           v-if="taskTemplateJumpReady"
@@ -6370,7 +7533,8 @@ onBeforeUnmount(() => {
           :title="t('panel_back_to_top')"
           @click="scrollPanelToTop"
         >
-          鈫?        </button>
+          ↑
+        </button>
       </aside>
     </div>
 
@@ -6425,12 +7589,17 @@ onBeforeUnmount(() => {
           </div>
         </article>
       </div>
+      <div v-if="pathCompareResult" class="json-actions">
+        <button class="btn-primary" type="button" @click="saveCurrentExperimentRecord">
+          {{ experimentLocale.saveCurrent }}
+        </button>
+        <button class="btn-secondary" type="button" @click="exportCurrentCompareResultJson">
+          {{ experimentLocale.exportCurrentJson }}
+        </button>
+        <button class="btn-secondary" type="button" @click="exportCurrentCompareResultCsv">
+          {{ experimentLocale.exportCurrentCsv }}
+        </button>
+      </div>
     </div>
   </div>
 </template>
-
-
-
-
-
-

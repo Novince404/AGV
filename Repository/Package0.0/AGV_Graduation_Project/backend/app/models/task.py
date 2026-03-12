@@ -25,6 +25,9 @@ class Task(BaseModel):
     priority: int = 1
     status: str
     agv_id: int | None = None
+    preferred_agv_id: int | None = None
+    dispatch_origin_x: int | None = None
+    dispatch_origin_y: int | None = None
     created_at: str | None = None
     assigned_at: str | None = None
     started_at: str | None = None

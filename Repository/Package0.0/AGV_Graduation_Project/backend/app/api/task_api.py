@@ -26,6 +26,12 @@ class TaskCreateRequest(BaseModel):
     end_y: int | None = None
     priority: int = 1
     stages: list[TaskStagePayload] | None = None
+    dispatch_mode: str | None = None
+    preferred_agv_id: int | None = None
+    dispatch_origin_x: int | None = None
+    dispatch_origin_y: int | None = None
+    dispatch_algorithm: str | None = None
+    dispatch_reason: str | None = None
 
 
 class TaskImportItem(BaseModel):
@@ -36,6 +42,12 @@ class TaskImportItem(BaseModel):
     end_y: int | None = None
     priority: int = 1
     stages: list[TaskStagePayload] | None = None
+    dispatch_mode: str | None = None
+    preferred_agv_id: int | None = None
+    dispatch_origin_x: int | None = None
+    dispatch_origin_y: int | None = None
+    dispatch_algorithm: str | None = None
+    dispatch_reason: str | None = None
 
 
 class TaskImportRequest(BaseModel):
@@ -174,6 +186,12 @@ def create_task(req: TaskCreateRequest):
         overall_end_x=last_stage.end_x,
         overall_end_y=last_stage.end_y,
         stages=stages,
+        dispatch_mode=req.dispatch_mode,
+        preferred_agv_id=req.preferred_agv_id,
+        dispatch_origin_x=req.dispatch_origin_x,
+        dispatch_origin_y=req.dispatch_origin_y,
+        dispatch_algorithm=req.dispatch_algorithm,
+        dispatch_reason=req.dispatch_reason,
     )
     sync_task_stage_fields(task)
     task_list.append(task)
@@ -233,6 +251,12 @@ def import_tasks(req: TaskImportRequest):
             overall_end_x=last_stage.end_x,
             overall_end_y=last_stage.end_y,
             stages=stages,
+            dispatch_mode=item.dispatch_mode,
+            preferred_agv_id=item.preferred_agv_id,
+            dispatch_origin_x=item.dispatch_origin_x,
+            dispatch_origin_y=item.dispatch_origin_y,
+            dispatch_algorithm=item.dispatch_algorithm,
+            dispatch_reason=item.dispatch_reason,
         )
         sync_task_stage_fields(task)
         task_list.append(task)
