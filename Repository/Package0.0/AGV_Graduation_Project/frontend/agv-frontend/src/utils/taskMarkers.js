@@ -24,10 +24,19 @@ export function taskStageWaypoints(task) {
 
 export function taskCurrentStageIndex(task) {
   const stages = Array.isArray(task?.stages) ? task.stages : []
-  if (stages.length === 0) return 0
   const idx = Number(task?.current_stage_index ?? 0)
   if (!Number.isFinite(idx)) return 0
+  if (stages.length === 0) return Math.max(0, Math.floor(idx))
   return clampValue(Math.floor(idx), 0, stages.length - 1)
+}
+
+export function taskStageCount(task) {
+  const explicitCount = Number(task?.total_stages)
+  if (Number.isFinite(explicitCount) && explicitCount > 0) {
+    return explicitCount
+  }
+  const stages = Array.isArray(task?.stages) ? task.stages : []
+  return Math.max(stages.length, 1)
 }
 
 export function taskRemainingWaypoints(task) {
@@ -58,12 +67,23 @@ export function taskRemainingWaypoints(task) {
 }
 
 export function taskChainMidPoints(task) {
-  const waypoints = taskRemainingWaypoints(task)
+  const waypoints = taskStageWaypoints(task)
   if (waypoints.length <= 2) return []
-  return waypoints.slice(1, -1).map((point, index) => ({
-    ...point,
-    order: index + 1
-  }))
+  const stageIndex = taskCurrentStageIndex(task)
+  const firstVisibleMidpointIndex = Math.max(1, stageIndex)
+  const lastMidpointIndex = waypoints.length - 2
+  const points = []
+
+  for (let waypointIndex = firstVisibleMidpointIndex; waypointIndex <= lastMidpointIndex; waypointIndex += 1) {
+    const point = waypoints[waypointIndex]
+    points.push({
+      ...point,
+      // Keep stable global midpoint numbering across stage transitions.
+      order: waypointIndex
+    })
+  }
+
+  return points
 }
 
 export function resolveTaskStartMarker(task) {
@@ -78,6 +98,14 @@ export function resolveTaskStartMarker(task) {
   )
 }
 
+export function resolveTaskDisplayStartMarker(task) {
+  if (!task) return null
+  if (taskStageCount(task) > 1 && taskCurrentStageIndex(task) > 0) {
+    return null
+  }
+  return resolveTaskStartMarker(task)
+}
+
 export function resolveTaskEndMarker(task) {
   if (!task) return null
   const stage = currentTaskStage(task)
@@ -85,8 +113,6 @@ export function resolveTaskEndMarker(task) {
 }
 
 export function resolveTaskOverallEndMarker(task) {
-  const waypoints = taskStageWaypoints(task)
-  if (waypoints.length > 0) return waypoints.at(-1)
   if (
     Number.isFinite(Number(task?.overall_end_x)) &&
     Number.isFinite(Number(task?.overall_end_y))
@@ -96,7 +122,14 @@ export function resolveTaskOverallEndMarker(task) {
       y: Number(task.overall_end_y)
     }
   }
+  const waypoints = taskStageWaypoints(task)
+  if (waypoints.length > 0) return waypoints.at(-1)
   return resolveTaskEndMarker(task)
+}
+
+export function resolveTaskDisplayEndMarker(task) {
+  if (!task) return null
+  return taskStageCount(task) > 1 ? resolveTaskOverallEndMarker(task) : resolveTaskEndMarker(task)
 }
 
 export function taskDispatchOrigin(task) {

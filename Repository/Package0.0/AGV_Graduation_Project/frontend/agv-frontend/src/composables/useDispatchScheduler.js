@@ -26,10 +26,46 @@ export function useDispatchScheduler(options) {
     fetchTasks,
     hasIdleAgv,
     hasPendingTask,
+    resolveTaskDisplayStartMarker,
+    resolveTaskDisplayEndMarker,
     resolveTaskStartMarker,
     resolveTaskEndMarker,
+    resolveTaskOverallEndMarker,
     bumpManualPreviewMinVisible
   } = options
+
+  function resolveTaskDisplayEndMarkerLocal(task) {
+    if (Number(task?.total_stages ?? 1) > 1 && typeof resolveTaskOverallEndMarker === 'function') {
+      return resolveTaskOverallEndMarker(task)
+    }
+    return resolveTaskEndMarker(task)
+  }
+
+  function resolveTaskDisplayStartMarkerLocal(task) {
+    if (typeof resolveTaskDisplayStartMarker === 'function') {
+      return resolveTaskDisplayStartMarker(task)
+    }
+    return resolveTaskStartMarker(task)
+  }
+
+  function mergeTaskDisplayPayload(taskPayload, fallbackTask) {
+    if (!taskPayload) return fallbackTask
+    if (!fallbackTask) return taskPayload
+    return {
+      ...fallbackTask,
+      ...taskPayload,
+      stages:
+        Array.isArray(taskPayload.stages) && taskPayload.stages.length > 0
+          ? taskPayload.stages
+          : fallbackTask.stages,
+      overall_start_x:
+        taskPayload.overall_start_x ?? fallbackTask.overall_start_x ?? fallbackTask.start_x ?? taskPayload.start_x,
+      overall_start_y:
+        taskPayload.overall_start_y ?? fallbackTask.overall_start_y ?? fallbackTask.start_y ?? taskPayload.start_y,
+      overall_end_x: taskPayload.overall_end_x ?? fallbackTask.overall_end_x ?? fallbackTask.end_x ?? taskPayload.end_x,
+      overall_end_y: taskPayload.overall_end_y ?? fallbackTask.overall_end_y ?? fallbackTask.end_y ?? taskPayload.end_y
+    }
+  }
 
   async function tryAutoSchedule() {
     if (autoScheduling.value) return
@@ -112,11 +148,15 @@ export function useDispatchScheduler(options) {
         selectedAgvId.value === scheduleData?.agv?.id ||
         trackedManualTaskId.value === candidate.id
       ) {
+        const displayTask = mergeTaskDisplayPayload(scheduleData?.task, candidate)
         manualPathToStart.value = scheduleData.path_to_start ?? []
         manualPathToEnd.value = scheduleData.path_to_end ?? scheduleData.path ?? []
         trackedManualTaskId.value = scheduleData?.task?.id ?? candidate.id
-        startPoint.value = resolveTaskStartMarker(scheduleData?.task ?? candidate)
-        endPoint.value = resolveTaskEndMarker(scheduleData?.task ?? candidate)
+        startPoint.value = resolveTaskDisplayStartMarkerLocal(displayTask)
+        endPoint.value =
+          typeof resolveTaskDisplayEndMarker === 'function'
+            ? resolveTaskDisplayEndMarker(displayTask)
+            : resolveTaskDisplayEndMarkerLocal(displayTask)
         manualDispatchStep.value = 'running'
         bumpManualPreviewMinVisible()
       }

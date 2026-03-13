@@ -1,9 +1,7 @@
 from datetime import datetime
 
 from app.models.fault_event import FaultEvent
-
-
-fault_event_list: list[FaultEvent] = []
+from app.repositories.fault_repository import fault_event_list
 
 
 def now_iso():

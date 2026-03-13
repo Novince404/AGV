@@ -2,8 +2,8 @@
 import time
 from datetime import datetime
 
-from app.api.agv_api import agv_list
-from app.api.task_api import task_list
+from app.repositories.agv_repository import agv_list
+from app.repositories.task_repository import task_list
 from app.utils.path_planner import plan_path
 from app.utils.task_chain import (
     advance_task_stage,

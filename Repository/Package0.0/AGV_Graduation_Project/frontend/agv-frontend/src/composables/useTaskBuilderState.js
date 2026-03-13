@@ -10,6 +10,7 @@ export function useTaskBuilderState(options) {
     manualDispatchStep,
     startPoint,
     endPoint,
+    manualDisplayTask,
     buildDefaultTaskChainStages,
     createTaskChainStage,
     getSelectedManualDispatchAgv,
@@ -71,6 +72,9 @@ export function useTaskBuilderState(options) {
     if (!resetMarkers) return
 
     if (dispatchMode.value === 'manual') {
+      if (manualDisplayTask?.value) {
+        return
+      }
       manualDispatchStep.value = 'idle'
       startPoint.value = null
       endPoint.value = null
@@ -89,9 +93,12 @@ export function useTaskBuilderState(options) {
 
     taskBuilderMode.value = 'chain'
     taskChainMapPickActive.value = true
-    manualDispatchStep.value = 'idle'
     taskChainMapPickPoints.value = []
     if (dispatchMode.value === 'manual') {
+      if (manualDisplayTask?.value) {
+        return
+      }
+      manualDispatchStep.value = 'idle'
       startPoint.value = null
       endPoint.value = null
       return

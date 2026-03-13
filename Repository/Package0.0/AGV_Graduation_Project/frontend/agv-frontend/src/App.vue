@@ -29,6 +29,8 @@ import { rowsToCsv } from './utils/csv'
 import { downloadJsonFile } from './utils/fileDownload'
 import { blockedCellKey, clampValue, pointStyle, toArrowSegments, toSvgPoints } from './utils/mapGeometry'
 import {
+  resolveTaskDisplayEndMarker,
+  resolveTaskDisplayStartMarker,
   resolveTaskEndMarker,
   resolveTaskOverallEndMarker,
   resolveTaskStartMarker,
@@ -445,22 +447,34 @@ const manualDisplayTask = computed(() => {
 })
 
 const manualDisplayStartMarker = computed(() => {
-  if (trackedManualTaskId.value && manualDisplayTask.value) {
-    const task = manualDisplayTask.value
-    if (Number(task.total_stages ?? 1) > 1) {
-      return resolveTaskStartMarker(task)
-    }
-    return resolveTaskStartMarker(task)
+  if (manualDisplayTask.value) {
+    return resolveTaskDisplayStartMarker(manualDisplayTask.value)
+  }
+  if (
+    dispatchMode.value === 'auto' &&
+    autoDisplayTask.value &&
+    !trackedManualTaskId.value &&
+    !startPoint.value &&
+    !endPoint.value &&
+    !taskChainMapPickActive.value
+  ) {
+    return null
   }
   return startPoint.value ?? manualPathToStart.value.at(-1) ?? manualPathToEnd.value[0] ?? null
 })
 const manualDisplayEndMarker = computed(() => {
-  if (trackedManualTaskId.value && manualDisplayTask.value) {
-    const task = manualDisplayTask.value
-    if (Number(task.total_stages ?? 1) > 1) {
-      return resolveTaskOverallEndMarker(task)
-    }
-    return resolveTaskEndMarker(task)
+  if (manualDisplayTask.value) {
+    return resolveTaskDisplayEndMarker(manualDisplayTask.value)
+  }
+  if (
+    dispatchMode.value === 'auto' &&
+    autoDisplayTask.value &&
+    !trackedManualTaskId.value &&
+    !startPoint.value &&
+    !endPoint.value &&
+    !taskChainMapPickActive.value
+  ) {
+    return null
   }
   if (
     taskBuilderMode.value === 'chain' &&
@@ -474,10 +488,10 @@ const manualDisplayEndMarker = computed(() => {
 const autoDisplayStartMarker = computed(() => {
   if (!shouldShowAutoPath.value) return null
   const task = autoDisplayTask.value
-  if (task && Number(task.total_stages ?? 1) > 1) {
-    return resolveTaskStartMarker(task)
+  if (task) {
+    return resolveTaskDisplayStartMarker(task)
   }
-  return resolveTaskStartMarker(task) ?? autoPathToStart.value.at(-1) ?? autoPathToEnd.value[0] ?? null
+  return autoPathToStart.value.at(-1) ?? autoPathToEnd.value[0] ?? null
 })
 const autoDisplayEndMarker = computed(() => {
   if (!shouldShowAutoPath.value) return null
@@ -508,14 +522,7 @@ const chainMidMarkers = computed(() => {
   const picked = taskChainMapPickPoints.value
   const required = taskChainRequiredPointCount.value
   const incomplete = picked.length < required
-  const points =
-    dispatchMode.value === 'manual'
-      ? incomplete
-        ? picked
-        : picked.slice(0, -1)
-      : incomplete
-        ? picked.slice(1)
-        : picked.slice(1, -1)
+  const points = incomplete ? picked.slice(1) : picked.slice(1, -1)
   return points.map((point, index) => ({
     ...point,
     order: index + 1
@@ -729,6 +736,29 @@ function manualTaskQueuedText(task) {
   return `Task created. Waiting for bound AGV #${agvId} to become idle before execution.`
 }
 
+function mergeTaskDisplayPayload(taskPayload, fallbackTask = null) {
+  if (!taskPayload) return fallbackTask
+  if (!fallbackTask) return taskPayload
+  return {
+    ...fallbackTask,
+    ...taskPayload,
+    stages: Array.isArray(taskPayload.stages) && taskPayload.stages.length > 0 ? taskPayload.stages : fallbackTask.stages,
+    overall_start_x:
+      taskPayload.overall_start_x ?? fallbackTask.overall_start_x ?? fallbackTask.start_x ?? taskPayload.start_x,
+    overall_start_y:
+      taskPayload.overall_start_y ?? fallbackTask.overall_start_y ?? fallbackTask.start_y ?? taskPayload.start_y,
+    overall_end_x: taskPayload.overall_end_x ?? fallbackTask.overall_end_x ?? fallbackTask.end_x ?? taskPayload.end_x,
+    overall_end_y: taskPayload.overall_end_y ?? fallbackTask.overall_end_y ?? fallbackTask.end_y ?? taskPayload.end_y
+  }
+}
+
+function applyTaskDisplayMarkers(taskPayload, fallbackTask = null) {
+  const task = mergeTaskDisplayPayload(taskPayload, fallbackTask)
+  if (!task) return
+  startPoint.value = resolveTaskDisplayStartMarker(task)
+  endPoint.value = resolveTaskDisplayEndMarker(task)
+}
+
 async function handleManualScheduleFailure(createdTaskId, scheduleData) {
   await fetchTasks()
   const latestTask = tasks.value.find(task => task.id === createdTaskId)
@@ -745,8 +775,7 @@ async function handleManualScheduleFailure(createdTaskId, scheduleData) {
     manualPathToStart.value = latestTask.path_to_start ?? []
     manualPathToEnd.value = latestTask.path_to_end ?? []
     trackedManualTaskId.value = latestTask.id
-    startPoint.value = resolveTaskStartMarker(latestTask)
-    endPoint.value = resolveTaskEndMarker(latestTask)
+    applyTaskDisplayMarkers(latestTask)
     manualDispatchStep.value = 'running'
     bumpManualPreviewMinVisible()
     await fetchAgvs()
@@ -755,8 +784,7 @@ async function handleManualScheduleFailure(createdTaskId, scheduleData) {
 
   if (latestTask?.status === 'pending') {
     trackedManualTaskId.value = latestTask.id
-    startPoint.value = resolveTaskStartMarker(latestTask)
-    endPoint.value = resolveTaskEndMarker(latestTask)
+    applyTaskDisplayMarkers(latestTask)
     manualDispatchStep.value = 'running'
     bumpManualPreviewMinVisible()
     window.alert(manualTaskQueuedText(latestTask))
@@ -1636,7 +1664,7 @@ function hasIdleAgv() {
 }
 
 function hasPendingTask() {
-  return tasks.value.some(task => task.status === 'pending' || task.status === 'blocked')
+  return tasks.value.some(task => task.status === 'pending')
 }
 
 function hasActiveTask() {
@@ -1670,8 +1698,11 @@ const { tryAutoSchedule, tryManualBoundSchedule, scheduleAutoIfReady } = useDisp
   fetchTasks,
   hasIdleAgv,
   hasPendingTask,
+  resolveTaskDisplayStartMarker,
+  resolveTaskDisplayEndMarker,
   resolveTaskStartMarker,
   resolveTaskEndMarker,
+  resolveTaskOverallEndMarker,
   bumpManualPreviewMinVisible
 })
 
@@ -1777,6 +1808,7 @@ const {
   manualDispatchStep,
   startPoint,
   endPoint,
+  manualDisplayTask,
   buildDefaultTaskChainStages,
   createTaskChainStage,
   getSelectedManualDispatchAgv,
@@ -1817,11 +1849,23 @@ function syncDisplayedPathsFromTasks() {
   if (manualTask) {
     manualPathToStart.value = manualTask.path_to_start ?? []
     manualPathToEnd.value = manualTask.path_to_end ?? []
+    if (!taskChainMapPickActive.value) {
+      applyTaskDisplayMarkers(manualTask)
+    }
   } else {
     const shouldHoldManualPreview =
       Boolean(trackedManualTaskId.value) && manualPreviewMinVisibleUntil.value > Date.now()
     if (!shouldHoldManualPreview) {
       clearManualPaths()
+      if (
+        dispatchMode.value === 'auto' &&
+        !taskChainMapPickActive.value &&
+        !(taskBuilderMode.value === 'single' && Boolean(startPoint.value) && !endPoint.value) &&
+        !manualDisplayTask.value
+      ) {
+        startPoint.value = null
+        endPoint.value = null
+      }
     }
   }
 }
@@ -1875,6 +1919,40 @@ function buildPreviewPathByAlgorithm(sx, sy, ex, ey) {
   return algorithm.value === 'astar'
     ? buildAStarPath(sx, sy, ex, ey, GRID_COLS, GRID_ROWS, isBlockedCell)
     : buildSimplePath(sx, sy, ex, ey, isBlockedCell)
+}
+
+function buildPreviewPathForTask(task) {
+  const waypoints =
+    Number(task?.total_stages ?? 1) > 1
+      ? taskRemainingWaypoints(task)
+      : (() => {
+          const stage = currentTaskStage(task)
+          const startX = Number(stage?.start_x ?? task.start_x)
+          const startY = Number(stage?.start_y ?? task.start_y)
+          const endX = Number(stage?.end_x ?? task.end_x)
+          const endY = Number(stage?.end_y ?? task.end_y)
+          if (![startX, startY, endX, endY].every(Number.isFinite)) return []
+          return [
+            { x: startX, y: startY },
+            { x: endX, y: endY }
+          ]
+        })()
+
+  if (waypoints.length < 2) return []
+
+  const path = []
+  for (let index = 0; index < waypoints.length - 1; index += 1) {
+    const from = waypoints[index]
+    const to = waypoints[index + 1]
+    const segment = buildPreviewPathByAlgorithm(from.x, from.y, to.x, to.y)
+    if (!segment.length) continue
+    if (path.length && segment[0]?.x === path[path.length - 1]?.x && segment[0]?.y === path[path.length - 1]?.y) {
+      path.push(...segment.slice(1))
+    } else {
+      path.push(...segment)
+    }
+  }
+  return path
 }
 
 function blockedCellAlertText() {
@@ -2131,7 +2209,8 @@ async function createTaskAndSchedule(agvId) {
     return
   }
 
-  const isAutoMode = dispatchMode.value === 'auto'
+  const manualAgv = dispatchMode.value === 'manual' ? getSelectedManualDispatchAgv(false) : null
+  const isManualFlow = dispatchMode.value === 'manual' && Boolean(manualAgv)
   try {
     autoScheduleGuard.value = true
     const createRes = await fetch(`${API_BASE}/task/create`, {
@@ -2143,7 +2222,7 @@ async function createTaskAndSchedule(agvId) {
         end_x: endPoint.value.x,
         end_y: endPoint.value.y,
         priority: taskPriority.value,
-        ...(dispatchMode.value === 'manual' ? buildManualTaskCreateMeta(getSelectedManualDispatchAgv(false)) : {})
+        ...(isManualFlow ? buildManualTaskCreateMeta(manualAgv) : {})
       })
     })
     const createData = await createRes.json()
@@ -2151,44 +2230,12 @@ async function createTaskAndSchedule(agvId) {
       throw createApiError(createData, 'Task create failed')
     }
 
-    if (isAutoMode) {
-      const scheduleRes = await fetch(`${API_BASE}/schedule/with_path`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          task_id: createData.task.id,
-          agv_id: null,
-          algorithm: algorithm.value,
-          grid_cols: GRID_COLS,
-          grid_rows: GRID_ROWS
-        })
-      })
-      const scheduleData = await scheduleRes.json()
-      if (!scheduleRes.ok) {
-        await fetchTasks()
-        const latestTask = tasks.value.find(task => task.id === createData.task.id)
-        if (latestTask?.status === 'blocked') {
-          window.alert(blockedTaskAlertText(latestTask))
-        } else {
-          window.alert(localizeApiErrorDetail(scheduleData?.detail, t('task_manual_unreachable')))
-        }
-        clearAutoMarkers()
-        return
-      }
-
-      autoPathToStart.value = scheduleData.path_to_start ?? []
-      autoPathToEnd.value = scheduleData.path_to_end ?? scheduleData.path ?? []
-      clearAutoMarkers()
-      await Promise.all([fetchAgvs(), fetchTasks()])
-      return
-    }
-
     const scheduleRes = await fetch(`${API_BASE}/schedule/with_path`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         task_id: createData.task.id,
-        agv_id: agvId,
+        agv_id: isManualFlow ? agvId : null,
         algorithm: algorithm.value,
         grid_cols: GRID_COLS,
         grid_rows: GRID_ROWS
@@ -2196,21 +2243,38 @@ async function createTaskAndSchedule(agvId) {
     })
     const scheduleData = await scheduleRes.json()
     if (!scheduleRes.ok) {
-      await handleManualScheduleFailure(createData.task.id, scheduleData)
+      if (isManualFlow) {
+        await handleManualScheduleFailure(createData.task.id, scheduleData)
+        return
+      }
+      await fetchTasks()
+      const latestTask = tasks.value.find(task => task.id === createData.task.id)
+      if (latestTask?.status === 'blocked') {
+        window.alert(blockedTaskAlertText(latestTask))
+      } else {
+        window.alert(localizeApiErrorDetail(scheduleData?.detail, t('task_manual_unreachable')))
+      }
+      clearAutoMarkers()
       return
     }
 
-    startPoint.value = resolveTaskStartMarker(scheduleData.task)
-    endPoint.value = resolveTaskEndMarker(scheduleData.task)
-    manualPathToStart.value = scheduleData.path_to_start ?? []
-    manualPathToEnd.value = scheduleData.path_to_end ?? scheduleData.path ?? []
-    trackedManualTaskId.value = scheduleData.task.id
-    bumpManualPreviewMinVisible()
+    const resolvedMode = scheduleData?.task?.dispatch_mode ?? (isManualFlow ? 'manual' : 'auto')
+    if (resolvedMode === 'manual') {
+      applyTaskDisplayMarkers(scheduleData.task, createData.task)
+      manualPathToStart.value = scheduleData.path_to_start ?? []
+      manualPathToEnd.value = scheduleData.path_to_end ?? scheduleData.path ?? []
+      trackedManualTaskId.value = scheduleData.task.id
+      bumpManualPreviewMinVisible()
+    } else {
+      autoPathToStart.value = scheduleData.path_to_start ?? []
+      autoPathToEnd.value = scheduleData.path_to_end ?? scheduleData.path ?? []
+      clearAutoMarkers()
+    }
 
     await Promise.all([fetchAgvs(), fetchTasks()])
   } catch (error) {
     console.error('Schedule error:', error)
-    if (!isAutoMode) {
+    if (isManualFlow) {
       trackedManualTaskId.value = null
       manualDispatchStep.value = 'idle'
       clearManualDestination()
@@ -2364,8 +2428,7 @@ async function recoverBlockedTask(task, mode) {
       manualPathToStart.value = data.path_to_start ?? []
       manualPathToEnd.value = data.path_to_end ?? data.path ?? []
       trackedManualTaskId.value = data?.task?.id ?? task.id
-      startPoint.value = resolveTaskStartMarker(data?.task ?? task)
-      endPoint.value = resolveTaskEndMarker(data?.task ?? task)
+      applyTaskDisplayMarkers(data?.task, task)
       manualDispatchStep.value = 'running'
       bumpManualPreviewMinVisible()
     } else {
@@ -2425,8 +2488,7 @@ async function retryBlockedTaskFromCurrent(task, algorithmName = null) {
       manualPathToStart.value = data.path_to_start ?? []
       manualPathToEnd.value = data.path_to_end ?? data.path ?? []
       trackedManualTaskId.value = data?.task?.id ?? task.id
-      startPoint.value = resolveTaskStartMarker(data?.task ?? task)
-      endPoint.value = resolveTaskEndMarker(data?.task ?? task)
+      applyTaskDisplayMarkers(data?.task, task)
       manualDispatchStep.value = 'running'
       bumpManualPreviewMinVisible()
     } else {
@@ -2496,8 +2558,7 @@ async function retryBlockedTaskWithAStar(task) {
       manualPathToStart.value = data.path_to_start ?? []
       manualPathToEnd.value = data.path_to_end ?? data.path ?? []
       trackedManualTaskId.value = data?.task?.id ?? task.id
-      startPoint.value = resolveTaskStartMarker(data?.task ?? task)
-      endPoint.value = resolveTaskEndMarker(data?.task ?? task)
+      applyTaskDisplayMarkers(data?.task, task)
     } else {
       autoPathToStart.value = data.path_to_start ?? []
       autoPathToEnd.value = data.path_to_end ?? data.path ?? []
@@ -2683,8 +2744,7 @@ async function submitTaskPayload(payload) {
         return await handleManualScheduleFailure(data.task.id, scheduleData)
       }
 
-      startPoint.value = resolveTaskStartMarker(scheduleData.task)
-      endPoint.value = resolveTaskEndMarker(scheduleData.task)
+      applyTaskDisplayMarkers(scheduleData.task, data.task)
       manualPathToStart.value = scheduleData.path_to_start ?? []
       manualPathToEnd.value = scheduleData.path_to_end ?? scheduleData.path ?? []
       trackedManualTaskId.value = scheduleData.task.id
@@ -3046,17 +3106,10 @@ function canPreviewTask(task) {
 
 function refreshTaskPreview(task) {
   if (!task) return
-  const stage = currentTaskStage(task)
-  const startX = Number(stage?.start_x ?? task.start_x)
-  const startY = Number(stage?.start_y ?? task.start_y)
-  const endX = Number(stage?.end_x ?? task.end_x)
-  const endY = Number(stage?.end_y ?? task.end_y)
-  if (![startX, startY, endX, endY].every(Number.isFinite)) return
-
   previewTaskId.value = task.id
-  previewStart.value = { x: startX, y: startY }
-  previewEnd.value = { x: endX, y: endY }
-  previewPath.value = buildPreviewPathByAlgorithm(startX, startY, endX, endY)
+  previewStart.value = resolveTaskDisplayStartMarker(task)
+  previewEnd.value = resolveTaskDisplayEndMarker(task)
+  previewPath.value = buildPreviewPathForTask(task)
 }
 
 function onTaskHover(task) {
@@ -3951,6 +4004,10 @@ watch(
       return
     }
 
+    if (!taskChainMapPickActive.value) {
+      applyTaskDisplayMarkers(trackedTask)
+    }
+
     if (['finished', 'blocked', 'failed'].includes(trackedTask.status)) {
       if (trackedTask.status === 'blocked' && isRecoveryRequiredTask(trackedTask)) {
         // Keep AGV selected after emergency stop so operator context does not vanish.
@@ -4060,10 +4117,6 @@ onBeforeUnmount(() => {
           <option value="manual">{{ t('dispatch_manual') }}</option>
         </select>
       </div>
-
-      <button class="toolbar-guide-entry" type="button" @click="openGuideCenter">
-        {{ guideCenterLocale.open }}
-      </button>
 
       <label class="field">
         {{ t('algorithm') }}
