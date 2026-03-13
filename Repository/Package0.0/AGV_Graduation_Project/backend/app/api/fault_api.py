@@ -56,7 +56,9 @@ def report_fault(req: FaultReportRequest):
     agv.active_fault_event_id = event.id
 
     if task:
-        mark_task_blocked(task, "agv_fault_stop", task.dispatch_algorithm)
+        # Keep the interrupted AGV binding so the task can be resumed on the same vehicle.
+        task.preferred_agv_id = agv.id
+        mark_task_blocked(task, "recover_required_fault", task.dispatch_algorithm)
 
     return {
         "message": "Fault reported",

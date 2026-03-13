@@ -50,6 +50,11 @@ def get_agvs():
     return agv_list
 
 
+def _assert_agv_can_enter_maintenance(agv: AGV):
+    if agv.status in {"running", "relocating"}:
+        raise_api_error(400, "agv_busy_for_maintenance")
+
+
 @router.post("/{agv_id}/emergency-stop")
 def emergency_stop_agv(agv_id: int, req: EmergencyStopRequest):
     agv = _find_agv(agv_id)
@@ -72,7 +77,9 @@ def emergency_stop_agv(agv_id: int, req: EmergencyStopRequest):
     agv.task_id = None
 
     if task:
-        mark_task_blocked(task, "agv_emergency_stop", task.dispatch_algorithm)
+        # Keep the interrupted AGV binding so the task can be resumed on the same vehicle.
+        task.preferred_agv_id = agv.id
+        mark_task_blocked(task, "recover_required_emergency_stop", task.dispatch_algorithm)
 
     return {
         "message": "AGV emergency stopped",
@@ -101,3 +108,32 @@ def resume_agv(agv_id: int):
         "agv": agv,
         "event": resolved_event,
     }
+
+
+@router.post("/{agv_id}/to-maintenance")
+def move_agv_to_maintenance(agv_id: int):
+    agv = _find_agv(agv_id)
+    if agv.status == "maintenance":
+        return {"message": "AGV already in maintenance", "agv": agv}
+
+    _assert_agv_can_enter_maintenance(agv)
+    agv.status = "maintenance"
+    agv.task_id = None
+    return {"message": "AGV moved to maintenance", "agv": agv}
+
+
+@router.post("/{agv_id}/return-to-service")
+def return_agv_to_service(agv_id: int):
+    agv = _find_agv(agv_id)
+    if agv.status != "maintenance":
+        raise_api_error(400, "agv_not_in_maintenance")
+
+    active_faults = get_open_fault_events_for_agv(agv.id, "fault")
+    if active_faults:
+        raise_api_error(400, "agv_has_open_fault")
+
+    resolve_latest_open_event_for_agv(agv.id, "emergency_stop")
+    agv.status = "idle"
+    agv.task_id = None
+    agv.active_fault_event_id = None
+    return {"message": "AGV returned to service", "agv": agv}

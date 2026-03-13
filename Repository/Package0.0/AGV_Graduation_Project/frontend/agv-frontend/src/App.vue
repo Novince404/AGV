@@ -10,6 +10,9 @@ import { usePanelCompareUi } from './composables/usePanelCompareUi'
 import { useDataExportActions } from './composables/useDataExportActions'
 import { useMapViewport } from './composables/useMapViewport'
 import { useTaskBuilderState } from './composables/useTaskBuilderState'
+import { useLocaleText } from './composables/useLocaleText'
+import { useUiLocales } from './composables/useUiLocales'
+import { useTaskTextFormatters } from './composables/useTaskTextFormatters'
 import {
   buildDefaultTaskChainStages,
   buildTaskJsonExamplePayload,
@@ -21,8 +24,18 @@ import {
   overallTaskStart
 } from './utils/taskChain'
 import { buildAStarPath, buildSimplePath } from './utils/pathPreview'
+import { buildDefaultQueueGroupState, compareTime, sortTasks } from './utils/taskQueue'
 import { rowsToCsv } from './utils/csv'
 import { downloadJsonFile } from './utils/fileDownload'
+import { blockedCellKey, clampValue, pointStyle, toArrowSegments, toSvgPoints } from './utils/mapGeometry'
+import {
+  resolveTaskEndMarker,
+  resolveTaskOverallEndMarker,
+  resolveTaskStartMarker,
+  taskChainMidPoints,
+  taskDispatchOrigin,
+  taskRemainingWaypoints
+} from './utils/taskMarkers'
 import {
   buildTaskTemplateSignature as buildTaskTemplateSignatureRaw,
   buildTemplateExportPayload as buildTemplateExportPayloadRaw,
@@ -134,6 +147,13 @@ const faultReportForm = ref({
 const showFaultReportForm = ref(false)
 const agvActionLoadingId = ref(null)
 const resolvingFaultId = ref(null)
+const taskRecoveryActionKey = ref('')
+const agvRecoveryJumpReady = ref(false)
+const agvRecoveryJumpTargetAgvId = ref(null)
+const faultSelectedAgvPulse = ref(false)
+const floatingToastVisible = ref(false)
+const floatingToastMessage = ref('')
+const floatingToastType = ref('info')
 const templateFileInputRef = ref(null)
 const panelSearch = ref('')
 const focusedPanelSection = ref('')
@@ -175,6 +195,7 @@ const compareEntryButtonRef = ref(null)
 const controlSectionRef = ref(null)
 const taskBuilderRef = ref(null)
 const comparePanelRef = ref(null)
+const faultSelectedAgvCardRef = ref(null)
 const queueSectionRef = ref(null)
 const templatesSectionRef = ref(null)
 const pointsSectionRef = ref(null)
@@ -216,6 +237,9 @@ let timer = null
 let clickTimer = null
 let previewTimer = null
 let taskBuilderJumpTimer = null
+let agvRecoveryJumpTimer = null
+let faultSelectedAgvPulseTimer = null
+let floatingToastTimer = null
 let localNextId = 1000
 const autoScheduling = ref(false)
 const autoScheduleGuard = ref(false)
@@ -237,141 +261,22 @@ let compareFloatingDragOffsetX = 0
 let compareFloatingDragOffsetY = 0
 let manualPreviewHoldTimer = null
 
-const messages = {
-  zh: LOCALE_TEXTS.zh.messages,
-  ja: LOCALE_TEXTS.ja.messages,
-  en: LOCALE_TEXTS.en.messages
-}
-
-const t = key => messages[locale.value]?.[key] ?? messages.en[key] ?? key
-
-const localeTexts = computed(() => LOCALE_TEXTS[locale.value] ?? LOCALE_TEXTS.en)
-
-function fillTemplate(template, variables = {}) {
-  return String(template ?? '').replace(/\{(\w+)\}/g, (_, key) => String(variables[key] ?? ''))
-}
-
-function apiPointText(pointType) {
-  return (
-    localeTexts.value.apiPointText?.[pointType] ??
-    LOCALE_TEXTS.en.apiPointText?.[pointType] ??
-    String(pointType ?? '')
-  )
-}
-
-function apiAlgorithmText(algorithmName) {
-  return (
-    localeTexts.value.apiAlgorithmText?.[algorithmName] ??
-    LOCALE_TEXTS.en.apiAlgorithmText?.[algorithmName] ??
-    String(algorithmName ?? '')
-  )
-}
-
-function localizeApiErrorDetail(detail, fallbackMessage = '') {
-  const fallback = fallbackMessage || ''
-
-  if (detail && typeof detail === 'object' && !Array.isArray(detail) && detail.error_code) {
-    const template =
-      localeTexts.value.apiErrorText?.[detail.error_code] ??
-      LOCALE_TEXTS.en.apiErrorText?.[detail.error_code] ??
-      fallback
-
-    return fillTemplate(template, {
-      stage: detail.stage_index ?? '',
-      point: apiPointText(detail.point_type),
-      algorithm: apiAlgorithmText(detail.algorithm)
-    })
-  }
-
-  if (typeof detail === 'string') {
-    const sentinel = localizeDispatchReason(detail)
-    if (sentinel) return sentinel
-
-    const legacyMatches = [
-      [/^Task coordinates are required$/i, 'task_coordinates_required'],
-      [/^Task not found$/i, 'task_not_found'],
-      [/^Task is not blocked$/i, 'task_not_blocked'],
-      [/^Blocked task retry only supports A\*$/i, 'blocked_retry_requires_astar'],
-      [/^No idle AGV$/i, 'no_idle_agv'],
-      [/^No pending tasks$/i, 'no_pending_tasks'],
-      [/^No reachable tasks$/i, 'no_reachable_tasks'],
-      [/^Task route unreachable with current algorithm$/i, 'task_route_unreachable'],
-      [/^Preset not found$/i, 'preset_not_found']
-    ]
-
-    for (const [pattern, errorCode] of legacyMatches) {
-      if (pattern.test(detail)) {
-        return (
-          localeTexts.value.apiErrorText?.[errorCode] ??
-          LOCALE_TEXTS.en.apiErrorText?.[errorCode] ??
-          fallback
-        )
-      }
-    }
-
-    const startUnreachableMatch = detail.match(
-      /^No idle AGV can reach the task start with algorithm (simple|astar)$/i
-    )
-    if (startUnreachableMatch) {
-      const algorithmName = startUnreachableMatch[1].toLowerCase()
-      return fillTemplate(
-        localeTexts.value.apiErrorText?.task_start_unreachable ??
-          LOCALE_TEXTS.en.apiErrorText.task_start_unreachable,
-        { algorithm: apiAlgorithmText(algorithmName) }
-      )
-    }
-
-    return detail
-  }
-
-  return fallback
-}
-
-function localizeDispatchReason(reason) {
-  if (!reason || typeof reason !== 'string') return ''
-
-  if (
-    /自动调度队列已暂停/.test(reason) ||
-    /Auto dispatch queue is paused while manual dispatch mode is active/i.test(reason) ||
-    /手動モード.*自動調度キュー/.test(reason)
-  ) {
-    if (locale.value === 'ja') return 'タスクは自動調度キューで割当待ちです（手動モードでも継続）。'
-    if (locale.value === 'zh') return '任务正在自动调度队列中等待分配（手动模式不会暂停自动调度）。'
-    return 'The task is waiting in the auto dispatch queue (manual mode does not pause auto scheduling).'
-  }
-
-  if (reason === 'cell_occupied_waiting') {
-    if (locale.value === 'ja') return '前方セルがほかの AGV に占有されているため、その場で待機しています。'
-    if (locale.value === 'zh') return '前方格子正被其他 AGV 占用，当前任务正在原地等待通行。'
-    return 'The next cell is occupied by another AGV. Waiting in place for the path to clear.'
-  }
-
-  const directReason =
-    localeTexts.value.dispatchReasonText?.[reason] ??
-    LOCALE_TEXTS.en.dispatchReasonText?.[reason] ??
-    ''
-  if (directReason) return directReason
-
-  const [errorCode, rawAlgorithm] = reason.split(':')
-  if (!rawAlgorithm) return ''
-
-  if (!['task_start_unreachable', 'task_route_unreachable', 'retry_waiting_for_idle_agv', 'retry_waiting_for_bound_agv'].includes(errorCode)) {
-    return ''
-  }
-
-  const template =
-    localeTexts.value.apiErrorText?.[errorCode] ??
-    LOCALE_TEXTS.en.apiErrorText?.[errorCode] ??
-    ''
-
-  return fillTemplate(template, {
-    algorithm: apiAlgorithmText(rawAlgorithm.toLowerCase())
-  })
-}
-
-function createApiError(payload, fallbackMessage = '') {
-  return new Error(localizeApiErrorDetail(payload?.detail, fallbackMessage))
-}
+const { t, localeTexts, localizeDispatchReason, localizeApiErrorDetail, createApiError } = useLocaleText(locale)
+const {
+  templateJsonLocale,
+  panelLocale,
+  panelSearchLocale,
+  guideCenterLocale,
+  toolbarGuideHintText,
+  taskChainLocale,
+  taskBuilderLocale,
+  taskJsonLocale,
+  taskJsonExampleFileLocale,
+  taskChainMapPickUiLocale,
+  queueViewLocale,
+  experimentLocale,
+  algorithmCompareLocale
+} = useUiLocales({ locale, t })
 
 const selectedAgv = computed(() => {
   if (!selectedAgvId.value) return null
@@ -381,9 +286,16 @@ const selectedBackendAgv = computed(() => {
   if (!selectedAgv.value || selectedAgv.value.source !== 'backend') return null
   return selectedAgv.value
 })
+const maintenanceBackendAgvs = computed(() =>
+  agvs.value
+    .filter(agv => agv.status === 'maintenance')
+    .sort((a, b) => a.id - b.id)
+)
 
 const displayAgvs = computed(() => {
-  const backendAgvs = agvs.value.map(agv => ({ ...agv, source: 'backend' }))
+  const backendAgvs = agvs.value
+    .filter(agv => agv.status !== 'maintenance')
+    .map(agv => ({ ...agv, source: 'backend' }))
   return [...backendAgvs, ...localAgvs.value]
 })
 const selectedAgvTask = computed(() => {
@@ -401,75 +313,6 @@ const filteredFaultEvents = computed(() => {
   if (faultEventFilter.value === 'all') return faultEvents.value
   return faultEvents.value.filter(event => event.status === faultEventFilter.value)
 })
-
-const toSvgPoints = (points, cellSize = CELL_SIZE) =>
-  points
-    .map(point => {
-      const cx = point.x * cellSize + cellSize / 2
-      const cy = point.y * cellSize + cellSize / 2
-      return `${cx},${cy}`
-    })
-    .join(' ')
-
-const toArrowSegments = (points, cellSize = CELL_SIZE) => {
-  if (points.length < 2) return []
-
-  const segments = []
-  let segmentStartIndex = 0
-  let direction = {
-    dx: points[1].x - points[0].x,
-    dy: points[1].y - points[0].y
-  }
-
-  for (let index = 2; index < points.length; index += 1) {
-    const nextDirection = {
-      dx: points[index].x - points[index - 1].x,
-      dy: points[index].y - points[index - 1].y
-    }
-
-    if (nextDirection.dx !== direction.dx || nextDirection.dy !== direction.dy) {
-      segments.push({
-        start: points[segmentStartIndex],
-        end: points[index - 1],
-        direction
-      })
-      segmentStartIndex = index - 1
-      direction = nextDirection
-    }
-  }
-
-  segments.push({
-    start: points[segmentStartIndex],
-    end: points.at(-1),
-    direction
-  })
-
-  return segments
-    .map((segment, index) => {
-      const startX = segment.start.x * cellSize + cellSize / 2
-      const startY = segment.start.y * cellSize + cellSize / 2
-      const endX = segment.end.x * cellSize + cellSize / 2
-      const endY = segment.end.y * cellSize + cellSize / 2
-      const distance = Math.hypot(endX - startX, endY - startY)
-
-      if (distance === 0) return null
-
-      const unitX = (endX - startX) / distance
-      const unitY = (endY - startY) / distance
-      const centerX = (startX + endX) / 2
-      const centerY = (startY + endY) / 2
-      const arrowLength = Math.min(distance, cellSize * 1.15)
-
-      return {
-        id: `${index}-${segment.start.x}-${segment.start.y}-${segment.end.x}-${segment.end.y}`,
-        x1: centerX - unitX * (arrowLength / 2),
-        y1: centerY - unitY * (arrowLength / 2),
-        x2: centerX + unitX * (arrowLength / 2),
-        y2: centerY + unitY * (arrowLength / 2)
-      }
-    })
-    .filter(Boolean)
-}
 
 const manualPathToStartPoints = computed(() => toSvgPoints(manualPathToStart.value))
 const manualPathToEndPoints = computed(() => toSvgPoints(manualPathToEnd.value))
@@ -553,81 +396,6 @@ const minimapAutoPathToEndPoints = computed(() =>
   toSvgPoints(autoPathToEnd.value, minimapCellSize.value)
 )
 const minimapPreviewPathPoints = computed(() => toSvgPoints(previewPath.value, minimapCellSize.value))
-function isFinitePoint(point) {
-  return Number.isFinite(Number(point?.x)) && Number.isFinite(Number(point?.y))
-}
-
-function taskStageWaypoints(task) {
-  const stages = Array.isArray(task?.stages) ? task.stages : []
-  if (stages.length === 0) return []
-
-  const points = []
-  const firstStage = stages[0]
-  if (isFinitePoint({ x: firstStage?.start_x, y: firstStage?.start_y })) {
-    points.push({ x: Number(firstStage.start_x), y: Number(firstStage.start_y) })
-  }
-  for (const stage of stages) {
-    if (isFinitePoint({ x: stage?.end_x, y: stage?.end_y })) {
-      points.push({ x: Number(stage.end_x), y: Number(stage.end_y) })
-    }
-  }
-  return points
-}
-
-function taskCurrentStageIndex(task) {
-  const stages = Array.isArray(task?.stages) ? task.stages : []
-  if (stages.length === 0) return 0
-  const idx = Number(task?.current_stage_index ?? 0)
-  if (!Number.isFinite(idx)) return 0
-  return clampValue(Math.floor(idx), 0, stages.length - 1)
-}
-
-function taskRemainingWaypoints(task) {
-  const stages = Array.isArray(task?.stages) ? task.stages : []
-  if (stages.length === 0) return []
-
-  const stageIndex = taskCurrentStageIndex(task)
-  const currentStage = stages[stageIndex]
-  const points = []
-
-  if (isFinitePoint({ x: currentStage?.start_x, y: currentStage?.start_y })) {
-    points.push({ x: Number(currentStage.start_x), y: Number(currentStage.start_y) })
-  }
-
-  for (let index = stageIndex; index < stages.length; index += 1) {
-    const stage = stages[index]
-    if (isFinitePoint({ x: stage?.end_x, y: stage?.end_y })) {
-      points.push({ x: Number(stage.end_x), y: Number(stage.end_y) })
-    }
-  }
-
-  return points
-}
-
-function taskChainMidPoints(task) {
-  const waypoints = taskRemainingWaypoints(task)
-  if (waypoints.length <= 2) return []
-  return waypoints.slice(1, -1).map((point, index) => ({
-    ...point,
-    order: index + 1
-  }))
-}
-
-function resolveTaskOverallEndMarker(task) {
-  const waypoints = taskStageWaypoints(task)
-  if (waypoints.length > 0) return waypoints.at(-1)
-  if (
-    Number.isFinite(Number(task?.overall_end_x)) &&
-    Number.isFinite(Number(task?.overall_end_y))
-  ) {
-    return {
-      x: Number(task.overall_end_x),
-      y: Number(task.overall_end_y)
-    }
-  }
-  return resolveTaskEndMarker(task)
-}
-
 const manualChainRoutePoints = computed(() => {
   const task = manualDisplayTask.value
   if (!task || Number(task.total_stages ?? 1) <= 1) return ''
@@ -667,35 +435,6 @@ const minimapViewportStyle = computed(() => {
     height: `${visibleHeight * scale}px`
   }
 })
-function resolveTaskStartMarker(task) {
-  if (!task) return null
-  const stage = currentTaskStage(task)
-  return stage?.path_to_start?.at(-1) ?? stage?.path_to_end?.[0] ?? { x: stage?.start_x ?? task.start_x, y: stage?.start_y ?? task.start_y }
-}
-
-function resolveTaskEndMarker(task) {
-  if (!task) return null
-  const stage = currentTaskStage(task)
-  return stage?.path_to_end?.at(-1) ?? { x: stage?.end_x ?? task.end_x, y: stage?.end_y ?? task.end_y }
-}
-
-function taskDispatchOrigin(task) {
-  if (task?.dispatch_origin_x !== null && task?.dispatch_origin_x !== undefined && task?.dispatch_origin_y !== null && task?.dispatch_origin_y !== undefined) {
-    return {
-      x: Number(task.dispatch_origin_x),
-      y: Number(task.dispatch_origin_y)
-    }
-  }
-  const firstPoint = task?.path_to_start?.[0]
-  if (firstPoint && Number.isFinite(Number(firstPoint.x)) && Number.isFinite(Number(firstPoint.y))) {
-    return {
-      x: Number(firstPoint.x),
-      y: Number(firstPoint.y)
-    }
-  }
-  return null
-}
-
 const autoDisplayTask = computed(() => findLatestActiveTask('auto'))
 const manualDisplayTask = computed(() => {
   if (trackedManualTaskId.value) {
@@ -788,127 +527,6 @@ const minimapAutoStartMarker = computed(() => autoDisplayStartMarker.value)
 const minimapAutoEndMarker = computed(() => autoDisplayEndMarker.value)
 const pointLibrary = computed(() => [...DEFAULT_POINT_LIBRARY, ...customPoints.value])
 const taskTemplates = computed(() => [...DEFAULT_TASK_TEMPLATES, ...customTaskTemplates.value])
-const templateJsonLocale = computed(() => {
-  if (locale.value === 'ja') {
-    return {
-      title: 'テンプレート JSON',
-      hint: 'カスタムテンプレートを JSON で保存したり、一括で取り込めます。',
-      placeholder:
-        '{ "templates": [{ "name": "入庫口 A から組立 1", "start_x": 0, "start_y": 0, "end_x": 6, "end_y": 2, "priority": 3 }] }',
-      import: 'テンプレート取込',
-      export: 'カスタムを出力',
-      importFile: 'ファイル取込',
-      downloadFile: 'JSON 保存',
-      clear: 'JSON クリア',
-      exportEmpty: '書き出すカスタムテンプレートがありません',
-      exportOk: '書き出し件数',
-      importOk: '取込件数',
-      importFail: 'テンプレート JSON が不正か、取込に失敗しました',
-      skipped: 'スキップ'
-    }
-  }
-
-  if (locale.value === 'zh') {
-    return {
-      title: '模板 JSON',
-      hint: '可导出自定义模板，也可从 JSON 批量导入。',
-      placeholder:
-        '{ "templates": [{ "name": "入库口 A 到装配台 1", "start_x": 0, "start_y": 0, "end_x": 6, "end_y": 2, "priority": 3 }] }',
-      import: '导入模板',
-      export: '导出自定义模板',
-      importFile: '导入文件',
-      downloadFile: '下载 JSON',
-      clear: '清空模板 JSON',
-      exportEmpty: '当前没有可导出的自定义模板',
-      exportOk: '已导出数量',
-      importOk: '已导入数量',
-      importFail: '模板 JSON 格式无效或导入失败',
-      skipped: '已跳过'
-    }
-  }
-
-  return {
-    title: 'Template JSON',
-    hint: 'Export custom templates or import them in batches from JSON.',
-    placeholder:
-      '{ "templates": [{ "name": "Inbound A to Assembly 1", "start_x": 0, "start_y": 0, "end_x": 6, "end_y": 2, "priority": 3 }] }',
-    import: 'Import Templates',
-    export: 'Export Custom Templates',
-    importFile: 'Import File',
-    downloadFile: 'Download JSON',
-    clear: 'Clear Template JSON',
-    exportEmpty: 'There are no custom templates to export',
-    exportOk: 'Exported',
-    importOk: 'Imported',
-    importFail: 'Template JSON is invalid or import failed',
-    skipped: 'Skipped'
-  }
-})
-const panelLocale = computed(() => {
-  if (locale.value === 'ja') {
-    return {
-      sections: {
-        control: '配車操作',
-        queue: 'タスクキュー',
-        templates: 'タスクテンプレート',
-        points: '共通ポイント',
-        json: 'JSON ツール',
-        experiments: '実験記録'
-      },
-      expandAll: 'すべて展開',
-      collapseAll: 'すべて折りたたむ',
-      collapse: '折りたたむ',
-      expand: '展開',
-      currentMode: '現在モード',
-      modeAuto: '自動配車',
-      modeManual: '手動配車',
-      modeAutoHint: '始点と終点を指定すると、システムが空き AGV を選んで実行します。',
-      modeManualHint: '先に AGV を選び、その後に目的地を指定してその車両だけを移動させます。'
-    }
-  }
-
-  if (locale.value === 'zh') {
-    return {
-      sections: {
-        control: '调度控制',
-        queue: '任务队列',
-        templates: '任务模板',
-        points: '常用点位',
-        json: 'JSON 工具',
-        experiments: '实验记录'
-      },
-      expandAll: '全部展开',
-      collapseAll: '全部收起',
-      collapse: '收起',
-      expand: '展开',
-      currentMode: '当前模式',
-      modeAuto: '自动调度',
-      modeManual: '手动调车',
-      modeAutoHint: '设置起点和终点后，系统会自动选择空闲 AGV 执行任务。',
-      modeManualHint: '先选择 AGV，再指定目标位置，只调度这台车。'
-    }
-  }
-
-  return {
-    sections: {
-      control: 'Dispatch Control',
-      queue: 'Task Queue',
-      templates: 'Task Templates',
-      points: 'Common Points',
-      json: 'JSON Tools',
-      experiments: 'Experiment Records'
-    },
-    expandAll: 'Expand All',
-    collapseAll: 'Collapse All',
-    collapse: 'Collapse',
-    expand: 'Expand',
-    currentMode: 'Current Mode',
-    modeAuto: 'Auto Dispatch',
-    modeManual: 'Manual Relocation',
-    modeAutoHint: 'After you set start and end points, the system selects an idle AGV automatically.',
-    modeManualHint: 'Select an AGV first, then choose a target point to move only that vehicle.'
-  }
-})
 const currentDispatchModeLabel = computed(() =>
   dispatchMode.value === 'auto' ? panelLocale.value.modeAuto : panelLocale.value.modeManual
 )
@@ -916,410 +534,66 @@ const currentDispatchModeHint = computed(() =>
   dispatchMode.value === 'auto' ? panelLocale.value.modeAutoHint : panelLocale.value.modeManualHint
 )
 const faultLocale = computed(() => localeTexts.value.fault ?? LOCALE_TEXTS.en.fault)
-const panelSearchLocale = computed(() => {
-  if (locale.value === 'ja') {
-    return {
-      placeholder: 'パネル名・タスク・テンプレート・ポイントを検索',
-      clear: '検索クリア',
-      empty: '一致するセクションや項目はありません',
-      hits: '件一致'
-    }
-  }
-
-  if (locale.value === 'zh') {
-    return {
-      placeholder: '搜索面板、任务、模板或点位',
-      clear: '清空搜索',
-      empty: '没有匹配的面板或条目',
-      hits: '项匹配'
-    }
-  }
-
-  return {
-    placeholder: 'Search panels, tasks, templates, or points',
-    clear: 'Clear Search',
-    empty: 'No matching sections or items',
-    hits: 'matches'
-  }
-})
 const panelSummaryLocale = computed(() => localeTexts.value.panelSummary ?? LOCALE_TEXTS.en.panelSummary)
 const settingsLocale = computed(() => localeTexts.value.settings ?? LOCALE_TEXTS.en.settings)
-const guideCenterLocale = computed(() => {
-  if (locale.value === 'ja') {
-    return {
-      open: '使い方',
-      title: '操作ガイド',
-      close: '閉じる',
-      modeTitle: 'モード説明',
-      modeAutoTitle: '自動配車',
-      modeManualTitle: '手動配車',
-      shortcutsTitle: 'ショートカット',
-      shortcutCancel: '地図で右クリック / F: AGV 選択を解除',
-      shortcutAlgorithm: 'R: simple / A* を切替',
-      shortcutContext: '地図で右クリック: 段階選点のキャンセル',
-      workflowTitle: '基本フロー',
-      workflowAuto: t('dispatch_help_auto'),
-      workflowManual: t('dispatch_help_manual'),
-      workflowForm: t('dispatch_help_form')
-    }
-  }
-
-  if (locale.value === 'zh') {
-    return {
-      open: '使用说明',
-      title: '操作说明中心',
-      close: '关闭',
-      modeTitle: '模式说明',
-      modeAutoTitle: '自动调度',
-      modeManualTitle: '手动调车',
-      shortcutsTitle: '快捷键',
-      shortcutCancel: '地图右键 / F：取消 AGV 选中',
-      shortcutAlgorithm: 'R：切换 simple / A*',
-      shortcutContext: '地图右键：多段选点时可取消当前选点流程',
-      workflowTitle: '基础流程',
-      workflowAuto: t('dispatch_help_auto'),
-      workflowManual: t('dispatch_help_manual'),
-      workflowForm: t('dispatch_help_form')
-    }
-  }
-
-  return {
-    open: 'Guide',
-    title: 'Operation Guide',
-    close: 'Close',
-    modeTitle: 'Mode Guide',
-    modeAutoTitle: 'Auto Dispatch',
-    modeManualTitle: 'Manual Dispatch',
-    shortcutsTitle: 'Shortcuts',
-    shortcutCancel: 'Right click on map / F: Clear AGV selection',
-    shortcutAlgorithm: 'R: Toggle simple / A*',
-    shortcutContext: 'Right click on map: cancel stage point-picking',
-    workflowTitle: 'Basic Workflow',
-    workflowAuto: t('dispatch_help_auto'),
-    workflowManual: t('dispatch_help_manual'),
-    workflowForm: t('dispatch_help_form')
-  }
-})
-const toolbarGuideHintText = computed(() => {
-  if (locale.value === 'ja') return '操作説明は「使い方」をご確認ください。'
-  if (locale.value === 'zh') return '操作说明请见“说明中心”。'
-  return 'See "Guide" for operation instructions.'
-})
-const taskChainLocale = computed(() => {
-  if (locale.value === 'ja') {
-    return {
-      title: '段階タスク',
-      hint: 'A -> B -> C のような連続工程を 1 件のタスクとして順番に実行します。',
-      stage: '段階',
-      stageLabel: '段階名',
-      stageLabelPlaceholder: '例：組立工程',
-      addStage: '段階追加',
-      removeStage: '削除',
-      resetStages: '段階を初期化',
-      createTask: '段階タスクを作成',
-      progress: '進行',
-      currentRoute: '現在段階',
-      overallRoute: '全体経路',
-      priorityHint: '優先度は上の共通設定を使用します。',
-      saveTemplate: '現在の段階タスクをテンプレート保存',
-      stageCount: '段階数',
-      loadedHint: '段階テンプレートを読み込みました。下の段階タスク作成ボタンを使ってください。'
-    }
-  }
-
-  if (locale.value === 'zh') {
-    return {
-      title: '阶段任务',
-      hint: '用于 A -> B -> C 这类连续流程，同一任务会按阶段顺序连续执行。',
-      stage: '阶段',
-      stageLabel: '阶段名',
-      stageLabelPlaceholder: '例如：装配工序',
-      addStage: '新增阶段',
-      removeStage: '删除',
-      resetStages: '重置阶段',
-      createTask: '创建阶段任务',
-      progress: '进度',
-      currentRoute: '当前阶段',
-      overallRoute: '总路线',
-      priorityHint: '优先级使用上方公共设置。',
-      saveTemplate: '保存当前阶段任务为模板',
-      stageCount: '阶段数',
-      loadedHint: '已载入阶段模板，请使用下方阶段任务按钮创建。'
-    }
-  }
-
-  return {
-    title: 'Stage Task',
-    hint: 'Use one task to execute linked stages such as A -> B -> C in order.',
-    stage: 'Stage',
-    stageLabel: 'Stage Name',
-    stageLabelPlaceholder: 'e.g. Assembly',
-    addStage: 'Add Stage',
-    removeStage: 'Remove',
-    resetStages: 'Reset Stages',
-    createTask: 'Create Stage Task',
-    progress: 'Progress',
-    currentRoute: 'Current Stage',
-    overallRoute: 'Overall Route',
-    priorityHint: 'Priority uses the shared control above.',
-    saveTemplate: 'Save Stage Task as Template',
-    stageCount: 'Stages',
-    loadedHint: 'Stage template loaded. Use the stage task button below to create it.'
-  }
-})
-const taskBuilderLocale = computed(() => {
-  if (locale.value === 'ja') {
-    return {
-      title: 'タスク作成',
-      single: '単一タスク',
-      chain: '段階タスク',
-      singleCompact: '単段',
-      chainCompact: '多段',
-      switchLabel: '切替',
-      singleHint: 'A -> B の単一搬送タスクを作成します。',
-      jumpAction: '作成欄へ移動',
-      jumpHint: '読み込み後、右下の黄色ボタンから移動できます。ダブルクリックなら直接移動します。',
-      loadedSingle: '単一タスクのフォームに読み込みました。',
-      loadedChain: '段階タスクのフォームに読み込みました。'
-    }
-  }
-
-  if (locale.value === 'zh') {
-    return {
-      title: '任务创建',
-      single: '单段任务',
-      chain: '阶段任务',
-      singleCompact: '单段',
-      chainCompact: '多段',
-      switchLabel: '切换',
-      singleHint: '用于创建 A -> B 的单段搬运任务。',
-      jumpAction: '跳转到任务创建',
-      jumpHint: '载入后可点击右下角黄色按钮跳转，双击可直接跳转。',
-      loadedSingle: '已载入到单段任务表单。',
-      loadedChain: '已载入到阶段任务表单。'
-    }
-  }
-
-  return {
-    title: 'Task Builder',
-    single: 'Single',
-    chain: 'Stages',
-    singleCompact: 'Single',
-    chainCompact: 'Multi',
-    switchLabel: 'Mode',
-    singleHint: 'Create a single A -> B transport task.',
-    jumpAction: 'Jump to Builder',
-    jumpHint: 'Use the yellow button at the lower-right after loading, or double-click to jump directly.',
-    loadedSingle: 'Loaded into the single-task form.',
-    loadedChain: 'Loaded into the stage-task form.'
-  }
-})
-const taskJsonLocale = computed(() => {
-  if (locale.value === 'ja') {
-    return {
-      singleExample: '単一サンプル',
-      chainExample: '段階サンプル',
-      singleLoaded: '単一タスク JSON サンプルを入力しました。',
-      chainLoaded: '段階タスク JSON サンプルを入力しました。'
-    }
-  }
-
-  if (locale.value === 'zh') {
-    return {
-      singleExample: '填入单段示例',
-      chainExample: '填入阶段示例',
-      singleLoaded: '已填入单段任务 JSON 示例。',
-      chainLoaded: '已填入阶段任务 JSON 示例。'
-    }
-  }
-
-  return {
-    singleExample: 'Single Example',
-    chainExample: 'Stage Example',
-    singleLoaded: 'Loaded a single-task JSON example.',
-    chainLoaded: 'Loaded a stage-task JSON example.'
-  }
-})
-const taskJsonExampleFileLocale = computed(() => {
-  if (locale.value === 'ja') {
-    return {
-      singleDownload: '単一サンプルを保存',
-      chainDownload: '段階サンプルを保存',
-      singleDownloaded: '単一タスク JSON サンプルを保存しました。',
-      chainDownloaded: '段階タスク JSON サンプルを保存しました。'
-    }
-  }
-
-  if (locale.value === 'zh') {
-    return {
-      singleDownload: '下载单段示例',
-      chainDownload: '下载阶段示例',
-      singleDownloaded: '已下载单段任务 JSON 示例。',
-      chainDownloaded: '已下载阶段任务 JSON 示例。'
-    }
-  }
-
-  return {
-    singleDownload: 'Download Single Sample',
-    chainDownload: 'Download Stage Sample',
-    singleDownloaded: 'Downloaded a single-task JSON sample.',
-    chainDownloaded: 'Downloaded a stage-task JSON sample.'
-  }
-})
-const taskChainMapPickUiLocale = computed(() => {
-  if (locale.value === 'ja') {
-    return {
-      start: '選点',
-      cancel: '取消',
-      stageCount: '予定',
-      idle: (required, stages) => `予定 ${stages} 段 / 必要 ${required} 点。先に「選点」を押してから地図をクリックしてください。`,
-      status: (picked, required, stages) =>
-        picked >= required
-          ? `${required} 点を選択済みです。確認後に ${stages} 段タスクを作成します。`
-          : `${picked}/${required} 点を選択済みです。続けて選点してください。`
-    }
-  }
-
-  if (locale.value === 'zh') {
-    return {
-      start: '选点',
-      cancel: '取消',
-      stageCount: '预选',
-      idle: (required, stages) => `预选 ${stages} 段 / 需 ${required} 点，先点击“选点”，再到地图上选点。`,
-      status: (picked, required, stages) =>
-        picked >= required
-          ? `已选满 ${required} 点，确认后创建 ${stages} 段任务。`
-          : `已选 ${picked}/${required} 点，请继续选点。`
-    }
-  }
-
-  return {
-    start: 'Pick',
-    cancel: 'Cancel',
-    stageCount: 'Plan',
-    idle: (required, stages) => `Plan ${stages} stages / ${required} points. Click "Pick" first, then select points on the map.`,
-    status: (picked, required, stages) =>
-      picked >= required
-        ? `${required} points selected. Confirm to create ${stages} stages.`
-        : `${picked}/${required} points selected. Keep picking.`
-  }
-})
-const queueViewLocale = computed(() => {
-  if (locale.value === 'ja') {
-    return {
-      collapseCards: 'カードを折りたたむ',
-      expandCards: 'カードを展開'
-    }
-  }
-
-  if (locale.value === 'zh') {
-    return {
-      collapseCards: '折叠卡片',
-      expandCards: '展开卡片'
-    }
-  }
-
-  return {
-    collapseCards: 'Fold Cards',
-    expandCards: 'Expand Cards'
-  }
-})
-const experimentLocale = computed(() => {
-  if (locale.value === 'ja') {
-    return {
-      title: '実験記録',
-      hint: '現在の比較結果を保存し、JSON / CSV として書き出せます。',
-      saveCurrent: '現在結果を保存',
-      exportCurrentJson: '現在結果 JSON',
-      exportCurrentCsv: '現在結果 CSV',
-      exportAllJson: '全記録 JSON',
-      exportAllCsv: '全記録 CSV',
-      clearAll: '全削除',
-      empty: '保存済みの実験記録はありません',
-      noCompare: '先にアルゴリズム比較を実行してください。',
-      savedOk: '実験記録を保存しました。',
-      deletedOk: '実験記録を削除しました。',
-      clearedOk: '実験記録をすべて削除しました。',
-      exportEmpty: '書き出す実験記録がありません。',
-      exportCurrentJsonOk: '現在結果の JSON を書き出しました。',
-      exportCurrentCsvOk: '現在結果の CSV を書き出しました。',
-      exportAllJsonOk: '全実験記録の JSON を書き出しました。',
-      exportAllCsvOk: '全実験記録の CSV を書き出しました。',
-      route: '経路',
-      scene: 'シーン',
-      obstacles: '障害セル',
-      savedAt: '保存時刻',
-      currentAlgorithm: '現在アルゴリズム',
-      recommendedAlgorithm: '推奨アルゴリズム',
-      delete: '削除',
-      recordPrefix: '記録'
-    }
-  }
-
-  if (locale.value === 'zh') {
-    return {
-      title: '实验记录',
-      hint: '可保存当前算法对比结果，并导出为 JSON / CSV。',
-      saveCurrent: '保存当前结果',
-      exportCurrentJson: '导出当前 JSON',
-      exportCurrentCsv: '导出当前 CSV',
-      exportAllJson: '导出全部 JSON',
-      exportAllCsv: '导出全部 CSV',
-      clearAll: '清空记录',
-      empty: '当前没有已保存的实验记录',
-      noCompare: '请先执行算法对比。',
-      savedOk: '实验记录已保存。',
-      deletedOk: '实验记录已删除。',
-      clearedOk: '实验记录已清空。',
-      exportEmpty: '当前没有可导出的实验记录。',
-      exportCurrentJsonOk: '已导出当前结果 JSON。',
-      exportCurrentCsvOk: '已导出当前结果 CSV。',
-      exportAllJsonOk: '已导出全部实验记录 JSON。',
-      exportAllCsvOk: '已导出全部实验记录 CSV。',
-      route: '路线',
-      scene: '场景',
-      obstacles: '障碍格',
-      savedAt: '保存时间',
-      currentAlgorithm: '当前算法',
-      recommendedAlgorithm: '推荐算法',
-      delete: '删除',
-      recordPrefix: '记录'
-    }
-  }
-
-  return {
-    title: 'Experiment Records',
-    hint: 'Save the current compare result and export it as JSON / CSV.',
-    saveCurrent: 'Save Current Result',
-    exportCurrentJson: 'Export Current JSON',
-    exportCurrentCsv: 'Export Current CSV',
-    exportAllJson: 'Export All JSON',
-    exportAllCsv: 'Export All CSV',
-    clearAll: 'Clear Records',
-    empty: 'There are no saved experiment records.',
-    noCompare: 'Run an algorithm comparison first.',
-    savedOk: 'Experiment record saved.',
-    deletedOk: 'Experiment record deleted.',
-    clearedOk: 'Experiment records cleared.',
-    exportEmpty: 'There are no experiment records to export.',
-    exportCurrentJsonOk: 'Exported the current result JSON.',
-    exportCurrentCsvOk: 'Exported the current result CSV.',
-    exportAllJsonOk: 'Exported all experiment records as JSON.',
-    exportAllCsvOk: 'Exported all experiment records as CSV.',
-    route: 'Route',
-    scene: 'Scene',
-    obstacles: 'Blocked Cells',
-    savedAt: 'Saved At',
-    currentAlgorithm: 'Current Algorithm',
-    recommendedAlgorithm: 'Recommended Algorithm',
-    delete: 'Delete',
-    recordPrefix: 'Record'
-  }
+const {
+  statusColor,
+  statusText,
+  compactStatusText,
+  taskStatusText,
+  algorithmText,
+  faultTypeText,
+  faultSeverityText,
+  faultEventTypeText,
+  faultEventStatusText,
+  moveToMaintenanceText,
+  returnToServiceText,
+  maintenanceListTitleText,
+  formatTaskMeta,
+  formatTaskAgv,
+  formatTaskStageProgress,
+  formatTaskCurrentStage,
+  formatTaskTime,
+  formatTaskCompactSummary,
+  formatDispatchReason,
+  formatTaskAlgorithm,
+  formatTaskPathStats,
+  formatTaskInitialPoint,
+  blockedTaskAlertText,
+  isRecoveryRequiredTask,
+  isCellOccupiedTimeoutTask,
+  retryFromCurrentButtonText,
+  retryFromCurrentQueuedText,
+  agvRecoveryJumpButtonText,
+  formatTaskLastAction,
+  taskLastActionLabel,
+  isTaskReasonAlert,
+  recoveryActionText,
+  recoveryQueuedText,
+  countRetryableBlockedTasks
+} = useTaskTextFormatters({
+  locale,
+  t,
+  faultLocale,
+  taskChainLocale,
+  isTaskChain,
+  overallTaskStart,
+  overallTaskEnd,
+  currentTaskStage,
+  normalizeTaskStages,
+  localizeDispatchReason,
+  obstacleEditMode,
+  obstacleLayoutDirty,
+  obstacleSaveRequiredText,
+  hasIdleAgv,
+  agvs,
+  taskDispatchOrigin,
+  algorithm,
+  agvRecoveryJumpTargetAgvId
 })
 const currentTaskBuilderModeCompactLabel = computed(() =>
   taskBuilderMode.value === 'chain' ? taskBuilderLocale.value.chainCompact : taskBuilderLocale.value.singleCompact
 )
-const taskChainStageCount = computed(() => Math.max(taskChainStages.value.length, 2))
 const taskChainMapPickStageCountInput = computed({
   get: () => taskChainMapPickStageCount.value,
   set: value => {
@@ -1498,65 +772,6 @@ async function handleManualScheduleFailure(createdTaskId, scheduleData) {
 const taskChainMapPickButtonText = computed(() =>
   taskChainMapPickActive.value ? taskChainMapPickUiLocale.value.cancel : taskChainMapPickUiLocale.value.start
 )
-const algorithmCompareLocale = computed(() => {
-  if (locale.value === 'ja') {
-    return {
-      title: 'アルゴリズム比較',
-      hintSingle: '現在の単一路線を simple と A* で比較します。',
-      hintChain: '現在の段階タスクを simple と A* で比較します。',
-      run: '現在の経路を比較',
-      clear: '結果を消去',
-      invalid: '比較するための有効な座標が必要です。',
-      reachable: '到達可能',
-      unreachable: '到達不可',
-      total: '総距離',
-      stages: '段階距離',
-      failedStage: '失敗段階',
-      recommended: '推奨',
-      current: '現在',
-      apply: '使用中',
-      switchTo: '切替'
-    }
-  }
-
-  if (locale.value === 'zh') {
-    return {
-      title: '算法对比',
-      hintSingle: '对当前单段路线进行 simple 与 A* 对比。',
-      hintChain: '对当前阶段任务进行 simple 与 A* 对比。',
-      run: '对比当前路线',
-      clear: '清空结果',
-      invalid: '当前表单坐标无效，无法进行算法对比。',
-      reachable: '可达',
-      unreachable: '不可达',
-      total: '总长度',
-      stages: '阶段长度',
-      failedStage: '失败阶段',
-      recommended: '推荐',
-      current: '当前',
-      apply: '使用中',
-      switchTo: '切换'
-    }
-  }
-
-  return {
-    title: 'Algorithm Compare',
-    hintSingle: 'Compare the current single route with simple and A*.',
-    hintChain: 'Compare the current staged task with simple and A*.',
-    run: 'Compare Current Route',
-    clear: 'Clear',
-    invalid: 'Current form coordinates are invalid for comparison.',
-    reachable: 'Reachable',
-    unreachable: 'Blocked',
-    total: 'Total Length',
-    stages: 'Stage Lengths',
-    failedStage: 'Failed Stage',
-    recommended: 'Recommended',
-    current: 'Current',
-    apply: 'Using',
-    switchTo: 'Switch'
-  }
-})
 const currentCompareHint = computed(() =>
   taskBuilderMode.value === 'chain'
     ? algorithmCompareLocale.value.hintChain
@@ -1914,129 +1129,8 @@ const taskGroups = computed(() => {
   }))
 })
 
-function buildDefaultQueueGroupState() {
-  return {
-    pending: false,
-    blocked: false,
-    assigned: false,
-    running: false,
-    finished: true
-  }
-}
-
-function clampValue(value, min, max) {
-  return Math.min(Math.max(value, min), max)
-}
-
-function pointStyle(point, cellSize = CELL_SIZE, size = 12) {
-  return {
-    left: `${point.x * cellSize + cellSize / 2 - size / 2}px`,
-    top: `${point.y * cellSize + cellSize / 2 - size / 2}px`
-  }
-}
-
-function blockedCellKey(x, y) {
-  return `${x},${y}`
-}
-
 function isBlockedCell(x, y) {
   return blockedCellSet.value.has(blockedCellKey(x, y))
-}
-
-function sortTasks(list, status) {
-  const copy = [...list]
-  if (status === 'pending' || status === 'blocked') {
-    return copy.sort((a, b) => b.priority - a.priority || a.id - b.id)
-  }
-  if (status === 'finished') {
-    return copy.sort((a, b) => compareTime(b.finished_at, a.finished_at) || b.id - a.id)
-  }
-  return copy.sort((a, b) => compareTime(b.assigned_at, a.assigned_at) || b.priority - a.priority || a.id - b.id)
-}
-
-function compareTime(a, b) {
-  const aTime = a ? Date.parse(a) : 0
-  const bTime = b ? Date.parse(b) : 0
-  return aTime - bTime
-}
-
-function statusColor(status) {
-  const map = {
-    idle: '#7f8c8d',
-    running: '#2e7d32',
-    fault: '#c62828',
-    relocating: '#ef6c00',
-    emergency_stop: '#7b1f2f'
-  }
-  return map[status] ?? '#333'
-}
-
-function statusText(status) {
-  const localized = {
-    zh: {
-      emergency_stop: faultLocale.value.emergencyStopped
-    },
-    ja: {
-      emergency_stop: faultLocale.value.emergencyStopped
-    },
-    en: {
-      emergency_stop: faultLocale.value.emergencyStopped
-    }
-  }
-  return localized[locale.value]?.[status] ?? t(`status_${status}`) ?? status
-}
-
-function compactStatusText(status) {
-  const map = {
-    zh: {
-      idle: '空闲',
-      running: '运行',
-      fault: '故障',
-      relocating: '就位',
-      emergency_stop: '急停'
-    },
-    ja: {
-      idle: '待機',
-      running: '運行',
-      fault: '故障',
-      relocating: '移動',
-      emergency_stop: '急停'
-    },
-    en: {
-      idle: 'IDLE',
-      running: 'RUN',
-      fault: 'FAULT',
-      relocating: 'MOVE',
-      emergency_stop: 'STOP'
-    }
-  }
-
-  return map[locale.value]?.[status] ?? statusText(status)
-}
-
-function taskStatusText(status) {
-  return t(`task_${status}`) ?? status
-}
-
-function algorithmText(value) {
-  return value === 'astar' ? t('algo_astar') : t('algo_simple')
-}
-
-function faultTypeText(value) {
-  return faultLocale.value.faultTypes[value] ?? value
-}
-
-function faultSeverityText(value) {
-  return faultLocale.value.severities[value] ?? value
-}
-
-function faultEventTypeText(value) {
-  if (value === 'emergency_stop') return faultLocale.value.eventEmergency
-  return faultLocale.value.eventFault
-}
-
-function faultEventStatusText(value) {
-  return value === 'resolved' ? faultLocale.value.statusResolved : faultLocale.value.statusOpen
 }
 
 function formatCompareStageLengths(result) {
@@ -2084,184 +1178,22 @@ function formatExperimentAlgorithms(record) {
     .join(' | ')
 }
 
-function dispatchModeText(value) {
-  return value === 'manual' ? t('reason_manual') : t('reason_auto')
+function formatExperimentCardTitle(record, index) {
+  const seq = Math.max(experimentRecords.value.length - Number(index ?? 0), 1)
+  const scene = record?.scene_name || '--'
+  if (locale.value === 'ja') return `${experimentLocale.value.recordPrefix} ${seq} · ${scene}`
+  if (locale.value === 'zh') return `${experimentLocale.value.recordPrefix} ${seq} · ${scene}`
+  return `${experimentLocale.value.recordPrefix} ${seq} · ${scene}`
 }
 
-function formatTaskMeta(task) {
-  if (isTaskChain(task)) {
-    const start = overallTaskStart(task)
-    const end = overallTaskEnd(task)
-    return `${taskChainLocale.value.overallRoute}: (${start.x}, ${start.y}) -> (${end.x}, ${end.y})`
-  }
-  return `${t('task_start')} (${task.start_x}, ${task.start_y}) -> ${t('task_end')} (${task.end_x}, ${task.end_y})`
+function taskRecoveryActionId(taskId, mode) {
+  return `${taskId}:${mode}`
 }
 
-function formatTaskAgv(task) {
-  return `${t('task_agv')}: ${task.agv_id ?? t('selected_none')}`
-}
-
-function formatTaskStageProgress(task) {
-  if (!isTaskChain(task)) return ''
-  return `${taskChainLocale.value.progress}: ${Number(task.current_stage_index ?? 0) + 1}/${task.total_stages ?? normalizeTaskStages(task).length}`
-}
-
-function formatTaskCurrentStage(task) {
-  if (!isTaskChain(task)) return ''
-  const stage = currentTaskStage(task)
-  const label = stage.label ? ` ${stage.label}` : ''
-  return `${taskChainLocale.value.currentRoute}${label}: (${stage.start_x}, ${stage.start_y}) -> (${stage.end_x}, ${stage.end_y})`
-}
-
-function formatTaskTime(task) {
-  const values = [
-    { label: t('time_created'), value: task.created_at },
-    { label: t('time_assigned'), value: task.assigned_at },
-    { label: t('time_started'), value: task.started_at },
-    { label: t('time_finished'), value: task.finished_at }
-  ].filter(item => item.value)
-
-  if (values.length === 0) return ''
-  return values.map(item => `${item.label}: ${item.value}`).join(' | ')
-}
-
-function formatTaskCompactSummary(task) {
-  const start = isTaskChain(task) ? overallTaskStart(task) : { x: task.start_x, y: task.start_y }
-  const end = isTaskChain(task) ? overallTaskEnd(task) : { x: task.end_x, y: task.end_y }
-  const parts = [
-    `(${start.x}, ${start.y}) -> (${end.x}, ${end.y})`,
-    `${t('task_priority')} ${task.priority}`,
-    taskStatusText(task.status)
-  ]
-
-  if (task.agv_id !== null && task.agv_id !== undefined) {
-    parts.push(`AGV #${task.agv_id}`)
-  }
-  if (isTaskChain(task)) {
-    parts.push(`${Number(task.current_stage_index ?? 0) + 1}/${task.total_stages ?? normalizeTaskStages(task).length}`)
-  }
-
-  return parts.join(' | ')
-}
-
-function formatDispatchReason(task) {
-  if (task.status === 'pending' && task.dispatch_reason) {
-    const localizedReason = localizeDispatchReason(task.dispatch_reason)
-    if (localizedReason) return localizedReason
-  }
-  if (task.status === 'pending') {
-    if (task.dispatch_mode === 'manual' && task.preferred_agv_id) {
-      if (task.dispatch_algorithm && task.dispatch_reason?.startsWith('retry_waiting_for_bound_agv')) {
-        if (locale.value === 'ja') return `指定 AGV #${task.preferred_agv_id} の空きを待っています。${algorithmText(task.dispatch_algorithm)} で再試行します。`
-        if (locale.value === 'zh') return `任务已绑定 AGV #${task.preferred_agv_id}，当前正在等待该车辆空闲后按 ${algorithmText(task.dispatch_algorithm)} 重试。`
-        return `Waiting for bound AGV #${task.preferred_agv_id} to become idle before retrying with ${algorithmText(task.dispatch_algorithm)}.`
-      }
-      if (locale.value === 'ja') return `手動派車タスクは指定 AGV #${task.preferred_agv_id} を待機中です。`
-      if (locale.value === 'zh') return `该手动派车任务正在等待指定 AGV #${task.preferred_agv_id} 执行。`
-      return `This manual dispatch task is waiting for bound AGV #${task.preferred_agv_id}.`
-    }
-    if (task.dispatch_mode === 'manual') {
-      if (locale.value === 'ja') return '手動派車タスクは指定 AGV への割当を待機中です。'
-      if (locale.value === 'zh') return '该手动派车任务正在等待指定车辆执行。'
-      return 'This manual dispatch task is waiting for its assigned AGV.'
-    }
-    if (obstacleEditMode.value) {
-      if (locale.value === 'ja') return '障害編集モード中のため、自動調度を一時停止しています。'
-      if (locale.value === 'zh') return '当前处于障碍编辑模式，自动调度已暂停。'
-      return 'Auto dispatch is paused while obstacle editing is active.'
-    }
-    if (obstacleLayoutDirty.value) {
-      return obstacleSaveRequiredText()
-    }
-    if (task.dispatch_algorithm && !hasIdleAgv()) {
-      if (locale.value === 'ja') return `${algorithmText(task.dispatch_algorithm)} で再調度待機中です。空き AGV を待っています。`
-      if (locale.value === 'zh') return `任务将按 ${algorithmText(task.dispatch_algorithm)} 重试，当前正在等待空闲 AGV。`
-      return `Waiting for an idle AGV to retry this task with ${algorithmText(task.dispatch_algorithm)}.`
-    }
-    if (!hasIdleAgv()) {
-      if (agvs.value.some(agv => ['fault', 'emergency_stop'].includes(agv.status))) {
-        if (locale.value === 'ja') return '使用可能な AGV がなく、故障または急停からの復帰を待っています。'
-        if (locale.value === 'zh') return '当前没有可用 AGV，系统正在等待故障或急停中的车辆恢复。'
-        return 'No AGV is currently available. Waiting for faulted or emergency-stopped AGVs to recover.'
-      }
-      return t('dispatch_waiting')
-    }
-    if (!task.dispatch_mode) {
-      if (locale.value === 'ja') return '自動調度キューで待機中です（手動モードでも継続）。'
-      if (locale.value === 'zh') return '任务正在自动调度队列中等待分配（手动模式不会暂停自动调度）。'
-      return 'Waiting in the auto dispatch queue (manual mode does not pause auto scheduling).'
-    }
-  }
-  if (task.status === 'blocked' && task.dispatch_reason) {
-    return localizeDispatchReason(task.dispatch_reason) || task.dispatch_reason
-  }
-  if (task.status === 'blocked') {
-    return t('dispatch_blocked')
-  }
-
-  const parts = []
-  if (task.dispatch_mode) {
-    parts.push(`${t('reason_mode')}: ${dispatchModeText(task.dispatch_mode)}`)
-  }
-  if (task.dispatch_distance !== null && task.dispatch_distance !== undefined) {
-    parts.push(`${t('reason_distance')}: ${task.dispatch_distance}`)
-  }
-  if (task.dispatch_algorithm) {
-    parts.push(`${t('reason_algorithm')}: ${algorithmText(task.dispatch_algorithm)}`)
-  }
-  if (task.agv_id !== null && task.agv_id !== undefined) {
-    parts.push(`AGV #${task.agv_id}`)
-  }
-  if (isTaskChain(task)) {
-    parts.push(`${Number(task.current_stage_index ?? 0) + 1}/${task.total_stages ?? normalizeTaskStages(task).length}`)
-  }
-
-  return parts.join(' | ')
-}
-
-function formatTaskAlgorithm(task) {
-  if (!task?.dispatch_algorithm) return ''
-  return `${t('algorithm')}: ${algorithmText(task.dispatch_algorithm)}`
-}
-
-function formatTaskPathStats(task) {
-  const parts = []
-  if (task.path_length_to_start !== null && task.path_length_to_start !== undefined) {
-    if (locale.value === 'ja') {
-      parts.push(`始点まで ${task.path_length_to_start}`)
-    } else if (locale.value === 'zh') {
-      parts.push(`到起点 ${task.path_length_to_start}`)
-    } else {
-      parts.push(`to start ${task.path_length_to_start}`)
-    }
-  }
-  if (task.path_length_to_end !== null && task.path_length_to_end !== undefined) {
-    if (locale.value === 'ja') {
-      parts.push(`実行区間 ${task.path_length_to_end}`)
-    } else if (locale.value === 'zh') {
-      parts.push(`执行段 ${task.path_length_to_end}`)
-    } else {
-      parts.push(`run ${task.path_length_to_end}`)
-    }
-  }
-  return parts.join(' | ')
-}
-
-function formatTaskInitialPoint(task) {
-  if (task?.dispatch_mode !== 'manual') return ''
-  const origin = taskDispatchOrigin(task)
-  if (!origin) return ''
-  if (locale.value === 'ja') {
-    return `初期位置 (${origin.x},${origin.y})`
-  }
-  if (locale.value === 'zh') {
-    return `初始点 (${origin.x},${origin.y})`
-  }
-  return `Initial (${origin.x},${origin.y})`
-}
-
-function blockedTaskAlertText(task) {
-  return localizeDispatchReason(task?.dispatch_reason) || task?.dispatch_reason || t('task_blocked_alert')
+function isTaskRecoveryBusy(taskId, mode = null) {
+  if (!taskRecoveryActionKey.value) return false
+  if (!mode) return taskRecoveryActionKey.value.startsWith(`${taskId}:`)
+  return taskRecoveryActionKey.value === taskRecoveryActionId(taskId, mode)
 }
 
 function buildTaskChainPayloadFromPoints(points) {
@@ -2529,6 +1461,63 @@ function showTaskBuilderJumpButton() {
   }, 5000)
 }
 
+function hideAgvRecoveryJumpButton() {
+  agvRecoveryJumpReady.value = false
+  agvRecoveryJumpTargetAgvId.value = null
+  if (agvRecoveryJumpTimer) {
+    clearTimeout(agvRecoveryJumpTimer)
+    agvRecoveryJumpTimer = null
+  }
+}
+
+function showAgvRecoveryJumpButton(agvId) {
+  if (!agvId) return
+  agvRecoveryJumpTargetAgvId.value = agvId
+  agvRecoveryJumpReady.value = true
+  if (agvRecoveryJumpTimer) {
+    clearTimeout(agvRecoveryJumpTimer)
+  }
+  agvRecoveryJumpTimer = setTimeout(() => {
+    agvRecoveryJumpReady.value = false
+    agvRecoveryJumpTimer = null
+  }, 5000)
+}
+
+function hideFloatingToast() {
+  floatingToastVisible.value = false
+  floatingToastMessage.value = ''
+  floatingToastType.value = 'info'
+  if (floatingToastTimer) {
+    clearTimeout(floatingToastTimer)
+    floatingToastTimer = null
+  }
+}
+
+function showFloatingToast(message, type = 'info', durationMs = 3200) {
+  if (!message) return
+  floatingToastMessage.value = String(message)
+  floatingToastType.value = type
+  floatingToastVisible.value = true
+  if (floatingToastTimer) {
+    clearTimeout(floatingToastTimer)
+  }
+  floatingToastTimer = setTimeout(() => {
+    floatingToastVisible.value = false
+    floatingToastTimer = null
+  }, durationMs)
+}
+
+function pulseFaultSelectedCard() {
+  faultSelectedAgvPulse.value = true
+  if (faultSelectedAgvPulseTimer) {
+    clearTimeout(faultSelectedAgvPulseTimer)
+  }
+  faultSelectedAgvPulseTimer = setTimeout(() => {
+    faultSelectedAgvPulse.value = false
+    faultSelectedAgvPulseTimer = null
+  }, 2200)
+}
+
 async function focusTaskBuilder(mode = taskBuilderMode.value) {
   taskBuilderMode.value = mode
   await jumpToPanelSearchResult('control')
@@ -2542,6 +1531,26 @@ async function focusTaskBuilder(mode = taskBuilderMode.value) {
     panelElement.scrollTo({ top, behavior: 'smooth' })
   }
   hideTaskBuilderJumpButton()
+}
+
+async function jumpToRecoveryAgvCard() {
+  const targetAgvId = agvRecoveryJumpTargetAgvId.value
+  if (!targetAgvId) return
+  selectedAgvId.value = targetAgvId
+  showFaultReportForm.value = false
+  await jumpToPanelSearchResult('control')
+  await nextTick()
+
+  const panelElement = panelRef.value
+  const faultCardElement = faultSelectedAgvCardRef.value
+  if (panelElement && faultCardElement) {
+    const panelRect = panelElement.getBoundingClientRect()
+    const cardRect = faultCardElement.getBoundingClientRect()
+    const top = Math.max(panelElement.scrollTop + (cardRect.top - panelRect.top) - 10, 0)
+    panelElement.scrollTo({ top, behavior: 'smooth' })
+  }
+  pulseFaultSelectedCard()
+  hideAgvRecoveryJumpButton()
 }
 
 function toggleDispatchModeFromSummary() {
@@ -2565,7 +1574,6 @@ const {
   deleteTaskTemplate,
   exportTaskTemplatesToJson,
   clearTemplateJsonText,
-  importTaskTemplatesFromRaw,
   importTaskTemplatesFromJson,
   downloadTemplateJsonFile,
   triggerTemplateFileImport,
@@ -2754,7 +1762,6 @@ const {
   addTaskChainStage,
   removeTaskChainStage,
   resetTaskChainStages,
-  setTaskChainStageCount,
   setTaskChainMapPickStageCount,
   toggleTaskBuilderMode,
   cancelTaskChainMapPick,
@@ -3304,6 +2311,139 @@ async function deleteTask(task) {
   }
 }
 
+async function recoverBlockedTask(task, mode) {
+  if (!task || task.status !== 'blocked') return
+  hideTaskBuilderJumpButton()
+  if (!(await ensureBlockedCellsSynced())) {
+    window.alert(obstacleSaveRequiredText())
+    return
+  }
+  if (mode === 'bound' && !task.preferred_agv_id) {
+    if (locale.value === 'ja') window.alert('このタスクに原車バインド情報がありません。改派を使用してください。')
+    else if (locale.value === 'zh') window.alert('该任务没有原车绑定信息，请使用“改派执行”。')
+    else window.alert('No bound AGV is available for this task. Please use reassign.')
+    return
+  }
+
+  taskRecoveryActionKey.value = taskRecoveryActionId(task.id, mode)
+  try {
+    const preferredAlgorithm = String(task.dispatch_algorithm || algorithm.value || 'simple').toLowerCase()
+    const res = await fetch(`${API_BASE}/schedule/recover_blocked/${task.id}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        mode,
+        algorithm: preferredAlgorithm,
+        grid_cols: GRID_COLS,
+        grid_rows: GRID_ROWS
+      })
+    })
+    const data = await res.json()
+    if (!res.ok) {
+      throw createApiError(data, 'Recover blocked task failed')
+    }
+
+    if (data?.queued) {
+      if (mode === 'bound') {
+        const jumpAgvId = data?.task?.preferred_agv_id ?? task.preferred_agv_id ?? null
+        if (jumpAgvId) {
+          showAgvRecoveryJumpButton(jumpAgvId)
+        }
+      }
+      showFloatingToast(recoveryQueuedText(mode, task, data?.algorithm), 'info')
+      await Promise.all([fetchAgvs(), fetchTasks()])
+      return
+    }
+
+    const dispatchModeValue = data?.task?.dispatch_mode ?? task.dispatch_mode ?? 'auto'
+    if (dispatchModeValue === 'manual') {
+      const recoveredAgvId = data?.agv?.id ?? data?.task?.agv_id ?? task.preferred_agv_id
+      if (recoveredAgvId) {
+        selectedAgvId.value = recoveredAgvId
+      }
+      manualPathToStart.value = data.path_to_start ?? []
+      manualPathToEnd.value = data.path_to_end ?? data.path ?? []
+      trackedManualTaskId.value = data?.task?.id ?? task.id
+      startPoint.value = resolveTaskStartMarker(data?.task ?? task)
+      endPoint.value = resolveTaskEndMarker(data?.task ?? task)
+      manualDispatchStep.value = 'running'
+      bumpManualPreviewMinVisible()
+    } else {
+      autoPathToStart.value = data.path_to_start ?? []
+      autoPathToEnd.value = data.path_to_end ?? data.path ?? []
+    }
+
+    await Promise.all([fetchAgvs(), fetchTasks()])
+  } catch (error) {
+    console.error('Recover blocked task error:', error)
+    window.alert(error instanceof Error ? error.message : String(error))
+    await fetchTasks()
+  } finally {
+    taskRecoveryActionKey.value = ''
+  }
+}
+
+async function retryBlockedTaskFromCurrent(task, algorithmName = null) {
+  if (task.status !== 'blocked') return
+  if (!(await ensureBlockedCellsSynced())) {
+    window.alert(obstacleSaveRequiredText())
+    return
+  }
+  const selectedAlgorithm = String(algorithmName || task.dispatch_algorithm || algorithm.value || 'simple').toLowerCase()
+  taskRecoveryActionKey.value = taskRecoveryActionId(task.id, 'retry_current')
+  try {
+    const res = await fetch(`${API_BASE}/schedule/retry_blocked_from_current/${task.id}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        algorithm: selectedAlgorithm,
+        grid_cols: GRID_COLS,
+        grid_rows: GRID_ROWS
+      })
+    })
+    const data = await res.json()
+    if (!res.ok) {
+      throw createApiError(data, 'Retry task from current failed')
+    }
+
+    const isManualRetry = (data?.task?.dispatch_mode ?? task.dispatch_mode) === 'manual'
+    if (data?.queued) {
+      const boundAgvId = data?.task?.preferred_agv_id ?? task.preferred_agv_id ?? null
+      if (boundAgvId) {
+        selectedAgvId.value = boundAgvId
+        showAgvRecoveryJumpButton(boundAgvId)
+      }
+      showFloatingToast(retryFromCurrentQueuedText(task, data?.algorithm), 'info')
+      await Promise.all([fetchAgvs(), fetchTasks()])
+      return
+    }
+
+    if (isManualRetry) {
+      if (data?.task?.agv_id ?? task.preferred_agv_id) {
+        selectedAgvId.value = data?.task?.agv_id ?? task.preferred_agv_id
+      }
+      manualPathToStart.value = data.path_to_start ?? []
+      manualPathToEnd.value = data.path_to_end ?? data.path ?? []
+      trackedManualTaskId.value = data?.task?.id ?? task.id
+      startPoint.value = resolveTaskStartMarker(data?.task ?? task)
+      endPoint.value = resolveTaskEndMarker(data?.task ?? task)
+      manualDispatchStep.value = 'running'
+      bumpManualPreviewMinVisible()
+    } else {
+      autoPathToStart.value = data.path_to_start ?? []
+      autoPathToEnd.value = data.path_to_end ?? data.path ?? []
+    }
+
+    await Promise.all([fetchAgvs(), fetchTasks()])
+  } catch (error) {
+    console.error('Retry blocked task from current error:', error)
+    window.alert(error instanceof Error ? error.message : String(error))
+    await fetchTasks()
+  } finally {
+    taskRecoveryActionKey.value = ''
+  }
+}
+
 async function retryBlockedTaskWithAStar(task) {
   if (task.status !== 'blocked') return
   if (!(await ensureBlockedCellsSynced())) {
@@ -3311,8 +2451,13 @@ async function retryBlockedTaskWithAStar(task) {
     return
   }
 
+  taskRecoveryActionKey.value = taskRecoveryActionId(task.id, 'retry_astar')
   try {
-    const res = await fetch(`${API_BASE}/schedule/retry_blocked/${task.id}`, {
+    const shouldRetryFromCurrent = isCellOccupiedTimeoutTask(task)
+    const retryEndpoint = shouldRetryFromCurrent
+      ? `${API_BASE}/schedule/retry_blocked_from_current/${task.id}`
+      : `${API_BASE}/schedule/retry_blocked/${task.id}`
+    const res = await fetch(retryEndpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -3332,11 +2477,18 @@ async function retryBlockedTaskWithAStar(task) {
         const boundAgvId = data?.task?.preferred_agv_id ?? task.preferred_agv_id ?? null
         if (boundAgvId) {
           selectedAgvId.value = boundAgvId
+          if (shouldRetryFromCurrent) {
+            showAgvRecoveryJumpButton(boundAgvId)
+          }
         }
       } else {
         clearAutoPaths()
       }
-      window.alert(t('task_retry_astar_queued'))
+      if (shouldRetryFromCurrent) {
+        showFloatingToast(retryFromCurrentQueuedText(task, data?.algorithm), 'info')
+      } else {
+        window.alert(t('task_retry_astar_queued'))
+      }
     } else if (isManualRetry) {
       if (data?.task?.agv_id ?? task.preferred_agv_id) {
         selectedAgvId.value = data?.task?.agv_id ?? task.preferred_agv_id
@@ -3355,11 +2507,15 @@ async function retryBlockedTaskWithAStar(task) {
     console.error('Retry blocked task error:', error)
     window.alert(error instanceof Error ? error.message : String(error))
     await fetchTasks()
+  } finally {
+    taskRecoveryActionKey.value = ''
   }
 }
 
 async function retryAllBlockedTasksWithAStar(taskGroup) {
-  const blockedTasks = (taskGroup?.tasks ?? []).filter(task => task.status === 'blocked')
+  const blockedTasks = (taskGroup?.tasks ?? []).filter(
+    task => task.status === 'blocked' && !isRecoveryRequiredTask(task)
+  )
   if (blockedTasks.length === 0) return
   if (!(await ensureBlockedCellsSynced())) {
     window.alert(obstacleSaveRequiredText())
@@ -3372,7 +2528,10 @@ async function retryAllBlockedTasksWithAStar(taskGroup) {
 
   for (const task of blockedTasks) {
     try {
-      const res = await fetch(`${API_BASE}/schedule/retry_blocked/${task.id}`, {
+      const retryEndpoint = isCellOccupiedTimeoutTask(task)
+        ? `${API_BASE}/schedule/retry_blocked_from_current/${task.id}`
+        : `${API_BASE}/schedule/retry_blocked/${task.id}`
+      const res = await fetch(retryEndpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -3650,7 +2809,7 @@ function experimentCsvRowsFromRecords(records) {
 
 function buildPathComparePayload() {
   if (taskBuilderMode.value === 'chain') {
-    const stages = taskChainStages.value.map((stage, index) => ({
+    const stages = taskChainStages.value.map(stage => ({
       label: String(stage.label ?? '').trim() || null,
       start_x: Number(stage.start_x),
       start_y: Number(stage.start_y),
@@ -3739,11 +2898,9 @@ function applyComparedAlgorithm(nextAlgorithm) {
 
 const {
   jumpToPanelSearchResult,
-  scrollToComparePanel,
   shouldAutoRefreshFloatingCompare,
   stopFloatingCompareRefresh,
   requestFloatingCompareRefresh,
-  positionFloatingCompareBelowEntry,
   clearPanelSearch,
   handleCompareEntryClick,
   toggleComparePanelExpanded,
@@ -4433,6 +3590,62 @@ async function resumeSelectedAgv() {
   }
 }
 
+async function moveSelectedAgvToMaintenance() {
+  if (!selectedBackendAgv.value) return
+  agvActionLoadingId.value = selectedBackendAgv.value.id
+  try {
+    const res = await fetch(`${API_BASE}/agv/${selectedBackendAgv.value.id}/to-maintenance`, {
+      method: 'POST'
+    })
+    const data = await res.json()
+    if (!res.ok) {
+      throw createApiError(data, moveToMaintenanceText())
+    }
+    if (locale.value === 'ja') {
+      setFaultPanelStatus(`AGV #${selectedBackendAgv.value.id} を整備リストへ移動しました。`, 'success')
+    } else if (locale.value === 'zh') {
+      setFaultPanelStatus(`AGV #${selectedBackendAgv.value.id} 已移入维护列表。`, 'success')
+    } else {
+      setFaultPanelStatus(`AGV #${selectedBackendAgv.value.id} moved to maintenance list.`, 'success')
+    }
+    cancelSelection()
+    await refreshCoreState()
+  } catch (error) {
+    console.error('Move AGV to maintenance error:', error)
+    setFaultPanelStatus(error?.message || moveToMaintenanceText(), 'error')
+  } finally {
+    agvActionLoadingId.value = null
+  }
+}
+
+async function returnAgvToService(agvId) {
+  if (!agvId) return
+  agvActionLoadingId.value = agvId
+  try {
+    const res = await fetch(`${API_BASE}/agv/${agvId}/return-to-service`, {
+      method: 'POST'
+    })
+    const data = await res.json()
+    if (!res.ok) {
+      throw createApiError(data, returnToServiceText())
+    }
+    if (locale.value === 'ja') {
+      setFaultPanelStatus(`AGV #${agvId} を再び待機に戻しました。`, 'success')
+    } else if (locale.value === 'zh') {
+      setFaultPanelStatus(`AGV #${agvId} 已恢复上岗。`, 'success')
+    } else {
+      setFaultPanelStatus(`AGV #${agvId} returned to service.`, 'success')
+    }
+    await refreshCoreState()
+    await scheduleAutoIfReady()
+  } catch (error) {
+    console.error('Return AGV to service error:', error)
+    setFaultPanelStatus(error?.message || returnToServiceText(), 'error')
+  } finally {
+    agvActionLoadingId.value = null
+  }
+}
+
 async function submitFaultReport() {
   if (!selectedBackendAgv.value) return
   agvActionLoadingId.value = selectedBackendAgv.value.id
@@ -4726,12 +3939,26 @@ watch(
       return
     }
     if (!selectedBackendAgv.value) {
-      clearManualDispatchPreview()
+      // Keep preview on transient poll mismatch; only clear when user has really deselected AGV.
+      if (!selectedAgvId.value) {
+        clearManualDispatchPreview()
+      }
       return
     }
 
     const trackedTask = tasks.value.find(task => task.id === trackedManualTaskId.value)
-    if (!trackedTask || ['finished', 'blocked', 'failed'].includes(trackedTask.status)) {
+    if (!trackedTask) {
+      return
+    }
+
+    if (['finished', 'blocked', 'failed'].includes(trackedTask.status)) {
+      if (trackedTask.status === 'blocked' && isRecoveryRequiredTask(trackedTask)) {
+        // Keep AGV selected after emergency stop so operator context does not vanish.
+        trackedManualTaskId.value = null
+        manualDispatchStep.value = 'idle'
+        clearManualDestination()
+        return
+      }
       const remainingMs = manualPreviewMinVisibleUntil.value - Date.now()
       if (remainingMs > 0) {
         if (manualPreviewHoldTimer) {
@@ -4748,11 +3975,13 @@ watch(
     }
 
     if (trackedTask.agv_id !== selectedBackendAgv.value.id) {
+      // Avoid auto-cancel flicker during polling. Only clear tracked preview if user switched to another idle AGV.
       if (selectedBackendAgv.value.status === 'idle') {
-        cancelSelection()
+        trackedManualTaskId.value = null
+        manualDispatchStep.value = 'idle'
+        clearManualDestination()
         return
       }
-      clearManualDispatchPreview()
       return
     }
 
@@ -4794,6 +4023,9 @@ onBeforeUnmount(() => {
   if (previewTimer) clearTimeout(previewTimer)
   if (manualPreviewHoldTimer) clearTimeout(manualPreviewHoldTimer)
   if (taskBuilderJumpTimer) clearTimeout(taskBuilderJumpTimer)
+  if (agvRecoveryJumpTimer) clearTimeout(agvRecoveryJumpTimer)
+  if (faultSelectedAgvPulseTimer) clearTimeout(faultSelectedAgvPulseTimer)
+  hideFloatingToast()
   disposePanelCompareUi()
   if (mapResizeObserver) mapResizeObserver.disconnect()
   stopObstaclePaint()
@@ -5696,7 +4928,11 @@ onBeforeUnmount(() => {
                 </div>
 
                 <template v-if="selectedBackendAgv">
-                  <div class="fault-selected-agv">
+                  <div
+                    ref="faultSelectedAgvCardRef"
+                    class="fault-selected-agv"
+                    :class="{ 'recovery-focus': faultSelectedAgvPulse }"
+                  >
                     <div class="fault-selected-line">
                       <strong>AGV #{{ selectedBackendAgv.id }}</strong>
                       <div class="fault-selected-head-actions">
@@ -5741,6 +4977,14 @@ onBeforeUnmount(() => {
                         @click="showFaultReportForm = !showFaultReportForm"
                       >
                         {{ faultLocale.reportFault }}
+                      </button>
+                      <button
+                        class="btn-secondary fault-action-button"
+                        type="button"
+                        :disabled="agvActionLoadingId === selectedBackendAgv.id || ['running', 'relocating'].includes(selectedBackendAgv.status)"
+                        @click="moveSelectedAgvToMaintenance"
+                      >
+                        {{ moveToMaintenanceText() }}
                       </button>
                     </div>
                     <div v-if="showFaultReportForm" class="fault-report-form">
@@ -5789,6 +5033,23 @@ onBeforeUnmount(() => {
                   </div>
                 </template>
                 <p v-else class="panel-hint">{{ faultLocale.noSelectedAgv }}</p>
+
+                <div v-if="maintenanceBackendAgvs.length > 0" class="fault-maintenance-panel">
+                  <div class="dispatch-summary-label">{{ maintenanceListTitleText() }}</div>
+                  <div class="fault-maintenance-list">
+                    <article v-for="maintenanceAgv in maintenanceBackendAgvs" :key="`maintenance-${maintenanceAgv.id}`" class="fault-maintenance-item">
+                      <strong>AGV #{{ maintenanceAgv.id }}</strong>
+                      <button
+                        class="btn-secondary fault-action-button"
+                        type="button"
+                        :disabled="agvActionLoadingId === maintenanceAgv.id"
+                        @click="returnAgvToService(maintenanceAgv.id)"
+                      >
+                        {{ returnToServiceText() }}
+                      </button>
+                    </article>
+                  </div>
+                </div>
 
                 <div v-if="faultPanelStatus" class="template-status" :class="faultPanelStatusType">
                   {{ faultPanelStatus }}
@@ -6032,6 +5293,7 @@ onBeforeUnmount(() => {
                         v-if="group.key === 'blocked'"
                         class="queue-bulk-button"
                         type="button"
+                        :disabled="countRetryableBlockedTasks(group) === 0"
                         @click="retryAllBlockedTasksWithAStar(group)"
                       >
                         {{ t('queue_retry_all_astar') }}
@@ -6093,8 +5355,11 @@ onBeforeUnmount(() => {
                         <div v-if="formatTaskInitialPoint(task)" class="task-line">{{ formatTaskInitialPoint(task) }}</div>
                         <div class="task-line">{{ formatTaskAgv(task) }}</div>
                         <div v-if="formatTaskPathStats(task)" class="task-line">{{ formatTaskPathStats(task) }}</div>
-                        <div class="task-line task-reason">
+                        <div class="task-line task-reason" :class="{ alert: isTaskReasonAlert(task) }">
                           {{ t('dispatch_reason') }}: {{ formatDispatchReason(task) }}
+                        </div>
+                        <div v-if="formatTaskLastAction(task)" class="task-line task-last-action">
+                          {{ taskLastActionLabel() }}: {{ formatTaskLastAction(task) }}
                         </div>
                         <div v-if="formatTaskTime(task)" class="task-line task-time">
                           {{ formatTaskTime(task) }}
@@ -6109,12 +5374,40 @@ onBeforeUnmount(() => {
                             {{ t('delete_task') }}
                           </button>
                           <button
-                            v-if="task.status === 'blocked'"
+                            v-if="task.status === 'blocked' && !isRecoveryRequiredTask(task) && isCellOccupiedTimeoutTask(task)"
                             class="btn-secondary task-action-button"
                             type="button"
+                            :disabled="isTaskRecoveryBusy(task.id) || !task.preferred_agv_id"
+                            @click="retryBlockedTaskFromCurrent(task)"
+                          >
+                            {{ retryFromCurrentButtonText() }}
+                          </button>
+                          <button
+                            v-if="task.status === 'blocked' && !isRecoveryRequiredTask(task)"
+                            class="btn-secondary task-action-button"
+                            type="button"
+                            :disabled="isTaskRecoveryBusy(task.id)"
                             @click="retryBlockedTaskWithAStar(task)"
                           >
                             {{ t('task_retry_astar') }}
+                          </button>
+                          <button
+                            v-if="task.status === 'blocked' && isRecoveryRequiredTask(task)"
+                            class="btn-secondary task-action-button"
+                            type="button"
+                            :disabled="isTaskRecoveryBusy(task.id) || !task.preferred_agv_id"
+                            @click="recoverBlockedTask(task, 'bound')"
+                          >
+                            {{ recoveryActionText('bound', task) }}
+                          </button>
+                          <button
+                            v-if="task.status === 'blocked' && isRecoveryRequiredTask(task)"
+                            class="btn-secondary task-action-button"
+                            type="button"
+                            :disabled="isTaskRecoveryBusy(task.id)"
+                            @click="recoverBlockedTask(task, 'reassign')"
+                          >
+                            {{ recoveryActionText('reassign', task) }}
                           </button>
                         </div>
                       </template>
@@ -6490,17 +5783,14 @@ onBeforeUnmount(() => {
 
                 <div v-else class="experiment-record-list">
                   <article
-                    v-for="record in experimentRecords"
+                    v-for="(record, recordIndex) in experimentRecords"
                     :key="record.id"
                     class="experiment-record-card"
                     :class="{ 'search-hit': matchedExperimentRecordIds.includes(record.id) }"
                   >
                     <div class="experiment-record-head">
-                      <strong>{{ experimentLocale.recordPrefix }} #{{ record.id }}</strong>
+                      <strong :title="`ID: ${record.id}`">{{ formatExperimentCardTitle(record, recordIndex) }}</strong>
                       <span class="point-badge">{{ record.task_mode === 'chain' ? taskChainLocale.title : taskBuilderLocale.single }}</span>
-                    </div>
-                    <div class="task-line">
-                      {{ experimentLocale.scene }}: {{ record.scene_name }}
                     </div>
                     <div class="task-line">
                       {{ t('task_stages') }}: {{ record.stage_count }} | {{ experimentLocale.obstacles }}: {{ record.obstacle_count }} | {{ record.grid_cols }}x{{ record.grid_rows }}
@@ -6544,6 +5834,14 @@ onBeforeUnmount(() => {
           @click="focusTaskBuilder(taskBuilderMode)"
         >
           {{ taskBuilderLocale.jumpAction }}
+        </button>
+        <button
+          v-if="agvRecoveryJumpReady && agvRecoveryJumpTargetAgvId"
+          class="agv-recovery-jump-button"
+          type="button"
+          @click="jumpToRecoveryAgvCard"
+        >
+          {{ agvRecoveryJumpButtonText() }}
         </button>
         <button
           v-if="showPanelBackToTop"
@@ -6653,6 +5951,15 @@ onBeforeUnmount(() => {
           {{ experimentLocale.exportCurrentCsv }}
         </button>
       </div>
+    </div>
+    <div
+      v-if="floatingToastVisible && floatingToastMessage"
+      class="floating-toast"
+      :class="`floating-toast-${floatingToastType}`"
+      role="status"
+      aria-live="polite"
+    >
+      {{ floatingToastMessage }}
     </div>
   </div>
 </template>

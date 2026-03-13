@@ -273,5 +273,161 @@ export default {
     "time_assigned": "Assigned",
     "time_started": "Started",
     "time_finished": "Finished"
+  },
+  "uiLocales": {
+    "templateJson": {
+      "title": "Template JSON",
+      "hint": "Export custom templates or import them in batches from JSON.",
+      "placeholder": "{ \"templates\": [{ \"name\": \"Inbound A to Assembly 1\", \"start_x\": 0, \"start_y\": 0, \"end_x\": 6, \"end_y\": 2, \"priority\": 3 }] }",
+      "import": "Import Templates",
+      "export": "Export Custom Templates",
+      "importFile": "Import File",
+      "downloadFile": "Download JSON",
+      "clear": "Clear Template JSON",
+      "exportEmpty": "There are no custom templates to export",
+      "exportOk": "Exported",
+      "importOk": "Imported",
+      "importFail": "Template JSON is invalid or import failed",
+      "skipped": "Skipped"
+    },
+    "panel": {
+      "sections": {
+        "control": "Dispatch Control",
+        "queue": "Task Queue",
+        "templates": "Task Templates",
+        "points": "Common Points",
+        "json": "JSON Tools",
+        "experiments": "Experiment Records"
+      },
+      "expandAll": "Expand All",
+      "collapseAll": "Collapse All",
+      "collapse": "Collapse",
+      "expand": "Expand",
+      "currentMode": "Current Mode",
+      "modeAuto": "Auto Dispatch",
+      "modeManual": "Manual Relocation",
+      "modeAutoHint": "After you set start and end points, the system selects an idle AGV automatically.",
+      "modeManualHint": "Select an AGV first, then choose a target point to move only that vehicle."
+    },
+    "panelSearch": {
+      "placeholder": "Search panels, tasks, templates, or points",
+      "clear": "Clear Search",
+      "empty": "No matching sections or items",
+      "hits": "matches"
+    },
+    "guideCenter": {
+      "open": "Guide",
+      "title": "Operation Guide",
+      "close": "Close",
+      "modeTitle": "Mode Guide",
+      "modeAutoTitle": "Auto Dispatch",
+      "modeManualTitle": "Manual Dispatch",
+      "shortcutsTitle": "Shortcuts",
+      "shortcutCancel": "Right click on map / F: Clear AGV selection",
+      "shortcutAlgorithm": "R: Toggle simple / A*",
+      "shortcutContext": "Right click on map: cancel stage point-picking",
+      "workflowTitle": "Basic Workflow"
+    },
+    "toolbarGuideHintText": "See \"Guide\" for operation instructions.",
+    "taskChain": {
+      "title": "Stage Task",
+      "hint": "Use one task to execute linked stages such as A -> B -> C in order.",
+      "stage": "Stage",
+      "stageLabel": "Stage Name",
+      "stageLabelPlaceholder": "e.g. Assembly",
+      "addStage": "Add Stage",
+      "removeStage": "Remove",
+      "resetStages": "Reset Stages",
+      "createTask": "Create Stage Task",
+      "progress": "Progress",
+      "currentRoute": "Current Stage",
+      "overallRoute": "Overall Route",
+      "priorityHint": "Priority uses the shared control above.",
+      "saveTemplate": "Save Stage Task as Template",
+      "stageCount": "Stages",
+      "loadedHint": "Stage template loaded. Use the stage task button below to create it."
+    },
+    "taskBuilder": {
+      "title": "Task Builder",
+      "single": "Single",
+      "chain": "Stages",
+      "singleCompact": "Single",
+      "chainCompact": "Multi",
+      "switchLabel": "Mode",
+      "singleHint": "Create a single A -> B transport task.",
+      "jumpAction": "Jump to Builder",
+      "jumpHint": "Use the yellow button at the lower-right after loading, or double-click to jump directly.",
+      "loadedSingle": "Loaded into the single-task form.",
+      "loadedChain": "Loaded into the stage-task form."
+    },
+    "taskJson": {
+      "singleExample": "Single Example",
+      "chainExample": "Stage Example",
+      "singleLoaded": "Loaded a single-task JSON example.",
+      "chainLoaded": "Loaded a stage-task JSON example."
+    },
+    "taskJsonExampleFile": {
+      "singleDownload": "Download Single Sample",
+      "chainDownload": "Download Stage Sample",
+      "singleDownloaded": "Downloaded a single-task JSON sample.",
+      "chainDownloaded": "Downloaded a stage-task JSON sample."
+    },
+    "taskChainMapPickUi": {
+      "start": "Pick",
+      "cancel": "Cancel",
+      "stageCount": "Plan",
+      "idleTemplate": "Plan {stages} stages / {required} points. Click \"Pick\" first, then select points on the map.",
+      "statusProgressTemplate": "{picked}/{required} points selected. Keep picking.",
+      "statusDoneTemplate": "{required} points selected. Confirm to create {stages} stages."
+    },
+    "queueView": {
+      "collapseCards": "Fold Cards",
+      "expandCards": "Expand Cards"
+    },
+    "experiment": {
+      "title": "Experiment Records",
+      "hint": "Save the current compare result and export it as JSON / CSV.",
+      "saveCurrent": "Save Current Result",
+      "exportCurrentJson": "Export Current JSON",
+      "exportCurrentCsv": "Export Current CSV",
+      "exportAllJson": "Export All JSON",
+      "exportAllCsv": "Export All CSV",
+      "clearAll": "Clear Records",
+      "empty": "There are no saved experiment records.",
+      "noCompare": "Run an algorithm comparison first.",
+      "savedOk": "Experiment record saved.",
+      "deletedOk": "Experiment record deleted.",
+      "clearedOk": "Experiment records cleared.",
+      "exportEmpty": "There are no experiment records to export.",
+      "exportCurrentJsonOk": "Exported the current result JSON.",
+      "exportCurrentCsvOk": "Exported the current result CSV.",
+      "exportAllJsonOk": "Exported all experiment records as JSON.",
+      "exportAllCsvOk": "Exported all experiment records as CSV.",
+      "route": "Route",
+      "scene": "Scene",
+      "obstacles": "Blocked Cells",
+      "savedAt": "Saved At",
+      "currentAlgorithm": "Current Algorithm",
+      "recommendedAlgorithm": "Recommended Algorithm",
+      "delete": "Delete",
+      "recordPrefix": "Record"
+    },
+    "algorithmCompare": {
+      "title": "Algorithm Compare",
+      "hintSingle": "Compare the current single route with simple and A*.",
+      "hintChain": "Compare the current staged task with simple and A*.",
+      "run": "Compare Current Route",
+      "clear": "Clear",
+      "invalid": "Current form coordinates are invalid for comparison.",
+      "reachable": "Reachable",
+      "unreachable": "Blocked",
+      "total": "Total Length",
+      "stages": "Stage Lengths",
+      "failedStage": "Failed Stage",
+      "recommended": "Recommended",
+      "current": "Current",
+      "apply": "Using",
+      "switchTo": "Switch"
+    }
   }
 }

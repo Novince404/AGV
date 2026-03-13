@@ -51,6 +51,13 @@ class RetryBlockedTaskRequest(BaseModel):
     grid_rows: int = 8
 
 
+class RecoverBlockedTaskRequest(BaseModel):
+    mode: str = "reassign"  # bound / reassign
+    algorithm: str | None = None
+    grid_cols: int = 10
+    grid_rows: int = 8
+
+
 def now_iso():
     return datetime.now().isoformat(timespec="seconds")
 
@@ -81,11 +88,30 @@ def _normalize_algorithm_name(algorithm: str | None):
     return normalized
 
 
+def _normalize_recover_mode(mode: str | None):
+    normalized = (mode or "reassign").lower().strip()
+    if normalized not in {"bound", "reassign"}:
+        raise_api_error(400, "unsupported_recover_mode")
+    return normalized
+
+
 def _resolve_task_algorithm(task, fallback_algorithm: str):
     preferred_algorithm = (getattr(task, "dispatch_algorithm", None) or "").lower().strip()
     if preferred_algorithm in {"simple", "astar"} and task.status in {"pending", "blocked"}:
         return preferred_algorithm
     return fallback_algorithm
+
+
+def _reason_requires_bound_agv(reason: str):
+    return reason.startswith("retry_from_current_waiting_for_bound_agv:")
+
+
+def _task_requires_bound_agv(task):
+    preferred_agv_id = getattr(task, "preferred_agv_id", None)
+    if preferred_agv_id is None:
+        return False
+    reason = str(getattr(task, "dispatch_reason", "") or "")
+    return task.dispatch_mode == "manual" or _reason_requires_bound_agv(reason)
 
 
 def _select_schedulable_task(task_id: int | None):
@@ -117,9 +143,18 @@ def _select_idle_agv(agv_id: int | None):
 
 def _get_pending_tasks():
     pending_tasks = [t for t in task_list if t.status in {"pending", "blocked"}]
+    schedulable_tasks = []
     for task in pending_tasks:
         sync_task_stage_fields(task)
-    return pending_tasks
+        reason = str(getattr(task, "dispatch_reason", "") or "")
+        # Recovery-required blocked tasks must be explicitly resumed/reassigned by user action.
+        if task.status == "blocked" and (
+            reason in {"recover_required_fault", "recover_required_emergency_stop", "cell_occupied_timeout"}
+            or reason.startswith("cell_occupied_timeout:")
+        ):
+            continue
+        schedulable_tasks.append(task)
+    return schedulable_tasks
 
 
 def _get_idle_agvs():
@@ -363,7 +398,7 @@ def _pick_task_and_agv_resolved(
         reachable = False
         task_algorithm = _resolve_task_algorithm(pending_task, algorithm)
         preferred_agv_id = getattr(pending_task, "preferred_agv_id", None)
-        if pending_task.dispatch_mode == "manual" and preferred_agv_id is not None:
+        if _task_requires_bound_agv(pending_task):
             preferred_agv = next((agv for agv in idle_agvs if agv.id == preferred_agv_id), None)
             if preferred_agv is None:
                 continue
@@ -518,9 +553,15 @@ def _schedule_task(
     algorithm: str,
     grid_cols: int,
     grid_rows: int,
+    schedule_mode_override: str | None = None,
+    resume_from_current: bool = False,
 ):
     algorithm = _normalize_algorithm_name(algorithm)
-    schedule_mode = "manual" if task_id is not None or agv_id is not None else "auto"
+    schedule_mode = (
+        schedule_mode_override
+        if schedule_mode_override in {"auto", "manual"}
+        else ("manual" if task_id is not None or agv_id is not None else "auto")
+    )
 
     task, agv, dispatch_distance, task_algorithm = _pick_task_and_agv_resolved(
         task_id,
@@ -529,28 +570,60 @@ def _schedule_task(
         grid_cols,
         grid_rows,
     )
+    if (
+        schedule_mode_override not in {"auto", "manual"}
+        and task_id is None
+        and agv_id is None
+        and task.dispatch_mode == "manual"
+        and task.preferred_agv_id == agv.id
+    ):
+        # Preserve manual semantics when auto poll schedules a bound manual task.
+        schedule_mode = "manual"
     stage = get_current_stage(task)
 
     if task.created_at is None:
         task.created_at = now_iso()
-    path_to_start = plan_path(
-        task_algorithm,
-        agv.x,
-        agv.y,
-        stage.start_x,
-        stage.start_y,
-        grid_cols,
-        grid_rows,
+    reason_text = str(task.dispatch_reason or "")
+    should_resume_from_current = resume_from_current or (
+        task.preferred_agv_id == agv.id
+        and (
+            reason_text in {"recover_required_fault", "recover_required_emergency_stop", "cell_occupied_timeout"}
+            or reason_text.startswith("recover_waiting_for_bound_agv:")
+            or reason_text.startswith("cell_occupied_timeout:")
+            or reason_text.startswith("retry_from_current_waiting_for_bound_agv:")
+        )
     )
-    path_to_end = plan_path(
-        task_algorithm,
-        stage.start_x,
-        stage.start_y,
-        stage.end_x,
-        stage.end_y,
-        grid_cols,
-        grid_rows,
-    )
+
+    if should_resume_from_current:
+        path_to_start = [{"x": agv.x, "y": agv.y}]
+        path_to_end = plan_path(
+            task_algorithm,
+            agv.x,
+            agv.y,
+            stage.end_x,
+            stage.end_y,
+            grid_cols,
+            grid_rows,
+        )
+    else:
+        path_to_start = plan_path(
+            task_algorithm,
+            agv.x,
+            agv.y,
+            stage.start_x,
+            stage.start_y,
+            grid_cols,
+            grid_rows,
+        )
+        path_to_end = plan_path(
+            task_algorithm,
+            stage.start_x,
+            stage.start_y,
+            stage.end_x,
+            stage.end_y,
+            grid_cols,
+            grid_rows,
+        )
     if not path_to_start or not path_to_end:
         _mark_task_unreachable(
             task,
@@ -574,6 +647,7 @@ def _schedule_task(
     task.dispatch_mode = schedule_mode
     task.dispatch_distance = dispatch_distance
     task.dispatch_algorithm = task_algorithm
+    task.cell_wait_retry_count = 0
     task.dispatch_reason = (
         f"mode={schedule_mode}, priority={task.priority}, distance={dispatch_distance}, agv={agv.id}, algorithm={task_algorithm}, stage={task.current_stage_index + 1}/{task.total_stages}"
     )
@@ -707,7 +781,8 @@ def retry_blocked_task(task_id: int, req: RetryBlockedTaskRequest):
     if not _get_idle_agvs():
         mark_task_pending(task)
         task.dispatch_algorithm = algorithm
-        task.dispatch_mode = "manual"
+        task.dispatch_mode = "auto"
+        task.preferred_agv_id = None
         task.dispatch_reason = "retry_waiting_for_idle_agv:astar"
         return {
             "message": "Task queued for A* retry",
@@ -722,6 +797,158 @@ def retry_blocked_task(task_id: int, req: RetryBlockedTaskRequest):
             "blocked_cells": get_blocked_cell_payload(req.grid_cols, req.grid_rows),
         }
 
-    result = _schedule_task(task_id, None, algorithm, req.grid_cols, req.grid_rows)
+    result = _schedule_task(
+        task_id,
+        None,
+        algorithm,
+        req.grid_cols,
+        req.grid_rows,
+        schedule_mode_override="auto",
+    )
     result["queued"] = False
+    return result
+
+
+@router.post("/retry_blocked_from_current/{task_id}")
+def retry_blocked_task_from_current(task_id: int, req: RetryBlockedTaskRequest):
+    algorithm = _normalize_algorithm_name(req.algorithm)
+
+    task = next((t for t in task_list if t.id == task_id), None)
+    if not task:
+        raise_api_error(404, "task_not_found")
+
+    sync_task_stage_fields(task)
+    if task.status != "blocked":
+        raise_api_error(400, "task_not_blocked")
+
+    bound_agv_id = getattr(task, "preferred_agv_id", None)
+    if bound_agv_id is None:
+        raise_api_error(400, "task_has_no_bound_agv")
+
+    bound_agv = next((agv for agv in agv_list if agv.id == bound_agv_id), None)
+    if not bound_agv:
+        raise_api_error(404, "agv_not_found")
+
+    original_mode = task.dispatch_mode if task.dispatch_mode in {"auto", "manual"} else "auto"
+    task.dispatch_algorithm = algorithm
+
+    if bound_agv.status != "idle":
+        mark_task_pending(task)
+        task.dispatch_mode = original_mode
+        task.preferred_agv_id = bound_agv_id
+        task.dispatch_algorithm = algorithm
+        task.dispatch_reason = f"retry_from_current_waiting_for_bound_agv:{algorithm}"
+        return {
+            "message": "Task queued for retry from current position on bound AGV",
+            "queued": True,
+            "algorithm": algorithm,
+            "task": {
+                "id": task.id,
+                "status": task.status,
+                "dispatch_mode": task.dispatch_mode,
+                "dispatch_algorithm": task.dispatch_algorithm,
+                "dispatch_reason": task.dispatch_reason,
+                "preferred_agv_id": task.preferred_agv_id,
+            },
+            "blocked_cells": get_blocked_cell_payload(req.grid_cols, req.grid_rows),
+        }
+
+    result = _schedule_task(
+        task_id,
+        bound_agv_id,
+        algorithm,
+        req.grid_cols,
+        req.grid_rows,
+        schedule_mode_override=original_mode,
+        resume_from_current=True,
+    )
+    result["queued"] = False
+    result["resume_from_current"] = True
+    return result
+
+
+@router.post("/recover_blocked/{task_id}")
+def recover_blocked_task(task_id: int, req: RecoverBlockedTaskRequest):
+    task = next((item for item in task_list if item.id == task_id), None)
+    if not task:
+        raise_api_error(404, "task_not_found")
+
+    sync_task_stage_fields(task)
+    if task.status not in {"blocked", "pending"}:
+        raise_api_error(400, "task_not_recoverable")
+
+    recover_mode = _normalize_recover_mode(req.mode)
+    algorithm = _normalize_algorithm_name(req.algorithm or task.dispatch_algorithm or "simple")
+    task.dispatch_algorithm = algorithm
+
+    if recover_mode == "bound":
+        bound_agv_id = task.preferred_agv_id
+        if bound_agv_id is None:
+            raise_api_error(400, "task_has_no_bound_agv")
+
+        bound_agv = next((agv for agv in agv_list if agv.id == bound_agv_id), None)
+        if not bound_agv:
+            raise_api_error(404, "agv_not_found")
+
+        task.dispatch_mode = "manual"
+        if bound_agv.status != "idle":
+            mark_task_pending(task)
+            task.dispatch_mode = "manual"
+            task.preferred_agv_id = bound_agv_id
+            task.dispatch_algorithm = algorithm
+            task.dispatch_reason = f"recover_waiting_for_bound_agv:{algorithm}"
+            return {
+                "message": "Task queued for recovery on bound AGV",
+                "queued": True,
+                "recover_mode": recover_mode,
+                "algorithm": algorithm,
+                "task": {
+                    "id": task.id,
+                    "status": task.status,
+                    "dispatch_algorithm": task.dispatch_algorithm,
+                    "dispatch_reason": task.dispatch_reason,
+                    "preferred_agv_id": task.preferred_agv_id,
+                },
+                "blocked_cells": get_blocked_cell_payload(req.grid_cols, req.grid_rows),
+            }
+
+        result = _schedule_task(task_id, bound_agv_id, algorithm, req.grid_cols, req.grid_rows)
+        result["queued"] = False
+        result["recover_mode"] = recover_mode
+        return result
+
+    # recover_mode == "reassign"
+    task.dispatch_mode = "auto"
+    task.preferred_agv_id = None
+    if not _get_idle_agvs():
+        mark_task_pending(task)
+        task.dispatch_mode = "auto"
+        task.preferred_agv_id = None
+        task.dispatch_algorithm = algorithm
+        task.dispatch_reason = f"recover_waiting_for_idle_agv:{algorithm}"
+        return {
+            "message": "Task queued for recovery on any idle AGV",
+            "queued": True,
+            "recover_mode": recover_mode,
+            "algorithm": algorithm,
+            "task": {
+                "id": task.id,
+                "status": task.status,
+                "dispatch_algorithm": task.dispatch_algorithm,
+                "dispatch_reason": task.dispatch_reason,
+                "preferred_agv_id": task.preferred_agv_id,
+            },
+            "blocked_cells": get_blocked_cell_payload(req.grid_cols, req.grid_rows),
+        }
+
+    result = _schedule_task(
+        task_id,
+        None,
+        algorithm,
+        req.grid_cols,
+        req.grid_rows,
+        schedule_mode_override="auto",
+    )
+    result["queued"] = False
+    result["recover_mode"] = recover_mode
     return result

@@ -40,6 +40,8 @@ class Task(BaseModel):
     dispatch_distance: int | None = None
     dispatch_algorithm: str | None = None
     dispatch_reason: str | None = None
+    cell_wait_retry_count: int = 0
+    cell_wait_retry_budget: int = 1
     current_stage_index: int = 0
     total_stages: int = 1
     overall_start_x: int | None = None

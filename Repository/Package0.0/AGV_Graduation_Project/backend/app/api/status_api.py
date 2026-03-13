@@ -28,7 +28,7 @@ class MapLayoutUpdateRequest(BaseModel):
 
 
 def _filter_occupied_cells(cells: set[tuple[int, int]]):
-    occupied = {(agv.x, agv.y) for agv in agv_list}
+    occupied = {(agv.x, agv.y) for agv in agv_list if agv.status != "maintenance"}
     filtered = {cell for cell in cells if cell not in occupied}
     skipped = sorted(cell for cell in cells if cell in occupied)
     return filtered, skipped
