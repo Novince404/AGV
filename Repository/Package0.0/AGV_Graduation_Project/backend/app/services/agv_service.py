@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from app.repositories.agv_repository import agv_list
+from app.repositories.agv_repository import agv_list, get_agv_by_id, list_agvs
+from app.repositories.task_repository import list_tasks
 from app.utils.api_error import raise_api_error
 from app.utils.fault_state import (
     create_fault_event,
@@ -10,20 +11,23 @@ from app.utils.fault_state import (
 from app.utils.task_chain import mark_task_blocked
 
 
+#
+# Keep compatibility for modules that still import `agv_service.agv_list`
+# during the A3 transition. New code should prefer repository helpers.
+#
+
 def _find_agv(agv_id: int):
-    agv = next((item for item in agv_list if item.id == agv_id), None)
+    agv = get_agv_by_id(agv_id)
     if not agv:
         raise_api_error(404, "agv_not_found")
     return agv
 
 
 def _find_active_task_for_agv(agv_id: int):
-    from app.repositories.task_repository import task_list
-
     return next(
         (
             task
-            for task in task_list
+            for task in list_tasks()
             if task.agv_id == agv_id and task.status in {"assigned", "running"}
         ),
         None,
@@ -36,7 +40,7 @@ def _assert_agv_can_enter_maintenance(agv):
 
 
 def get_agvs():
-    return agv_list
+    return list_agvs()
 
 
 def emergency_stop_agv(agv_id: int, message: str | None = None, reported_by: str = "system"):

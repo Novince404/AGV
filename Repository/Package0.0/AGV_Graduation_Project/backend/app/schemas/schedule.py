@@ -4,6 +4,7 @@ from pydantic import BaseModel
 class ScheduleWithPathRequest(BaseModel):
     task_id: int | None = None
     agv_id: int | None = None
+    schedule_mode: str | None = None
     algorithm: str = "simple"
     grid_cols: int = 10
     grid_rows: int = 8
@@ -38,4 +39,3 @@ class RecoverBlockedTaskRequest(BaseModel):
     algorithm: str | None = None
     grid_cols: int = 10
     grid_rows: int = 8
-

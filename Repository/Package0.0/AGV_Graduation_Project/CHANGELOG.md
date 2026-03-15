@@ -1,5 +1,23 @@
 # Changelog
 
+## v1.5.0 - 2026-03-15
+
+### Added
+- Added A3 backend layering groundwork, including repository facades, `memory/` and `sql/` store entry points, startup lifecycle initialization, and database environment templates.
+- Added SQL-side ORM models and mapper helpers for AGV, task, task-stage, and fault-event persistence preparation.
+- Added extracted frontend task-display and task-preview composables to reduce `App.vue` coupling.
+- Added direct path-algorithm switching from the right-side dispatch-control panel.
+
+### Improved
+- Improved backend service structure so task, schedule, AGV, fault, status, and movement flows now rely on repository helpers instead of scattered direct list access.
+- Improved database bootstrap flow and documentation for future MySQL integration while keeping the current in-memory behavior compatible.
+- Improved auto/manual scheduling consistency by passing explicit `schedule_mode` through the frontend-backend scheduling chain.
+
+### Fixed
+- Fixed automatic map-created tasks being misclassified as manual tasks after scheduling.
+- Fixed maintenance/offline AGV occupancy inconsistencies between frontend visibility and backend movement blocking.
+- Fixed several task-marker and preview sync issues while continuing the `App.vue` display-layer cleanup.
+
 ## v1.4.0 - 2026-03-11
 
 ### Added

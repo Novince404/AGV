@@ -2,8 +2,8 @@
 import time
 from datetime import datetime
 
-from app.repositories.agv_repository import agv_list
-from app.repositories.task_repository import task_list
+from app.repositories.agv_repository import get_agv_by_id, list_agvs
+from app.repositories.task_repository import get_task_by_id
 from app.utils.path_planner import plan_path
 from app.utils.task_chain import (
     advance_task_stage,
@@ -49,7 +49,13 @@ def should_interrupt_agv(agv, task, algorithm: str):
 
 
 def is_cell_occupied_by_other_agv(agv_id: int, x: int, y: int):
-    return any(other.id != agv_id and other.x == x and other.y == y for other in agv_list)
+    return any(
+        other.id != agv_id
+        and other.status != "maintenance"
+        and other.x == x
+        and other.y == y
+        for other in list_agvs()
+    )
 
 
 def move_to_point_with_collision_guard(agv, task, point, algorithm: str, active_status: str):
@@ -109,8 +115,8 @@ def move_agv(
     grid_rows: int,
 ):
     def run():
-        agv = next((a for a in agv_list if a.id == agv_id), None)
-        task = next((t for t in task_list if t.id == task_id), None)
+        agv = get_agv_by_id(agv_id)
+        task = get_task_by_id(task_id)
         if not agv or not task:
             return
 

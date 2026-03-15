@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from sqlalchemy import ForeignKey, Integer, String, Text
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy import ForeignKey, Integer, JSON, String, Text
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
 class Base(DeclarativeBase):
@@ -31,13 +31,34 @@ class TaskEntity(Base):
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     agv_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     preferred_agv_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    dispatch_mode: Mapped[str | None] = mapped_column(String(16), nullable=True)
-    dispatch_algorithm: Mapped[str | None] = mapped_column(String(16), nullable=True)
-    dispatch_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    dispatch_origin_x: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    dispatch_origin_y: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
     assigned_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
     started_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
     finished_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    path_to_start: Mapped[list[dict] | None] = mapped_column(JSON, nullable=True)
+    path_to_end: Mapped[list[dict] | None] = mapped_column(JSON, nullable=True)
+    path_length_to_start: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    path_length_to_end: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    dispatch_mode: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    dispatch_distance: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    dispatch_algorithm: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    dispatch_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    cell_wait_retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    cell_wait_retry_budget: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    current_stage_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    total_stages: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    overall_start_x: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    overall_start_y: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    overall_end_x: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    overall_end_y: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    stages: Mapped[list["TaskStageEntity"]] = relationship(
+        back_populates="task",
+        cascade="all, delete-orphan",
+        order_by="TaskStageEntity.stage_index",
+    )
 
 
 class TaskStageEntity(Base):
@@ -51,8 +72,14 @@ class TaskStageEntity(Base):
     start_y: Mapped[int] = mapped_column(Integer, nullable=False)
     end_x: Mapped[int] = mapped_column(Integer, nullable=False)
     end_y: Mapped[int] = mapped_column(Integer, nullable=False)
+    path_to_start: Mapped[list[dict] | None] = mapped_column(JSON, nullable=True)
+    path_to_end: Mapped[list[dict] | None] = mapped_column(JSON, nullable=True)
+    path_length_to_start: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    path_length_to_end: Mapped[int | None] = mapped_column(Integer, nullable=True)
     started_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
     finished_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+
+    task: Mapped["TaskEntity"] = relationship(back_populates="stages")
 
 
 class FaultEventEntity(Base):

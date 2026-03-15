@@ -22,6 +22,7 @@ def schedule_task_with_path(req: ScheduleWithPathRequest):
     return schedule_service.schedule_task_with_path(
         req.task_id,
         req.agv_id,
+        req.schedule_mode,
         req.algorithm,
         req.grid_cols,
         req.grid_rows,

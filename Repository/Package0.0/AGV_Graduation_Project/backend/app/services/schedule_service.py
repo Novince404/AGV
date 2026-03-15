@@ -3,8 +3,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from app.repositories.agv_repository import agv_list
-from app.repositories.task_repository import task_list
+from app.repositories.agv_repository import get_agv_by_id, get_first_idle_agv, list_idle_agvs
+from app.repositories.task_repository import get_task_by_id, list_tasks
 from app.utils.agv_movement import move_agv
 from app.utils.api_error import raise_api_error
 from app.utils.path_planner import plan_path
@@ -76,7 +76,7 @@ def _task_requires_bound_agv(task) -> bool:
 
 def _select_schedulable_task(task_id: int | None):
     if task_id is not None:
-        task = next((t for t in task_list if t.id == task_id), None)
+        task = get_task_by_id(task_id)
         if not task:
             raise_api_error(404, "task_not_found")
         sync_task_stage_fields(task)
@@ -88,21 +88,21 @@ def _select_schedulable_task(task_id: int | None):
 
 def _select_idle_agv(agv_id: int | None):
     if agv_id is not None:
-        agv = next((a for a in agv_list if a.id == agv_id), None)
+        agv = get_agv_by_id(agv_id)
         if not agv:
             raise_api_error(404, "agv_not_found")
         if agv.status != "idle":
             raise_api_error(400, "agv_not_idle")
         return agv
 
-    idle_agv = next((a for a in agv_list if a.status == "idle"), None)
+    idle_agv = get_first_idle_agv()
     if not idle_agv:
         raise_api_error(400, "no_idle_agv")
     return idle_agv
 
 
 def _get_pending_tasks():
-    pending_tasks = [t for t in task_list if t.status in {"pending", "blocked"}]
+    pending_tasks = [t for t in list_tasks() if t.status in {"pending", "blocked"}]
     schedulable_tasks = []
     for task in pending_tasks:
         sync_task_stage_fields(task)
@@ -117,7 +117,7 @@ def _get_pending_tasks():
 
 
 def _get_idle_agvs():
-    return [a for a in agv_list if a.status == "idle"]
+    return list_idle_agvs()
 
 
 def _path_length(
@@ -550,6 +550,7 @@ def _schedule_task(
         "task": {
             "id": task.id,
             "status": task.status,
+            "dispatch_mode": task.dispatch_mode,
             "start_x": stage.start_x,
             "start_y": stage.start_y,
             "end_x": stage.end_x,
@@ -583,11 +584,19 @@ def schedule_task_default():
 def schedule_task_with_path(
     task_id: int | None,
     agv_id: int | None,
+    schedule_mode: str | None,
     algorithm: str,
     grid_cols: int,
     grid_rows: int,
 ):
-    return _schedule_task(task_id, agv_id, algorithm, grid_cols, grid_rows)
+    return _schedule_task(
+        task_id,
+        agv_id,
+        algorithm,
+        grid_cols,
+        grid_rows,
+        schedule_mode_override=schedule_mode,
+    )
 
 
 def compare_path(
@@ -617,7 +626,7 @@ def retry_blocked_task(task_id: int, algorithm: str, grid_cols: int, grid_rows: 
     if normalized_algorithm != "astar":
         raise_api_error(400, "blocked_retry_requires_astar")
 
-    task = next((t for t in task_list if t.id == task_id), None)
+    task = get_task_by_id(task_id)
     if not task:
         raise_api_error(404, "task_not_found")
 
@@ -628,7 +637,7 @@ def retry_blocked_task(task_id: int, algorithm: str, grid_cols: int, grid_rows: 
     task.dispatch_algorithm = normalized_algorithm
     preferred_agv_id = getattr(task, "preferred_agv_id", None)
     if task.dispatch_mode == "manual" and preferred_agv_id is not None:
-        preferred_agv = next((agv for agv in agv_list if agv.id == preferred_agv_id), None)
+        preferred_agv = get_agv_by_id(preferred_agv_id)
         if preferred_agv is None:
             raise_api_error(404, "agv_not_found")
         if preferred_agv.status != "idle":
@@ -687,7 +696,7 @@ def retry_blocked_task(task_id: int, algorithm: str, grid_cols: int, grid_rows: 
 def retry_blocked_task_from_current(task_id: int, algorithm: str, grid_cols: int, grid_rows: int):
     normalized_algorithm = _normalize_algorithm_name(algorithm)
 
-    task = next((t for t in task_list if t.id == task_id), None)
+    task = get_task_by_id(task_id)
     if not task:
         raise_api_error(404, "task_not_found")
 
@@ -699,7 +708,7 @@ def retry_blocked_task_from_current(task_id: int, algorithm: str, grid_cols: int
     if bound_agv_id is None:
         raise_api_error(400, "task_has_no_bound_agv")
 
-    bound_agv = next((agv for agv in agv_list if agv.id == bound_agv_id), None)
+    bound_agv = get_agv_by_id(bound_agv_id)
     if not bound_agv:
         raise_api_error(404, "agv_not_found")
 
@@ -748,7 +757,7 @@ def recover_blocked_task(
     grid_cols: int,
     grid_rows: int,
 ):
-    task = next((item for item in task_list if item.id == task_id), None)
+    task = get_task_by_id(task_id)
     if not task:
         raise_api_error(404, "task_not_found")
 
@@ -765,7 +774,7 @@ def recover_blocked_task(
         if bound_agv_id is None:
             raise_api_error(400, "task_has_no_bound_agv")
 
-        bound_agv = next((agv for agv in agv_list if agv.id == bound_agv_id), None)
+        bound_agv = get_agv_by_id(bound_agv_id)
         if not bound_agv:
             raise_api_error(404, "agv_not_found")
 

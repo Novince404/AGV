@@ -1,9 +1,40 @@
-from app.models.agv import AGV
+"""Public AGV repository facade.
+
+This facade is the stable import target for service/utils layers.
+The concrete implementation is selected by backend runtime mode.
+"""
+
+from app.repositories.runtime import is_sql_backend
+
+if is_sql_backend():
+    from app.repositories.sql import agv_store as _store
+else:
+    from app.repositories.memory import agv_store as _store
 
 
-agv_list = [
-    AGV(id=1, x=2, y=3, status="idle"),
-    AGV(id=2, x=5, y=7, status="idle"),
-    AGV(id=3, x=1, y=4, status="idle"),
+agv_list = _store.agv_list
+
+
+def list_agvs():
+    return _store.list_agvs()
+
+
+def get_agv_by_id(agv_id: int):
+    return _store.get_agv_by_id(agv_id)
+
+
+def list_idle_agvs():
+    return _store.list_idle_agvs()
+
+
+def get_first_idle_agv():
+    return _store.get_first_idle_agv()
+
+
+__all__ = [
+    "agv_list",
+    "get_agv_by_id",
+    "get_first_idle_agv",
+    "list_agvs",
+    "list_idle_agvs",
 ]
-

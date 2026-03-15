@@ -5,12 +5,25 @@ from types import SimpleNamespace
 from typing import Any
 
 from app.models.task import Task
-from app.repositories.agv_repository import agv_list
-from app.repositories.task_repository import task_list
+from app.repositories.agv_repository import get_agv_by_id
+from app.repositories.task_repository import (
+    add_task,
+    get_existing_task_ids,
+    get_next_task_id,
+    get_task_by_id,
+    list_tasks,
+    remove_task,
+    task_list,
+)
 from app.utils.api_error import raise_api_error
 from app.utils.task_chain import build_stage_models, sync_task_stage_fields
 from app.utils.warehouse_map import DEFAULT_GRID_COLS, DEFAULT_GRID_ROWS, get_blocked_cells
 
+
+#
+# Keep compatibility for modules that still import `task_service.task_list`
+# during the A3 transition. New code should prefer repository helpers.
+#
 
 def now_iso() -> str:
     return datetime.now().isoformat(timespec="seconds")
@@ -97,11 +110,11 @@ def serialize_task_for_json(task: Task):
 
 
 def get_tasks():
-    return task_list
+    return list_tasks()
 
 
 def create_task(payload: Any):
-    next_id = max((t.id for t in task_list), default=0) + 1
+    next_id = get_next_task_id()
     stages = _build_task_stages(payload)
     first_stage = stages[0]
     last_stage = stages[-1]
@@ -129,18 +142,18 @@ def create_task(payload: Any):
         dispatch_reason=_get_field(payload, "dispatch_reason"),
     )
     sync_task_stage_fields(task)
-    task_list.append(task)
+    add_task(task)
     return {"message": "Task created", "task": task}
 
 
 def finish_task(task_id: int):
-    task = next((t for t in task_list if t.id == task_id), None)
+    task = get_task_by_id(task_id)
     if not task:
         raise_api_error(404, "task_not_found")
     if task.status != "running":
         raise_api_error(400, "task_not_running")
 
-    agv = next((a for a in agv_list if a.id == task.agv_id), None)
+    agv = get_agv_by_id(task.agv_id) if task.agv_id is not None else None
     if not agv:
         raise_api_error(404, "related_agv_not_found")
 
@@ -152,7 +165,7 @@ def finish_task(task_id: int):
 
 
 def import_tasks(items: list[Any]):
-    existing_ids = {t.id for t in task_list}
+    existing_ids = get_existing_task_ids()
     next_id = max(existing_ids, default=0) + 1
     created_ids = []
 
@@ -191,7 +204,7 @@ def import_tasks(items: list[Any]):
             dispatch_reason=_get_field(item, "dispatch_reason"),
         )
         sync_task_stage_fields(task)
-        task_list.append(task)
+        add_task(task)
         created_ids.append(task_id)
 
     return {"message": "Tasks imported", "count": len(created_ids), "task_ids": created_ids}
@@ -201,16 +214,16 @@ def export_tasks():
     return {
         "version": 2,
         "exported_at": now_iso(),
-        "tasks": [serialize_task_for_json(task) for task in task_list],
+        "tasks": [serialize_task_for_json(task) for task in list_tasks()],
     }
 
 
 def delete_task(task_id: int):
-    task = next((t for t in task_list if t.id == task_id), None)
+    task = get_task_by_id(task_id)
     if not task:
         raise_api_error(404, "task_not_found")
     if task.status not in {"pending", "blocked"}:
         raise_api_error(400, "task_delete_not_allowed")
 
-    task_list.remove(task)
+    remove_task(task)
     return {"message": "Task deleted", "task_id": task_id}

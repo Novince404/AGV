@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.repositories.agv_repository import agv_list
+from app.repositories.agv_repository import list_agvs
 from app.utils.api_error import raise_api_error
 from app.utils.status_map import AGV_STATUS_COLOR, TASK_STATUS_COLOR
 from app.utils.warehouse_map import (
@@ -15,7 +15,7 @@ from app.utils.warehouse_map import (
 
 
 def _filter_occupied_cells(cells: set[tuple[int, int]]):
-    occupied = {(agv.x, agv.y) for agv in agv_list if agv.status != "maintenance"}
+    occupied = {(agv.x, agv.y) for agv in list_agvs() if agv.status != "maintenance"}
     filtered = {cell for cell in cells if cell not in occupied}
     skipped = sorted(cell for cell in cells if cell in occupied)
     return filtered, skipped

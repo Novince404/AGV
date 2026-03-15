@@ -10,7 +10,9 @@ import { usePanelCompareUi } from './composables/usePanelCompareUi'
 import { useDataExportActions } from './composables/useDataExportActions'
 import { useMapViewport } from './composables/useMapViewport'
 import { useTaskBuilderState } from './composables/useTaskBuilderState'
+import { useTaskDisplayState } from './composables/useTaskDisplayState'
 import { useLocaleText } from './composables/useLocaleText'
+import { useTaskPreview } from './composables/useTaskPreview'
 import { useUiLocales } from './composables/useUiLocales'
 import { useTaskTextFormatters } from './composables/useTaskTextFormatters'
 import {
@@ -23,7 +25,6 @@ import {
   overallTaskEnd,
   overallTaskStart
 } from './utils/taskChain'
-import { buildAStarPath, buildSimplePath } from './utils/pathPreview'
 import { buildDefaultQueueGroupState, compareTime, sortTasks } from './utils/taskQueue'
 import { rowsToCsv } from './utils/csv'
 import { downloadJsonFile } from './utils/fileDownload'
@@ -176,6 +177,10 @@ const selectedAgvId = ref(null)
 const trackedManualTaskId = ref(null)
 const manualDispatchStep = ref('idle')
 const manualPreviewMinVisibleUntil = ref(0)
+const autoDraftPicking = ref(false)
+const manualDraftPicking = ref(false)
+const preferredRuntimeDisplayMode = ref('auto')
+const mapDraftPrimedMode = ref(null)
 const startPoint = ref(null)
 const endPoint = ref(null)
 const showGuideCenter = ref(false)
@@ -184,11 +189,6 @@ const manualPathToStart = ref([])
 const manualPathToEnd = ref([])
 const autoPathToStart = ref([])
 const autoPathToEnd = ref([])
-
-const previewTaskId = ref(null)
-const previewStart = ref(null)
-const previewEnd = ref(null)
-const previewPath = ref([])
 const layoutRef = ref(null)
 const mapViewportRef = ref(null)
 const minimapRef = ref(null)
@@ -237,7 +237,6 @@ const compareFloatingY = ref(140)
 
 let timer = null
 let clickTimer = null
-let previewTimer = null
 let taskBuilderJumpTimer = null
 let agvRecoveryJumpTimer = null
 let faultSelectedAgvPulseTimer = null
@@ -320,14 +319,19 @@ const manualPathToStartPoints = computed(() => toSvgPoints(manualPathToStart.val
 const manualPathToEndPoints = computed(() => toSvgPoints(manualPathToEnd.value))
 const autoPathToStartPoints = computed(() => toSvgPoints(autoPathToStart.value))
 const autoPathToEndPoints = computed(() => toSvgPoints(autoPathToEnd.value))
-const previewPathPoints = computed(() => toSvgPoints(previewPath.value))
 const manualPathToStartArrows = computed(() => toArrowSegments(manualPathToStart.value))
 const manualPathToEndArrows = computed(() => toArrowSegments(manualPathToEnd.value))
 const autoPathToStartArrows = computed(() => toArrowSegments(autoPathToStart.value))
 const autoPathToEndArrows = computed(() => toArrowSegments(autoPathToEnd.value))
-const previewPathArrows = computed(() => toArrowSegments(previewPath.value))
 const isCompactLayout = computed(() => windowWidth.value <= 960)
 const shouldShowAutoPath = computed(() => dispatchMode.value === 'auto' && showAutoPath.value)
+const suppressAutoRuntimeVisuals = computed(
+  () =>
+    dispatchMode.value === 'auto' &&
+    ((taskBuilderMode.value === 'single' && autoDraftPicking.value) ||
+      (taskBuilderMode.value === 'chain' && taskChainMapPickActive.value))
+)
+const showAutoRuntimeVisuals = computed(() => shouldShowAutoPath.value && !suppressAutoRuntimeVisuals.value)
 const layoutStyle = computed(() =>
   isCompactLayout.value
     ? {}
@@ -356,7 +360,7 @@ const blockedCellSet = computed(
 )
 const occupiedCellSet = computed(() => {
   const keys = new Set()
-  for (const agv of [...agvs.value, ...localAgvs.value]) {
+  for (const agv of displayAgvs.value) {
     if (Number.isInteger(agv?.x) && Number.isInteger(agv?.y)) {
       keys.add(blockedCellKey(agv.x, agv.y))
     }
@@ -397,32 +401,6 @@ const minimapAutoPathToStartPoints = computed(() =>
 const minimapAutoPathToEndPoints = computed(() =>
   toSvgPoints(autoPathToEnd.value, minimapCellSize.value)
 )
-const minimapPreviewPathPoints = computed(() => toSvgPoints(previewPath.value, minimapCellSize.value))
-const manualChainRoutePoints = computed(() => {
-  const task = manualDisplayTask.value
-  if (!task || Number(task.total_stages ?? 1) <= 1) return ''
-  return toSvgPoints(taskRemainingWaypoints(task))
-})
-
-const autoChainRoutePoints = computed(() => {
-  if (!shouldShowAutoPath.value) return ''
-  const task = autoDisplayTask.value
-  if (!task || Number(task.total_stages ?? 1) <= 1) return ''
-  return toSvgPoints(taskRemainingWaypoints(task))
-})
-
-const minimapManualChainRoutePoints = computed(() => {
-  const task = manualDisplayTask.value
-  if (!task || Number(task.total_stages ?? 1) <= 1) return ''
-  return toSvgPoints(taskRemainingWaypoints(task), minimapCellSize.value)
-})
-
-const minimapAutoChainRoutePoints = computed(() => {
-  if (!shouldShowAutoPath.value) return ''
-  const task = autoDisplayTask.value
-  if (!task || Number(task.total_stages ?? 1) <= 1) return ''
-  return toSvgPoints(taskRemainingWaypoints(task), minimapCellSize.value)
-})
 const minimapViewportStyle = computed(() => {
   const scale = minimapScale.value
   const visibleWidth = Math.min(MAP_WIDTH, mapViewportWidth.value / mapZoom.value)
@@ -437,101 +415,6 @@ const minimapViewportStyle = computed(() => {
     height: `${visibleHeight * scale}px`
   }
 })
-const autoDisplayTask = computed(() => findLatestActiveTask('auto'))
-const manualDisplayTask = computed(() => {
-  if (trackedManualTaskId.value) {
-    const trackedTask = tasks.value.find(task => task.id === trackedManualTaskId.value)
-    if (trackedTask) return trackedTask
-  }
-  return findLatestActiveTask('manual')
-})
-
-const manualDisplayStartMarker = computed(() => {
-  if (manualDisplayTask.value) {
-    return resolveTaskDisplayStartMarker(manualDisplayTask.value)
-  }
-  if (
-    dispatchMode.value === 'auto' &&
-    autoDisplayTask.value &&
-    !trackedManualTaskId.value &&
-    !startPoint.value &&
-    !endPoint.value &&
-    !taskChainMapPickActive.value
-  ) {
-    return null
-  }
-  return startPoint.value ?? manualPathToStart.value.at(-1) ?? manualPathToEnd.value[0] ?? null
-})
-const manualDisplayEndMarker = computed(() => {
-  if (manualDisplayTask.value) {
-    return resolveTaskDisplayEndMarker(manualDisplayTask.value)
-  }
-  if (
-    dispatchMode.value === 'auto' &&
-    autoDisplayTask.value &&
-    !trackedManualTaskId.value &&
-    !startPoint.value &&
-    !endPoint.value &&
-    !taskChainMapPickActive.value
-  ) {
-    return null
-  }
-  if (
-    taskBuilderMode.value === 'chain' &&
-    taskChainMapPickActive.value &&
-    taskChainMapPickPoints.value.length < taskChainRequiredPointCount.value
-  ) {
-    return null
-  }
-  return endPoint.value ?? manualPathToEnd.value.at(-1) ?? null
-})
-const autoDisplayStartMarker = computed(() => {
-  if (!shouldShowAutoPath.value) return null
-  const task = autoDisplayTask.value
-  if (task) {
-    return resolveTaskDisplayStartMarker(task)
-  }
-  return autoPathToStart.value.at(-1) ?? autoPathToEnd.value[0] ?? null
-})
-const autoDisplayEndMarker = computed(() => {
-  if (!shouldShowAutoPath.value) return null
-  if (
-    taskBuilderMode.value === 'chain' &&
-    taskChainMapPickActive.value &&
-    taskChainMapPickPoints.value.length < taskChainRequiredPointCount.value
-  ) {
-    return null
-  }
-  const task = autoDisplayTask.value
-  if (task && Number(task.total_stages ?? 1) > 1) {
-    return resolveTaskOverallEndMarker(task)
-  }
-  return resolveTaskEndMarker(task) ?? autoPathToEnd.value.at(-1) ?? null
-})
-const chainMidMarkers = computed(() => {
-  if (!taskChainMapPickActive.value) {
-    const chainTask =
-      (manualDisplayTask.value && Number(manualDisplayTask.value.total_stages ?? 1) > 1
-        ? manualDisplayTask.value
-        : null) ??
-      (shouldShowAutoPath.value && autoDisplayTask.value && Number(autoDisplayTask.value.total_stages ?? 1) > 1
-        ? autoDisplayTask.value
-        : null)
-    return chainTask ? taskChainMidPoints(chainTask) : []
-  }
-  const picked = taskChainMapPickPoints.value
-  const required = taskChainRequiredPointCount.value
-  const incomplete = picked.length < required
-  const points = incomplete ? picked.slice(1) : picked.slice(1, -1)
-  return points.map((point, index) => ({
-    ...point,
-    order: index + 1
-  }))
-})
-const minimapManualStartMarker = computed(() => manualDisplayStartMarker.value)
-const minimapManualEndMarker = computed(() => manualDisplayEndMarker.value)
-const minimapAutoStartMarker = computed(() => autoDisplayStartMarker.value)
-const minimapAutoEndMarker = computed(() => autoDisplayEndMarker.value)
 const pointLibrary = computed(() => [...DEFAULT_POINT_LIBRARY, ...customPoints.value])
 const taskTemplates = computed(() => [...DEFAULT_TASK_TEMPLATES, ...customTaskTemplates.value])
 const currentDispatchModeLabel = computed(() =>
@@ -713,6 +596,120 @@ const manualDispatchOriginText = computed(() => {
   return `Initial point: AGV #${selectedBackendAgv.value.id} (${selectedBackendAgv.value.x}, ${selectedBackendAgv.value.y})`
 })
 
+const {
+  findLatestActiveTask,
+  autoDisplayTask,
+  manualDisplayTask,
+  manualChainRoutePoints,
+  autoChainRoutePoints,
+  minimapManualChainRoutePoints,
+  minimapAutoChainRoutePoints,
+  chainMidMarkers
+} = useTaskDisplayState({
+  tasks,
+  selectedAgvId,
+  trackedManualTaskId,
+  dispatchMode,
+  taskBuilderMode,
+  taskChainMapPickActive,
+  taskChainMapPickPoints,
+  taskChainRequiredPointCount,
+  shouldShowAutoPath,
+  suppressAutoRuntimeVisuals,
+  startPoint,
+  endPoint,
+  manualPathToStart,
+  manualPathToEnd,
+  autoPathToStart,
+  autoPathToEnd,
+  minimapCellSize,
+  compareTime,
+  toSvgPoints,
+  taskRemainingWaypoints,
+  taskChainMidPoints,
+  resolveTaskDisplayStartMarker,
+  resolveTaskDisplayEndMarker,
+  resolveTaskEndMarker,
+  resolveTaskOverallEndMarker
+})
+
+const autoDraftMarkerDisplayActive = computed(() => {
+  if (dispatchMode.value !== 'auto') return false
+  if (taskBuilderMode.value === 'chain') return taskChainMapPickActive.value
+  return mapDraftPrimedMode.value === 'auto' || autoDraftPicking.value
+})
+const manualDraftMarkerDisplayActive = computed(() => {
+  if (dispatchMode.value !== 'manual') return false
+  if (taskBuilderMode.value === 'chain') return taskChainMapPickActive.value
+  return mapDraftPrimedMode.value === 'manual' || manualDraftPicking.value || manualDispatchStep.value === 'awaiting_end'
+})
+const manualDraftDisplayEndMarker = computed(() => {
+  if (!manualDraftMarkerDisplayActive.value) return null
+  if (
+    taskBuilderMode.value === 'chain' &&
+    taskChainMapPickActive.value &&
+    taskChainMapPickPoints.value.length < taskChainRequiredPointCount.value
+  ) {
+    return null
+  }
+  return endPoint.value
+})
+const autoDraftDisplayEndMarker = computed(() => {
+  if (!autoDraftMarkerDisplayActive.value) return null
+  if (
+    taskBuilderMode.value === 'chain' &&
+    taskChainMapPickActive.value &&
+    taskChainMapPickPoints.value.length < taskChainRequiredPointCount.value
+  ) {
+    return null
+  }
+  return endPoint.value
+})
+const activeRuntimeDisplayTask = computed(() => {
+  if (preferredRuntimeDisplayMode.value === 'manual') {
+    return manualDisplayTask.value ?? autoDisplayTask.value ?? null
+  }
+  return autoDisplayTask.value ?? manualDisplayTask.value ?? null
+})
+const runtimeDisplayMarkerVariant = computed(() => {
+  const task = activeRuntimeDisplayTask.value
+  if (!task) return null
+  return task.dispatch_mode === 'manual' ? 'manual' : 'auto'
+})
+const runtimeDisplayStartMarker = computed(() => {
+  const task = activeRuntimeDisplayTask.value
+  if (!task) return null
+  return resolveTaskDisplayStartMarker(task)
+})
+const runtimeDisplayEndMarker = computed(() => {
+  const task = activeRuntimeDisplayTask.value
+  if (!task) return null
+  if (runtimeDisplayMarkerVariant.value === 'auto') {
+    if (Number(task.total_stages ?? 1) > 1) {
+      return resolveTaskOverallEndMarker(task)
+    }
+    return resolveTaskEndMarker(task) ?? resolveTaskDisplayEndMarker(task)
+  }
+  return resolveTaskDisplayEndMarker(task)
+})
+const activeDisplayMarkerVariant = computed(() => {
+  if (autoDraftMarkerDisplayActive.value) return 'auto'
+  if (manualDraftMarkerDisplayActive.value) return 'manual'
+  return runtimeDisplayMarkerVariant.value
+})
+const activeDisplayStartMarker = computed(() => {
+  if (autoDraftMarkerDisplayActive.value) return startPoint.value
+  if (manualDraftMarkerDisplayActive.value) return startPoint.value
+  return runtimeDisplayStartMarker.value
+})
+const activeDisplayEndMarker = computed(() => {
+  if (autoDraftMarkerDisplayActive.value) return autoDraftDisplayEndMarker.value
+  if (manualDraftMarkerDisplayActive.value) return manualDraftDisplayEndMarker.value
+  return runtimeDisplayEndMarker.value
+})
+const minimapDisplayStartMarker = computed(() => activeDisplayStartMarker.value)
+const minimapDisplayEndMarker = computed(() => activeDisplayEndMarker.value)
+
 function buildManualTaskCreateMeta(manualAgv, reason = 'waiting_for_bound_agv') {
   if (!manualAgv) return {}
   return {
@@ -734,6 +731,17 @@ function manualTaskQueuedText(task) {
     return `任务已创建，正在等待指定 AGV #${agvId} 空闲后自动执行。`
   }
   return `Task created. Waiting for bound AGV #${agvId} to become idle before execution.`
+}
+
+function autoTaskQueuedText(task) {
+  const taskId = task?.id ?? '?'
+  if (locale.value === 'ja') {
+    return `タスク #${taskId} を自動調度キューへ追加しました。空き AGV が出るまで待機します。`
+  }
+  if (locale.value === 'zh') {
+    return `任务 #${taskId} 已加入自动调度队列，正在等待空闲 AGV。`
+  }
+  return `Task #${taskId} was added to the auto dispatch queue and is waiting for an idle AGV.`
 }
 
 function mergeTaskDisplayPayload(taskPayload, fallbackTask = null) {
@@ -765,6 +773,7 @@ async function handleManualScheduleFailure(createdTaskId, scheduleData) {
 
   if (latestTask?.status === 'blocked') {
     window.alert(blockedTaskAlertText(latestTask))
+    manualDraftPicking.value = false
     trackedManualTaskId.value = null
     manualDispatchStep.value = 'idle'
     clearManualDestination()
@@ -774,6 +783,8 @@ async function handleManualScheduleFailure(createdTaskId, scheduleData) {
   if (latestTask && ['assigned', 'running'].includes(latestTask.status)) {
     manualPathToStart.value = latestTask.path_to_start ?? []
     manualPathToEnd.value = latestTask.path_to_end ?? []
+    preferredRuntimeDisplayMode.value = 'manual'
+    manualDraftPicking.value = false
     trackedManualTaskId.value = latestTask.id
     applyTaskDisplayMarkers(latestTask)
     manualDispatchStep.value = 'running'
@@ -783,6 +794,8 @@ async function handleManualScheduleFailure(createdTaskId, scheduleData) {
   }
 
   if (latestTask?.status === 'pending') {
+    preferredRuntimeDisplayMode.value = 'manual'
+    manualDraftPicking.value = false
     trackedManualTaskId.value = latestTask.id
     applyTaskDisplayMarkers(latestTask)
     manualDispatchStep.value = 'running'
@@ -792,6 +805,7 @@ async function handleManualScheduleFailure(createdTaskId, scheduleData) {
   }
 
   window.alert(localizeApiErrorDetail(scheduleData?.detail, t('task_manual_unreachable')))
+  manualDraftPicking.value = false
   trackedManualTaskId.value = null
   manualDispatchStep.value = 'idle'
   clearManualDestination()
@@ -1712,24 +1726,15 @@ function clearAutoPaths() {
 }
 
 function clearAutoMarkers() {
-  if (dispatchMode.value === 'auto') {
-    startPoint.value = null
-    endPoint.value = null
-  }
-}
-
-function clearPreview() {
-  if (previewTimer) {
-    clearTimeout(previewTimer)
-    previewTimer = null
-  }
-  previewTaskId.value = null
-  previewStart.value = null
-  previewEnd.value = null
-  previewPath.value = []
+  mapDraftPrimedMode.value = null
+  autoDraftPicking.value = false
+  startPoint.value = null
+  endPoint.value = null
 }
 
 function clearManualDestination() {
+  mapDraftPrimedMode.value = null
+  manualDraftPicking.value = false
   endPoint.value = null
   manualPathToStart.value = []
   manualPathToEnd.value = []
@@ -1745,6 +1750,8 @@ function clearManualDispatchPreview() {
     clearTimeout(manualPreviewHoldTimer)
     manualPreviewHoldTimer = null
   }
+  mapDraftPrimedMode.value = null
+  manualDraftPicking.value = false
   trackedManualTaskId.value = null
   manualDispatchStep.value = 'idle'
   manualPreviewMinVisibleUntil.value = 0
@@ -1820,22 +1827,6 @@ function syncManualDispatchBuilderState() {
   if (!agv || trackedManualTaskId.value) return
 }
 
-function activeTaskSort(a, b) {
-  return compareTime(b.assigned_at, a.assigned_at) || b.priority - a.priority || b.id - a.id
-}
-
-function findLatestActiveTask(mode) {
-  const activeTasks = tasks.value
-    .filter(task => ['assigned', 'running'].includes(task.status) && task.dispatch_mode === mode)
-    .sort(activeTaskSort)
-
-  if (mode === 'manual' && selectedAgvId.value) {
-    return activeTasks.find(task => task.agv_id === selectedAgvId.value) ?? activeTasks[0] ?? null
-  }
-
-  return activeTasks[0] ?? null
-}
-
 function syncDisplayedPathsFromTasks() {
   const autoTask = findLatestActiveTask('auto')
   if (autoTask) {
@@ -1849,9 +1840,6 @@ function syncDisplayedPathsFromTasks() {
   if (manualTask) {
     manualPathToStart.value = manualTask.path_to_start ?? []
     manualPathToEnd.value = manualTask.path_to_end ?? []
-    if (!taskChainMapPickActive.value) {
-      applyTaskDisplayMarkers(manualTask)
-    }
   } else {
     const shouldHoldManualPreview =
       Boolean(trackedManualTaskId.value) && manualPreviewMinVisibleUntil.value > Date.now()
@@ -1915,45 +1903,32 @@ const {
   clampValue
 })
 
-function buildPreviewPathByAlgorithm(sx, sy, ex, ey) {
-  return algorithm.value === 'astar'
-    ? buildAStarPath(sx, sy, ex, ey, GRID_COLS, GRID_ROWS, isBlockedCell)
-    : buildSimplePath(sx, sy, ex, ey, isBlockedCell)
-}
+const {
+  previewTaskId,
+  previewStart,
+  previewEnd,
+  previewPath,
+  previewPathPoints,
+  previewPathArrows,
+  canPreviewTask,
+  refreshTaskPreview,
+  clearPreview,
+  onTaskHover,
+  onTaskLeave
+} = useTaskPreview({
+  algorithm,
+  GRID_COLS,
+  GRID_ROWS,
+  isBlockedCell,
+  currentTaskStage,
+  taskRemainingWaypoints,
+  resolveTaskDisplayStartMarker,
+  resolveTaskDisplayEndMarker,
+  toSvgPoints,
+  toArrowSegments
+})
 
-function buildPreviewPathForTask(task) {
-  const waypoints =
-    Number(task?.total_stages ?? 1) > 1
-      ? taskRemainingWaypoints(task)
-      : (() => {
-          const stage = currentTaskStage(task)
-          const startX = Number(stage?.start_x ?? task.start_x)
-          const startY = Number(stage?.start_y ?? task.start_y)
-          const endX = Number(stage?.end_x ?? task.end_x)
-          const endY = Number(stage?.end_y ?? task.end_y)
-          if (![startX, startY, endX, endY].every(Number.isFinite)) return []
-          return [
-            { x: startX, y: startY },
-            { x: endX, y: endY }
-          ]
-        })()
-
-  if (waypoints.length < 2) return []
-
-  const path = []
-  for (let index = 0; index < waypoints.length - 1; index += 1) {
-    const from = waypoints[index]
-    const to = waypoints[index + 1]
-    const segment = buildPreviewPathByAlgorithm(from.x, from.y, to.x, to.y)
-    if (!segment.length) continue
-    if (path.length && segment[0]?.x === path[path.length - 1]?.x && segment[0]?.y === path[path.length - 1]?.y) {
-      path.push(...segment.slice(1))
-    } else {
-      path.push(...segment)
-    }
-  }
-  return path
-}
+const minimapPreviewPathPoints = computed(() => toSvgPoints(previewPath.value, minimapCellSize.value))
 
 function blockedCellAlertText() {
   if (locale.value === 'ja') return '障害セルは始点・終点・中継点に設定できません。'
@@ -1964,9 +1939,12 @@ function blockedCellAlertText() {
 function onAgvClick(agv, event) {
   event.stopPropagation()
   if (agv.source !== 'backend') return
+  mapDraftPrimedMode.value = null
   selectedAgvId.value = agv.id
   if (dispatchMode.value !== 'manual') return
   if (agv.status !== 'idle') return
+  preferredRuntimeDisplayMode.value = 'manual'
+  manualDraftPicking.value = false
   syncManualDispatchBuilderState()
   clearManualDestination()
 }
@@ -1990,6 +1968,22 @@ function onMapMouseDown(event) {
       }
     }, 260)
     return
+  }
+
+  if (taskBuilderMode.value === 'single') {
+    if (dispatchMode.value === 'auto') {
+      preferredRuntimeDisplayMode.value = 'auto'
+      mapDraftPrimedMode.value = 'auto'
+      if (!autoDraftPicking.value && !startPoint.value) {
+        endPoint.value = null
+      }
+    } else if (dispatchMode.value === 'manual' && selectedBackendAgv.value?.status === 'idle') {
+      preferredRuntimeDisplayMode.value = 'manual'
+      mapDraftPrimedMode.value = 'manual'
+      if (!manualDraftPicking.value && manualDispatchStep.value !== 'awaiting_end') {
+        endPoint.value = null
+      }
+    }
   }
 
   mapPanCandidate = true
@@ -2017,6 +2011,10 @@ function onMapDoubleClick(event) {
     clearTimeout(clickTimer)
     clickTimer = null
   }
+  mapDraftPrimedMode.value = null
+  if (dispatchMode.value === 'auto' && taskBuilderMode.value === 'single') {
+    clearAutoMarkers()
+  }
 
   const cell = getCellFromEvent(event)
   if (!cell) return
@@ -2039,12 +2037,23 @@ function onMapDoubleClick(event) {
 function onMapClick(event) {
   if (ignoreNextMapClick) {
     ignoreNextMapClick = false
+    mapDraftPrimedMode.value = null
     return
   }
   if (clickTimer) return
   const cell = getCellFromEvent(event)
-  if (!cell) return
+  if (!cell) {
+    mapDraftPrimedMode.value = null
+    return
+  }
   const { x, y } = cell
+  if (dispatchMode.value === 'auto' && taskBuilderMode.value === 'single') {
+    autoDraftPicking.value = true
+    mapDraftPrimedMode.value = null
+  } else if (dispatchMode.value === 'manual' && taskBuilderMode.value === 'single') {
+    manualDraftPicking.value = true
+    mapDraftPrimedMode.value = null
+  }
   clickTimer = setTimeout(() => {
     clickTimer = null
     handleSingleClick(x, y)
@@ -2108,12 +2117,19 @@ function handlePanelSummaryItemDoubleClick(event, item) {
 }
 
 function handleSingleClick(x, y) {
+  mapDraftPrimedMode.value = null
   if (obstacleEditMode.value) {
     toggleBlockedCellAt(x, y)
     return
   }
 
   if (isBlockedCell(x, y)) {
+    if (dispatchMode.value === 'auto' && taskBuilderMode.value === 'single') {
+      clearAutoMarkers()
+    }
+    if (dispatchMode.value === 'manual') {
+      manualDraftPicking.value = false
+    }
     window.alert(blockedCellAlertText())
     return
   }
@@ -2127,6 +2143,7 @@ function handleSingleClick(x, y) {
   if (dispatchMode.value === 'manual') {
     const agv = getSelectedManualDispatchAgv()
     if (!agv) return
+    manualDraftPicking.value = true
     startPoint.value = { x: agv.x, y: agv.y }
     endPoint.value = null
     manualPathToStart.value = []
@@ -2135,6 +2152,7 @@ function handleSingleClick(x, y) {
     return
   }
 
+  autoDraftPicking.value = true
   if (!startPoint.value) {
     startPoint.value = { x, y }
     return
@@ -2191,7 +2209,15 @@ async function handleTaskChainMapClick(x, y) {
 
 async function confirmAndSchedule(x, y, agvId = null) {
   const ok = window.confirm(t('confirm_dispatch'))
-  if (!ok) return
+  if (!ok) {
+    if (dispatchMode.value === 'manual') {
+      manualDraftPicking.value = false
+      clearManualDestination()
+    } else if (dispatchMode.value === 'auto') {
+      clearAutoMarkers()
+    }
+    return
+  }
   endPoint.value = { x, y }
   if (dispatchMode.value === 'manual') {
     manualDispatchStep.value = 'running'
@@ -2230,12 +2256,20 @@ async function createTaskAndSchedule(agvId) {
       throw createApiError(createData, 'Task create failed')
     }
 
+    if (!isManualFlow && !hasIdleAgv()) {
+      await fetchTasks()
+      clearAutoMarkers()
+      showFloatingToast(autoTaskQueuedText(createData.task), 'info')
+      return
+    }
+
     const scheduleRes = await fetch(`${API_BASE}/schedule/with_path`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         task_id: createData.task.id,
         agv_id: isManualFlow ? agvId : null,
+        schedule_mode: isManualFlow ? 'manual' : 'auto',
         algorithm: algorithm.value,
         grid_cols: GRID_COLS,
         grid_rows: GRID_ROWS
@@ -2249,6 +2283,11 @@ async function createTaskAndSchedule(agvId) {
       }
       await fetchTasks()
       const latestTask = tasks.value.find(task => task.id === createData.task.id)
+      if (scheduleData?.detail?.error_code === 'no_idle_agv' && latestTask?.status === 'pending') {
+        clearAutoMarkers()
+        showFloatingToast(autoTaskQueuedText(latestTask), 'info')
+        return
+      }
       if (latestTask?.status === 'blocked') {
         window.alert(blockedTaskAlertText(latestTask))
       } else {
@@ -2260,12 +2299,15 @@ async function createTaskAndSchedule(agvId) {
 
     const resolvedMode = scheduleData?.task?.dispatch_mode ?? (isManualFlow ? 'manual' : 'auto')
     if (resolvedMode === 'manual') {
+      preferredRuntimeDisplayMode.value = 'manual'
       applyTaskDisplayMarkers(scheduleData.task, createData.task)
       manualPathToStart.value = scheduleData.path_to_start ?? []
       manualPathToEnd.value = scheduleData.path_to_end ?? scheduleData.path ?? []
       trackedManualTaskId.value = scheduleData.task.id
+      manualDraftPicking.value = false
       bumpManualPreviewMinVisible()
     } else {
+      preferredRuntimeDisplayMode.value = 'auto'
       autoPathToStart.value = scheduleData.path_to_start ?? []
       autoPathToEnd.value = scheduleData.path_to_end ?? scheduleData.path ?? []
       clearAutoMarkers()
@@ -2275,6 +2317,7 @@ async function createTaskAndSchedule(agvId) {
   } catch (error) {
     console.error('Schedule error:', error)
     if (isManualFlow) {
+      manualDraftPicking.value = false
       trackedManualTaskId.value = null
       manualDispatchStep.value = 'idle'
       clearManualDestination()
@@ -2346,6 +2389,9 @@ function onGlobalMouseUp() {
   if (mapPanCandidate) {
     if (mapPanMoved) {
       ignoreNextMapClick = true
+      if (!startPoint.value && !endPoint.value) {
+        mapDraftPrimedMode.value = null
+      }
     }
     mapPanCandidate = false
     mapPanMoved = false
@@ -2421,6 +2467,7 @@ async function recoverBlockedTask(task, mode) {
 
     const dispatchModeValue = data?.task?.dispatch_mode ?? task.dispatch_mode ?? 'auto'
     if (dispatchModeValue === 'manual') {
+      preferredRuntimeDisplayMode.value = 'manual'
       const recoveredAgvId = data?.agv?.id ?? data?.task?.agv_id ?? task.preferred_agv_id
       if (recoveredAgvId) {
         selectedAgvId.value = recoveredAgvId
@@ -2432,6 +2479,7 @@ async function recoverBlockedTask(task, mode) {
       manualDispatchStep.value = 'running'
       bumpManualPreviewMinVisible()
     } else {
+      preferredRuntimeDisplayMode.value = 'auto'
       autoPathToStart.value = data.path_to_start ?? []
       autoPathToEnd.value = data.path_to_end ?? data.path ?? []
     }
@@ -2482,6 +2530,7 @@ async function retryBlockedTaskFromCurrent(task, algorithmName = null) {
     }
 
     if (isManualRetry) {
+      preferredRuntimeDisplayMode.value = 'manual'
       if (data?.task?.agv_id ?? task.preferred_agv_id) {
         selectedAgvId.value = data?.task?.agv_id ?? task.preferred_agv_id
       }
@@ -2492,6 +2541,7 @@ async function retryBlockedTaskFromCurrent(task, algorithmName = null) {
       manualDispatchStep.value = 'running'
       bumpManualPreviewMinVisible()
     } else {
+      preferredRuntimeDisplayMode.value = 'auto'
       autoPathToStart.value = data.path_to_start ?? []
       autoPathToEnd.value = data.path_to_end ?? data.path ?? []
     }
@@ -2552,6 +2602,7 @@ async function retryBlockedTaskWithAStar(task) {
         window.alert(t('task_retry_astar_queued'))
       }
     } else if (isManualRetry) {
+      preferredRuntimeDisplayMode.value = 'manual'
       if (data?.task?.agv_id ?? task.preferred_agv_id) {
         selectedAgvId.value = data?.task?.agv_id ?? task.preferred_agv_id
       }
@@ -2560,6 +2611,7 @@ async function retryBlockedTaskWithAStar(task) {
       trackedManualTaskId.value = data?.task?.id ?? task.id
       applyTaskDisplayMarkers(data?.task, task)
     } else {
+      preferredRuntimeDisplayMode.value = 'auto'
       autoPathToStart.value = data.path_to_start ?? []
       autoPathToEnd.value = data.path_to_end ?? data.path ?? []
     }
@@ -2611,6 +2663,7 @@ async function retryAllBlockedTasksWithAStar(taskGroup) {
         queuedCount += 1
       } else {
         scheduledCount += 1
+        preferredRuntimeDisplayMode.value = 'auto'
         autoPathToStart.value = data.path_to_start ?? []
         autoPathToEnd.value = data.path_to_end ?? data.path ?? []
       }
@@ -2734,6 +2787,7 @@ async function submitTaskPayload(payload) {
         body: JSON.stringify({
           task_id: data.task.id,
           agv_id: manualAgv.id,
+          schedule_mode: 'manual',
           algorithm: algorithm.value,
           grid_cols: GRID_COLS,
           grid_rows: GRID_ROWS
@@ -2956,6 +3010,10 @@ function applyComparedAlgorithm(nextAlgorithm) {
   algorithm.value = nextAlgorithm
 }
 
+function toggleAlgorithmMode() {
+  algorithm.value = algorithm.value === 'simple' ? 'astar' : 'simple'
+}
+
 const {
   jumpToPanelSearchResult,
   shouldAutoRefreshFloatingCompare,
@@ -3098,28 +3156,6 @@ async function exportTasksToJson() {
 function clearJsonText() {
   jsonText.value = ''
   jsonStatus.value = ''
-}
-
-function canPreviewTask(task) {
-  return ['pending', 'blocked', 'assigned', 'running'].includes(task?.status)
-}
-
-function refreshTaskPreview(task) {
-  if (!task) return
-  previewTaskId.value = task.id
-  previewStart.value = resolveTaskDisplayStartMarker(task)
-  previewEnd.value = resolveTaskDisplayEndMarker(task)
-  previewPath.value = buildPreviewPathForTask(task)
-}
-
-function onTaskHover(task) {
-  if (!canPreviewTask(task)) return
-  if (previewTimer) clearTimeout(previewTimer)
-  refreshTaskPreview(task)
-}
-
-function onTaskLeave() {
-  clearPreview()
 }
 
 function setObstacleLayoutStatus(type, message) {
@@ -3768,7 +3804,7 @@ function onKeyDown(event) {
 
   if (event.key === 'r' || event.key === 'R') {
     event.preventDefault()
-    algorithm.value = algorithm.value === 'simple' ? 'astar' : 'simple'
+    toggleAlgorithmMode()
   }
 }
 
@@ -4004,10 +4040,6 @@ watch(
       return
     }
 
-    if (!taskChainMapPickActive.value) {
-      applyTaskDisplayMarkers(trackedTask)
-    }
-
     if (['finished', 'blocked', 'failed'].includes(trackedTask.status)) {
       if (trackedTask.status === 'blocked' && isRecoveryRequiredTask(trackedTask)) {
         // Keep AGV selected after emergency stop so operator context does not vanish.
@@ -4077,7 +4109,7 @@ watch(
 onBeforeUnmount(() => {
   if (timer) clearInterval(timer)
   if (clickTimer) clearTimeout(clickTimer)
-  if (previewTimer) clearTimeout(previewTimer)
+  clearPreview()
   if (manualPreviewHoldTimer) clearTimeout(manualPreviewHoldTimer)
   if (taskBuilderJumpTimer) clearTimeout(taskBuilderJumpTimer)
   if (agvRecoveryJumpTimer) clearTimeout(agvRecoveryJumpTimer)
@@ -4304,7 +4336,7 @@ onBeforeUnmount(() => {
                 stroke-width="3"
               />
               <polyline
-                v-if="shouldShowAutoPath"
+                v-if="showAutoRuntimeVisuals"
                 class="path-auto-start"
                 :points="autoPathToStartPoints"
                 fill="none"
@@ -4312,7 +4344,7 @@ onBeforeUnmount(() => {
                 stroke-dasharray="4 4"
               />
               <polyline
-                v-if="shouldShowAutoPath"
+                v-if="showAutoRuntimeVisuals"
                 class="path-auto-end"
                 :points="autoPathToEndPoints"
                 fill="none"
@@ -4363,7 +4395,7 @@ onBeforeUnmount(() => {
                 marker-end="url(#path-arrow-end)"
               />
               <line
-                v-for="segment in showPathArrows && shouldShowAutoPath ? autoPathToStartArrows : []"
+                v-for="segment in showPathArrows && showAutoRuntimeVisuals ? autoPathToStartArrows : []"
                 :key="`auto-start-${segment.id}`"
                 class="path-arrow path-arrow-auto-start"
                 :x1="segment.x1"
@@ -4373,7 +4405,7 @@ onBeforeUnmount(() => {
                 marker-end="url(#path-arrow-auto-start)"
               />
               <line
-                v-for="segment in showPathArrows && shouldShowAutoPath ? autoPathToEndArrows : []"
+                v-for="segment in showPathArrows && showAutoRuntimeVisuals ? autoPathToEndArrows : []"
                 :key="`auto-end-${segment.id}`"
                 class="path-arrow path-arrow-auto-end"
                 :x1="segment.x1"
@@ -4395,33 +4427,33 @@ onBeforeUnmount(() => {
             </svg>
 
             <div
-              v-if="autoDisplayStartMarker"
-              :class="showMarkerIcons ? 'point-icon point-icon-start point-icon-auto' : 'marker start'"
-              :style="pointStyle(autoDisplayStartMarker, CELL_SIZE, showMarkerIcons ? 24 : 12)"
+              v-if="activeDisplayStartMarker"
+              :class="
+                showMarkerIcons
+                  ? [
+                      'point-icon',
+                      'point-icon-start',
+                      activeDisplayMarkerVariant === 'auto' ? 'point-icon-auto' : 'point-icon-manual'
+                    ]
+                  : 'marker start'
+              "
+              :style="pointStyle(activeDisplayStartMarker, CELL_SIZE, showMarkerIcons ? 24 : 12)"
             >
               <span v-if="showMarkerIcons">S</span>
             </div>
 
             <div
-              v-if="autoDisplayEndMarker"
-              :class="showMarkerIcons ? 'point-icon point-icon-end point-icon-auto' : 'marker end'"
-              :style="pointStyle(autoDisplayEndMarker, CELL_SIZE, showMarkerIcons ? 24 : 12)"
-            >
-              <span v-if="showMarkerIcons">E</span>
-            </div>
-
-            <div
-              v-if="manualDisplayStartMarker"
-              :class="showMarkerIcons ? 'point-icon point-icon-start point-icon-manual' : 'marker start'"
-              :style="pointStyle(manualDisplayStartMarker, CELL_SIZE, showMarkerIcons ? 24 : 12)"
-            >
-              <span v-if="showMarkerIcons">S</span>
-            </div>
-
-            <div
-              v-if="manualDisplayEndMarker"
-              :class="showMarkerIcons ? 'point-icon point-icon-end point-icon-manual' : 'marker end'"
-              :style="pointStyle(manualDisplayEndMarker, CELL_SIZE, showMarkerIcons ? 24 : 12)"
+              v-if="activeDisplayEndMarker"
+              :class="
+                showMarkerIcons
+                  ? [
+                      'point-icon',
+                      'point-icon-end',
+                      activeDisplayMarkerVariant === 'auto' ? 'point-icon-auto' : 'point-icon-manual'
+                    ]
+                  : 'marker end'
+              "
+              :style="pointStyle(activeDisplayEndMarker, CELL_SIZE, showMarkerIcons ? 24 : 12)"
             >
               <span v-if="showMarkerIcons">E</span>
             </div>
@@ -4699,14 +4731,14 @@ onBeforeUnmount(() => {
                 stroke-width="1.8"
               />
               <polyline
-                v-if="shouldShowAutoPath"
+                v-if="showAutoRuntimeVisuals"
                 class="path-auto-start minimap-path"
                 :points="minimapAutoPathToStartPoints"
                 fill="none"
                 stroke-width="1.4"
               />
               <polyline
-                v-if="shouldShowAutoPath"
+                v-if="showAutoRuntimeVisuals"
                 class="path-auto-end minimap-path"
                 :points="minimapAutoPathToEndPoints"
                 fill="none"
@@ -4748,30 +4780,32 @@ onBeforeUnmount(() => {
               }"
             ></div>
             <div
-              v-if="minimapAutoStartMarker"
-              :class="showMarkerIcons ? 'minimap-point-icon minimap-point-start minimap-point-auto' : 'marker start minimap-marker-dot'"
-              :style="pointStyle(minimapAutoStartMarker, minimapCellSize, showMarkerIcons ? 12 : 8)"
+              v-if="minimapDisplayStartMarker"
+              :class="
+                showMarkerIcons
+                  ? [
+                      'minimap-point-icon',
+                      'minimap-point-start',
+                      activeDisplayMarkerVariant === 'auto' ? 'minimap-point-auto' : 'minimap-point-manual'
+                    ]
+                  : 'marker start minimap-marker-dot'
+              "
+              :style="pointStyle(minimapDisplayStartMarker, minimapCellSize, showMarkerIcons ? 12 : 8)"
             >
               <span v-if="showMarkerIcons">S</span>
             </div>
             <div
-              v-if="minimapAutoEndMarker"
-              :class="showMarkerIcons ? 'minimap-point-icon minimap-point-end minimap-point-auto' : 'marker end minimap-marker-dot'"
-              :style="pointStyle(minimapAutoEndMarker, minimapCellSize, showMarkerIcons ? 12 : 8)"
-            >
-              <span v-if="showMarkerIcons">E</span>
-            </div>
-            <div
-              v-if="minimapManualStartMarker"
-              :class="showMarkerIcons ? 'minimap-point-icon minimap-point-start minimap-point-manual' : 'marker start minimap-marker-dot'"
-              :style="pointStyle(minimapManualStartMarker, minimapCellSize, showMarkerIcons ? 12 : 8)"
-            >
-              <span v-if="showMarkerIcons">S</span>
-            </div>
-            <div
-              v-if="minimapManualEndMarker"
-              :class="showMarkerIcons ? 'minimap-point-icon minimap-point-end minimap-point-manual' : 'marker end minimap-marker-dot'"
-              :style="pointStyle(minimapManualEndMarker, minimapCellSize, showMarkerIcons ? 12 : 8)"
+              v-if="minimapDisplayEndMarker"
+              :class="
+                showMarkerIcons
+                  ? [
+                      'minimap-point-icon',
+                      'minimap-point-end',
+                      activeDisplayMarkerVariant === 'auto' ? 'minimap-point-auto' : 'minimap-point-manual'
+                    ]
+                  : 'marker end minimap-marker-dot'
+              "
+              :style="pointStyle(minimapDisplayEndMarker, minimapCellSize, showMarkerIcons ? 12 : 8)"
             >
               <span v-if="showMarkerIcons">E</span>
             </div>
@@ -4864,11 +4898,15 @@ onBeforeUnmount(() => {
                 <span class="dispatch-summary-label">{{ panelLocale.currentMode }}</span>
                 <strong>{{ currentDispatchModeLabel }}</strong>
               </button>
-              <div class="dispatch-summary dispatch-algorithm-note">
+              <button
+                class="dispatch-summary dispatch-summary-button dispatch-algorithm-note"
+                type="button"
+                @click="toggleAlgorithmMode"
+              >
                 <span class="dispatch-summary-label">{{ t('algorithm') }}</span>
                 <strong>{{ algorithmText(algorithm) }}</strong>
                 <p>{{ algorithmHintText }}</p>
-              </div>
+              </button>
 
               <div
                 v-if="compareDisplayMode === 'panel'"

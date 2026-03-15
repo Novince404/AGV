@@ -81,6 +81,7 @@ export function useDispatchScheduler(options) {
         body: JSON.stringify({
           task_id: null,
           agv_id: null,
+          schedule_mode: 'auto',
           algorithm: algorithm.value,
           grid_cols: GRID_COLS,
           grid_rows: GRID_ROWS
@@ -132,6 +133,7 @@ export function useDispatchScheduler(options) {
         body: JSON.stringify({
           task_id: candidate.id,
           agv_id: candidate.preferred_agv_id,
+          schedule_mode: 'manual',
           algorithm: (candidate.dispatch_algorithm || algorithm.value || 'simple').toLowerCase(),
           grid_cols: GRID_COLS,
           grid_rows: GRID_ROWS

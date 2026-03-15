@@ -6,9 +6,8 @@ from app.api.fault_api import router as fault_router
 from app.api.schedule_api import router as schedule_router
 from app.api.status_api import router as status_router
 from app.api.task_api import router as task_router
+from app.core.lifecycle import initialize_runtime
 from app.core.settings import get_settings
-from app.repositories.db_init import create_all_tables
-from app.repositories.runtime import is_sql_backend
 
 
 settings = get_settings()
@@ -32,13 +31,19 @@ app.include_router(status_router)
 
 @app.on_event("startup")
 def on_startup():
-    if not is_sql_backend():
-        return
-    if not settings.database_auto_create:
-        return
     try:
-        create_all_tables()
-        print(f"[startup] SQL tables ready ({settings.data_backend})")
+        summary = initialize_runtime()
+        if summary["database_status"] == "memory":
+            print("[startup] running with memory backend")
+            return
+        if summary["database_status"] == "connected":
+            if summary.get("tables_ready"):
+                print(f"[startup] SQL backend ready ({summary['data_backend']})")
+            else:
+                print(f"[startup] SQL backend connected without auto-create ({summary['data_backend']})")
+            return
+        error_text = summary.get("database_error", "unknown error")
+        print(f"[startup] SQL backend unavailable: {error_text}")
     except Exception as exc:
         # Keep startup alive in A3 transition stage; SQL backend can be fixed without blocking demo mode.
         print(f"[startup] SQL init skipped due to error: {exc}")
@@ -46,4 +51,4 @@ def on_startup():
 
 @app.get("/")
 def root():
-    return {"message": "AGV 调度系统后端已启动"}
+    return {"message": settings.root_message}
