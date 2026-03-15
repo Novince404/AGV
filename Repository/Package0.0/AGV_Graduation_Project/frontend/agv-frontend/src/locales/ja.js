@@ -273,5 +273,161 @@ export default {
     "time_assigned": "割当",
     "time_started": "開始",
     "time_finished": "完了"
+  },
+  "uiLocales": {
+    "templateJson": {
+      "title": "テンプレート JSON",
+      "hint": "カスタムテンプレートを JSON で保存したり、一括で取り込めます。",
+      "placeholder": "{ \"templates\": [{ \"name\": \"入庫口 A から組立 1\", \"start_x\": 0, \"start_y\": 0, \"end_x\": 6, \"end_y\": 2, \"priority\": 3 }] }",
+      "import": "テンプレート取込",
+      "export": "カスタムを出力",
+      "importFile": "ファイル取込",
+      "downloadFile": "JSON 保存",
+      "clear": "JSON クリア",
+      "exportEmpty": "書き出すカスタムテンプレートがありません",
+      "exportOk": "書き出し件数",
+      "importOk": "取込件数",
+      "importFail": "テンプレート JSON が不正か、取込に失敗しました",
+      "skipped": "スキップ"
+    },
+    "panel": {
+      "sections": {
+        "control": "配車操作",
+        "queue": "タスクキュー",
+        "templates": "タスクテンプレート",
+        "points": "共通ポイント",
+        "json": "JSON ツール",
+        "experiments": "実験記録"
+      },
+      "expandAll": "すべて展開",
+      "collapseAll": "すべて折りたたむ",
+      "collapse": "折りたたむ",
+      "expand": "展開",
+      "currentMode": "現在モード",
+      "modeAuto": "自動配車",
+      "modeManual": "手動配車",
+      "modeAutoHint": "始点と終点を指定すると、システムが空き AGV を選んで実行します。",
+      "modeManualHint": "先に AGV を選び、その後に目的地を指定してその車両だけを移動させます。"
+    },
+    "panelSearch": {
+      "placeholder": "パネル名・タスク・テンプレート・ポイントを検索",
+      "clear": "検索クリア",
+      "empty": "一致するセクションや項目はありません",
+      "hits": "件一致"
+    },
+    "guideCenter": {
+      "open": "使い方",
+      "title": "操作ガイド",
+      "close": "閉じる",
+      "modeTitle": "モード説明",
+      "modeAutoTitle": "自動配車",
+      "modeManualTitle": "手動配車",
+      "shortcutsTitle": "ショートカット",
+      "shortcutCancel": "地図で右クリック / F: AGV 選択を解除",
+      "shortcutAlgorithm": "R: simple / A* を切替",
+      "shortcutContext": "地図で右クリック: 段階選点のキャンセル",
+      "workflowTitle": "基本フロー"
+    },
+    "toolbarGuideHintText": "操作説明は「使い方」をご確認ください。",
+    "taskChain": {
+      "title": "段階タスク",
+      "hint": "A -> B -> C のような連続工程を 1 件のタスクとして順番に実行します。",
+      "stage": "段階",
+      "stageLabel": "段階名",
+      "stageLabelPlaceholder": "例：組立工程",
+      "addStage": "段階追加",
+      "removeStage": "削除",
+      "resetStages": "段階を初期化",
+      "createTask": "段階タスクを作成",
+      "progress": "進行",
+      "currentRoute": "現在段階",
+      "overallRoute": "全体経路",
+      "priorityHint": "優先度は上の共通設定を使用します。",
+      "saveTemplate": "現在の段階タスクをテンプレート保存",
+      "stageCount": "段階数",
+      "loadedHint": "段階テンプレートを読み込みました。下の段階タスク作成ボタンを使ってください。"
+    },
+    "taskBuilder": {
+      "title": "タスク作成",
+      "single": "単一タスク",
+      "chain": "段階タスク",
+      "singleCompact": "単段",
+      "chainCompact": "多段",
+      "switchLabel": "切替",
+      "singleHint": "A -> B の単一搬送タスクを作成します。",
+      "jumpAction": "作成欄へ移動",
+      "jumpHint": "読み込み後、右下の黄色ボタンから移動できます。ダブルクリックなら直接移動します。",
+      "loadedSingle": "単一タスクのフォームに読み込みました。",
+      "loadedChain": "段階タスクのフォームに読み込みました。"
+    },
+    "taskJson": {
+      "singleExample": "単一サンプル",
+      "chainExample": "段階サンプル",
+      "singleLoaded": "単一タスク JSON サンプルを入力しました。",
+      "chainLoaded": "段階タスク JSON サンプルを入力しました。"
+    },
+    "taskJsonExampleFile": {
+      "singleDownload": "単一サンプルを保存",
+      "chainDownload": "段階サンプルを保存",
+      "singleDownloaded": "単一タスク JSON サンプルを保存しました。",
+      "chainDownloaded": "段階タスク JSON サンプルを保存しました。"
+    },
+    "taskChainMapPickUi": {
+      "start": "選点",
+      "cancel": "取消",
+      "stageCount": "予定",
+      "idleTemplate": "予定 {stages} 段 / 必要 {required} 点。先に「選点」を押してから地図をクリックしてください。",
+      "statusProgressTemplate": "{picked}/{required} 点を選択済みです。続けて選点してください。",
+      "statusDoneTemplate": "{required} 点を選択済みです。確認後に {stages} 段タスクを作成します。"
+    },
+    "queueView": {
+      "collapseCards": "カードを折りたたむ",
+      "expandCards": "カードを展開"
+    },
+    "experiment": {
+      "title": "実験記録",
+      "hint": "現在の比較結果を保存し、JSON / CSV として書き出せます。",
+      "saveCurrent": "現在結果を保存",
+      "exportCurrentJson": "現在結果 JSON",
+      "exportCurrentCsv": "現在結果 CSV",
+      "exportAllJson": "全記録 JSON",
+      "exportAllCsv": "全記録 CSV",
+      "clearAll": "全削除",
+      "empty": "保存済みの実験記録はありません",
+      "noCompare": "先にアルゴリズム比較を実行してください。",
+      "savedOk": "実験記録を保存しました。",
+      "deletedOk": "実験記録を削除しました。",
+      "clearedOk": "実験記録をすべて削除しました。",
+      "exportEmpty": "書き出す実験記録がありません。",
+      "exportCurrentJsonOk": "現在結果の JSON を書き出しました。",
+      "exportCurrentCsvOk": "現在結果の CSV を書き出しました。",
+      "exportAllJsonOk": "全実験記録の JSON を書き出しました。",
+      "exportAllCsvOk": "全実験記録の CSV を書き出しました。",
+      "route": "経路",
+      "scene": "シーン",
+      "obstacles": "障害セル",
+      "savedAt": "保存時刻",
+      "currentAlgorithm": "現在アルゴリズム",
+      "recommendedAlgorithm": "推奨アルゴリズム",
+      "delete": "削除",
+      "recordPrefix": "記録"
+    },
+    "algorithmCompare": {
+      "title": "アルゴリズム比較",
+      "hintSingle": "現在の単一路線を simple と A* で比較します。",
+      "hintChain": "現在の段階タスクを simple と A* で比較します。",
+      "run": "現在の経路を比較",
+      "clear": "結果を消去",
+      "invalid": "比較するための有効な座標が必要です。",
+      "reachable": "到達可能",
+      "unreachable": "到達不可",
+      "total": "総距離",
+      "stages": "段階距離",
+      "failedStage": "失敗段階",
+      "recommended": "推奨",
+      "current": "現在",
+      "apply": "使用中",
+      "switchTo": "切替"
+    }
   }
 }

@@ -2,6 +2,53 @@
 import './assets/agv-map.css'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { LOCALE_TEXTS } from './locales'
+import { DEFAULT_POINT_LIBRARY, DEFAULT_TASK_TEMPLATES } from './config/defaultData'
+import { useDispatchScheduler } from './composables/useDispatchScheduler'
+import { useLocalPersistence } from './composables/useLocalPersistence'
+import { useTemplatePointActions } from './composables/useTemplatePointActions'
+import { usePanelCompareUi } from './composables/usePanelCompareUi'
+import { useDataExportActions } from './composables/useDataExportActions'
+import { useMapViewport } from './composables/useMapViewport'
+import { useTaskBuilderState } from './composables/useTaskBuilderState'
+import { useTaskDisplayState } from './composables/useTaskDisplayState'
+import { useLocaleText } from './composables/useLocaleText'
+import { useTaskPreview } from './composables/useTaskPreview'
+import { useUiLocales } from './composables/useUiLocales'
+import { useTaskTextFormatters } from './composables/useTaskTextFormatters'
+import {
+  buildDefaultTaskChainStages,
+  buildTaskJsonExamplePayload,
+  createTaskChainStage,
+  currentTaskStage,
+  isTaskChain,
+  normalizeTaskStages,
+  overallTaskEnd,
+  overallTaskStart
+} from './utils/taskChain'
+import { buildDefaultQueueGroupState, compareTime, sortTasks } from './utils/taskQueue'
+import { rowsToCsv } from './utils/csv'
+import { downloadJsonFile } from './utils/fileDownload'
+import { blockedCellKey, clampValue, pointStyle, toArrowSegments, toSvgPoints } from './utils/mapGeometry'
+import {
+  resolveTaskDisplayEndMarker,
+  resolveTaskDisplayStartMarker,
+  resolveTaskEndMarker,
+  resolveTaskOverallEndMarker,
+  resolveTaskStartMarker,
+  taskChainMidPoints,
+  taskDispatchOrigin,
+  taskRemainingWaypoints
+} from './utils/taskMarkers'
+import {
+  buildTaskTemplateSignature as buildTaskTemplateSignatureRaw,
+  buildTemplateExportPayload as buildTemplateExportPayloadRaw,
+  buildTemplateFromStages as buildTemplateFromStagesRaw,
+  formatTemplateJsonSummary as formatTemplateJsonSummaryRaw,
+  isValidGridCoordinate,
+  normalizeImportedTaskTemplate as normalizeImportedTaskTemplateRaw,
+  normalizeTemplateStages as normalizeTemplateStagesRaw
+} from './utils/templateHelpers'
+import { buildCustomPoint, normalizeStoredCustomPoints } from './utils/pointHelpers'
 
 const GRID_COLS = 10
 const GRID_ROWS = 8
@@ -14,6 +61,7 @@ const TASK_TEMPLATE_STORAGE_KEY = 'agv_task_templates'
 const PANEL_SECTION_STORAGE_KEY = 'agv_panel_sections'
 const PANEL_SUMMARY_MODE_STORAGE_KEY = 'agv_panel_summary_mode'
 const TASK_QUEUE_VIEW_STORAGE_KEY = 'agv_task_queue_view'
+const EXPERIMENT_RECORDS_STORAGE_KEY = 'agv_experiment_records'
 const MAP_WIDTH = GRID_COLS * CELL_SIZE
 const MAP_HEIGHT = GRID_ROWS * CELL_SIZE
 const MINIMAP_WIDTH = 168
@@ -54,7 +102,7 @@ const taskForm = ref({
   end_y: 0,
   priority: 3
 })
-const taskChainStages = ref(buildDefaultTaskChainStages())
+const taskChainStages = ref(buildDefaultTaskChainStages(2, taskForm.value))
 const taskBuilderMode = ref('single')
 const taskChainMapPickActive = ref(false)
 const taskChainMapPickStageCount = ref(2)
@@ -84,6 +132,9 @@ const templateJsonStatusType = ref('info')
 const taskTemplateJumpReady = ref(false)
 const jsonText = ref('')
 const jsonStatus = ref('')
+const experimentRecords = ref([])
+const experimentStatus = ref('')
+const experimentStatusType = ref('info')
 const pathCompareResult = ref(null)
 const pathCompareLoading = ref(false)
 const pathCompareError = ref('')
@@ -99,6 +150,13 @@ const faultReportForm = ref({
 const showFaultReportForm = ref(false)
 const agvActionLoadingId = ref(null)
 const resolvingFaultId = ref(null)
+const taskRecoveryActionKey = ref('')
+const agvRecoveryJumpReady = ref(false)
+const agvRecoveryJumpTargetAgvId = ref(null)
+const faultSelectedAgvPulse = ref(false)
+const floatingToastVisible = ref(false)
+const floatingToastMessage = ref('')
+const floatingToastType = ref('info')
 const templateFileInputRef = ref(null)
 const panelSearch = ref('')
 const focusedPanelSection = ref('')
@@ -108,7 +166,8 @@ const panelSections = ref({
   queue: true,
   templates: false,
   points: false,
-  json: false
+  json: false,
+  experiments: false
 })
 const queueGroupsCollapsed = ref(buildDefaultQueueGroupState())
 const taskCardCollapsed = ref({})
@@ -116,31 +175,34 @@ const summaryZoomArmed = ref(false)
 
 const selectedAgvId = ref(null)
 const trackedManualTaskId = ref(null)
+const manualDispatchStep = ref('idle')
+const manualPreviewMinVisibleUntil = ref(0)
+const autoDraftPicking = ref(false)
+const manualDraftPicking = ref(false)
+const preferredRuntimeDisplayMode = ref('auto')
+const mapDraftPrimedMode = ref(null)
 const startPoint = ref(null)
 const endPoint = ref(null)
-const showDispatchHelp = ref(false)
-const dispatchHelpPinned = ref(false)
+const showGuideCenter = ref(false)
 
 const manualPathToStart = ref([])
 const manualPathToEnd = ref([])
 const autoPathToStart = ref([])
 const autoPathToEnd = ref([])
-
-const previewTaskId = ref(null)
-const previewStart = ref(null)
-const previewEnd = ref(null)
-const previewPath = ref([])
 const layoutRef = ref(null)
 const mapViewportRef = ref(null)
 const minimapRef = ref(null)
 const panelRef = ref(null)
 const compareEntryButtonRef = ref(null)
 const controlSectionRef = ref(null)
+const taskBuilderRef = ref(null)
 const comparePanelRef = ref(null)
+const faultSelectedAgvCardRef = ref(null)
 const queueSectionRef = ref(null)
 const templatesSectionRef = ref(null)
 const pointsSectionRef = ref(null)
 const jsonSectionRef = ref(null)
+const experimentsSectionRef = ref(null)
 const panelWidth = ref(380)
 const showPanelBackToTop = ref(false)
 const windowWidth = ref(typeof window !== 'undefined' ? window.innerWidth : 1280)
@@ -162,6 +224,7 @@ const obstacleMapSaving = ref(false)
 const syncedBlockedCells = ref([...DEFAULT_BLOCKED_CELLS])
 const obstaclePresets = ref([])
 const selectedObstaclePreset = ref('default_shelves')
+const appliedObstacleSceneKey = ref('default_shelves')
 const obstacleLayoutStatus = ref('')
 const obstacleLayoutStatusType = ref('info')
 const obstacleLayoutFileInputRef = ref(null)
@@ -174,16 +237,16 @@ const compareFloatingY = ref(140)
 
 let timer = null
 let clickTimer = null
-let previewTimer = null
-let dispatchHelpTimer = null
-let templateApplyClickTimer = null
 let taskBuilderJumpTimer = null
+let agvRecoveryJumpTimer = null
+let faultSelectedAgvPulseTimer = null
+let floatingToastTimer = null
 let localNextId = 1000
-let autoScheduling = false
-let autoScheduleGuard = false
+const autoScheduling = ref(false)
+const autoScheduleGuard = ref(false)
+const manualBoundScheduling = ref(false)
 let polling = false
 let mapResizeObserver = null
-let mapViewReady = false
 let mapPanCandidate = false
 let mapPanMoved = false
 let mapPanStartX = 0
@@ -191,268 +254,30 @@ let mapPanStartY = 0
 let mapPanOriginX = 0
 let mapPanOriginY = 0
 let ignoreNextMapClick = false
-let isMinimapDragging = false
-let isPanelResizing = false
-let panelResizeStartX = 0
-let panelResizeStartWidth = 0
-let panelSectionFocusTimer = null
 let obstaclePaintActive = false
 let obstaclePaintMode = 'add'
 let obstaclePaintLastKey = ''
 let compareFloatingDragging = false
 let compareFloatingDragOffsetX = 0
 let compareFloatingDragOffsetY = 0
-let floatingCompareRefreshTimer = null
+let manualPreviewHoldTimer = null
 
-const messages = {
-  zh: LOCALE_TEXTS.zh.messages,
-  ja: LOCALE_TEXTS.ja.messages,
-  en: LOCALE_TEXTS.en.messages
-}
-
-const DEFAULT_POINT_LIBRARY = [
-  {
-    id: 'inbound_a',
-    x: 0,
-    y: 1,
-    nameKey: 'point_name_inbound_a',
-    zoneKey: 'point_zone_inbound',
-    aliases: ['dock', 'receiving', '入库', '搬入', '0,1']
-  },
-  {
-    id: 'inbound_b',
-    x: 0,
-    y: 6,
-    nameKey: 'point_name_inbound_b',
-    zoneKey: 'point_zone_inbound',
-    aliases: ['dock', 'receiving', '入库', '搬入', '0,6']
-  },
-  {
-    id: 'outbound_a',
-    x: 9,
-    y: 1,
-    nameKey: 'point_name_outbound_a',
-    zoneKey: 'point_zone_outbound',
-    aliases: ['shipping', 'delivery', '出库', '搬出', '9,1']
-  },
-  {
-    id: 'outbound_b',
-    x: 9,
-    y: 6,
-    nameKey: 'point_name_outbound_b',
-    zoneKey: 'point_zone_outbound',
-    aliases: ['shipping', 'delivery', '出库', '搬出', '9,6']
-  },
-  {
-    id: 'storage_c1',
-    x: 3,
-    y: 2,
-    nameKey: 'point_name_storage_c1',
-    zoneKey: 'point_zone_storage',
-    aliases: ['rack', 'buffer', '存储', '保管', '3,2']
-  },
-  {
-    id: 'storage_c2',
-    x: 3,
-    y: 5,
-    nameKey: 'point_name_storage_c2',
-    zoneKey: 'point_zone_storage',
-    aliases: ['rack', 'buffer', '存储', '保管', '3,5']
-  },
-  {
-    id: 'assembly_1',
-    x: 6,
-    y: 2,
-    nameKey: 'point_name_assembly_1',
-    zoneKey: 'point_zone_assembly',
-    aliases: ['station', 'line', '装配', '组立', '6,2']
-  },
-  {
-    id: 'assembly_2',
-    x: 6,
-    y: 5,
-    nameKey: 'point_name_assembly_2',
-    zoneKey: 'point_zone_assembly',
-    aliases: ['station', 'line', '装配', '组立', '6,5']
-  },
-  {
-    id: 'charge',
-    x: 1,
-    y: 7,
-    nameKey: 'point_name_charge',
-    zoneKey: 'point_zone_service',
-    aliases: ['charger', 'battery', '充电', '充電', '1,7']
-  },
-  {
-    id: 'maintenance',
-    x: 8,
-    y: 7,
-    nameKey: 'point_name_maintenance',
-    zoneKey: 'point_zone_service',
-    aliases: ['repair', 'service', '维护', '保守', '8,7']
-  }
-]
-
-function getDefaultPoint(id) {
-  return DEFAULT_POINT_LIBRARY.find(point => point.id === id)
-}
-
-const DEFAULT_TASK_TEMPLATES = [
-  {
-    id: 'template_inbound_a_to_storage_c1',
-    nameKey: 'template_name_inbound_a_to_storage_c1',
-    start_x: getDefaultPoint('inbound_a').x,
-    start_y: getDefaultPoint('inbound_a').y,
-    end_x: getDefaultPoint('storage_c1').x,
-    end_y: getDefaultPoint('storage_c1').y,
-    priority: 3,
-    custom: false
-  },
-  {
-    id: 'template_inbound_b_to_storage_c2',
-    nameKey: 'template_name_inbound_b_to_storage_c2',
-    start_x: getDefaultPoint('inbound_b').x,
-    start_y: getDefaultPoint('inbound_b').y,
-    end_x: getDefaultPoint('storage_c2').x,
-    end_y: getDefaultPoint('storage_c2').y,
-    priority: 3,
-    custom: false
-  },
-  {
-    id: 'template_storage_c1_to_assembly_1',
-    nameKey: 'template_name_storage_c1_to_assembly_1',
-    start_x: getDefaultPoint('storage_c1').x,
-    start_y: getDefaultPoint('storage_c1').y,
-    end_x: getDefaultPoint('assembly_1').x,
-    end_y: getDefaultPoint('assembly_1').y,
-    priority: 4,
-    custom: false
-  },
-  {
-    id: 'template_assembly_1_to_outbound_a',
-    nameKey: 'template_name_assembly_1_to_outbound_a',
-    start_x: getDefaultPoint('assembly_1').x,
-    start_y: getDefaultPoint('assembly_1').y,
-    end_x: getDefaultPoint('outbound_a').x,
-    end_y: getDefaultPoint('outbound_a').y,
-    priority: 5,
-    custom: false
-  }
-]
-
-const t = key => messages[locale.value]?.[key] ?? messages.en[key] ?? key
-
-const localeTexts = computed(() => LOCALE_TEXTS[locale.value] ?? LOCALE_TEXTS.en)
-
-function fillTemplate(template, variables = {}) {
-  return String(template ?? '').replace(/\{(\w+)\}/g, (_, key) => String(variables[key] ?? ''))
-}
-
-function apiPointText(pointType) {
-  return (
-    localeTexts.value.apiPointText?.[pointType] ??
-    LOCALE_TEXTS.en.apiPointText?.[pointType] ??
-    String(pointType ?? '')
-  )
-}
-
-function apiAlgorithmText(algorithmName) {
-  return (
-    localeTexts.value.apiAlgorithmText?.[algorithmName] ??
-    LOCALE_TEXTS.en.apiAlgorithmText?.[algorithmName] ??
-    String(algorithmName ?? '')
-  )
-}
-
-function localizeApiErrorDetail(detail, fallbackMessage = '') {
-  const fallback = fallbackMessage || ''
-
-  if (detail && typeof detail === 'object' && !Array.isArray(detail) && detail.error_code) {
-    const template =
-      localeTexts.value.apiErrorText?.[detail.error_code] ??
-      LOCALE_TEXTS.en.apiErrorText?.[detail.error_code] ??
-      fallback
-
-    return fillTemplate(template, {
-      stage: detail.stage_index ?? '',
-      point: apiPointText(detail.point_type),
-      algorithm: apiAlgorithmText(detail.algorithm)
-    })
-  }
-
-  if (typeof detail === 'string') {
-    const sentinel = localizeDispatchReason(detail)
-    if (sentinel) return sentinel
-
-    const legacyMatches = [
-      [/^Task coordinates are required$/i, 'task_coordinates_required'],
-      [/^Task not found$/i, 'task_not_found'],
-      [/^Task is not blocked$/i, 'task_not_blocked'],
-      [/^Blocked task retry only supports A\*$/i, 'blocked_retry_requires_astar'],
-      [/^No idle AGV$/i, 'no_idle_agv'],
-      [/^No pending tasks$/i, 'no_pending_tasks'],
-      [/^No reachable tasks$/i, 'no_reachable_tasks'],
-      [/^Task route unreachable with current algorithm$/i, 'task_route_unreachable'],
-      [/^Preset not found$/i, 'preset_not_found']
-    ]
-
-    for (const [pattern, errorCode] of legacyMatches) {
-      if (pattern.test(detail)) {
-        return (
-          localeTexts.value.apiErrorText?.[errorCode] ??
-          LOCALE_TEXTS.en.apiErrorText?.[errorCode] ??
-          fallback
-        )
-      }
-    }
-
-    const startUnreachableMatch = detail.match(
-      /^No idle AGV can reach the task start with algorithm (simple|astar)$/i
-    )
-    if (startUnreachableMatch) {
-      const algorithmName = startUnreachableMatch[1].toLowerCase()
-      return fillTemplate(
-        localeTexts.value.apiErrorText?.task_start_unreachable ??
-          LOCALE_TEXTS.en.apiErrorText.task_start_unreachable,
-        { algorithm: apiAlgorithmText(algorithmName) }
-      )
-    }
-
-    return detail
-  }
-
-  return fallback
-}
-
-function localizeDispatchReason(reason) {
-  if (!reason || typeof reason !== 'string') return ''
-
-  const directReason =
-    localeTexts.value.dispatchReasonText?.[reason] ??
-    LOCALE_TEXTS.en.dispatchReasonText?.[reason] ??
-    ''
-  if (directReason) return directReason
-
-  const [errorCode, rawAlgorithm] = reason.split(':')
-  if (!rawAlgorithm) return ''
-
-  if (!['task_start_unreachable', 'task_route_unreachable', 'retry_waiting_for_idle_agv'].includes(errorCode)) {
-    return ''
-  }
-
-  const template =
-    localeTexts.value.apiErrorText?.[errorCode] ??
-    LOCALE_TEXTS.en.apiErrorText?.[errorCode] ??
-    ''
-
-  return fillTemplate(template, {
-    algorithm: apiAlgorithmText(rawAlgorithm.toLowerCase())
-  })
-}
-
-function createApiError(payload, fallbackMessage = '') {
-  return new Error(localizeApiErrorDetail(payload?.detail, fallbackMessage))
-}
+const { t, localeTexts, localizeDispatchReason, localizeApiErrorDetail, createApiError } = useLocaleText(locale)
+const {
+  templateJsonLocale,
+  panelLocale,
+  panelSearchLocale,
+  guideCenterLocale,
+  toolbarGuideHintText,
+  taskChainLocale,
+  taskBuilderLocale,
+  taskJsonLocale,
+  taskJsonExampleFileLocale,
+  taskChainMapPickUiLocale,
+  queueViewLocale,
+  experimentLocale,
+  algorithmCompareLocale
+} = useUiLocales({ locale, t })
 
 const selectedAgv = computed(() => {
   if (!selectedAgvId.value) return null
@@ -462,9 +287,16 @@ const selectedBackendAgv = computed(() => {
   if (!selectedAgv.value || selectedAgv.value.source !== 'backend') return null
   return selectedAgv.value
 })
+const maintenanceBackendAgvs = computed(() =>
+  agvs.value
+    .filter(agv => agv.status === 'maintenance')
+    .sort((a, b) => a.id - b.id)
+)
 
 const displayAgvs = computed(() => {
-  const backendAgvs = agvs.value.map(agv => ({ ...agv, source: 'backend' }))
+  const backendAgvs = agvs.value
+    .filter(agv => agv.status !== 'maintenance')
+    .map(agv => ({ ...agv, source: 'backend' }))
   return [...backendAgvs, ...localAgvs.value]
 })
 const selectedAgvTask = computed(() => {
@@ -474,92 +306,32 @@ const selectedAgvTask = computed(() => {
     null
   )
 })
+const manualDispatchReady = computed(() => {
+  if (dispatchMode.value !== 'manual') return true
+  return Boolean(selectedBackendAgv.value && selectedBackendAgv.value.status === 'idle')
+})
 const filteredFaultEvents = computed(() => {
   if (faultEventFilter.value === 'all') return faultEvents.value
   return faultEvents.value.filter(event => event.status === faultEventFilter.value)
 })
 
-const toSvgPoints = (points, cellSize = CELL_SIZE) =>
-  points
-    .map(point => {
-      const cx = point.x * cellSize + cellSize / 2
-      const cy = point.y * cellSize + cellSize / 2
-      return `${cx},${cy}`
-    })
-    .join(' ')
-
-const toArrowSegments = (points, cellSize = CELL_SIZE) => {
-  if (points.length < 2) return []
-
-  const segments = []
-  let segmentStartIndex = 0
-  let direction = {
-    dx: points[1].x - points[0].x,
-    dy: points[1].y - points[0].y
-  }
-
-  for (let index = 2; index < points.length; index += 1) {
-    const nextDirection = {
-      dx: points[index].x - points[index - 1].x,
-      dy: points[index].y - points[index - 1].y
-    }
-
-    if (nextDirection.dx !== direction.dx || nextDirection.dy !== direction.dy) {
-      segments.push({
-        start: points[segmentStartIndex],
-        end: points[index - 1],
-        direction
-      })
-      segmentStartIndex = index - 1
-      direction = nextDirection
-    }
-  }
-
-  segments.push({
-    start: points[segmentStartIndex],
-    end: points.at(-1),
-    direction
-  })
-
-  return segments
-    .map((segment, index) => {
-      const startX = segment.start.x * cellSize + cellSize / 2
-      const startY = segment.start.y * cellSize + cellSize / 2
-      const endX = segment.end.x * cellSize + cellSize / 2
-      const endY = segment.end.y * cellSize + cellSize / 2
-      const distance = Math.hypot(endX - startX, endY - startY)
-
-      if (distance === 0) return null
-
-      const unitX = (endX - startX) / distance
-      const unitY = (endY - startY) / distance
-      const centerX = (startX + endX) / 2
-      const centerY = (startY + endY) / 2
-      const arrowLength = Math.min(distance, cellSize * 1.15)
-
-      return {
-        id: `${index}-${segment.start.x}-${segment.start.y}-${segment.end.x}-${segment.end.y}`,
-        x1: centerX - unitX * (arrowLength / 2),
-        y1: centerY - unitY * (arrowLength / 2),
-        x2: centerX + unitX * (arrowLength / 2),
-        y2: centerY + unitY * (arrowLength / 2)
-      }
-    })
-    .filter(Boolean)
-}
-
 const manualPathToStartPoints = computed(() => toSvgPoints(manualPathToStart.value))
 const manualPathToEndPoints = computed(() => toSvgPoints(manualPathToEnd.value))
 const autoPathToStartPoints = computed(() => toSvgPoints(autoPathToStart.value))
 const autoPathToEndPoints = computed(() => toSvgPoints(autoPathToEnd.value))
-const previewPathPoints = computed(() => toSvgPoints(previewPath.value))
 const manualPathToStartArrows = computed(() => toArrowSegments(manualPathToStart.value))
 const manualPathToEndArrows = computed(() => toArrowSegments(manualPathToEnd.value))
 const autoPathToStartArrows = computed(() => toArrowSegments(autoPathToStart.value))
 const autoPathToEndArrows = computed(() => toArrowSegments(autoPathToEnd.value))
-const previewPathArrows = computed(() => toArrowSegments(previewPath.value))
 const isCompactLayout = computed(() => windowWidth.value <= 960)
 const shouldShowAutoPath = computed(() => dispatchMode.value === 'auto' && showAutoPath.value)
+const suppressAutoRuntimeVisuals = computed(
+  () =>
+    dispatchMode.value === 'auto' &&
+    ((taskBuilderMode.value === 'single' && autoDraftPicking.value) ||
+      (taskBuilderMode.value === 'chain' && taskChainMapPickActive.value))
+)
+const showAutoRuntimeVisuals = computed(() => shouldShowAutoPath.value && !suppressAutoRuntimeVisuals.value)
 const layoutStyle = computed(() =>
   isCompactLayout.value
     ? {}
@@ -586,9 +358,26 @@ const minimapCellSize = computed(() => CELL_SIZE * minimapScale.value)
 const blockedCellSet = computed(
   () => new Set(blockedCells.value.map(cell => `${cell.x},${cell.y}`))
 )
+const occupiedCellSet = computed(() => {
+  const keys = new Set()
+  for (const agv of displayAgvs.value) {
+    if (Number.isInteger(agv?.x) && Number.isInteger(agv?.y)) {
+      keys.add(blockedCellKey(agv.x, agv.y))
+    }
+  }
+  return keys
+})
+const obstacleMutationLocked = computed(
+  () =>
+    agvs.value.some(agv => ['running', 'relocating'].includes(agv.status)) ||
+    tasks.value.some(task => ['assigned', 'running'].includes(task.status))
+)
 const blockedCellCount = computed(() => blockedCells.value.length)
 const selectedObstaclePresetInfo = computed(
   () => obstaclePresets.value.find(preset => preset.key === selectedObstaclePreset.value) ?? null
+)
+const appliedObstaclePresetInfo = computed(
+  () => obstaclePresets.value.find(preset => preset.key === appliedObstacleSceneKey.value) ?? null
 )
 const syncedBlockedCellSet = computed(
   () => new Set(syncedBlockedCells.value.map(cell => `${cell.x},${cell.y}`))
@@ -612,7 +401,6 @@ const minimapAutoPathToStartPoints = computed(() =>
 const minimapAutoPathToEndPoints = computed(() =>
   toSvgPoints(autoPathToEnd.value, minimapCellSize.value)
 )
-const minimapPreviewPathPoints = computed(() => toSvgPoints(previewPath.value, minimapCellSize.value))
 const minimapViewportStyle = computed(() => {
   const scale = minimapScale.value
   const visibleWidth = Math.min(MAP_WIDTH, mapViewportWidth.value / mapZoom.value)
@@ -627,152 +415,8 @@ const minimapViewportStyle = computed(() => {
     height: `${visibleHeight * scale}px`
   }
 })
-const mainStartMarker = computed(() => {
-  return (
-    startPoint.value ??
-    manualPathToStart.value.at(-1) ??
-    manualPathToEnd.value[0] ??
-    (shouldShowAutoPath.value ? autoPathToStart.value.at(-1) ?? autoPathToEnd.value[0] : null) ??
-    null
-  )
-})
-const mainEndMarker = computed(() => {
-  return (
-    endPoint.value ??
-    manualPathToEnd.value.at(-1) ??
-    (shouldShowAutoPath.value ? autoPathToEnd.value.at(-1) : null) ??
-    null
-  )
-})
-const chainMidMarkers = computed(() => {
-  if (!taskChainMapPickActive.value) return []
-  return taskChainMapPickPoints.value.slice(1, -1).map((point, index) => ({
-    ...point,
-    order: index + 1
-  }))
-})
-const minimapStartMarker = computed(() => mainStartMarker.value)
-const minimapEndMarker = computed(() => mainEndMarker.value)
 const pointLibrary = computed(() => [...DEFAULT_POINT_LIBRARY, ...customPoints.value])
 const taskTemplates = computed(() => [...DEFAULT_TASK_TEMPLATES, ...customTaskTemplates.value])
-const templateJsonLocale = computed(() => {
-  if (locale.value === 'ja') {
-    return {
-      title: 'テンプレート JSON',
-      hint: 'カスタムテンプレートを JSON で保存したり、一括で取り込めます。',
-      placeholder:
-        '{ "templates": [{ "name": "入庫口 A から組立 1", "start_x": 0, "start_y": 0, "end_x": 6, "end_y": 2, "priority": 3 }] }',
-      import: 'テンプレート取込',
-      export: 'カスタムを出力',
-      importFile: 'ファイル取込',
-      downloadFile: 'JSON 保存',
-      clear: 'JSON クリア',
-      exportEmpty: '書き出すカスタムテンプレートがありません',
-      exportOk: '書き出し件数',
-      importOk: '取込件数',
-      importFail: 'テンプレート JSON が不正か、取込に失敗しました',
-      skipped: 'スキップ'
-    }
-  }
-
-  if (locale.value === 'zh') {
-    return {
-      title: '模板 JSON',
-      hint: '可导出自定义模板，也可从 JSON 批量导入。',
-      placeholder:
-        '{ "templates": [{ "name": "入库口 A 到装配台 1", "start_x": 0, "start_y": 0, "end_x": 6, "end_y": 2, "priority": 3 }] }',
-      import: '导入模板',
-      export: '导出自定义模板',
-      importFile: '导入文件',
-      downloadFile: '下载 JSON',
-      clear: '清空模板 JSON',
-      exportEmpty: '当前没有可导出的自定义模板',
-      exportOk: '已导出数量',
-      importOk: '已导入数量',
-      importFail: '模板 JSON 格式无效或导入失败',
-      skipped: '已跳过'
-    }
-  }
-
-  return {
-    title: 'Template JSON',
-    hint: 'Export custom templates or import them in batches from JSON.',
-    placeholder:
-      '{ "templates": [{ "name": "Inbound A to Assembly 1", "start_x": 0, "start_y": 0, "end_x": 6, "end_y": 2, "priority": 3 }] }',
-    import: 'Import Templates',
-    export: 'Export Custom Templates',
-    importFile: 'Import File',
-    downloadFile: 'Download JSON',
-    clear: 'Clear Template JSON',
-    exportEmpty: 'There are no custom templates to export',
-    exportOk: 'Exported',
-    importOk: 'Imported',
-    importFail: 'Template JSON is invalid or import failed',
-    skipped: 'Skipped'
-  }
-})
-const panelLocale = computed(() => {
-  if (locale.value === 'ja') {
-    return {
-      sections: {
-        control: '配車操作',
-        queue: 'タスクキュー',
-        templates: 'タスクテンプレート',
-        points: '共通ポイント',
-        json: 'JSON ツール'
-      },
-      expandAll: 'すべて展開',
-      collapseAll: 'すべて折りたたむ',
-      collapse: '折りたたむ',
-      expand: '展開',
-      currentMode: '現在モード',
-      modeAuto: '自動配車',
-      modeManual: '手動配車',
-      modeAutoHint: '始点と終点を指定すると、システムが空き AGV を選んで実行します。',
-      modeManualHint: '先に AGV を選び、その後に目的地を指定してその車両だけを移動させます。'
-    }
-  }
-
-  if (locale.value === 'zh') {
-    return {
-      sections: {
-        control: '调度控制',
-        queue: '任务队列',
-        templates: '任务模板',
-        points: '常用点位',
-        json: 'JSON 工具'
-      },
-      expandAll: '全部展开',
-      collapseAll: '全部收起',
-      collapse: '收起',
-      expand: '展开',
-      currentMode: '当前模式',
-      modeAuto: '自动调度',
-      modeManual: '手动调车',
-      modeAutoHint: '设置起点和终点后，系统会自动选择空闲 AGV 执行任务。',
-      modeManualHint: '先选择 AGV，再指定目标位置，只调度这台车。'
-    }
-  }
-
-  return {
-    sections: {
-      control: 'Dispatch Control',
-      queue: 'Task Queue',
-      templates: 'Task Templates',
-      points: 'Common Points',
-      json: 'JSON Tools'
-    },
-    expandAll: 'Expand All',
-    collapseAll: 'Collapse All',
-    collapse: 'Collapse',
-    expand: 'Expand',
-    currentMode: 'Current Mode',
-    modeAuto: 'Auto Dispatch',
-    modeManual: 'Manual Relocation',
-    modeAutoHint: 'After you set start and end points, the system selects an idle AGV automatically.',
-    modeManualHint: 'Select an AGV first, then choose a target point to move only that vehicle.'
-  }
-})
 const currentDispatchModeLabel = computed(() =>
   dispatchMode.value === 'auto' ? panelLocale.value.modeAuto : panelLocale.value.modeManual
 )
@@ -780,286 +424,66 @@ const currentDispatchModeHint = computed(() =>
   dispatchMode.value === 'auto' ? panelLocale.value.modeAutoHint : panelLocale.value.modeManualHint
 )
 const faultLocale = computed(() => localeTexts.value.fault ?? LOCALE_TEXTS.en.fault)
-const panelSearchLocale = computed(() => {
-  if (locale.value === 'ja') {
-    return {
-      placeholder: 'パネル名・タスク・テンプレート・ポイントを検索',
-      clear: '検索クリア',
-      empty: '一致するセクションや項目はありません',
-      hits: '件一致'
-    }
-  }
-
-  if (locale.value === 'zh') {
-    return {
-      placeholder: '搜索面板、任务、模板或点位',
-      clear: '清空搜索',
-      empty: '没有匹配的面板或条目',
-      hits: '项匹配'
-    }
-  }
-
-  return {
-    placeholder: 'Search panels, tasks, templates, or points',
-    clear: 'Clear Search',
-    empty: 'No matching sections or items',
-    hits: 'matches'
-  }
-})
 const panelSummaryLocale = computed(() => localeTexts.value.panelSummary ?? LOCALE_TEXTS.en.panelSummary)
 const settingsLocale = computed(() => localeTexts.value.settings ?? LOCALE_TEXTS.en.settings)
-const taskChainLocale = computed(() => {
-  if (locale.value === 'ja') {
-    return {
-      title: '段階タスク',
-      hint: 'A -> B -> C のような連続工程を 1 件のタスクとして順番に実行します。',
-      stage: '段階',
-      stageLabel: '段階名',
-      stageLabelPlaceholder: '例：組立工程',
-      addStage: '段階追加',
-      removeStage: '削除',
-      resetStages: '段階を初期化',
-      createTask: '段階タスクを作成',
-      progress: '進行',
-      currentRoute: '現在段階',
-      overallRoute: '全体経路',
-      priorityHint: '優先度は上の共通設定を使用します。',
-      saveTemplate: '現在の段階タスクをテンプレート保存',
-      stageCount: '段階数',
-      loadedHint: '段階テンプレートを読み込みました。下の段階タスク作成ボタンを使ってください。'
-    }
-  }
-
-  if (locale.value === 'zh') {
-    return {
-      title: '阶段任务',
-      hint: '用于 A -> B -> C 这类连续流程，同一任务会按阶段顺序连续执行。',
-      stage: '阶段',
-      stageLabel: '阶段名',
-      stageLabelPlaceholder: '例如：装配工序',
-      addStage: '新增阶段',
-      removeStage: '删除',
-      resetStages: '重置阶段',
-      createTask: '创建阶段任务',
-      progress: '进度',
-      currentRoute: '当前阶段',
-      overallRoute: '总路线',
-      priorityHint: '优先级使用上方公共设置。',
-      saveTemplate: '保存当前阶段任务为模板',
-      stageCount: '阶段数',
-      loadedHint: '已载入阶段模板，请使用下方阶段任务按钮创建。'
-    }
-  }
-
-  return {
-    title: 'Stage Task',
-    hint: 'Use one task to execute linked stages such as A -> B -> C in order.',
-    stage: 'Stage',
-    stageLabel: 'Stage Name',
-    stageLabelPlaceholder: 'e.g. Assembly',
-    addStage: 'Add Stage',
-    removeStage: 'Remove',
-    resetStages: 'Reset Stages',
-    createTask: 'Create Stage Task',
-    progress: 'Progress',
-    currentRoute: 'Current Stage',
-    overallRoute: 'Overall Route',
-    priorityHint: 'Priority uses the shared control above.',
-    saveTemplate: 'Save Stage Task as Template',
-    stageCount: 'Stages',
-    loadedHint: 'Stage template loaded. Use the stage task button below to create it.'
-  }
-})
-const taskBuilderLocale = computed(() => {
-  if (locale.value === 'ja') {
-    return {
-      title: 'タスク作成',
-      single: '単一タスク',
-      chain: '段階タスク',
-      singleCompact: '単段',
-      chainCompact: '多段',
-      switchLabel: '切替',
-      singleHint: 'A -> B の単一搬送タスクを作成します。',
-      jumpAction: '作成欄へ移動',
-      jumpHint: '読み込み後、右下の黄色ボタンから移動できます。ダブルクリックなら直接移動します。',
-      loadedSingle: '単一タスクのフォームに読み込みました。',
-      loadedChain: '段階タスクのフォームに読み込みました。'
-    }
-  }
-
-  if (locale.value === 'zh') {
-    return {
-      title: '任务创建',
-      single: '单段任务',
-      chain: '阶段任务',
-      singleCompact: '单段',
-      chainCompact: '多段',
-      switchLabel: '切换',
-      singleHint: '用于创建 A -> B 的单段搬运任务。',
-      jumpAction: '跳转到任务创建',
-      jumpHint: '载入后可点击右下角黄色按钮跳转，双击可直接跳转。',
-      loadedSingle: '已载入到单段任务表单。',
-      loadedChain: '已载入到阶段任务表单。'
-    }
-  }
-
-  return {
-    title: 'Task Builder',
-    single: 'Single',
-    chain: 'Stages',
-    singleCompact: 'Single',
-    chainCompact: 'Multi',
-    switchLabel: 'Mode',
-    singleHint: 'Create a single A -> B transport task.',
-    jumpAction: 'Jump to Builder',
-    jumpHint: 'Use the yellow button at the lower-right after loading, or double-click to jump directly.',
-    loadedSingle: 'Loaded into the single-task form.',
-    loadedChain: 'Loaded into the stage-task form.'
-  }
-})
-const taskJsonLocale = computed(() => {
-  if (locale.value === 'ja') {
-    return {
-      singleExample: '単一サンプル',
-      chainExample: '段階サンプル',
-      singleLoaded: '単一タスク JSON サンプルを入力しました。',
-      chainLoaded: '段階タスク JSON サンプルを入力しました。'
-    }
-  }
-
-  if (locale.value === 'zh') {
-    return {
-      singleExample: '填入单段示例',
-      chainExample: '填入阶段示例',
-      singleLoaded: '已填入单段任务 JSON 示例。',
-      chainLoaded: '已填入阶段任务 JSON 示例。'
-    }
-  }
-
-  return {
-    singleExample: 'Single Example',
-    chainExample: 'Stage Example',
-    singleLoaded: 'Loaded a single-task JSON example.',
-    chainLoaded: 'Loaded a stage-task JSON example.'
-  }
-})
-const taskJsonExampleFileLocale = computed(() => {
-  if (locale.value === 'ja') {
-    return {
-      singleDownload: '単一サンプルを保存',
-      chainDownload: '段階サンプルを保存',
-      singleDownloaded: '単一タスク JSON サンプルを保存しました。',
-      chainDownloaded: '段階タスク JSON サンプルを保存しました。'
-    }
-  }
-
-  if (locale.value === 'zh') {
-    return {
-      singleDownload: '下载单段示例',
-      chainDownload: '下载阶段示例',
-      singleDownloaded: '已下载单段任务 JSON 示例。',
-      chainDownloaded: '已下载阶段任务 JSON 示例。'
-    }
-  }
-
-  return {
-    singleDownload: 'Download Single Sample',
-    chainDownload: 'Download Stage Sample',
-    singleDownloaded: 'Downloaded a single-task JSON sample.',
-    chainDownloaded: 'Downloaded a stage-task JSON sample.'
-  }
-})
-const taskChainMapPickLocale = computed(() => {
-  if (locale.value === 'ja') {
-    return {
-      start: '地図選点',
-      cancel: '入力取消',
-      step1: '1 点目：始点 A をクリック',
-      step2: '2 点目：中継点 B をクリック',
-      step3: '3 点目：終点 C をクリック'
-    }
-  }
-
-  if (locale.value === 'zh') {
-    return {
-      start: '地图选点',
-      cancel: '取消地图选点',
-      step1: '第 1 点：点击起点 A',
-      step2: '第 2 点：点击中转点 B',
-      step3: '第 3 点：点击终点 C'
-    }
-  }
-
-  return {
-    start: 'Map Pick',
-    cancel: 'Cancel Picking',
-    step1: 'Point 1: click start A',
-    step2: 'Point 2: click transfer B',
-    step3: 'Point 3: click end C'
-  }
-})
-const taskChainMapPickUiLocale = computed(() => {
-  if (locale.value === 'ja') {
-    return {
-      start: '選点',
-      cancel: '取消',
-      stageCount: '予定',
-      idle: (required, stages) => `予定 ${stages} 段 / 必要 ${required} 点。先に「選点」を押してから地図をクリックしてください。`,
-      status: (picked, required, stages) =>
-        picked >= required
-          ? `${required} 点を選択済みです。確認後に ${stages} 段タスクを作成します。`
-          : `${picked}/${required} 点を選択済みです。続けて選点してください。`
-    }
-  }
-
-  if (locale.value === 'zh') {
-    return {
-      start: '选点',
-      cancel: '取消',
-      stageCount: '预选',
-      idle: (required, stages) => `预选 ${stages} 段 / 需 ${required} 点，先点击“选点”，再到地图上选点。`,
-      status: (picked, required, stages) =>
-        picked >= required
-          ? `已选满 ${required} 点，确认后创建 ${stages} 段任务。`
-          : `已选 ${picked}/${required} 点，请继续选点。`
-    }
-  }
-
-  return {
-    start: 'Pick',
-    cancel: 'Cancel',
-    stageCount: 'Plan',
-    idle: (required, stages) => `Plan ${stages} stages / ${required} points. Click "Pick" first, then select points on the map.`,
-    status: (picked, required, stages) =>
-      picked >= required
-        ? `${required} points selected. Confirm to create ${stages} stages.`
-        : `${picked}/${required} points selected. Keep picking.`
-  }
-})
-const queueViewLocale = computed(() => {
-  if (locale.value === 'ja') {
-    return {
-      collapseCards: 'カードを折りたたむ',
-      expandCards: 'カードを展開'
-    }
-  }
-
-  if (locale.value === 'zh') {
-    return {
-      collapseCards: '折叠卡片',
-      expandCards: '展开卡片'
-    }
-  }
-
-  return {
-    collapseCards: 'Fold Cards',
-    expandCards: 'Expand Cards'
-  }
+const {
+  statusColor,
+  statusText,
+  compactStatusText,
+  taskStatusText,
+  algorithmText,
+  faultTypeText,
+  faultSeverityText,
+  faultEventTypeText,
+  faultEventStatusText,
+  moveToMaintenanceText,
+  returnToServiceText,
+  maintenanceListTitleText,
+  formatTaskMeta,
+  formatTaskAgv,
+  formatTaskStageProgress,
+  formatTaskCurrentStage,
+  formatTaskTime,
+  formatTaskCompactSummary,
+  formatDispatchReason,
+  formatTaskAlgorithm,
+  formatTaskPathStats,
+  formatTaskInitialPoint,
+  blockedTaskAlertText,
+  isRecoveryRequiredTask,
+  isCellOccupiedTimeoutTask,
+  retryFromCurrentButtonText,
+  retryFromCurrentQueuedText,
+  agvRecoveryJumpButtonText,
+  formatTaskLastAction,
+  taskLastActionLabel,
+  isTaskReasonAlert,
+  recoveryActionText,
+  recoveryQueuedText,
+  countRetryableBlockedTasks
+} = useTaskTextFormatters({
+  locale,
+  t,
+  faultLocale,
+  taskChainLocale,
+  isTaskChain,
+  overallTaskStart,
+  overallTaskEnd,
+  currentTaskStage,
+  normalizeTaskStages,
+  localizeDispatchReason,
+  obstacleEditMode,
+  obstacleLayoutDirty,
+  obstacleSaveRequiredText,
+  hasIdleAgv,
+  agvs,
+  taskDispatchOrigin,
+  algorithm,
+  agvRecoveryJumpTargetAgvId
 })
 const currentTaskBuilderModeCompactLabel = computed(() =>
   taskBuilderMode.value === 'chain' ? taskBuilderLocale.value.chainCompact : taskBuilderLocale.value.singleCompact
 )
-const taskChainStageCount = computed(() => Math.max(taskChainStages.value.length, 2))
 const taskChainMapPickStageCountInput = computed({
   get: () => taskChainMapPickStageCount.value,
   set: value => {
@@ -1067,10 +491,90 @@ const taskChainMapPickStageCountInput = computed({
   }
 })
 const taskChainRequiredPointCount = computed(() => taskChainMapPickStageCount.value + 1)
-const currentTaskBuilderHint = computed(() =>
-  taskBuilderMode.value === 'chain' ? taskChainLocale.value.hint : taskBuilderLocale.value.singleHint
-)
+const currentTaskBuilderHint = computed(() => {
+  if (dispatchMode.value !== 'manual') {
+    return taskBuilderMode.value === 'chain' ? taskChainLocale.value.hint : taskBuilderLocale.value.singleHint
+  }
+
+  if (!selectedBackendAgv.value) {
+    if (locale.value === 'ja') {
+      return '手動派車では先に空き AGV を選択してください。'
+    }
+    if (locale.value === 'zh') {
+      return '手动派车需要先选中一台空闲 AGV。'
+    }
+    return 'Manual dispatch requires selecting one idle AGV first.'
+  }
+
+  if (taskBuilderMode.value === 'single' && manualDispatchStep.value === 'awaiting_end') {
+    if (locale.value === 'ja') {
+      return '手動派車の始点を選択済みです。続けて終点を選択してください。'
+    }
+    if (locale.value === 'zh') {
+      return '已选定手动派车起点，请继续选择终点。'
+    }
+    return 'The manual dispatch start point is selected. Choose the end point next.'
+  }
+
+  if (taskBuilderMode.value === 'chain') {
+    if (locale.value === 'ja') {
+      return '手動派車では選択中 AGV の初期位置から第1段の始点へ先に就位し、その後に設定した多段タスクを実行します。'
+    }
+    if (locale.value === 'zh') {
+      return '手动派车会先从所选 AGV 的初始点就位到第一段起点，再执行你设置的多段任务。'
+    }
+    return 'Manual dispatch first relocates the selected AGV from its initial position to the first stage start, then runs the configured multi-stage task.'
+  }
+
+  if (locale.value === 'ja') {
+    return '手動派車では AGV の初期位置からタスク始点へ先に就位し、その後に始点から終点まで実行します。'
+  }
+  if (locale.value === 'zh') {
+    return '手动派车会先从所选 AGV 的初始点到任务起点就位，再执行起点到终点的任务。'
+  }
+  return 'Manual dispatch first relocates the selected AGV from its initial position to the task start, then executes the route to the end point.'
+})
+const taskBuilderTitleText = computed(() => {
+  if (dispatchMode.value !== 'manual') return taskBuilderLocale.value.title
+  if (locale.value === 'ja') return '手動派車'
+  if (locale.value === 'zh') return '手动派车'
+  return 'Manual Dispatch'
+})
+const singleTaskStartLabelX = computed(() => {
+  return t('form_start_x')
+})
+const singleTaskStartLabelY = computed(() => {
+  return t('form_start_y')
+})
+const singleTaskEndLabelX = computed(() => {
+  return t('form_end_x')
+})
+const singleTaskEndLabelY = computed(() => {
+  return t('form_end_y')
+})
+const singleTaskSubmitText = computed(() => {
+  if (dispatchMode.value !== 'manual') return t('add_task')
+  if (locale.value === 'ja') return '手動派車を実行'
+  if (locale.value === 'zh') return '执行手动派车'
+  return 'Dispatch Manually'
+})
+const chainTaskSubmitText = computed(() => {
+  if (dispatchMode.value !== 'manual') return taskChainLocale.value.createTask
+  if (locale.value === 'ja') return '多段手動派車を実行'
+  if (locale.value === 'zh') return '执行多段手动派车'
+  return 'Dispatch Multi-stage Task'
+})
 const taskChainMapPickStatusText = computed(() => {
+  if (dispatchMode.value === 'manual' && !selectedBackendAgv.value) {
+    if (locale.value === 'ja') {
+      return '先に空き AGV を選択してから多段選点を開始してください。'
+    }
+    if (locale.value === 'zh') {
+      return '请先选中一台空闲 AGV，再开始多段选点。'
+    }
+    return 'Select one idle AGV before starting multi-point manual dispatch.'
+  }
+
   if (!taskChainMapPickActive.value) {
     return taskChainMapPickUiLocale.value.idle(taskChainRequiredPointCount.value, taskChainMapPickStageCount.value)
   }
@@ -1081,68 +585,235 @@ const taskChainMapPickStatusText = computed(() => {
     taskChainMapPickStageCount.value
   )
 })
+const manualDispatchOriginText = computed(() => {
+  if (dispatchMode.value !== 'manual' || !selectedBackendAgv.value) return ''
+  if (locale.value === 'ja') {
+    return `初期位置: AGV #${selectedBackendAgv.value.id} (${selectedBackendAgv.value.x}, ${selectedBackendAgv.value.y})`
+  }
+  if (locale.value === 'zh') {
+    return `初始点: AGV #${selectedBackendAgv.value.id} (${selectedBackendAgv.value.x}, ${selectedBackendAgv.value.y})`
+  }
+  return `Initial point: AGV #${selectedBackendAgv.value.id} (${selectedBackendAgv.value.x}, ${selectedBackendAgv.value.y})`
+})
+
+const {
+  findLatestActiveTask,
+  autoDisplayTask,
+  manualDisplayTask,
+  manualChainRoutePoints,
+  autoChainRoutePoints,
+  minimapManualChainRoutePoints,
+  minimapAutoChainRoutePoints,
+  chainMidMarkers
+} = useTaskDisplayState({
+  tasks,
+  selectedAgvId,
+  trackedManualTaskId,
+  dispatchMode,
+  taskBuilderMode,
+  taskChainMapPickActive,
+  taskChainMapPickPoints,
+  taskChainRequiredPointCount,
+  shouldShowAutoPath,
+  suppressAutoRuntimeVisuals,
+  startPoint,
+  endPoint,
+  manualPathToStart,
+  manualPathToEnd,
+  autoPathToStart,
+  autoPathToEnd,
+  minimapCellSize,
+  compareTime,
+  toSvgPoints,
+  taskRemainingWaypoints,
+  taskChainMidPoints,
+  resolveTaskDisplayStartMarker,
+  resolveTaskDisplayEndMarker,
+  resolveTaskEndMarker,
+  resolveTaskOverallEndMarker
+})
+
+const autoDraftMarkerDisplayActive = computed(() => {
+  if (dispatchMode.value !== 'auto') return false
+  if (taskBuilderMode.value === 'chain') return taskChainMapPickActive.value
+  return mapDraftPrimedMode.value === 'auto' || autoDraftPicking.value
+})
+const manualDraftMarkerDisplayActive = computed(() => {
+  if (dispatchMode.value !== 'manual') return false
+  if (taskBuilderMode.value === 'chain') return taskChainMapPickActive.value
+  return mapDraftPrimedMode.value === 'manual' || manualDraftPicking.value || manualDispatchStep.value === 'awaiting_end'
+})
+const manualDraftDisplayEndMarker = computed(() => {
+  if (!manualDraftMarkerDisplayActive.value) return null
+  if (
+    taskBuilderMode.value === 'chain' &&
+    taskChainMapPickActive.value &&
+    taskChainMapPickPoints.value.length < taskChainRequiredPointCount.value
+  ) {
+    return null
+  }
+  return endPoint.value
+})
+const autoDraftDisplayEndMarker = computed(() => {
+  if (!autoDraftMarkerDisplayActive.value) return null
+  if (
+    taskBuilderMode.value === 'chain' &&
+    taskChainMapPickActive.value &&
+    taskChainMapPickPoints.value.length < taskChainRequiredPointCount.value
+  ) {
+    return null
+  }
+  return endPoint.value
+})
+const activeRuntimeDisplayTask = computed(() => {
+  if (preferredRuntimeDisplayMode.value === 'manual') {
+    return manualDisplayTask.value ?? autoDisplayTask.value ?? null
+  }
+  return autoDisplayTask.value ?? manualDisplayTask.value ?? null
+})
+const runtimeDisplayMarkerVariant = computed(() => {
+  const task = activeRuntimeDisplayTask.value
+  if (!task) return null
+  return task.dispatch_mode === 'manual' ? 'manual' : 'auto'
+})
+const runtimeDisplayStartMarker = computed(() => {
+  const task = activeRuntimeDisplayTask.value
+  if (!task) return null
+  return resolveTaskDisplayStartMarker(task)
+})
+const runtimeDisplayEndMarker = computed(() => {
+  const task = activeRuntimeDisplayTask.value
+  if (!task) return null
+  if (runtimeDisplayMarkerVariant.value === 'auto') {
+    if (Number(task.total_stages ?? 1) > 1) {
+      return resolveTaskOverallEndMarker(task)
+    }
+    return resolveTaskEndMarker(task) ?? resolveTaskDisplayEndMarker(task)
+  }
+  return resolveTaskDisplayEndMarker(task)
+})
+const activeDisplayMarkerVariant = computed(() => {
+  if (autoDraftMarkerDisplayActive.value) return 'auto'
+  if (manualDraftMarkerDisplayActive.value) return 'manual'
+  return runtimeDisplayMarkerVariant.value
+})
+const activeDisplayStartMarker = computed(() => {
+  if (autoDraftMarkerDisplayActive.value) return startPoint.value
+  if (manualDraftMarkerDisplayActive.value) return startPoint.value
+  return runtimeDisplayStartMarker.value
+})
+const activeDisplayEndMarker = computed(() => {
+  if (autoDraftMarkerDisplayActive.value) return autoDraftDisplayEndMarker.value
+  if (manualDraftMarkerDisplayActive.value) return manualDraftDisplayEndMarker.value
+  return runtimeDisplayEndMarker.value
+})
+const minimapDisplayStartMarker = computed(() => activeDisplayStartMarker.value)
+const minimapDisplayEndMarker = computed(() => activeDisplayEndMarker.value)
+
+function buildManualTaskCreateMeta(manualAgv, reason = 'waiting_for_bound_agv') {
+  if (!manualAgv) return {}
+  return {
+    dispatch_mode: 'manual',
+    preferred_agv_id: manualAgv.id,
+    dispatch_origin_x: Number(manualAgv.x),
+    dispatch_origin_y: Number(manualAgv.y),
+    dispatch_algorithm: algorithm.value,
+    dispatch_reason: reason
+  }
+}
+
+function manualTaskQueuedText(task) {
+  const agvId = task?.preferred_agv_id ?? task?.agv_id ?? selectedBackendAgv.value?.id ?? '?'
+  if (locale.value === 'ja') {
+    return `タスクは作成されました。指定 AGV #${agvId} の空きを待って自動実行します。`
+  }
+  if (locale.value === 'zh') {
+    return `任务已创建，正在等待指定 AGV #${agvId} 空闲后自动执行。`
+  }
+  return `Task created. Waiting for bound AGV #${agvId} to become idle before execution.`
+}
+
+function autoTaskQueuedText(task) {
+  const taskId = task?.id ?? '?'
+  if (locale.value === 'ja') {
+    return `タスク #${taskId} を自動調度キューへ追加しました。空き AGV が出るまで待機します。`
+  }
+  if (locale.value === 'zh') {
+    return `任务 #${taskId} 已加入自动调度队列，正在等待空闲 AGV。`
+  }
+  return `Task #${taskId} was added to the auto dispatch queue and is waiting for an idle AGV.`
+}
+
+function mergeTaskDisplayPayload(taskPayload, fallbackTask = null) {
+  if (!taskPayload) return fallbackTask
+  if (!fallbackTask) return taskPayload
+  return {
+    ...fallbackTask,
+    ...taskPayload,
+    stages: Array.isArray(taskPayload.stages) && taskPayload.stages.length > 0 ? taskPayload.stages : fallbackTask.stages,
+    overall_start_x:
+      taskPayload.overall_start_x ?? fallbackTask.overall_start_x ?? fallbackTask.start_x ?? taskPayload.start_x,
+    overall_start_y:
+      taskPayload.overall_start_y ?? fallbackTask.overall_start_y ?? fallbackTask.start_y ?? taskPayload.start_y,
+    overall_end_x: taskPayload.overall_end_x ?? fallbackTask.overall_end_x ?? fallbackTask.end_x ?? taskPayload.end_x,
+    overall_end_y: taskPayload.overall_end_y ?? fallbackTask.overall_end_y ?? fallbackTask.end_y ?? taskPayload.end_y
+  }
+}
+
+function applyTaskDisplayMarkers(taskPayload, fallbackTask = null) {
+  const task = mergeTaskDisplayPayload(taskPayload, fallbackTask)
+  if (!task) return
+  startPoint.value = resolveTaskDisplayStartMarker(task)
+  endPoint.value = resolveTaskDisplayEndMarker(task)
+}
+
+async function handleManualScheduleFailure(createdTaskId, scheduleData) {
+  await fetchTasks()
+  const latestTask = tasks.value.find(task => task.id === createdTaskId)
+
+  if (latestTask?.status === 'blocked') {
+    window.alert(blockedTaskAlertText(latestTask))
+    manualDraftPicking.value = false
+    trackedManualTaskId.value = null
+    manualDispatchStep.value = 'idle'
+    clearManualDestination()
+    return false
+  }
+
+  if (latestTask && ['assigned', 'running'].includes(latestTask.status)) {
+    manualPathToStart.value = latestTask.path_to_start ?? []
+    manualPathToEnd.value = latestTask.path_to_end ?? []
+    preferredRuntimeDisplayMode.value = 'manual'
+    manualDraftPicking.value = false
+    trackedManualTaskId.value = latestTask.id
+    applyTaskDisplayMarkers(latestTask)
+    manualDispatchStep.value = 'running'
+    bumpManualPreviewMinVisible()
+    await fetchAgvs()
+    return true
+  }
+
+  if (latestTask?.status === 'pending') {
+    preferredRuntimeDisplayMode.value = 'manual'
+    manualDraftPicking.value = false
+    trackedManualTaskId.value = latestTask.id
+    applyTaskDisplayMarkers(latestTask)
+    manualDispatchStep.value = 'running'
+    bumpManualPreviewMinVisible()
+    window.alert(manualTaskQueuedText(latestTask))
+    return true
+  }
+
+  window.alert(localizeApiErrorDetail(scheduleData?.detail, t('task_manual_unreachable')))
+  manualDraftPicking.value = false
+  trackedManualTaskId.value = null
+  manualDispatchStep.value = 'idle'
+  clearManualDestination()
+  return false
+}
 const taskChainMapPickButtonText = computed(() =>
   taskChainMapPickActive.value ? taskChainMapPickUiLocale.value.cancel : taskChainMapPickUiLocale.value.start
 )
-const algorithmCompareLocale = computed(() => {
-  if (locale.value === 'ja') {
-    return {
-      title: 'アルゴリズム比較',
-      hintSingle: '現在の単一路線を simple と A* で比較します。',
-      hintChain: '現在の段階タスクを simple と A* で比較します。',
-      run: '現在の経路を比較',
-      clear: '結果を消去',
-      invalid: '比較するための有効な座標が必要です。',
-      reachable: '到達可能',
-      unreachable: '到達不可',
-      total: '総距離',
-      stages: '段階距離',
-      failedStage: '失敗段階',
-      recommended: '推奨',
-      current: '現在',
-      apply: '使用中',
-      switchTo: '切替'
-    }
-  }
-
-  if (locale.value === 'zh') {
-    return {
-      title: '算法对比',
-      hintSingle: '对当前单段路线进行 simple 与 A* 对比。',
-      hintChain: '对当前阶段任务进行 simple 与 A* 对比。',
-      run: '对比当前路线',
-      clear: '清空结果',
-      invalid: '当前表单坐标无效，无法进行算法对比。',
-      reachable: '可达',
-      unreachable: '不可达',
-      total: '总长度',
-      stages: '阶段长度',
-      failedStage: '失败阶段',
-      recommended: '推荐',
-      current: '当前',
-      apply: '使用中',
-      switchTo: '切换'
-    }
-  }
-
-  return {
-    title: 'Algorithm Compare',
-    hintSingle: 'Compare the current single route with simple and A*.',
-    hintChain: 'Compare the current staged task with simple and A*.',
-    run: 'Compare Current Route',
-    clear: 'Clear',
-    invalid: 'Current form coordinates are invalid for comparison.',
-    reachable: 'Reachable',
-    unreachable: 'Blocked',
-    total: 'Total Length',
-    stages: 'Stage Lengths',
-    failedStage: 'Failed Stage',
-    recommended: 'Recommended',
-    current: 'Current',
-    apply: 'Using',
-    switchTo: 'Switch'
-  }
-})
 const currentCompareHint = computed(() =>
   taskBuilderMode.value === 'chain'
     ? algorithmCompareLocale.value.hintChain
@@ -1167,12 +838,13 @@ const compareEntryText = computed(() => {
   }
 
   if (recommendedCompareAlgorithm.value) {
-    return `${algorithmCompareLocale.value.title} 路 ${algorithmText(recommendedCompareAlgorithm.value)}`
+    return `${algorithmCompareLocale.value.title} · ${algorithmCompareLocale.value.recommended} ${algorithmText(recommendedCompareAlgorithm.value)}`
   }
 
-  return `${algorithmCompareLocale.value.title} 路 ${algorithmCompareLocale.value.unreachable}`
+  return `${algorithmCompareLocale.value.title} · ${algorithmCompareLocale.value.unreachable}`
 })
 const compareResultEntries = computed(() => Object.entries(pathCompareResult.value?.results ?? {}))
+const experimentRecordCount = computed(() => experimentRecords.value.length)
 const compareFloatingStyle = computed(() => ({
   left: `${compareFloatingX.value}px`,
   top: `${compareFloatingY.value}px`,
@@ -1368,6 +1040,26 @@ const matchedPointIds = computed(() => {
     )
     .map(point => point.id)
 })
+const matchedExperimentRecordIds = computed(() => {
+  const keyword = normalizedPanelSearch.value
+  if (!keyword) return []
+
+  return experimentRecords.value
+    .filter(record =>
+      matchesSearchFields(
+        [
+          record.scene_name,
+          record.route_summary,
+          record.current_algorithm,
+          record.recommended_algorithm,
+          record.saved_at,
+          ...(record.algorithms ?? []).flatMap(item => [item.algorithm, item.reachable_text, String(item.total_length ?? '')])
+        ],
+        keyword
+      )
+    )
+    .map(record => record.id)
+})
 const panelSearchResults = computed(() => {
   const keyword = normalizedPanelSearch.value
   if (!keyword) return []
@@ -1421,6 +1113,14 @@ const panelSearchResults = computed(() => {
       label: panelLocale.value.sections.json,
       matched: matchesSearchFields([panelLocale.value.sections.json, t('json_tools')], keyword),
       count: 0
+    },
+    {
+      key: 'experiments',
+      label: panelLocale.value.sections.experiments,
+      matched:
+        matchedExperimentRecordIds.value.length > 0 ||
+        matchesSearchFields([panelLocale.value.sections.experiments, experimentLocale.value.title], keyword),
+      count: matchedExperimentRecordIds.value.length
     }
   ]
 
@@ -1471,239 +1171,8 @@ const taskGroups = computed(() => {
   }))
 })
 
-function buildDefaultQueueGroupState() {
-  return {
-    pending: false,
-    blocked: false,
-    assigned: false,
-    running: false,
-    finished: true
-  }
-}
-
-function clampValue(value, min, max) {
-  return Math.min(Math.max(value, min), max)
-}
-
-function createTaskChainStage(seed = {}) {
-  return {
-    label: seed.label ?? '',
-    start_x: Number(seed.start_x ?? 0),
-    start_y: Number(seed.start_y ?? 0),
-    end_x: Number(seed.end_x ?? 0),
-    end_y: Number(seed.end_y ?? 0)
-  }
-}
-
-function buildDefaultTaskChainStages(stageCount = 2) {
-  const normalizedCount = Math.max(2, Math.floor(Number(stageCount) || 2))
-  const firstStage = createTaskChainStage({
-    start_x: Number(taskForm.value.start_x),
-    start_y: Number(taskForm.value.start_y),
-    end_x: Number(taskForm.value.end_x),
-    end_y: Number(taskForm.value.end_y)
-  })
-  const stages = [firstStage]
-
-  while (stages.length < normalizedCount) {
-    const previousStage = stages.at(-1)
-    stages.push(
-      createTaskChainStage({
-        start_x: previousStage?.end_x ?? 0,
-        start_y: previousStage?.end_y ?? 0,
-        end_x: previousStage?.end_x ?? 0,
-        end_y: previousStage?.end_y ?? 0
-      })
-    )
-  }
-
-  return stages
-}
-
-function buildTaskJsonExamplePayload(mode) {
-  if (mode === 'chain') {
-    return {
-      version: 2,
-      tasks: [
-        {
-          priority: 4,
-          stages: [
-            { label: '入库', start_x: 1, start_y: 1, end_x: 4, end_y: 1 },
-            { label: '装配', start_x: 4, start_y: 1, end_x: 4, end_y: 5 },
-            { label: '出库', start_x: 4, start_y: 5, end_x: 8, end_y: 5 }
-          ]
-        },
-        {
-          priority: 2,
-          stages: [
-            { label: '取货', start_x: 0, start_y: 6, end_x: 3, end_y: 6 },
-            { label: '补货', start_x: 3, start_y: 6, end_x: 3, end_y: 2 }
-          ]
-        }
-      ]
-    }
-  }
-
-  return {
-    tasks: [
-      { start_x: 1, start_y: 1, end_x: 7, end_y: 1, priority: 3 },
-      { start_x: 2, start_y: 6, end_x: 8, end_y: 4, priority: 5 },
-      { start_x: 0, start_y: 0, end_x: 5, end_y: 3, priority: 2 }
-    ]
-  }
-}
-
-function normalizeTaskStages(task) {
-  if (Array.isArray(task.stages) && task.stages.length > 0) {
-    return task.stages
-  }
-  return [
-    {
-      index: 0,
-      start_x: task.start_x,
-      start_y: task.start_y,
-      end_x: task.end_x,
-      end_y: task.end_y,
-      label: ''
-    }
-  ]
-}
-
-function isTaskChain(task) {
-  return Number(task.total_stages ?? normalizeTaskStages(task).length) > 1
-}
-
-function overallTaskStart(task) {
-  return {
-    x: task.overall_start_x ?? normalizeTaskStages(task)[0]?.start_x ?? task.start_x,
-    y: task.overall_start_y ?? normalizeTaskStages(task)[0]?.start_y ?? task.start_y
-  }
-}
-
-function overallTaskEnd(task) {
-  const stages = normalizeTaskStages(task)
-  const lastStage = stages[stages.length - 1]
-  return {
-    x: task.overall_end_x ?? lastStage?.end_x ?? task.end_x,
-    y: task.overall_end_y ?? lastStage?.end_y ?? task.end_y
-  }
-}
-
-function currentTaskStage(task) {
-  const stages = normalizeTaskStages(task)
-  const index = clampValue(Number(task.current_stage_index ?? 0), 0, stages.length - 1)
-  return stages[index]
-}
-
-function pointStyle(point, cellSize = CELL_SIZE, size = 12) {
-  return {
-    left: `${point.x * cellSize + cellSize / 2 - size / 2}px`,
-    top: `${point.y * cellSize + cellSize / 2 - size / 2}px`
-  }
-}
-
-function blockedCellKey(x, y) {
-  return `${x},${y}`
-}
-
 function isBlockedCell(x, y) {
   return blockedCellSet.value.has(blockedCellKey(x, y))
-}
-
-function sortTasks(list, status) {
-  const copy = [...list]
-  if (status === 'pending' || status === 'blocked') {
-    return copy.sort((a, b) => b.priority - a.priority || a.id - b.id)
-  }
-  if (status === 'finished') {
-    return copy.sort((a, b) => compareTime(b.finished_at, a.finished_at) || b.id - a.id)
-  }
-  return copy.sort((a, b) => compareTime(b.assigned_at, a.assigned_at) || b.priority - a.priority || a.id - b.id)
-}
-
-function compareTime(a, b) {
-  const aTime = a ? Date.parse(a) : 0
-  const bTime = b ? Date.parse(b) : 0
-  return aTime - bTime
-}
-
-function statusColor(status) {
-  const map = {
-    idle: '#7f8c8d',
-    running: '#2e7d32',
-    fault: '#c62828',
-    relocating: '#ef6c00',
-    emergency_stop: '#7b1f2f'
-  }
-  return map[status] ?? '#333'
-}
-
-function statusText(status) {
-  const localized = {
-    zh: {
-      emergency_stop: faultLocale.value.emergencyStopped
-    },
-    ja: {
-      emergency_stop: faultLocale.value.emergencyStopped
-    },
-    en: {
-      emergency_stop: faultLocale.value.emergencyStopped
-    }
-  }
-  return localized[locale.value]?.[status] ?? t(`status_${status}`) ?? status
-}
-
-function compactStatusText(status) {
-  const map = {
-    zh: {
-      idle: '空闲',
-      running: '运行',
-      fault: '故障',
-      relocating: '就位',
-      emergency_stop: '急停'
-    },
-    ja: {
-      idle: '待機',
-      running: '運行',
-      fault: '故障',
-      relocating: '移動',
-      emergency_stop: '急停'
-    },
-    en: {
-      idle: 'IDLE',
-      running: 'RUN',
-      fault: 'FAULT',
-      relocating: 'MOVE',
-      emergency_stop: 'STOP'
-    }
-  }
-
-  return map[locale.value]?.[status] ?? statusText(status)
-}
-
-function taskStatusText(status) {
-  return t(`task_${status}`) ?? status
-}
-
-function algorithmText(value) {
-  return value === 'astar' ? t('algo_astar') : t('algo_simple')
-}
-
-function faultTypeText(value) {
-  return faultLocale.value.faultTypes[value] ?? value
-}
-
-function faultSeverityText(value) {
-  return faultLocale.value.severities[value] ?? value
-}
-
-function faultEventTypeText(value) {
-  if (value === 'emergency_stop') return faultLocale.value.eventEmergency
-  return faultLocale.value.eventFault
-}
-
-function faultEventStatusText(value) {
-  return value === 'resolved' ? faultLocale.value.statusResolved : faultLocale.value.statusOpen
 }
 
 function formatCompareStageLengths(result) {
@@ -1733,135 +1202,45 @@ function compareResultBadgeText(key) {
   return algorithmCompareLocale.value.switchTo
 }
 
-function dispatchModeText(value) {
-  return value === 'manual' ? t('reason_manual') : t('reason_auto')
+function formatExperimentSavedAt(value) {
+  if (!value) return '--'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString()
 }
 
-function formatTaskMeta(task) {
-  if (isTaskChain(task)) {
-    const start = overallTaskStart(task)
-    const end = overallTaskEnd(task)
-    return `${taskChainLocale.value.overallRoute}: (${start.x}, ${start.y}) -> (${end.x}, ${end.y})`
-  }
-  return `${t('task_start')} (${task.start_x}, ${task.start_y}) -> ${t('task_end')} (${task.end_x}, ${task.end_y})`
+function formatExperimentAlgorithms(record) {
+  return (record.algorithms ?? [])
+    .map(item => {
+      const label = item.reachable
+        ? `${algorithmText(item.algorithm)} / ${algorithmCompareLocale.value.total}: ${item.total_length ?? '--'}`
+        : `${algorithmText(item.algorithm)} / ${algorithmCompareLocale.value.unreachable}`
+      return label
+    })
+    .join(' | ')
 }
 
-function formatTaskAgv(task) {
-  return `${t('task_agv')}: ${task.agv_id ?? t('selected_none')}`
+function formatExperimentCardTitle(record, index) {
+  const seq = Math.max(experimentRecords.value.length - Number(index ?? 0), 1)
+  const scene = record?.scene_name || '--'
+  if (locale.value === 'ja') return `${experimentLocale.value.recordPrefix} ${seq} · ${scene}`
+  if (locale.value === 'zh') return `${experimentLocale.value.recordPrefix} ${seq} · ${scene}`
+  return `${experimentLocale.value.recordPrefix} ${seq} · ${scene}`
 }
 
-function formatTaskStageProgress(task) {
-  if (!isTaskChain(task)) return ''
-  return `${taskChainLocale.value.progress}: ${Number(task.current_stage_index ?? 0) + 1}/${task.total_stages ?? normalizeTaskStages(task).length}`
+function taskRecoveryActionId(taskId, mode) {
+  return `${taskId}:${mode}`
 }
 
-function formatTaskCurrentStage(task) {
-  if (!isTaskChain(task)) return ''
-  const stage = currentTaskStage(task)
-  const label = stage.label ? ` ${stage.label}` : ''
-  return `${taskChainLocale.value.currentRoute}${label}: (${stage.start_x}, ${stage.start_y}) -> (${stage.end_x}, ${stage.end_y})`
-}
-
-function formatTaskTime(task) {
-  const values = [
-    { label: t('time_created'), value: task.created_at },
-    { label: t('time_assigned'), value: task.assigned_at },
-    { label: t('time_started'), value: task.started_at },
-    { label: t('time_finished'), value: task.finished_at }
-  ].filter(item => item.value)
-
-  if (values.length === 0) return ''
-  return values.map(item => `${item.label}: ${item.value}`).join(' | ')
-}
-
-function formatTaskCompactSummary(task) {
-  const start = isTaskChain(task) ? overallTaskStart(task) : { x: task.start_x, y: task.start_y }
-  const end = isTaskChain(task) ? overallTaskEnd(task) : { x: task.end_x, y: task.end_y }
-  const parts = [
-    `(${start.x}, ${start.y}) -> (${end.x}, ${end.y})`,
-    `${t('task_priority')} ${task.priority}`,
-    taskStatusText(task.status)
-  ]
-
-  if (task.agv_id !== null && task.agv_id !== undefined) {
-    parts.push(`AGV #${task.agv_id}`)
-  }
-  if (isTaskChain(task)) {
-    parts.push(`${Number(task.current_stage_index ?? 0) + 1}/${task.total_stages ?? normalizeTaskStages(task).length}`)
-  }
-
-  return parts.join(' | ')
-}
-
-function formatDispatchReason(task) {
-  if (task.status === 'pending' && task.dispatch_reason) {
-    const localizedReason = localizeDispatchReason(task.dispatch_reason)
-    if (localizedReason) return localizedReason
-  }
-  if (!task.dispatch_mode && task.status === 'pending') {
-    return t('dispatch_waiting')
-  }
-  if (task.status === 'blocked' && task.dispatch_reason) {
-    return localizeDispatchReason(task.dispatch_reason) || task.dispatch_reason
-  }
-  if (task.status === 'blocked') {
-    return t('dispatch_blocked')
-  }
-
-  const parts = []
-  if (task.dispatch_mode) {
-    parts.push(`${t('reason_mode')}: ${dispatchModeText(task.dispatch_mode)}`)
-  }
-  if (task.dispatch_distance !== null && task.dispatch_distance !== undefined) {
-    parts.push(`${t('reason_distance')}: ${task.dispatch_distance}`)
-  }
-  if (task.dispatch_algorithm) {
-    parts.push(`${t('reason_algorithm')}: ${algorithmText(task.dispatch_algorithm)}`)
-  }
-  if (task.agv_id !== null && task.agv_id !== undefined) {
-    parts.push(`AGV #${task.agv_id}`)
-  }
-  if (isTaskChain(task)) {
-    parts.push(`${Number(task.current_stage_index ?? 0) + 1}/${task.total_stages ?? normalizeTaskStages(task).length}`)
-  }
-
-  return parts.join(' | ')
-}
-
-function formatTaskAlgorithm(task) {
-  if (!task?.dispatch_algorithm) return ''
-  return `${t('algorithm')}: ${algorithmText(task.dispatch_algorithm)}`
-}
-
-function formatTaskPathStats(task) {
-  const parts = []
-  if (task.path_length_to_start !== null && task.path_length_to_start !== undefined) {
-    if (locale.value === 'ja') {
-      parts.push(`始点まで ${task.path_length_to_start}`)
-    } else if (locale.value === 'zh') {
-      parts.push(`到起点 ${task.path_length_to_start}`)
-    } else {
-      parts.push(`to start ${task.path_length_to_start}`)
-    }
-  }
-  if (task.path_length_to_end !== null && task.path_length_to_end !== undefined) {
-    if (locale.value === 'ja') {
-      parts.push(`実行区間 ${task.path_length_to_end}`)
-    } else if (locale.value === 'zh') {
-      parts.push(`执行段 ${task.path_length_to_end}`)
-    } else {
-      parts.push(`run ${task.path_length_to_end}`)
-    }
-  }
-  return parts.join(' | ')
-}
-
-function blockedTaskAlertText(task) {
-  return localizeDispatchReason(task?.dispatch_reason) || task?.dispatch_reason || t('task_blocked_alert')
+function isTaskRecoveryBusy(taskId, mode = null) {
+  if (!taskRecoveryActionKey.value) return false
+  if (!mode) return taskRecoveryActionKey.value.startsWith(`${taskId}:`)
+  return taskRecoveryActionKey.value === taskRecoveryActionId(taskId, mode)
 }
 
 function buildTaskChainPayloadFromPoints(points) {
   if (points.length < taskChainRequiredPointCount.value) return null
+  if (points.length < taskChainMapPickStageCount.value + 1) return null
 
   return {
     priority: Number(taskForm.value.priority),
@@ -1937,30 +1316,11 @@ function taskTemplateTypeText(template) {
 }
 
 function normalizeTemplateStages(template) {
-  const rawStages = Array.isArray(template?.stages) && template.stages.length > 0
-    ? template.stages
-    : [
-        {
-          label: '',
-          start_x: template?.start_x,
-          start_y: template?.start_y,
-          end_x: template?.end_x,
-          end_y: template?.end_y
-        }
-      ]
-
-  return rawStages
-    .map(stage => ({
-      ...createTaskChainStage(stage),
-      label: String(stage?.label ?? '').trim()
-    }))
-    .filter(
-      stage =>
-        isValidGridCoordinate(stage.start_x, GRID_COLS) &&
-        isValidGridCoordinate(stage.start_y, GRID_ROWS) &&
-        isValidGridCoordinate(stage.end_x, GRID_COLS) &&
-        isValidGridCoordinate(stage.end_y, GRID_ROWS)
-    )
+  return normalizeTemplateStagesRaw(template, {
+    createTaskChainStage,
+    gridCols: GRID_COLS,
+    gridRows: GRID_ROWS
+  })
 }
 
 function buildTemplateFromStages({
@@ -1970,26 +1330,13 @@ function buildTemplateFromStages({
   stages,
   custom = true
 }) {
-  const normalizedStages = normalizeTemplateStages({ stages })
-  if (!name || normalizedStages.length === 0) return null
-
-  const firstStage = normalizedStages[0]
-  const lastStage = normalizedStages[normalizedStages.length - 1]
-  return {
-    id,
-    customName: String(name).trim(),
-    start_x: firstStage.start_x,
-    start_y: firstStage.start_y,
-    end_x: lastStage.end_x,
-    end_y: lastStage.end_y,
-    stages: normalizedStages,
-    priority: clampValue(Number(priority), 1, 5),
-    custom
-  }
-}
-
-function isTaskChainTemplate(template) {
-  return normalizeTemplateStages(template).length > 1
+  return buildTemplateFromStagesRaw(
+    { id, name, priority, stages, custom },
+    {
+      normalizeStages: normalizeTemplateStages,
+      clampPriority: value => clampValue(value, 1, 5)
+    }
+  )
 }
 
 function formatTemplateMeta(template) {
@@ -2005,78 +1352,24 @@ function formatTemplateStageCount(template) {
   return `${taskChainLocale.value.stageCount}: ${stages.length}`
 }
 
-function applyPointToTaskForm(target, point) {
-  if (target === 'start') {
-    taskForm.value.start_x = point.x
-    taskForm.value.start_y = point.y
-    return
-  }
-
-  taskForm.value.end_x = point.x
-  taskForm.value.end_y = point.y
-}
-
-function resetCustomPointForm() {
-  customPointForm.value = {
-    name: '',
-    zone: '',
-    x: 0,
-    y: 0
-  }
-}
-
-function setPointFormStatus(type, message) {
-  pointFormStatusType.value = type
-  pointFormStatus.value = message
-}
-
-function setTaskTemplateStatus(type, message) {
-  taskTemplateStatusType.value = type
-  taskTemplateStatus.value = message
-}
-
-function setTemplateJsonStatus(type, message) {
-  templateJsonStatusType.value = type
-  templateJsonStatus.value = message
-}
-
-function isValidGridCoordinate(value, max) {
-  return Number.isInteger(value) && value >= 0 && value < max
-}
-
 function buildTaskTemplateSignature(template) {
-  const stages = normalizeTemplateStages(template)
-  return [
-    String(template.customName ?? template.nameKey ?? '').trim().toLowerCase(),
-    template.priority,
-    ...stages.flatMap(stage => [stage.label, stage.start_x, stage.start_y, stage.end_x, stage.end_y])
-  ].join('|')
+   return buildTaskTemplateSignatureRaw(template, {
+    normalizeStages: normalizeTemplateStages
+  })
 }
 
 function normalizeImportedTaskTemplate(template) {
-  const name = String(template?.name ?? template?.customName ?? '').trim()
-  const priority = Number(template?.priority)
-  const stages = normalizeTemplateStages(template)
-
-  if (!name || stages.length === 0 || !Number.isInteger(priority)) {
-    return null
-  }
-
-  return buildTemplateFromStages({
-    name,
-    priority,
-    stages,
-    custom: true
+  return normalizeImportedTaskTemplateRaw(template, {
+    normalizeStages: normalizeTemplateStages,
+    buildTemplate: params => buildTemplateFromStages(params)
   })
 }
 
 function formatTemplateJsonSummary(primaryLabel, primaryCount, skippedCount = 0) {
-  const separator = locale.value === 'en' ? ', ' : '，'
-  const parts = [`${primaryLabel}: ${primaryCount}`]
-  if (skippedCount > 0) {
-    parts.push(`${templateJsonLocale.value.skipped}: ${skippedCount}`)
-  }
-  return parts.join(separator)
+  return formatTemplateJsonSummaryRaw(primaryLabel, primaryCount, skippedCount, {
+    separator: locale.value === 'en' ? ', ' : '，',
+    skippedLabel: templateJsonLocale.value.skipped
+  })
 }
 
 function matchesSearchFields(fields, keyword) {
@@ -2084,97 +1377,91 @@ function matchesSearchFields(fields, keyword) {
   return fields.some(value => String(value ?? '').toLowerCase().includes(keyword))
 }
 
-function loadPanelSections() {
-  try {
-    const raw = window.localStorage.getItem(PANEL_SECTION_STORAGE_KEY)
-    if (!raw) return
+const {
+  loadPanelSections,
+  savePanelSections,
+  loadPanelSummaryMode,
+  savePanelSummaryMode,
+  loadTaskQueueView,
+  saveTaskQueueView,
+  loadExperimentRecords,
+  saveExperimentRecords,
+  loadCustomPoints,
+  saveCustomPoints,
+  loadMapDisplaySettings,
+  saveMapDisplaySettings,
+  loadTaskTemplates,
+  saveTaskTemplates
+} = useLocalPersistence({
+  storageKeys: {
+    panelSections: PANEL_SECTION_STORAGE_KEY,
+    panelSummaryMode: PANEL_SUMMARY_MODE_STORAGE_KEY,
+    taskQueueView: TASK_QUEUE_VIEW_STORAGE_KEY,
+    experimentRecords: EXPERIMENT_RECORDS_STORAGE_KEY,
+    customPoints: CUSTOM_POINTS_STORAGE_KEY,
+    mapDisplay: MAP_DISPLAY_STORAGE_KEY,
+    taskTemplates: TASK_TEMPLATE_STORAGE_KEY
+  },
+  panelSections,
+  panelSummaryMode,
+  queueGroupsCollapsed,
+  taskCardCollapsed,
+  experimentRecords,
+  customPoints,
+  customTaskTemplates,
+  dispatchMode,
+  showAutoPath,
+  showMarkerIcons,
+  showPathArrows,
+  showStatusLegend,
+  statusLegendLayout,
+  statusLegendOpacity,
+  showMinimap,
+  compareDisplayMode,
+  compareFloatingOpacity,
+  clampValue,
+  normalizeCustomPoints: parsed =>
+    normalizeStoredCustomPoints(parsed, {
+      gridCols: GRID_COLS,
+      gridRows: GRID_ROWS,
+      isValidGridCoordinate
+    }),
+  templateFromStored: template =>
+    buildTemplateFromStages({
+      id: typeof template?.id === 'string' ? template.id : undefined,
+      name: template?.customName,
+      priority: template?.priority,
+      stages: normalizeTemplateStages(template),
+      custom: true
+    })
+})
 
-    const parsed = JSON.parse(raw)
-    if (!parsed || typeof parsed !== 'object') return
-
-    panelSections.value = {
-      control: typeof parsed.control === 'boolean' ? parsed.control : panelSections.value.control,
-      queue: typeof parsed.queue === 'boolean' ? parsed.queue : panelSections.value.queue,
-      templates:
-        typeof parsed.templates === 'boolean' ? parsed.templates : panelSections.value.templates,
-      points: typeof parsed.points === 'boolean' ? parsed.points : panelSections.value.points,
-      json: typeof parsed.json === 'boolean' ? parsed.json : panelSections.value.json
-    }
-  } catch (error) {
-    console.error('Load panel sections error:', error)
-  }
-}
-
-function savePanelSections() {
-  try {
-    window.localStorage.setItem(PANEL_SECTION_STORAGE_KEY, JSON.stringify(panelSections.value))
-  } catch (error) {
-    console.error('Save panel sections error:', error)
-  }
-}
-
-function loadPanelSummaryMode() {
-  try {
-    const raw = window.localStorage.getItem(PANEL_SUMMARY_MODE_STORAGE_KEY)
-    if (!raw) return
-    if (['hidden', 'compact', 'full'].includes(raw)) {
-      panelSummaryMode.value = raw
-    }
-  } catch (error) {
-    console.error('Load panel summary mode error:', error)
-  }
-}
-
-function savePanelSummaryMode() {
-  try {
-    window.localStorage.setItem(PANEL_SUMMARY_MODE_STORAGE_KEY, panelSummaryMode.value)
-  } catch (error) {
-    console.error('Save panel summary mode error:', error)
-  }
-}
-
-function loadTaskQueueView() {
-  try {
-    const raw = window.localStorage.getItem(TASK_QUEUE_VIEW_STORAGE_KEY)
-    if (!raw) return
-
-    const parsed = JSON.parse(raw)
-    if (parsed?.groups && typeof parsed.groups === 'object') {
-      queueGroupsCollapsed.value = {
-        ...queueGroupsCollapsed.value,
-        pending: typeof parsed.groups.pending === 'boolean' ? parsed.groups.pending : queueGroupsCollapsed.value.pending,
-        blocked: typeof parsed.groups.blocked === 'boolean' ? parsed.groups.blocked : queueGroupsCollapsed.value.blocked,
-        assigned: typeof parsed.groups.assigned === 'boolean' ? parsed.groups.assigned : queueGroupsCollapsed.value.assigned,
-        running: typeof parsed.groups.running === 'boolean' ? parsed.groups.running : queueGroupsCollapsed.value.running,
-        finished: typeof parsed.groups.finished === 'boolean' ? parsed.groups.finished : queueGroupsCollapsed.value.finished
-      }
-    }
-
-    if (parsed?.cards && typeof parsed.cards === 'object') {
-      taskCardCollapsed.value = Object.fromEntries(
-        Object.entries(parsed.cards)
-          .filter(([taskId, collapsed]) => taskId && typeof collapsed === 'boolean')
-          .map(([taskId, collapsed]) => [String(taskId), collapsed])
-      )
-    }
-  } catch (error) {
-    console.error('Load task queue view error:', error)
-  }
-}
-
-function saveTaskQueueView() {
-  try {
-    window.localStorage.setItem(
-      TASK_QUEUE_VIEW_STORAGE_KEY,
-      JSON.stringify({
-        groups: queueGroupsCollapsed.value,
-        cards: taskCardCollapsed.value
-      })
-    )
-  } catch (error) {
-    console.error('Save task queue view error:', error)
-  }
-}
+const {
+  fillTaskJsonExample,
+  downloadTaskJsonExample,
+  saveCurrentExperimentRecord,
+  exportCurrentCompareResultJson,
+  exportCurrentCompareResultCsv,
+  exportAllExperimentRecordsJson,
+  exportAllExperimentRecordsCsv,
+  exportExperimentRecord,
+  deleteExperimentRecord,
+  clearExperimentRecords
+} = useDataExportActions({
+  jsonText,
+  jsonStatus,
+  taskJsonLocale,
+  taskJsonExampleFileLocale,
+  buildTaskJsonExamplePayload,
+  experimentRecords,
+  experimentStatus,
+  experimentStatusType,
+  experimentLocale,
+  panelSections,
+  buildCompareSnapshot,
+  experimentCsvRowsFromRecords,
+  rowsToCsv
+})
 
 function pruneTaskCardCollapsedState() {
   const visibleIds = new Set(tasks.value.map(task => String(task.id)))
@@ -2187,103 +1474,6 @@ function pruneTaskCardCollapsedState() {
   }
 }
 
-function panelSectionRefByKey(sectionKey) {
-  const sectionMap = {
-    control: controlSectionRef.value,
-    queue: queueSectionRef.value,
-    templates: templatesSectionRef.value,
-    points: pointsSectionRef.value,
-    json: jsonSectionRef.value
-  }
-  return sectionMap[sectionKey] ?? null
-}
-
-function focusPanelSection(sectionKey) {
-  focusedPanelSection.value = sectionKey
-  if (panelSectionFocusTimer) {
-    clearTimeout(panelSectionFocusTimer)
-  }
-  panelSectionFocusTimer = setTimeout(() => {
-    focusedPanelSection.value = ''
-    panelSectionFocusTimer = null
-  }, 1600)
-}
-
-async function jumpToPanelSearchResult(sectionKey) {
-  panelSections.value = {
-    ...panelSections.value,
-    [sectionKey]: true
-  }
-
-  await nextTick()
-
-  const panelSection = panelSectionRefByKey(sectionKey)
-  const panelElement = panelRef.value
-  if (panelSection && panelElement) {
-    const top = Math.max(panelSection.offsetTop - 12, 0)
-    panelElement.scrollTo({ top, behavior: 'smooth' })
-  }
-
-  focusPanelSection(sectionKey)
-}
-
-async function scrollToComparePanel() {
-  panelSections.value = {
-    ...panelSections.value,
-    control: true
-  }
-  comparePanelExpanded.value = true
-
-  await nextTick()
-
-  const panelElement = panelRef.value
-  const comparePanelElement = comparePanelRef.value
-  if (panelElement && comparePanelElement) {
-    const top = Math.max(comparePanelElement.offsetTop - 12, 0)
-    panelElement.scrollTo({ top, behavior: 'smooth' })
-  } else {
-    await jumpToPanelSearchResult('control')
-    return
-  }
-
-  focusPanelSection('control')
-}
-
-function shouldAutoRefreshFloatingCompare() {
-  return compareDisplayMode.value === 'floating' && showFloatingCompare.value
-}
-
-function stopFloatingCompareRefresh() {
-  if (floatingCompareRefreshTimer) {
-    clearTimeout(floatingCompareRefreshTimer)
-    floatingCompareRefreshTimer = null
-  }
-}
-
-function requestFloatingCompareRefresh() {
-  if (!shouldAutoRefreshFloatingCompare()) return
-  stopFloatingCompareRefresh()
-  floatingCompareRefreshTimer = setTimeout(() => {
-    floatingCompareRefreshTimer = null
-    if (pathCompareLoading.value) {
-      requestFloatingCompareRefresh()
-      return
-    }
-    void compareCurrentRoute()
-  }, 360)
-}
-
-function positionFloatingCompareBelowEntry() {
-  const button = compareEntryButtonRef.value
-  if (!button || typeof window === 'undefined') return
-
-  const rect = button.getBoundingClientRect()
-  const floatingWidth = Math.min(360, Math.max(window.innerWidth - 24, 240))
-  const maxX = Math.max(window.innerWidth - floatingWidth - 12, 12)
-  compareFloatingX.value = Math.min(Math.max(rect.left, 12), maxX)
-  compareFloatingY.value = Math.max(rect.bottom + 10, 12)
-}
-
 function buildBlockedBatchRetrySummary(total, scheduledCount, queuedCount, failedCount) {
   if (locale.value === 'ja') {
     return `到達不可タスク ${total} 件を処理しました。即時再試行 ${scheduledCount} 件、待機 ${queuedCount} 件、失敗 ${failedCount} 件。`
@@ -2292,39 +1482,6 @@ function buildBlockedBatchRetrySummary(total, scheduledCount, queuedCount, faile
     return `已处理 ${total} 个不可达任务：立即重试 ${scheduledCount} 个，等待空闲 AGV ${queuedCount} 个，失败 ${failedCount} 个。`
   }
   return `Processed ${total} blocked tasks: ${scheduledCount} retried now, ${queuedCount} queued, ${failedCount} failed.`
-}
-function clearPanelSearch() {
-  panelSearch.value = ''
-}
-
-function fillTaskJsonExample(mode) {
-  jsonText.value = JSON.stringify(buildTaskJsonExamplePayload(mode), null, 2)
-  jsonStatus.value = mode === 'chain' ? taskJsonLocale.value.chainLoaded : taskJsonLocale.value.singleLoaded
-}
-
-function downloadJsonFile(filename, payloadText) {
-  const blob = new Blob([payloadText], { type: 'application/json;charset=utf-8' })
-  const url = window.URL.createObjectURL(blob)
-  const link = document.createElement('a')
-
-  link.href = url
-  link.download = filename
-  document.body.appendChild(link)
-  link.click()
-  document.body.removeChild(link)
-  window.setTimeout(() => window.URL.revokeObjectURL(url), 0)
-}
-
-function downloadTaskJsonExample(mode) {
-  const payloadText = JSON.stringify(buildTaskJsonExamplePayload(mode), null, 2)
-  const fileName =
-    mode === 'chain' ? 'agv-stage-task-example.json' : 'agv-single-task-example.json'
-
-  downloadJsonFile(fileName, payloadText)
-  jsonStatus.value =
-    mode === 'chain'
-      ? taskJsonExampleFileLocale.value.chainDownloaded
-      : taskJsonExampleFileLocale.value.singleDownloaded
 }
 
 function hideTaskBuilderJumpButton() {
@@ -2346,476 +1503,158 @@ function showTaskBuilderJumpButton() {
   }, 5000)
 }
 
+function hideAgvRecoveryJumpButton() {
+  agvRecoveryJumpReady.value = false
+  agvRecoveryJumpTargetAgvId.value = null
+  if (agvRecoveryJumpTimer) {
+    clearTimeout(agvRecoveryJumpTimer)
+    agvRecoveryJumpTimer = null
+  }
+}
+
+function showAgvRecoveryJumpButton(agvId) {
+  if (!agvId) return
+  agvRecoveryJumpTargetAgvId.value = agvId
+  agvRecoveryJumpReady.value = true
+  if (agvRecoveryJumpTimer) {
+    clearTimeout(agvRecoveryJumpTimer)
+  }
+  agvRecoveryJumpTimer = setTimeout(() => {
+    agvRecoveryJumpReady.value = false
+    agvRecoveryJumpTimer = null
+  }, 5000)
+}
+
+function hideFloatingToast() {
+  floatingToastVisible.value = false
+  floatingToastMessage.value = ''
+  floatingToastType.value = 'info'
+  if (floatingToastTimer) {
+    clearTimeout(floatingToastTimer)
+    floatingToastTimer = null
+  }
+}
+
+function showFloatingToast(message, type = 'info', durationMs = 3200) {
+  if (!message) return
+  floatingToastMessage.value = String(message)
+  floatingToastType.value = type
+  floatingToastVisible.value = true
+  if (floatingToastTimer) {
+    clearTimeout(floatingToastTimer)
+  }
+  floatingToastTimer = setTimeout(() => {
+    floatingToastVisible.value = false
+    floatingToastTimer = null
+  }, durationMs)
+}
+
+function pulseFaultSelectedCard() {
+  faultSelectedAgvPulse.value = true
+  if (faultSelectedAgvPulseTimer) {
+    clearTimeout(faultSelectedAgvPulseTimer)
+  }
+  faultSelectedAgvPulseTimer = setTimeout(() => {
+    faultSelectedAgvPulse.value = false
+    faultSelectedAgvPulseTimer = null
+  }, 2200)
+}
+
 async function focusTaskBuilder(mode = taskBuilderMode.value) {
   taskBuilderMode.value = mode
   await jumpToPanelSearchResult('control')
+  await nextTick()
+  const panelElement = panelRef.value
+  const builderElement = taskBuilderRef.value
+  if (panelElement && builderElement) {
+    const panelRect = panelElement.getBoundingClientRect()
+    const builderRect = builderElement.getBoundingClientRect()
+    const top = Math.max(panelElement.scrollTop + (builderRect.top - panelRect.top) - 12, 0)
+    panelElement.scrollTo({ top, behavior: 'smooth' })
+  }
   hideTaskBuilderJumpButton()
 }
 
-function cancelTaskChainMapPick(resetMarkers = true) {
-  taskChainMapPickActive.value = false
-  taskChainMapPickPoints.value = []
-  if (resetMarkers) {
-    clearAutoMarkers()
+async function jumpToRecoveryAgvCard() {
+  const targetAgvId = agvRecoveryJumpTargetAgvId.value
+  if (!targetAgvId) return
+  selectedAgvId.value = targetAgvId
+  showFaultReportForm.value = false
+  await jumpToPanelSearchResult('control')
+  await nextTick()
+
+  const panelElement = panelRef.value
+  const faultCardElement = faultSelectedAgvCardRef.value
+  if (panelElement && faultCardElement) {
+    const panelRect = panelElement.getBoundingClientRect()
+    const cardRect = faultCardElement.getBoundingClientRect()
+    const top = Math.max(panelElement.scrollTop + (cardRect.top - panelRect.top) - 10, 0)
+    panelElement.scrollTo({ top, behavior: 'smooth' })
   }
-}
-
-function toggleTaskChainMapPick() {
-  if (dispatchMode.value !== 'auto') return
-
-  if (taskChainMapPickActive.value) {
-    cancelTaskChainMapPick()
-    return
-  }
-
-  taskBuilderMode.value = 'chain'
-  taskChainMapPickActive.value = true
-  taskChainMapPickPoints.value = []
-  clearAutoMarkers()
+  pulseFaultSelectedCard()
+  hideAgvRecoveryJumpButton()
 }
 
 function toggleDispatchModeFromSummary() {
   dispatchMode.value = dispatchMode.value === 'auto' ? 'manual' : 'auto'
 }
 
-function loadCustomPoints() {
-  try {
-    const raw = window.localStorage.getItem(CUSTOM_POINTS_STORAGE_KEY)
-    if (!raw) return
-
-    const parsed = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return
-
-    customPoints.value = parsed
-      .filter(point => {
-        return (
-          typeof point?.id === 'string' &&
-          typeof point?.customName === 'string' &&
-          typeof point?.customZone === 'string' &&
-          isValidGridCoordinate(point?.x, GRID_COLS) &&
-          isValidGridCoordinate(point?.y, GRID_ROWS)
-        )
-      })
-      .map(point => ({
-        id: point.id,
-        x: point.x,
-        y: point.y,
-        customName: point.customName.trim(),
-        customZone: point.customZone.trim(),
-        aliases: Array.isArray(point.aliases) ? point.aliases : [],
-        custom: true
-      }))
-  } catch (error) {
-    console.error('Load custom points error:', error)
-  }
-}
-
-function saveCustomPoints() {
-  try {
-    window.localStorage.setItem(CUSTOM_POINTS_STORAGE_KEY, JSON.stringify(customPoints.value))
-  } catch (error) {
-    console.error('Save custom points error:', error)
-  }
-}
-
-function addCustomPoint() {
-  const name = customPointForm.value.name.trim()
-  const zone = customPointForm.value.zone.trim()
-  const x = Number(customPointForm.value.x)
-  const y = Number(customPointForm.value.y)
-
-  if (!name || !zone) {
-    setPointFormStatus('error', t('point_form_invalid_name'))
-    return
-  }
-
-  if (!isValidGridCoordinate(x, GRID_COLS) || !isValidGridCoordinate(y, GRID_ROWS)) {
-    setPointFormStatus('error', t('point_form_invalid_coords'))
-    return
-  }
-
-  customPoints.value = [
-    ...customPoints.value,
-    {
-      id: `custom_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-      x,
-      y,
-      customName: name,
-      customZone: zone,
-      aliases: [name, zone, `${x},${y}`, `${x} ${y}`],
-      custom: true
-    }
-  ]
-
-  resetCustomPointForm()
-  setPointFormStatus('success', t('point_form_saved'))
-}
-
-function deleteCustomPoint(point) {
-  if (!point.custom) return
-  const ok = window.confirm(t('confirm_delete_point'))
-  if (!ok) return
-
-  customPoints.value = customPoints.value.filter(item => item.id !== point.id)
-  setPointFormStatus('success', t('point_form_deleted'))
-}
-
-function loadMapDisplaySettings() {
-  try {
-    const raw = window.localStorage.getItem(MAP_DISPLAY_STORAGE_KEY)
-    if (!raw) return
-
-    const parsed = JSON.parse(raw)
-    if (typeof parsed?.showAutoPath === 'boolean') {
-      showAutoPath.value = parsed.showAutoPath
-    }
-    if (typeof parsed?.showMarkerIcons === 'boolean') {
-      showMarkerIcons.value = parsed.showMarkerIcons
-    }
-    if (typeof parsed?.showPathArrows === 'boolean') {
-      showPathArrows.value = parsed.showPathArrows
-    }
-    if (typeof parsed?.showStatusLegend === 'boolean') {
-      showStatusLegend.value = parsed.showStatusLegend
-    }
-    if (parsed?.statusLegendLayout === 'horizontal' || parsed?.statusLegendLayout === 'vertical') {
-      statusLegendLayout.value = parsed.statusLegendLayout
-    }
-    if (typeof parsed?.statusLegendOpacity === 'number') {
-      statusLegendOpacity.value = clampValue(parsed.statusLegendOpacity, 0.2, 0.9)
-    }
-    if (typeof parsed?.showMinimap === 'boolean') {
-      showMinimap.value = parsed.showMinimap
-    }
-    if (parsed?.compareDisplayMode === 'panel' || parsed?.compareDisplayMode === 'floating') {
-      compareDisplayMode.value = parsed.compareDisplayMode
-    }
-    if (typeof parsed?.compareFloatingOpacity === 'number') {
-      compareFloatingOpacity.value = clampValue(parsed.compareFloatingOpacity, 0.45, 1)
-    }
-  } catch (error) {
-    console.error('Load map display settings error:', error)
-  }
-}
-
-function saveMapDisplaySettings() {
-  try {
-    window.localStorage.setItem(
-      MAP_DISPLAY_STORAGE_KEY,
-      JSON.stringify({
-        showAutoPath: showAutoPath.value,
-        showMarkerIcons: showMarkerIcons.value,
-        showPathArrows: showPathArrows.value,
-        showStatusLegend: showStatusLegend.value,
-        statusLegendLayout: statusLegendLayout.value,
-        statusLegendOpacity: statusLegendOpacity.value,
-        showMinimap: showMinimap.value,
-        compareDisplayMode: compareDisplayMode.value,
-        compareFloatingOpacity: compareFloatingOpacity.value
-      })
-    )
-  } catch (error) {
-    console.error('Save map display settings error:', error)
-  }
-}
-
-function loadTaskTemplates() {
-  try {
-    const raw = window.localStorage.getItem(TASK_TEMPLATE_STORAGE_KEY)
-    if (!raw) return
-
-    const parsed = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return
-
-    customTaskTemplates.value = parsed
-      .map(template =>
-        buildTemplateFromStages({
-          id: typeof template?.id === 'string' ? template.id : undefined,
-          name: template?.customName,
-          priority: template?.priority,
-          stages: normalizeTemplateStages(template),
-          custom: true
-        })
-      )
-      .filter(Boolean)
-  } catch (error) {
-    console.error('Load task templates error:', error)
-  }
-}
-
-function saveTaskTemplates() {
-  try {
-    window.localStorage.setItem(TASK_TEMPLATE_STORAGE_KEY, JSON.stringify(customTaskTemplates.value))
-  } catch (error) {
-    console.error('Save task templates error:', error)
-  }
-}
-
-async function applyTaskTemplate(template, options = {}) {
-  const stages = normalizeTemplateStages(template)
-  if (stages.length === 0) return
-
-  const firstStage = stages[0]
-  taskForm.value.start_x = firstStage.start_x
-  taskForm.value.start_y = firstStage.start_y
-  taskForm.value.end_x = firstStage.end_x
-  taskForm.value.end_y = firstStage.end_y
-  taskForm.value.priority = template.priority
-  taskChainStages.value = stages.map(stage => createTaskChainStage(stage))
-  taskBuilderMode.value = stages.length > 1 ? 'chain' : 'single'
-
-  if (stages.length > 1) {
-    setTaskTemplateStatus('info', `${taskBuilderLocale.value.loadedChain} ${taskBuilderLocale.value.jumpHint}`)
-  } else {
-    setTaskTemplateStatus('info', `${taskBuilderLocale.value.loadedSingle} ${taskBuilderLocale.value.jumpHint}`)
-  }
-
-  if (options.focus) {
-    hideTaskBuilderJumpButton()
-    await focusTaskBuilder(taskBuilderMode.value)
-    return
-  }
-
-  showTaskBuilderJumpButton()
-}
-
-function onTemplateApplyClick(template) {
-  if (templateApplyClickTimer) {
-    clearTimeout(templateApplyClickTimer)
-  }
-  templateApplyClickTimer = setTimeout(() => {
-    templateApplyClickTimer = null
-    void applyTaskTemplate(template)
-  }, 220)
-}
-
-function onTemplateApplyDoubleClick(template) {
-  if (templateApplyClickTimer) {
-    clearTimeout(templateApplyClickTimer)
-    templateApplyClickTimer = null
-  }
-  void applyTaskTemplate(template, { focus: true })
-}
-
-function saveCurrentTaskAsTemplate() {
-  const name = taskTemplateForm.value.name.trim()
-  if (!name) {
-    setTaskTemplateStatus('error', t('template_form_invalid_name'))
-    return
-  }
-
-  const template = buildTemplateFromStages({
-    name,
-    priority: Number(taskForm.value.priority),
-    stages: [
-      {
-        start_x: Number(taskForm.value.start_x),
-        start_y: Number(taskForm.value.start_y),
-        end_x: Number(taskForm.value.end_x),
-        end_y: Number(taskForm.value.end_y)
-      }
-    ],
-    custom: true
-  })
-  if (!template) {
-    setTaskTemplateStatus('error', t('point_form_invalid_coords'))
-    return
-  }
-
-  customTaskTemplates.value = [
-    ...customTaskTemplates.value,
-    template
-  ]
-
-  taskTemplateForm.value.name = ''
-  hideTaskBuilderJumpButton()
-  setTaskTemplateStatus('success', t('template_form_saved'))
-}
-
-function saveCurrentTaskChainAsTemplate() {
-  const name = taskTemplateForm.value.name.trim()
-  if (!name) {
-    setTaskTemplateStatus('error', t('template_form_invalid_name'))
-    return
-  }
-
-  const template = buildTemplateFromStages({
-    name,
-    priority: Number(taskForm.value.priority),
-    stages: taskChainStages.value,
-    custom: true
-  })
-  if (!template || normalizeTemplateStages(template).length < 2) {
-    setTaskTemplateStatus('error', t('point_form_invalid_coords'))
-    return
-  }
-
-  customTaskTemplates.value = [...customTaskTemplates.value, template]
-  taskTemplateForm.value.name = ''
-  hideTaskBuilderJumpButton()
-  setTaskTemplateStatus('success', t('template_form_saved'))
-}
-
-function deleteTaskTemplate(template) {
-  if (!template.custom) return
-  const ok = window.confirm(t('confirm_delete_template'))
-  if (!ok) return
-
-  customTaskTemplates.value = customTaskTemplates.value.filter(item => item.id !== template.id)
-  hideTaskBuilderJumpButton()
-  setTaskTemplateStatus('success', t('template_form_deleted'))
-}
-
 function buildTemplateExportPayload() {
-  return {
-    version: 2,
-    templates: customTaskTemplates.value.map(template => {
-      const stages = normalizeTemplateStages(template)
-      const firstStage = stages[0]
-      const lastStage = stages[stages.length - 1]
-      return {
-        name: template.customName,
-        start_x: firstStage.start_x,
-        start_y: firstStage.start_y,
-        end_x: lastStage.end_x,
-        end_y: lastStage.end_y,
-        stages: stages.map(stage => ({
-          label: stage.label || undefined,
-          start_x: stage.start_x,
-          start_y: stage.start_y,
-          end_x: stage.end_x,
-          end_y: stage.end_y
-        })),
-        priority: template.priority
-      }
-    })
-  }
+  return buildTemplateExportPayloadRaw(customTaskTemplates.value, {
+    normalizeStages: normalizeTemplateStages
+  })
 }
 
-function exportTaskTemplatesToJson() {
-  if (customTaskTemplates.value.length === 0) {
-    setTemplateJsonStatus('error', templateJsonLocale.value.exportEmpty)
-    return
-  }
-
-  templateJsonText.value = JSON.stringify(buildTemplateExportPayload(), null, 2)
-  setTemplateJsonStatus(
-    'success',
-    formatTemplateJsonSummary(templateJsonLocale.value.exportOk, customTaskTemplates.value.length)
-  )
-}
-
-function clearTemplateJsonText() {
-  templateJsonText.value = ''
-  setTemplateJsonStatus('info', '')
-}
-
-function importTaskTemplatesFromRaw(rawText) {
-  if (!rawText.trim()) return
-  setTemplateJsonStatus('info', '')
-
-  let parsed
-  try {
-    parsed = JSON.parse(rawText)
-  } catch {
-    setTemplateJsonStatus('error', templateJsonLocale.value.importFail)
-    return
-  }
-
-  const templateItems = Array.isArray(parsed) ? parsed : parsed?.templates
-  if (!Array.isArray(templateItems)) {
-    setTemplateJsonStatus('error', templateJsonLocale.value.importFail)
-    return
-  }
-
-  const existingSignatures = new Set(customTaskTemplates.value.map(buildTaskTemplateSignature))
-  const imported = []
-  let skipped = 0
-
-  for (const item of templateItems) {
-    const normalized = normalizeImportedTaskTemplate(item)
-    if (!normalized) {
-      skipped += 1
-      continue
-    }
-
-    const signature = buildTaskTemplateSignature(normalized)
-    if (existingSignatures.has(signature)) {
-      skipped += 1
-      continue
-    }
-
-    existingSignatures.add(signature)
-    imported.push(normalized)
-  }
-
-  if (imported.length === 0) {
-    if (skipped > 0) {
-      setTemplateJsonStatus('info', formatTemplateJsonSummary(templateJsonLocale.value.importOk, 0, skipped))
-      return
-    }
-
-    setTemplateJsonStatus('error', templateJsonLocale.value.importFail)
-    return
-  }
-
-  customTaskTemplates.value = [...customTaskTemplates.value, ...imported]
-  setTemplateJsonStatus(
-    'success',
-    formatTemplateJsonSummary(templateJsonLocale.value.importOk, imported.length, skipped)
-  )
-}
-
-function importTaskTemplatesFromJson() {
-  importTaskTemplatesFromRaw(templateJsonText.value)
-}
-
-function downloadTemplateJsonFile() {
-  if (customTaskTemplates.value.length === 0) {
-    setTemplateJsonStatus('error', templateJsonLocale.value.exportEmpty)
-    return
-  }
-
-  const payloadText = JSON.stringify(buildTemplateExportPayload(), null, 2)
-  templateJsonText.value = payloadText
-
-  const blob = new Blob([payloadText], { type: 'application/json;charset=utf-8' })
-  const url = window.URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  const timestamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')
-
-  link.href = url
-  link.download = `agv-task-templates-${timestamp}.json`
-  document.body.appendChild(link)
-  link.click()
-  document.body.removeChild(link)
-  window.setTimeout(() => window.URL.revokeObjectURL(url), 0)
-
-  setTemplateJsonStatus(
-    'success',
-    formatTemplateJsonSummary(templateJsonLocale.value.exportOk, customTaskTemplates.value.length)
-  )
-}
-
-function triggerTemplateFileImport() {
-  templateFileInputRef.value?.click()
-}
-
-async function handleTemplateFileChange(event) {
-  const file = event.target?.files?.[0]
-  if (!file) return
-
-  try {
-    const text = await file.text()
-    templateJsonText.value = text
-    importTaskTemplatesFromRaw(text)
-  } catch (error) {
-    console.error('Read template json file error:', error)
-    setTemplateJsonStatus('error', templateJsonLocale.value.importFail)
-  } finally {
-    event.target.value = ''
-  }
-}
+const {
+  applyPointToTaskForm,
+  addCustomPoint,
+  deleteCustomPoint,
+  onTemplateApplyClick,
+  onTemplateApplyDoubleClick,
+  saveCurrentTaskAsTemplate,
+  saveCurrentTaskChainAsTemplate,
+  deleteTaskTemplate,
+  exportTaskTemplatesToJson,
+  clearTemplateJsonText,
+  importTaskTemplatesFromJson,
+  downloadTemplateJsonFile,
+  triggerTemplateFileImport,
+  handleTemplateFileChange
+} = useTemplatePointActions({
+  t,
+  GRID_COLS,
+  GRID_ROWS,
+  taskForm,
+  taskChainStages,
+  taskBuilderMode,
+  taskTemplateForm,
+  customPointForm,
+  customPoints,
+  customTaskTemplates,
+  pointFormStatus,
+  pointFormStatusType,
+  taskTemplateStatus,
+  taskTemplateStatusType,
+  templateJsonText,
+  templateJsonStatus,
+  templateJsonStatusType,
+  templateFileInputRef,
+  taskBuilderLocale,
+  templateJsonLocale,
+  normalizeTemplateStages,
+  buildTemplateFromStages,
+  buildTaskTemplateSignature,
+  normalizeImportedTaskTemplate,
+  formatTemplateJsonSummary,
+  buildTemplateExportPayload,
+  isValidGridCoordinate,
+  createTaskChainStage,
+  buildCustomPoint,
+  syncManualDispatchBuilderState,
+  hideTaskBuilderJumpButton,
+  showTaskBuilderJumpButton,
+  focusTaskBuilder
+})
 
 function togglePanelSection(sectionKey) {
   panelSections.value = {
@@ -2839,12 +1678,47 @@ function hasIdleAgv() {
 }
 
 function hasPendingTask() {
-  return tasks.value.some(task => task.status === 'pending' || task.status === 'blocked')
+  return tasks.value.some(task => task.status === 'pending')
 }
 
 function hasActiveTask() {
   return tasks.value.some(task => task.status === 'assigned' || task.status === 'running')
 }
+
+const { tryAutoSchedule, tryManualBoundSchedule, scheduleAutoIfReady } = useDispatchScheduler({
+  API_BASE,
+  GRID_COLS,
+  GRID_ROWS,
+  algorithm,
+  dispatchMode,
+  obstacleEditMode,
+  obstacleLayoutDirty,
+  agvs,
+  tasks,
+  autoPathToStart,
+  autoPathToEnd,
+  manualPathToStart,
+  manualPathToEnd,
+  selectedAgvId,
+  trackedManualTaskId,
+  startPoint,
+  endPoint,
+  manualDispatchStep,
+  autoScheduling,
+  autoScheduleGuard,
+  manualBoundScheduling,
+  nextTick,
+  fetchAgvs,
+  fetchTasks,
+  hasIdleAgv,
+  hasPendingTask,
+  resolveTaskDisplayStartMarker,
+  resolveTaskDisplayEndMarker,
+  resolveTaskStartMarker,
+  resolveTaskEndMarker,
+  resolveTaskOverallEndMarker,
+  bumpManualPreviewMinVisible
+})
 
 function clearAutoPaths() {
   autoPathToStart.value = []
@@ -2852,24 +1726,15 @@ function clearAutoPaths() {
 }
 
 function clearAutoMarkers() {
-  if (dispatchMode.value === 'auto') {
-    startPoint.value = null
-    endPoint.value = null
-  }
-}
-
-function clearPreview() {
-  if (previewTimer) {
-    clearTimeout(previewTimer)
-    previewTimer = null
-  }
-  previewTaskId.value = null
-  previewStart.value = null
-  previewEnd.value = null
-  previewPath.value = []
+  mapDraftPrimedMode.value = null
+  autoDraftPicking.value = false
+  startPoint.value = null
+  endPoint.value = null
 }
 
 function clearManualDestination() {
+  mapDraftPrimedMode.value = null
+  manualDraftPicking.value = false
   endPoint.value = null
   manualPathToStart.value = []
   manualPathToEnd.value = []
@@ -2880,32 +1745,86 @@ function clearManualPaths() {
   manualPathToEnd.value = []
 }
 
+function clearManualDispatchPreview() {
+  if (manualPreviewHoldTimer) {
+    clearTimeout(manualPreviewHoldTimer)
+    manualPreviewHoldTimer = null
+  }
+  mapDraftPrimedMode.value = null
+  manualDraftPicking.value = false
+  trackedManualTaskId.value = null
+  manualDispatchStep.value = 'idle'
+  manualPreviewMinVisibleUntil.value = 0
+  taskChainMapPickActive.value = false
+  taskChainMapPickPoints.value = []
+  startPoint.value = null
+  endPoint.value = null
+  clearManualPaths()
+}
+
+function bumpManualPreviewMinVisible(durationMs = 1400) {
+  manualPreviewMinVisibleUntil.value = Date.now() + durationMs
+}
+
 function cancelSelection() {
   selectedAgvId.value = null
-  trackedManualTaskId.value = null
-  startPoint.value = null
+  clearManualDispatchPreview()
   clearManualDestination()
   showFaultReportForm.value = false
 }
 
-function findAgvById(id) {
-  return displayAgvs.value.find(agv => agv.id === id)
-}
-
-function activeTaskSort(a, b) {
-  return compareTime(b.assigned_at, a.assigned_at) || b.priority - a.priority || b.id - a.id
-}
-
-function findLatestActiveTask(mode) {
-  const activeTasks = tasks.value
-    .filter(task => ['assigned', 'running'].includes(task.status) && task.dispatch_mode === mode)
-    .sort(activeTaskSort)
-
-  if (mode === 'manual' && selectedAgvId.value) {
-    return activeTasks.find(task => task.agv_id === selectedAgvId.value) ?? activeTasks[0] ?? null
+function getSelectedManualDispatchAgv(alertOnFailure = true) {
+  if (dispatchMode.value !== 'manual') return null
+  if (!selectedBackendAgv.value) {
+    if (alertOnFailure) {
+      window.alert(currentTaskBuilderHint.value)
+    }
+    return null
   }
+  if (selectedBackendAgv.value.status !== 'idle') {
+    if (alertOnFailure) {
+      if (locale.value === 'ja') {
+        window.alert('手動派車では空き AGV のみ指定できます。')
+      } else if (locale.value === 'zh') {
+        window.alert('手动派车只能指定空闲 AGV。')
+      } else {
+        window.alert('Manual dispatch can only target idle AGVs.')
+      }
+    }
+    return null
+  }
+  return selectedBackendAgv.value
+}
 
-  return activeTasks[0] ?? null
+const {
+  addTaskChainStage,
+  removeTaskChainStage,
+  resetTaskChainStages,
+  setTaskChainMapPickStageCount,
+  toggleTaskBuilderMode,
+  cancelTaskChainMapPick,
+  toggleTaskChainMapPick
+} = useTaskBuilderState({
+  taskBuilderMode,
+  taskChainStages,
+  taskForm,
+  taskChainMapPickStageCount,
+  taskChainMapPickActive,
+  taskChainMapPickPoints,
+  dispatchMode,
+  manualDispatchStep,
+  startPoint,
+  endPoint,
+  manualDisplayTask,
+  buildDefaultTaskChainStages,
+  createTaskChainStage,
+  getSelectedManualDispatchAgv,
+  clearAutoMarkers
+})
+
+function syncManualDispatchBuilderState() {
+  const agv = getSelectedManualDispatchAgv(false)
+  if (!agv || trackedManualTaskId.value) return
 }
 
 function syncDisplayedPathsFromTasks() {
@@ -2917,12 +1836,25 @@ function syncDisplayedPathsFromTasks() {
     clearAutoPaths()
   }
 
-  const manualTask = findLatestActiveTask('manual')
+  const manualTask = manualDisplayTask.value
   if (manualTask) {
     manualPathToStart.value = manualTask.path_to_start ?? []
     manualPathToEnd.value = manualTask.path_to_end ?? []
   } else {
-    clearManualPaths()
+    const shouldHoldManualPreview =
+      Boolean(trackedManualTaskId.value) && manualPreviewMinVisibleUntil.value > Date.now()
+    if (!shouldHoldManualPreview) {
+      clearManualPaths()
+      if (
+        dispatchMode.value === 'auto' &&
+        !taskChainMapPickActive.value &&
+        !(taskBuilderMode.value === 'single' && Boolean(startPoint.value) && !endPoint.value) &&
+        !manualDisplayTask.value
+      ) {
+        startPoint.value = null
+        endPoint.value = null
+      }
+    }
   }
 }
 
@@ -2930,229 +1862,73 @@ function isCellOccupied(x, y) {
   return displayAgvs.value.some(agv => agv.x === x && agv.y === y)
 }
 
-function syncPanelWidth(nextWidth = panelWidth.value) {
-  if (isCompactLayout.value) return
-  const layoutWidth = layoutRef.value?.clientWidth ?? windowWidth.value
-  const minWidth = 320
-  const maxWidth = Math.max(minWidth, layoutWidth - 280)
-  panelWidth.value = clampValue(Math.round(nextWidth), minWidth, maxWidth)
-}
+const {
+  syncPanelWidth,
+  resetMapView,
+  changeMapZoom,
+  clampMapTransform,
+  updateMapViewportMetrics,
+  getCellFromEvent,
+  getCellFromClient,
+  onMapWheel,
+  startPanelResize,
+  onMinimapMouseDown,
+  onWindowResize,
+  handleGlobalMouseMove,
+  handleGlobalMouseUp
+} = useMapViewport({
+  constants: {
+    MAP_WIDTH,
+    MAP_HEIGHT,
+    MINIMAP_WIDTH,
+    MIN_ZOOM,
+    MAX_ZOOM,
+    CELL_SIZE,
+    GRID_COLS,
+    GRID_ROWS
+  },
+  refs: {
+    layoutRef,
+    mapViewportRef,
+    minimapRef,
+    windowWidth,
+    panelWidth,
+    isCompactLayout,
+    mapZoom,
+    mapOffsetX,
+    mapOffsetY,
+    mapViewportWidth,
+    mapViewportHeight
+  },
+  clampValue
+})
 
-function centerMapView() {
-  mapOffsetX.value = (mapViewportWidth.value - MAP_WIDTH * mapZoom.value) / 2
-  mapOffsetY.value = (mapViewportHeight.value - MAP_HEIGHT * mapZoom.value) / 2
-  clampMapTransform()
-}
+const {
+  previewTaskId,
+  previewStart,
+  previewEnd,
+  previewPath,
+  previewPathPoints,
+  previewPathArrows,
+  canPreviewTask,
+  refreshTaskPreview,
+  clearPreview,
+  onTaskHover,
+  onTaskLeave
+} = useTaskPreview({
+  algorithm,
+  GRID_COLS,
+  GRID_ROWS,
+  isBlockedCell,
+  currentTaskStage,
+  taskRemainingWaypoints,
+  resolveTaskDisplayStartMarker,
+  resolveTaskDisplayEndMarker,
+  toSvgPoints,
+  toArrowSegments
+})
 
-function resetMapView() {
-  mapZoom.value = 1
-  centerMapView()
-}
-
-function updateMapZoom(nextZoom, pointerX = mapViewportWidth.value / 2, pointerY = mapViewportHeight.value / 2) {
-  const clampedZoom = clampValue(Number(nextZoom.toFixed(3)), MIN_ZOOM, MAX_ZOOM)
-  if (clampedZoom === mapZoom.value) return false
-
-  const worldX = (pointerX - mapOffsetX.value) / mapZoom.value
-  const worldY = (pointerY - mapOffsetY.value) / mapZoom.value
-
-  mapZoom.value = clampedZoom
-  mapOffsetX.value = pointerX - worldX * clampedZoom
-  mapOffsetY.value = pointerY - worldY * clampedZoom
-  clampMapTransform()
-  return true
-}
-
-function changeMapZoom(deltaY, pointerX = mapViewportWidth.value / 2, pointerY = mapViewportHeight.value / 2) {
-  const ratio = deltaY < 0 ? 1.12 : 0.88
-  return updateMapZoom(mapZoom.value * ratio, pointerX, pointerY)
-}
-
-function clampMapTransform() {
-  const scaledWidth = MAP_WIDTH * mapZoom.value
-  const scaledHeight = MAP_HEIGHT * mapZoom.value
-
-  if (scaledWidth <= mapViewportWidth.value) {
-    mapOffsetX.value = (mapViewportWidth.value - scaledWidth) / 2
-  } else {
-    mapOffsetX.value = clampValue(mapOffsetX.value, mapViewportWidth.value - scaledWidth, 0)
-  }
-
-  if (scaledHeight <= mapViewportHeight.value) {
-    mapOffsetY.value = (mapViewportHeight.value - scaledHeight) / 2
-  } else {
-    mapOffsetY.value = clampValue(mapOffsetY.value, mapViewportHeight.value - scaledHeight, 0)
-  }
-}
-
-function updateMapViewportMetrics(shouldCenter = false) {
-  const viewport = mapViewportRef.value
-  if (!viewport) return
-
-  mapViewportWidth.value = viewport.clientWidth || MAP_WIDTH
-  mapViewportHeight.value = viewport.clientHeight || MAP_HEIGHT
-
-  if (!mapViewReady || shouldCenter) {
-    centerMapView()
-    mapViewReady = true
-    return
-  }
-
-  clampMapTransform()
-}
-
-function focusMapAtWorld(worldX, worldY) {
-  mapOffsetX.value = mapViewportWidth.value / 2 - worldX * mapZoom.value
-  mapOffsetY.value = mapViewportHeight.value / 2 - worldY * mapZoom.value
-  clampMapTransform()
-}
-
-function getMapPointFromClient(clientX, clientY) {
-  const rect = mapViewportRef.value?.getBoundingClientRect()
-  if (!rect) return null
-
-  const worldX = (clientX - rect.left - mapOffsetX.value) / mapZoom.value
-  const worldY = (clientY - rect.top - mapOffsetY.value) / mapZoom.value
-
-  if (worldX < 0 || worldX >= MAP_WIDTH || worldY < 0 || worldY >= MAP_HEIGHT) {
-    return null
-  }
-
-  return {
-    x: worldX,
-    y: worldY
-  }
-}
-
-function getWorldPointFromMinimapEvent(event) {
-  const rect = minimapRef.value?.getBoundingClientRect()
-  if (!rect) return { x: MAP_WIDTH / 2, y: MAP_HEIGHT / 2 }
-
-  return {
-    x: clampValue((event.clientX - rect.left) / minimapScale.value, 0, MAP_WIDTH),
-    y: clampValue((event.clientY - rect.top) / minimapScale.value, 0, MAP_HEIGHT)
-  }
-}
-
-function getCellFromEvent(event) {
-  const point = getMapPointFromClient(event.clientX, event.clientY)
-  if (!point) return null
-  return {
-    x: clampValue(Math.floor(point.x / CELL_SIZE), 0, GRID_COLS - 1),
-    y: clampValue(Math.floor(point.y / CELL_SIZE), 0, GRID_ROWS - 1)
-  }
-}
-
-function getCellFromClient(clientX, clientY) {
-  const rect = mapViewportRef.value?.getBoundingClientRect()
-  if (!rect) return null
-  if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) {
-    return null
-  }
-
-  const point = getMapPointFromClient(clientX, clientY)
-  if (!point) return null
-  return {
-    x: clampValue(Math.floor(point.x / CELL_SIZE), 0, GRID_COLS - 1),
-    y: clampValue(Math.floor(point.y / CELL_SIZE), 0, GRID_ROWS - 1)
-  }
-}
-
-function buildSimpleCandidatePath(sx, sy, ex, ey, axisOrder) {
-  const path = [{ x: sx, y: sy }]
-  let x = sx
-  let y = sy
-
-  for (const axis of axisOrder) {
-    if (axis === 'x') {
-      while (x !== ex) {
-        x += ex > x ? 1 : -1
-        if (isBlockedCell(x, y)) return []
-        path.push({ x, y })
-      }
-    } else {
-      while (y !== ey) {
-        y += ey > y ? 1 : -1
-        if (isBlockedCell(x, y)) return []
-        path.push({ x, y })
-      }
-    }
-  }
-
-  return path
-}
-
-function buildSimplePath(sx, sy, ex, ey) {
-  if (isBlockedCell(sx, sy) || isBlockedCell(ex, ey)) return []
-  if (sx === ex && sy === ey) return [{ x: sx, y: sy }]
-
-  const xFirst = buildSimpleCandidatePath(sx, sy, ex, ey, ['x', 'y'])
-  if (xFirst.length > 0) return xFirst
-
-  return buildSimpleCandidatePath(sx, sy, ex, ey, ['y', 'x'])
-}
-
-function buildAStarPath(sx, sy, ex, ey) {
-  if (isBlockedCell(sx, sy) || isBlockedCell(ex, ey)) return []
-  if (sx === ex && sy === ey) return [{ x: sx, y: sy }]
-
-  const startKey = blockedCellKey(sx, sy)
-  const goalKey = blockedCellKey(ex, ey)
-  const open = [{ x: sx, y: sy, key: startKey, f: 0 }]
-  const cameFrom = new Map()
-  const gScore = new Map([[startKey, 0]])
-
-  while (open.length > 0) {
-    open.sort((a, b) => a.f - b.f)
-    const current = open.shift()
-    if (!current) break
-
-    if (current.x === ex && current.y === ey) {
-      const path = [{ x: ex, y: ey }]
-      let cursorKey = goalKey
-      while (cameFrom.has(cursorKey)) {
-        const previous = cameFrom.get(cursorKey)
-        path.push({ x: previous.x, y: previous.y })
-        cursorKey = blockedCellKey(previous.x, previous.y)
-      }
-      path.reverse()
-      return path
-    }
-
-    for (const [dx, dy] of [
-      [1, 0],
-      [-1, 0],
-      [0, 1],
-      [0, -1]
-    ]) {
-      const nx = current.x + dx
-      const ny = current.y + dy
-      if (nx < 0 || nx >= GRID_COLS || ny < 0 || ny >= GRID_ROWS) continue
-      if (isBlockedCell(nx, ny)) continue
-
-      const neighborKey = blockedCellKey(nx, ny)
-      const tentative = (gScore.get(current.key) ?? 0) + 1
-      if (tentative >= (gScore.get(neighborKey) ?? Number.POSITIVE_INFINITY)) continue
-
-      cameFrom.set(neighborKey, { x: current.x, y: current.y })
-      gScore.set(neighborKey, tentative)
-      const heuristic = Math.abs(nx - ex) + Math.abs(ny - ey)
-      const existing = open.find(item => item.key === neighborKey)
-      const nextNode = { x: nx, y: ny, key: neighborKey, f: tentative + heuristic }
-      if (existing) {
-        existing.f = nextNode.f
-      } else {
-        open.push(nextNode)
-      }
-    }
-  }
-
-  return []
-}
-
-function buildPreviewPathByAlgorithm(sx, sy, ex, ey) {
-  return algorithm.value === 'astar' ? buildAStarPath(sx, sy, ex, ey) : buildSimplePath(sx, sy, ex, ey)
-}
+const minimapPreviewPathPoints = computed(() => toSvgPoints(previewPath.value, minimapCellSize.value))
 
 function blockedCellAlertText() {
   if (locale.value === 'ja') return '障害セルは始点・終点・中継点に設定できません。'
@@ -3163,10 +1939,13 @@ function blockedCellAlertText() {
 function onAgvClick(agv, event) {
   event.stopPropagation()
   if (agv.source !== 'backend') return
+  mapDraftPrimedMode.value = null
   selectedAgvId.value = agv.id
   if (dispatchMode.value !== 'manual') return
   if (agv.status !== 'idle') return
-  startPoint.value = { x: agv.x, y: agv.y }
+  preferredRuntimeDisplayMode.value = 'manual'
+  manualDraftPicking.value = false
+  syncManualDispatchBuilderState()
   clearManualDestination()
 }
 
@@ -3189,6 +1968,22 @@ function onMapMouseDown(event) {
       }
     }, 260)
     return
+  }
+
+  if (taskBuilderMode.value === 'single') {
+    if (dispatchMode.value === 'auto') {
+      preferredRuntimeDisplayMode.value = 'auto'
+      mapDraftPrimedMode.value = 'auto'
+      if (!autoDraftPicking.value && !startPoint.value) {
+        endPoint.value = null
+      }
+    } else if (dispatchMode.value === 'manual' && selectedBackendAgv.value?.status === 'idle') {
+      preferredRuntimeDisplayMode.value = 'manual'
+      mapDraftPrimedMode.value = 'manual'
+      if (!manualDraftPicking.value && manualDispatchStep.value !== 'awaiting_end') {
+        endPoint.value = null
+      }
+    }
   }
 
   mapPanCandidate = true
@@ -3216,6 +2011,10 @@ function onMapDoubleClick(event) {
     clearTimeout(clickTimer)
     clickTimer = null
   }
+  mapDraftPrimedMode.value = null
+  if (dispatchMode.value === 'auto' && taskBuilderMode.value === 'single') {
+    clearAutoMarkers()
+  }
 
   const cell = getCellFromEvent(event)
   if (!cell) return
@@ -3238,25 +2037,27 @@ function onMapDoubleClick(event) {
 function onMapClick(event) {
   if (ignoreNextMapClick) {
     ignoreNextMapClick = false
+    mapDraftPrimedMode.value = null
     return
   }
   if (clickTimer) return
   const cell = getCellFromEvent(event)
-  if (!cell) return
+  if (!cell) {
+    mapDraftPrimedMode.value = null
+    return
+  }
   const { x, y } = cell
+  if (dispatchMode.value === 'auto' && taskBuilderMode.value === 'single') {
+    autoDraftPicking.value = true
+    mapDraftPrimedMode.value = null
+  } else if (dispatchMode.value === 'manual' && taskBuilderMode.value === 'single') {
+    manualDraftPicking.value = true
+    mapDraftPrimedMode.value = null
+  }
   clickTimer = setTimeout(() => {
     clickTimer = null
     handleSingleClick(x, y)
   }, 220)
-}
-
-function onMapWheel(event) {
-  const rect = mapViewportRef.value?.getBoundingClientRect()
-  if (!rect) return
-
-  const pointerX = event.clientX - rect.left
-  const pointerY = event.clientY - rect.top
-  changeMapZoom(event.deltaY, pointerX, pointerY)
 }
 
 function toggleMapSettings() {
@@ -3316,31 +2117,42 @@ function handlePanelSummaryItemDoubleClick(event, item) {
 }
 
 function handleSingleClick(x, y) {
+  mapDraftPrimedMode.value = null
   if (obstacleEditMode.value) {
     toggleBlockedCellAt(x, y)
     return
   }
 
   if (isBlockedCell(x, y)) {
+    if (dispatchMode.value === 'auto' && taskBuilderMode.value === 'single') {
+      clearAutoMarkers()
+    }
+    if (dispatchMode.value === 'manual') {
+      manualDraftPicking.value = false
+    }
     window.alert(blockedCellAlertText())
     return
   }
 
-  if (dispatchMode.value === 'manual') {
-    if (!selectedAgvId.value) return
-    const agv = findAgvById(selectedAgvId.value)
-    if (!agv || agv.status !== 'idle') return
-
-    startPoint.value = { x: agv.x, y: agv.y }
-    void confirmAndSchedule(x, y, agv.id)
-    return
-  }
-
-  if (dispatchMode.value === 'auto' && taskBuilderMode.value === 'chain' && taskChainMapPickActive.value) {
+  if (taskBuilderMode.value === 'chain' && taskChainMapPickActive.value) {
+    if (dispatchMode.value === 'manual' && !getSelectedManualDispatchAgv()) return
     void handleTaskChainMapClick(x, y)
     return
   }
 
+  if (dispatchMode.value === 'manual') {
+    const agv = getSelectedManualDispatchAgv()
+    if (!agv) return
+    manualDraftPicking.value = true
+    startPoint.value = { x: agv.x, y: agv.y }
+    endPoint.value = null
+    manualPathToStart.value = []
+    manualPathToEnd.value = []
+    void confirmAndSchedule(x, y, agv.id)
+    return
+  }
+
+  autoDraftPicking.value = true
   if (!startPoint.value) {
     startPoint.value = { x, y }
     return
@@ -3363,6 +2175,9 @@ async function handleTaskChainMapClick(x, y) {
     return
   }
 
+  const manualAgv = dispatchMode.value === 'manual' ? getSelectedManualDispatchAgv() : null
+  if (dispatchMode.value === 'manual' && !manualAgv) return
+
   const requiredPoints = taskChainRequiredPointCount.value
   const nextPoints = [...taskChainMapPickPoints.value, { x, y }].slice(0, requiredPoints)
   taskChainMapPickPoints.value = nextPoints
@@ -3384,27 +2199,46 @@ async function handleTaskChainMapClick(x, y) {
 
   const created = await submitTaskPayload(payload)
   if (created) {
-    clearAutoMarkers()
+    taskChainMapPickActive.value = false
     taskChainMapPickPoints.value = []
+    if (dispatchMode.value === 'auto') {
+      clearAutoMarkers()
+    }
   }
 }
 
 async function confirmAndSchedule(x, y, agvId = null) {
   const ok = window.confirm(t('confirm_dispatch'))
-  if (!ok) return
+  if (!ok) {
+    if (dispatchMode.value === 'manual') {
+      manualDraftPicking.value = false
+      clearManualDestination()
+    } else if (dispatchMode.value === 'auto') {
+      clearAutoMarkers()
+    }
+    return
+  }
   endPoint.value = { x, y }
+  if (dispatchMode.value === 'manual') {
+    manualDispatchStep.value = 'running'
+    bumpManualPreviewMinVisible()
+    await nextTick()
+    await new Promise(resolve => setTimeout(resolve, 180))
+  }
   await createTaskAndSchedule(agvId)
 }
 
 async function createTaskAndSchedule(agvId) {
   if (!startPoint.value || !endPoint.value) return
-  if (!(await ensureBlockedCellsSynced())) return
+  if (!(await ensureBlockedCellsSynced())) {
+    window.alert(obstacleSaveRequiredText())
+    return
+  }
 
-  const isAutoMode = dispatchMode.value === 'auto'
+  const manualAgv = dispatchMode.value === 'manual' ? getSelectedManualDispatchAgv(false) : null
+  const isManualFlow = dispatchMode.value === 'manual' && Boolean(manualAgv)
   try {
-    if (isAutoMode) {
-      autoScheduleGuard = true
-    }
+    autoScheduleGuard.value = true
     const createRes = await fetch(`${API_BASE}/task/create`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -3413,7 +2247,8 @@ async function createTaskAndSchedule(agvId) {
         start_y: startPoint.value.y,
         end_x: endPoint.value.x,
         end_y: endPoint.value.y,
-        priority: taskPriority.value
+        priority: taskPriority.value,
+        ...(isManualFlow ? buildManualTaskCreateMeta(manualAgv) : {})
       })
     })
     const createData = await createRes.json()
@@ -3421,35 +2256,10 @@ async function createTaskAndSchedule(agvId) {
       throw createApiError(createData, 'Task create failed')
     }
 
-    if (isAutoMode) {
-      const scheduleRes = await fetch(`${API_BASE}/schedule/with_path`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          task_id: createData.task.id,
-          agv_id: null,
-          algorithm: algorithm.value,
-          grid_cols: GRID_COLS,
-          grid_rows: GRID_ROWS
-        })
-      })
-      const scheduleData = await scheduleRes.json()
-      if (!scheduleRes.ok) {
-        await fetchTasks()
-        const latestTask = tasks.value.find(task => task.id === createData.task.id)
-        if (latestTask?.status === 'blocked') {
-          window.alert(blockedTaskAlertText(latestTask))
-        } else {
-          window.alert(localizeApiErrorDetail(scheduleData?.detail, t('task_manual_unreachable')))
-        }
-        clearAutoMarkers()
-        return
-      }
-
-      autoPathToStart.value = scheduleData.path_to_start ?? []
-      autoPathToEnd.value = scheduleData.path_to_end ?? scheduleData.path ?? []
+    if (!isManualFlow && !hasIdleAgv()) {
+      await fetchTasks()
       clearAutoMarkers()
-      await Promise.all([fetchAgvs(), fetchTasks()])
+      showFloatingToast(autoTaskQueuedText(createData.task), 'info')
       return
     }
 
@@ -3458,7 +2268,8 @@ async function createTaskAndSchedule(agvId) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         task_id: createData.task.id,
-        agv_id: agvId,
+        agv_id: isManualFlow ? agvId : null,
+        schedule_mode: isManualFlow ? 'manual' : 'auto',
         algorithm: algorithm.value,
         grid_cols: GRID_COLS,
         grid_rows: GRID_ROWS
@@ -3466,59 +2277,63 @@ async function createTaskAndSchedule(agvId) {
     })
     const scheduleData = await scheduleRes.json()
     if (!scheduleRes.ok) {
-      throw createApiError(scheduleData, 'Schedule failed')
+      if (isManualFlow) {
+        await handleManualScheduleFailure(createData.task.id, scheduleData)
+        return
+      }
+      await fetchTasks()
+      const latestTask = tasks.value.find(task => task.id === createData.task.id)
+      if (scheduleData?.detail?.error_code === 'no_idle_agv' && latestTask?.status === 'pending') {
+        clearAutoMarkers()
+        showFloatingToast(autoTaskQueuedText(latestTask), 'info')
+        return
+      }
+      if (latestTask?.status === 'blocked') {
+        window.alert(blockedTaskAlertText(latestTask))
+      } else {
+        window.alert(localizeApiErrorDetail(scheduleData?.detail, t('task_manual_unreachable')))
+      }
+      clearAutoMarkers()
+      return
     }
 
-    startPoint.value = {
-      x: scheduleData.task.start_x,
-      y: scheduleData.task.start_y
+    const resolvedMode = scheduleData?.task?.dispatch_mode ?? (isManualFlow ? 'manual' : 'auto')
+    if (resolvedMode === 'manual') {
+      preferredRuntimeDisplayMode.value = 'manual'
+      applyTaskDisplayMarkers(scheduleData.task, createData.task)
+      manualPathToStart.value = scheduleData.path_to_start ?? []
+      manualPathToEnd.value = scheduleData.path_to_end ?? scheduleData.path ?? []
+      trackedManualTaskId.value = scheduleData.task.id
+      manualDraftPicking.value = false
+      bumpManualPreviewMinVisible()
+    } else {
+      preferredRuntimeDisplayMode.value = 'auto'
+      autoPathToStart.value = scheduleData.path_to_start ?? []
+      autoPathToEnd.value = scheduleData.path_to_end ?? scheduleData.path ?? []
+      clearAutoMarkers()
     }
-    endPoint.value = {
-      x: scheduleData.task.end_x,
-      y: scheduleData.task.end_y
-    }
-    manualPathToStart.value = scheduleData.path_to_start ?? []
-    manualPathToEnd.value = scheduleData.path_to_end ?? scheduleData.path ?? []
-    trackedManualTaskId.value = scheduleData.task.id
 
     await Promise.all([fetchAgvs(), fetchTasks()])
   } catch (error) {
     console.error('Schedule error:', error)
-    if (!isAutoMode) {
+    if (isManualFlow) {
+      manualDraftPicking.value = false
       trackedManualTaskId.value = null
+      manualDispatchStep.value = 'idle'
       clearManualDestination()
     }
+    window.alert(error instanceof Error ? error.message : String(error))
   } finally {
-    if (isAutoMode) {
-      autoScheduleGuard = false
-    }
+    autoScheduleGuard.value = false
   }
 }
 
-function onDispatchHelpEnter() {
-  if (dispatchHelpTimer) {
-    clearTimeout(dispatchHelpTimer)
-  }
-  dispatchHelpTimer = setTimeout(() => {
-    if (!dispatchHelpPinned.value) {
-      showDispatchHelp.value = true
-    }
-  }, 450)
+function openGuideCenter() {
+  showGuideCenter.value = true
 }
 
-function onDispatchHelpLeave() {
-  if (dispatchHelpTimer) {
-    clearTimeout(dispatchHelpTimer)
-    dispatchHelpTimer = null
-  }
-  if (!dispatchHelpPinned.value) {
-    showDispatchHelp.value = false
-  }
-}
-
-function toggleDispatchHelp() {
-  dispatchHelpPinned.value = !dispatchHelpPinned.value
-  showDispatchHelp.value = dispatchHelpPinned.value
+function closeGuideCenter() {
+  showGuideCenter.value = false
 }
 
 function onPanelScroll() {
@@ -3529,34 +2344,6 @@ function scrollPanelToTop() {
   panelRef.value?.scrollTo({ top: 0, behavior: 'smooth' })
 }
 
-function startPanelResize(event) {
-  if (isCompactLayout.value || event.button !== 0) return
-  event.preventDefault()
-  isPanelResizing = true
-  panelResizeStartX = event.clientX
-  panelResizeStartWidth = panelWidth.value
-  document.body.style.cursor = 'col-resize'
-}
-
-function handleMinimapNavigation(event) {
-  const point = getWorldPointFromMinimapEvent(event)
-  focusMapAtWorld(point.x, point.y)
-}
-
-function onMinimapMouseDown(event) {
-  if (event.button !== 0) return
-  event.preventDefault()
-  event.stopPropagation()
-  isMinimapDragging = true
-  handleMinimapNavigation(event)
-}
-
-function onWindowResize() {
-  windowWidth.value = window.innerWidth
-  syncPanelWidth()
-  updateMapViewportMetrics()
-}
-
 function onGlobalMouseMove(event) {
   if (compareFloatingDragging) {
     compareFloatingX.value = Math.max(event.clientX - compareFloatingDragOffsetX, 12)
@@ -3564,14 +2351,7 @@ function onGlobalMouseMove(event) {
     return
   }
 
-  if (isPanelResizing) {
-    const deltaX = event.clientX - panelResizeStartX
-    syncPanelWidth(panelResizeStartWidth - deltaX)
-    return
-  }
-
-  if (isMinimapDragging) {
-    handleMinimapNavigation(event)
+  if (handleGlobalMouseMove(event)) {
     return
   }
 
@@ -3600,14 +2380,7 @@ function onGlobalMouseUp() {
     compareFloatingDragging = false
   }
 
-  if (isPanelResizing) {
-    isPanelResizing = false
-    document.body.style.cursor = ''
-  }
-
-  if (isMinimapDragging) {
-    isMinimapDragging = false
-  }
+  handleGlobalMouseUp()
 
   if (obstaclePaintActive) {
     stopObstaclePaint()
@@ -3616,47 +2389,13 @@ function onGlobalMouseUp() {
   if (mapPanCandidate) {
     if (mapPanMoved) {
       ignoreNextMapClick = true
+      if (!startPoint.value && !endPoint.value) {
+        mapDraftPrimedMode.value = null
+      }
     }
     mapPanCandidate = false
     mapPanMoved = false
     isMapPanning.value = false
-  }
-}
-
-async function tryAutoSchedule() {
-  if (dispatchMode.value !== 'auto') return
-  if (autoScheduling) return
-  if (autoScheduleGuard) return
-  if (obstacleEditMode.value || obstacleLayoutDirty.value) return
-  if (!hasIdleAgv() || !hasPendingTask()) return
-
-  autoScheduling = true
-  try {
-    const scheduleRes = await fetch(`${API_BASE}/schedule/with_path`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        task_id: null,
-        agv_id: null,
-        algorithm: algorithm.value,
-        grid_cols: GRID_COLS,
-        grid_rows: GRID_ROWS
-      })
-    })
-    const scheduleData = await scheduleRes.json()
-    if (!scheduleRes.ok) {
-      await fetchTasks()
-      return
-    }
-
-    autoPathToStart.value = scheduleData.path_to_start ?? []
-    autoPathToEnd.value = scheduleData.path_to_end ?? scheduleData.path ?? []
-
-    await Promise.all([fetchAgvs(), fetchTasks()])
-  } catch (error) {
-    console.error('Auto schedule error:', error)
-  } finally {
-    autoScheduling = false
   }
 }
 
@@ -3682,11 +2421,155 @@ async function deleteTask(task) {
   }
 }
 
+async function recoverBlockedTask(task, mode) {
+  if (!task || task.status !== 'blocked') return
+  hideTaskBuilderJumpButton()
+  if (!(await ensureBlockedCellsSynced())) {
+    window.alert(obstacleSaveRequiredText())
+    return
+  }
+  if (mode === 'bound' && !task.preferred_agv_id) {
+    if (locale.value === 'ja') window.alert('このタスクに原車バインド情報がありません。改派を使用してください。')
+    else if (locale.value === 'zh') window.alert('该任务没有原车绑定信息，请使用“改派执行”。')
+    else window.alert('No bound AGV is available for this task. Please use reassign.')
+    return
+  }
+
+  taskRecoveryActionKey.value = taskRecoveryActionId(task.id, mode)
+  try {
+    const preferredAlgorithm = String(task.dispatch_algorithm || algorithm.value || 'simple').toLowerCase()
+    const res = await fetch(`${API_BASE}/schedule/recover_blocked/${task.id}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        mode,
+        algorithm: preferredAlgorithm,
+        grid_cols: GRID_COLS,
+        grid_rows: GRID_ROWS
+      })
+    })
+    const data = await res.json()
+    if (!res.ok) {
+      throw createApiError(data, 'Recover blocked task failed')
+    }
+
+    if (data?.queued) {
+      if (mode === 'bound') {
+        const jumpAgvId = data?.task?.preferred_agv_id ?? task.preferred_agv_id ?? null
+        if (jumpAgvId) {
+          showAgvRecoveryJumpButton(jumpAgvId)
+        }
+      }
+      showFloatingToast(recoveryQueuedText(mode, task, data?.algorithm), 'info')
+      await Promise.all([fetchAgvs(), fetchTasks()])
+      return
+    }
+
+    const dispatchModeValue = data?.task?.dispatch_mode ?? task.dispatch_mode ?? 'auto'
+    if (dispatchModeValue === 'manual') {
+      preferredRuntimeDisplayMode.value = 'manual'
+      const recoveredAgvId = data?.agv?.id ?? data?.task?.agv_id ?? task.preferred_agv_id
+      if (recoveredAgvId) {
+        selectedAgvId.value = recoveredAgvId
+      }
+      manualPathToStart.value = data.path_to_start ?? []
+      manualPathToEnd.value = data.path_to_end ?? data.path ?? []
+      trackedManualTaskId.value = data?.task?.id ?? task.id
+      applyTaskDisplayMarkers(data?.task, task)
+      manualDispatchStep.value = 'running'
+      bumpManualPreviewMinVisible()
+    } else {
+      preferredRuntimeDisplayMode.value = 'auto'
+      autoPathToStart.value = data.path_to_start ?? []
+      autoPathToEnd.value = data.path_to_end ?? data.path ?? []
+    }
+
+    await Promise.all([fetchAgvs(), fetchTasks()])
+  } catch (error) {
+    console.error('Recover blocked task error:', error)
+    window.alert(error instanceof Error ? error.message : String(error))
+    await fetchTasks()
+  } finally {
+    taskRecoveryActionKey.value = ''
+  }
+}
+
+async function retryBlockedTaskFromCurrent(task, algorithmName = null) {
+  if (task.status !== 'blocked') return
+  if (!(await ensureBlockedCellsSynced())) {
+    window.alert(obstacleSaveRequiredText())
+    return
+  }
+  const selectedAlgorithm = String(algorithmName || task.dispatch_algorithm || algorithm.value || 'simple').toLowerCase()
+  taskRecoveryActionKey.value = taskRecoveryActionId(task.id, 'retry_current')
+  try {
+    const res = await fetch(`${API_BASE}/schedule/retry_blocked_from_current/${task.id}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        algorithm: selectedAlgorithm,
+        grid_cols: GRID_COLS,
+        grid_rows: GRID_ROWS
+      })
+    })
+    const data = await res.json()
+    if (!res.ok) {
+      throw createApiError(data, 'Retry task from current failed')
+    }
+
+    const isManualRetry = (data?.task?.dispatch_mode ?? task.dispatch_mode) === 'manual'
+    if (data?.queued) {
+      const boundAgvId = data?.task?.preferred_agv_id ?? task.preferred_agv_id ?? null
+      if (boundAgvId) {
+        selectedAgvId.value = boundAgvId
+        showAgvRecoveryJumpButton(boundAgvId)
+      }
+      showFloatingToast(retryFromCurrentQueuedText(task, data?.algorithm), 'info')
+      await Promise.all([fetchAgvs(), fetchTasks()])
+      return
+    }
+
+    if (isManualRetry) {
+      preferredRuntimeDisplayMode.value = 'manual'
+      if (data?.task?.agv_id ?? task.preferred_agv_id) {
+        selectedAgvId.value = data?.task?.agv_id ?? task.preferred_agv_id
+      }
+      manualPathToStart.value = data.path_to_start ?? []
+      manualPathToEnd.value = data.path_to_end ?? data.path ?? []
+      trackedManualTaskId.value = data?.task?.id ?? task.id
+      applyTaskDisplayMarkers(data?.task, task)
+      manualDispatchStep.value = 'running'
+      bumpManualPreviewMinVisible()
+    } else {
+      preferredRuntimeDisplayMode.value = 'auto'
+      autoPathToStart.value = data.path_to_start ?? []
+      autoPathToEnd.value = data.path_to_end ?? data.path ?? []
+    }
+
+    await Promise.all([fetchAgvs(), fetchTasks()])
+  } catch (error) {
+    console.error('Retry blocked task from current error:', error)
+    window.alert(error instanceof Error ? error.message : String(error))
+    await fetchTasks()
+  } finally {
+    taskRecoveryActionKey.value = ''
+  }
+}
+
 async function retryBlockedTaskWithAStar(task) {
   if (task.status !== 'blocked') return
+  if (!(await ensureBlockedCellsSynced())) {
+    window.alert(obstacleSaveRequiredText())
+    return
+  }
 
+  taskRecoveryActionKey.value = taskRecoveryActionId(task.id, 'retry_astar')
   try {
-    const res = await fetch(`${API_BASE}/schedule/retry_blocked/${task.id}`, {
+    const shouldRetryFromCurrent = isCellOccupiedTimeoutTask(task)
+    const retryEndpoint = shouldRetryFromCurrent
+      ? `${API_BASE}/schedule/retry_blocked_from_current/${task.id}`
+      : `${API_BASE}/schedule/retry_blocked/${task.id}`
+    const res = await fetch(retryEndpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -3700,10 +2583,35 @@ async function retryBlockedTaskWithAStar(task) {
       throw createApiError(data, 'Retry task with A* failed')
     }
 
+    const isManualRetry = (data?.task?.dispatch_mode ?? task.dispatch_mode) === 'manual'
     if (data?.queued) {
-      clearAutoPaths()
-      window.alert(t('task_retry_astar_queued'))
+      if (isManualRetry) {
+        const boundAgvId = data?.task?.preferred_agv_id ?? task.preferred_agv_id ?? null
+        if (boundAgvId) {
+          selectedAgvId.value = boundAgvId
+          if (shouldRetryFromCurrent) {
+            showAgvRecoveryJumpButton(boundAgvId)
+          }
+        }
+      } else {
+        clearAutoPaths()
+      }
+      if (shouldRetryFromCurrent) {
+        showFloatingToast(retryFromCurrentQueuedText(task, data?.algorithm), 'info')
+      } else {
+        window.alert(t('task_retry_astar_queued'))
+      }
+    } else if (isManualRetry) {
+      preferredRuntimeDisplayMode.value = 'manual'
+      if (data?.task?.agv_id ?? task.preferred_agv_id) {
+        selectedAgvId.value = data?.task?.agv_id ?? task.preferred_agv_id
+      }
+      manualPathToStart.value = data.path_to_start ?? []
+      manualPathToEnd.value = data.path_to_end ?? data.path ?? []
+      trackedManualTaskId.value = data?.task?.id ?? task.id
+      applyTaskDisplayMarkers(data?.task, task)
     } else {
+      preferredRuntimeDisplayMode.value = 'auto'
       autoPathToStart.value = data.path_to_start ?? []
       autoPathToEnd.value = data.path_to_end ?? data.path ?? []
     }
@@ -3712,12 +2620,20 @@ async function retryBlockedTaskWithAStar(task) {
     console.error('Retry blocked task error:', error)
     window.alert(error instanceof Error ? error.message : String(error))
     await fetchTasks()
+  } finally {
+    taskRecoveryActionKey.value = ''
   }
 }
 
 async function retryAllBlockedTasksWithAStar(taskGroup) {
-  const blockedTasks = (taskGroup?.tasks ?? []).filter(task => task.status === 'blocked')
+  const blockedTasks = (taskGroup?.tasks ?? []).filter(
+    task => task.status === 'blocked' && !isRecoveryRequiredTask(task)
+  )
   if (blockedTasks.length === 0) return
+  if (!(await ensureBlockedCellsSynced())) {
+    window.alert(obstacleSaveRequiredText())
+    return
+  }
 
   let scheduledCount = 0
   let queuedCount = 0
@@ -3725,7 +2641,10 @@ async function retryAllBlockedTasksWithAStar(taskGroup) {
 
   for (const task of blockedTasks) {
     try {
-      const res = await fetch(`${API_BASE}/schedule/retry_blocked/${task.id}`, {
+      const retryEndpoint = isCellOccupiedTimeoutTask(task)
+        ? `${API_BASE}/schedule/retry_blocked_from_current/${task.id}`
+        : `${API_BASE}/schedule/retry_blocked/${task.id}`
+      const res = await fetch(retryEndpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -3744,6 +2663,7 @@ async function retryAllBlockedTasksWithAStar(taskGroup) {
         queuedCount += 1
       } else {
         scheduledCount += 1
+        preferredRuntimeDisplayMode.value = 'auto'
         autoPathToStart.value = data.path_to_start ?? []
         autoPathToEnd.value = data.path_to_end ?? data.path ?? []
       }
@@ -3758,7 +2678,14 @@ async function retryAllBlockedTasksWithAStar(taskGroup) {
 }
 
 async function submitTaskPayload(payload) {
-  if (!(await ensureBlockedCellsSynced())) return false
+  if (!(await ensureBlockedCellsSynced())) {
+    window.alert(obstacleSaveRequiredText())
+    return false
+  }
+  const manualAgv = dispatchMode.value === 'manual' ? getSelectedManualDispatchAgv() : null
+  if (dispatchMode.value === 'manual' && !manualAgv) {
+    return false
+  }
   const hasStages = Array.isArray(payload.stages) && payload.stages.length > 0
   if (hasStages) {
     const normalizedStages = payload.stages
@@ -3820,7 +2747,18 @@ async function submitTaskPayload(payload) {
     return false
   }
 
+  if (dispatchMode.value === 'manual' && manualAgv) {
+    payload = {
+      ...payload,
+      ...buildManualTaskCreateMeta(manualAgv)
+    }
+  }
+
+  const shouldGuardAutoSchedule = dispatchMode.value === 'manual'
   try {
+    if (shouldGuardAutoSchedule) {
+      autoScheduleGuard.value = true
+    }
     const res = await fetch(`${API_BASE}/task/create`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -3839,18 +2777,148 @@ async function submitTaskPayload(payload) {
       if (createdTask?.status === 'blocked') {
         window.alert(blockedTaskAlertText(createdTask))
       }
+      return createdTask
+    }
+
+    if (dispatchMode.value === 'manual' && manualAgv) {
+      const scheduleRes = await fetch(`${API_BASE}/schedule/with_path`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          task_id: data.task.id,
+          agv_id: manualAgv.id,
+          schedule_mode: 'manual',
+          algorithm: algorithm.value,
+          grid_cols: GRID_COLS,
+          grid_rows: GRID_ROWS
+        })
+      })
+      const scheduleData = await scheduleRes.json()
+      if (!scheduleRes.ok) {
+        return await handleManualScheduleFailure(data.task.id, scheduleData)
+      }
+
+      applyTaskDisplayMarkers(scheduleData.task, data.task)
+      manualPathToStart.value = scheduleData.path_to_start ?? []
+      manualPathToEnd.value = scheduleData.path_to_end ?? scheduleData.path ?? []
+      trackedManualTaskId.value = scheduleData.task.id
+      manualDispatchStep.value = 'running'
+      bumpManualPreviewMinVisible()
+      await Promise.all([fetchAgvs(), fetchTasks()])
+      return tasks.value.find(task => task.id === scheduleData.task.id) ?? scheduleData.task
     }
     return createdTask
   } catch (error) {
     console.error('Create task form error:', error)
+    if (dispatchMode.value === 'manual') {
+      manualDispatchStep.value = startPoint.value ? 'awaiting_end' : 'idle'
+    }
     window.alert(error instanceof Error ? error.message : String(error))
     return false
+  } finally {
+    if (shouldGuardAutoSchedule) {
+      autoScheduleGuard.value = false
+    }
   }
 }
 
 function clearPathCompare() {
   pathCompareResult.value = null
   pathCompareError.value = ''
+}
+
+function currentSceneLabel() {
+  if (!obstacleLayoutDirty.value && appliedObstaclePresetInfo.value) {
+    return obstaclePresetName(appliedObstaclePresetInfo.value)
+  }
+
+  if (locale.value === 'ja') return 'カスタム障害レイアウト'
+  if (locale.value === 'zh') return '自定义障碍布局'
+  return 'Custom obstacle layout'
+}
+
+function buildRouteSummaryFromPayload(payload) {
+  if (!payload) return ''
+  if (Array.isArray(payload.stages)) {
+    return payload.stages
+      .map(stage => `(${stage.start_x},${stage.start_y})->(${stage.end_x},${stage.end_y})`)
+      .join(' | ')
+  }
+  return `(${payload.start_x},${payload.start_y})->(${payload.end_x},${payload.end_y})`
+}
+
+function formatStageLengthsForExport(stageResults) {
+  if (!Array.isArray(stageResults) || stageResults.length === 0) return ''
+  return stageResults
+    .map(stage =>
+      stage.reachable ? `${Number(stage.index) + 1}:${stage.path_length}` : `${Number(stage.index) + 1}:X`
+    )
+    .join('|')
+}
+
+function buildCompareSnapshot() {
+  if (!pathCompareResult.value) return null
+
+  const payload = buildPathComparePayload()
+  const appliedSceneKey = obstacleLayoutDirty.value ? 'custom' : appliedObstacleSceneKey.value
+  const algorithms = ['simple', 'astar'].map(key => {
+    const result = pathCompareResult.value?.results?.[key] ?? null
+    return {
+      algorithm: key,
+      reachable: Boolean(result?.reachable),
+      reachable_text: formatCompareResultStatus(result),
+      total_length: result?.total_length ?? null,
+      failed_stage_index: result?.failed_stage_index ?? null,
+      failed_stage_label:
+        result?.failed_stage_index === null || result?.failed_stage_index === undefined
+          ? ''
+          : Number(result.failed_stage_index) + 1,
+      stage_lengths: formatStageLengthsForExport(result?.stage_results),
+      stage_results: result?.stage_results ?? []
+    }
+  })
+
+  return {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    saved_at: new Date().toISOString(),
+    scene_key: appliedSceneKey,
+    scene_name: currentSceneLabel(),
+    grid_cols: GRID_COLS,
+    grid_rows: GRID_ROWS,
+    obstacle_count: blockedCellCount.value,
+    task_mode: taskBuilderMode.value,
+    stage_count: pathCompareResult.value?.stage_count ?? (Array.isArray(payload?.stages) ? payload.stages.length : 1),
+    route_summary: buildRouteSummaryFromPayload(payload),
+    current_algorithm: algorithm.value,
+    recommended_algorithm: recommendedCompareAlgorithm.value,
+    payload,
+    algorithms
+  }
+}
+
+function experimentCsvRowsFromRecords(records) {
+  return records.flatMap(record =>
+    (record.algorithms ?? []).map(item => ({
+      record_id: record.id,
+      saved_at: record.saved_at,
+      scene_key: record.scene_key ?? '',
+      scene_name: record.scene_name ?? '',
+      grid_cols: record.grid_cols ?? '',
+      grid_rows: record.grid_rows ?? '',
+      task_mode: record.task_mode ?? '',
+      stage_count: record.stage_count ?? '',
+      route_summary: record.route_summary ?? '',
+      obstacle_count: record.obstacle_count ?? '',
+      current_algorithm: record.current_algorithm ?? '',
+      recommended_algorithm: record.recommended_algorithm ?? '',
+      algorithm: item.algorithm ?? '',
+      reachable: item.reachable ? 'true' : 'false',
+      reachable_text: item.reachable_text ?? '',
+      total_length: item.total_length ?? '',
+      failed_stage: item.failed_stage_label ?? '',
+      stage_lengths: item.stage_lengths ?? ''
+    }))
+  )
 }
 
 function buildPathComparePayload() {
@@ -3906,7 +2974,7 @@ function buildPathComparePayload() {
 
 async function compareCurrentRoute() {
   if (!(await ensureBlockedCellsSynced())) {
-    pathCompareError.value = algorithmCompareLocale.value.invalid
+    pathCompareError.value = obstacleSaveRequiredText()
     return
   }
   const payload = buildPathComparePayload()
@@ -3942,31 +3010,42 @@ function applyComparedAlgorithm(nextAlgorithm) {
   algorithm.value = nextAlgorithm
 }
 
-async function openCompareDisplay() {
-  if (compareDisplayMode.value === 'floating') {
-    showFloatingCompare.value = true
-    await nextTick()
-    positionFloatingCompareBelowEntry()
-    requestFloatingCompareRefresh()
-    return
-  }
-
-  await scrollToComparePanel()
-  void compareCurrentRoute()
+function toggleAlgorithmMode() {
+  algorithm.value = algorithm.value === 'simple' ? 'astar' : 'simple'
 }
 
-function handleCompareEntryClick() {
-  void openCompareDisplay()
-}
-
-function toggleComparePanelExpanded() {
-  comparePanelExpanded.value = !comparePanelExpanded.value
-}
-
-function closeFloatingCompare() {
-  stopFloatingCompareRefresh()
-  showFloatingCompare.value = false
-}
+const {
+  jumpToPanelSearchResult,
+  shouldAutoRefreshFloatingCompare,
+  stopFloatingCompareRefresh,
+  requestFloatingCompareRefresh,
+  clearPanelSearch,
+  handleCompareEntryClick,
+  toggleComparePanelExpanded,
+  closeFloatingCompare,
+  disposePanelCompareUi
+} = usePanelCompareUi({
+  nextTick,
+  panelSections,
+  panelRef,
+  controlSectionRef,
+  queueSectionRef,
+  templatesSectionRef,
+  pointsSectionRef,
+  jsonSectionRef,
+  experimentsSectionRef,
+  focusedPanelSection,
+  comparePanelExpanded,
+  comparePanelRef,
+  compareDisplayMode,
+  showFloatingCompare,
+  compareEntryButtonRef,
+  compareFloatingX,
+  compareFloatingY,
+  pathCompareLoading,
+  panelSearch,
+  compareCurrentRoute
+})
 
 function startFloatingCompareDrag(event) {
   if (event.button !== 0) return
@@ -3988,55 +3067,6 @@ async function addTaskFromForm() {
   if (created) {
     hideTaskBuilderJumpButton()
   }
-}
-
-function addTaskChainStage() {
-  setTaskChainStageCount(taskChainStageCount.value + 1)
-}
-
-function removeTaskChainStage(index) {
-  if (taskChainStages.value.length <= 2) return
-  taskChainStages.value = taskChainStages.value.filter((_, stageIndex) => stageIndex !== index)
-}
-
-function resetTaskChainStages() {
-  taskChainStages.value = buildDefaultTaskChainStages(taskChainStageCount.value)
-}
-
-function setTaskChainStageCount(nextCount) {
-  const normalizedCount = Math.max(2, Math.floor(Number(nextCount)))
-  if (!Number.isFinite(normalizedCount)) return
-  if (normalizedCount === taskChainStages.value.length) return
-
-  if (normalizedCount < taskChainStages.value.length) {
-    taskChainStages.value = taskChainStages.value.slice(0, normalizedCount)
-    return
-  }
-
-  const stages = [...taskChainStages.value]
-  while (stages.length < normalizedCount) {
-    const previousStage = stages.at(-1)
-    stages.push(
-      createTaskChainStage({
-        start_x: previousStage?.end_x ?? 0,
-        start_y: previousStage?.end_y ?? 0,
-        end_x: previousStage?.end_x ?? 0,
-        end_y: previousStage?.end_y ?? 0
-      })
-    )
-  }
-
-  taskChainStages.value = stages
-}
-
-function setTaskChainMapPickStageCount(nextCount) {
-  const normalizedCount = Math.max(2, Math.floor(Number(nextCount)))
-  if (!Number.isFinite(normalizedCount)) return
-  taskChainMapPickStageCount.value = normalizedCount
-}
-
-function toggleTaskBuilderMode() {
-  taskBuilderMode.value = taskBuilderMode.value === 'chain' ? 'single' : 'chain'
 }
 
 async function addTaskChainFromForm() {
@@ -4102,9 +3132,7 @@ async function importTasksFromJson() {
     }
     jsonStatus.value = t('json_import_ok')
     await fetchTasks()
-    if (dispatchMode.value === 'auto') {
-      await tryAutoSchedule()
-    }
+    await tryAutoSchedule()
   } catch (error) {
     console.error('Import json error:', error)
     jsonStatus.value = t('json_import_fail')
@@ -4130,24 +3158,46 @@ function clearJsonText() {
   jsonStatus.value = ''
 }
 
-function onTaskHover(task) {
-  if (!['pending', 'blocked'].includes(task.status)) return
-  if (previewTimer) clearTimeout(previewTimer)
-  previewTimer = setTimeout(() => {
-    previewTaskId.value = task.id
-    previewStart.value = { x: task.start_x, y: task.start_y }
-    previewEnd.value = { x: task.end_x, y: task.end_y }
-    previewPath.value = buildPreviewPathByAlgorithm(task.start_x, task.start_y, task.end_x, task.end_y)
-  }, 400)
-}
-
-function onTaskLeave() {
-  clearPreview()
-}
-
 function setObstacleLayoutStatus(type, message) {
   obstacleLayoutStatusType.value = type
   obstacleLayoutStatus.value = message
+}
+
+function obstacleSaveRequiredText() {
+  if (locale.value === 'ja') return '障害レイアウトに未保存の変更があります。先に保存してください。'
+  if (locale.value === 'zh') return '当前障碍布局有未保存修改，请先点击“保存障碍”。'
+  return 'The obstacle layout has unsaved changes. Please save it first.'
+}
+
+function confirmDiscardObstacleChangesText() {
+  if (locale.value === 'ja') return '未保存の障害変更があります。破棄して新しいレイアウトを適用しますか？'
+  if (locale.value === 'zh') return '当前有未保存的障碍修改，是否放弃这些修改并继续应用新布局？'
+  return 'There are unsaved obstacle changes. Discard them and continue?'
+}
+
+function obstacleImportedPendingSaveText() {
+  if (locale.value === 'ja') return '障害レイアウトを読み込みました。保存後に比較や調度へ反映されます。'
+  if (locale.value === 'zh') return '已导入障碍布局，请点击“保存障碍”后再用于算法对比和调度。'
+  return 'Obstacle layout imported. Save it before using it for comparison or dispatch.'
+}
+
+function obstacleMutationLockedText() {
+  if (locale.value === 'ja') return '実行中または到着待ちの AGV があるため、障害レイアウトは変更できません。タスク完了後に再試行してください。'
+  if (locale.value === 'zh') return '当前存在运行中或就位中的 AGV，禁止修改障碍布局。请等待任务完成后再操作。'
+  return 'Obstacle layout changes are blocked while AGVs are running or relocating. Wait until active tasks finish.'
+}
+
+function obstacleSkippedOccupiedText(count) {
+  if (!count) return ''
+  if (locale.value === 'ja') return `AGV が占有中の ${count} マスは障害から除外しました。`
+  if (locale.value === 'zh') return `已跳过 ${count} 个被 AGV 占用的障碍格。`
+  return `Skipped ${count} obstacle cells currently occupied by AGVs.`
+}
+
+function mergeObstacleStatusMessage(baseMessage, skippedCount = 0) {
+  const skippedText = obstacleSkippedOccupiedText(skippedCount)
+  if (!skippedText) return baseMessage
+  return `${baseMessage} ${skippedText}`
 }
 
 function obstaclePresetName(preset) {
@@ -4167,6 +3217,22 @@ function obstaclePresetDescription(preset) {
   )
 }
 
+function detectObstacleSceneKey(cells) {
+  const normalizedCells = normalizeBlockedCellList(cells)
+  const currentKeys = normalizedCells.map(cell => blockedCellKey(cell.x, cell.y))
+
+  for (const preset of obstaclePresets.value) {
+    const presetCells = normalizeBlockedCellList(preset.blocked_cells ?? [])
+    const presetKeys = presetCells.map(cell => blockedCellKey(cell.x, cell.y))
+    if (presetKeys.length !== currentKeys.length) continue
+    if (presetKeys.every((key, index) => key === currentKeys[index])) {
+      return preset.key
+    }
+  }
+
+  return 'custom'
+}
+
 function normalizeBlockedCellList(cells) {
   return Array.from(new Set(
     cells
@@ -4180,7 +3246,37 @@ function normalizeBlockedCellList(cells) {
     .sort((a, b) => a.x - b.x || a.y - b.y)
 }
 
+function filterBlockedCellsAgainstOccupied(cells) {
+  const normalized = normalizeBlockedCellList(cells)
+  const filtered = []
+  const skipped = []
+
+  for (const cell of normalized) {
+    if (occupiedCellSet.value.has(blockedCellKey(cell.x, cell.y))) {
+      skipped.push(cell)
+      continue
+    }
+    filtered.push(cell)
+  }
+
+  return { filtered, skipped }
+}
+
+function hasObstacleMutationLock() {
+  return obstacleMutationLocked.value
+}
+
+function ensureObstacleMutationAllowed() {
+  if (!hasObstacleMutationLock()) return true
+  const message = obstacleMutationLockedText()
+  setObstacleLayoutStatus('error', message)
+  return false
+}
+
 function toggleObstacleEditMode() {
+  if (!obstacleEditMode.value && !ensureObstacleMutationAllowed()) {
+    return
+  }
   obstacleEditMode.value = !obstacleEditMode.value
   if (obstacleEditMode.value) {
     cancelSelection()
@@ -4222,13 +3318,17 @@ function stopObstaclePaint() {
 }
 
 async function saveBlockedCells() {
+  if (!ensureObstacleMutationAllowed()) {
+    return false
+  }
   obstacleMapSaving.value = true
   try {
+    const { filtered, skipped } = filterBlockedCellsAgainstOccupied(blockedCells.value)
     const res = await fetch(`${API_BASE}/status/map`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        blocked_cells: normalizeBlockedCellList(blockedCells.value),
+        blocked_cells: filtered,
         grid_cols: GRID_COLS,
         grid_rows: GRID_ROWS
       })
@@ -4237,12 +3337,18 @@ async function saveBlockedCells() {
     if (!res.ok) {
       throw createApiError(data, 'Save blocked cells failed')
     }
-    const normalized = normalizeBlockedCellList(data.blocked_cells ?? [])
+    const normalized = normalizeBlockedCellList(data.blocked_cells ?? filtered)
     blockedCells.value = normalized
     syncedBlockedCells.value = normalized
+    appliedObstacleSceneKey.value = detectObstacleSceneKey(normalized)
+    if (appliedObstacleSceneKey.value !== 'custom') {
+      selectedObstaclePreset.value = appliedObstacleSceneKey.value
+    }
     clearPreview()
     cancelSelection()
-    setObstacleLayoutStatus('success', settingsLocale.value.obstacleSaved)
+    const skippedCount = Number(data?.skipped_occupied_count ?? skipped.length ?? 0)
+    setObstacleLayoutStatus('success', mergeObstacleStatusMessage(settingsLocale.value.obstacleSaved, skippedCount))
+    await scheduleAutoIfReady()
     return true
   } catch (error) {
     console.error('Save blocked cells error:', error)
@@ -4254,6 +3360,12 @@ async function saveBlockedCells() {
 }
 
 async function resetBlockedCellsToDefault() {
+  if (!ensureObstacleMutationAllowed()) {
+    return false
+  }
+  if (obstacleLayoutDirty.value && !window.confirm(confirmDiscardObstacleChangesText())) {
+    return false
+  }
   obstacleMapSaving.value = true
   try {
     const res = await fetch(`${API_BASE}/status/map/reset`, {
@@ -4264,11 +3376,23 @@ async function resetBlockedCellsToDefault() {
       throw createApiError(data, 'Reset blocked cells failed')
     }
     const normalized = normalizeBlockedCellList(data.blocked_cells ?? [])
-    blockedCells.value = normalized
-    syncedBlockedCells.value = normalized
+    const { filtered, skipped } = filterBlockedCellsAgainstOccupied(normalized)
+    blockedCells.value = filtered
+    syncedBlockedCells.value = filtered
+    appliedObstacleSceneKey.value = detectObstacleSceneKey(filtered)
+    if (appliedObstacleSceneKey.value !== 'custom') {
+      selectedObstaclePreset.value = appliedObstacleSceneKey.value
+    }
     clearPreview()
     cancelSelection()
-    setObstacleLayoutStatus('success', settingsLocale.value.obstacleResetDone)
+    setObstacleLayoutStatus(
+      'success',
+      mergeObstacleStatusMessage(
+        settingsLocale.value.obstacleResetDone,
+        Number(data?.skipped_occupied_count ?? 0) + skipped.length
+      )
+    )
+    await scheduleAutoIfReady()
     return true
   } catch (error) {
     console.error('Reset blocked cells error:', error)
@@ -4281,7 +3405,8 @@ async function resetBlockedCellsToDefault() {
 
 async function ensureBlockedCellsSynced() {
   if (!obstacleLayoutDirty.value) return true
-  return await saveBlockedCells()
+  setObstacleLayoutStatus('error', obstacleSaveRequiredText())
+  return false
 }
 
 async function fetchMapPresets() {
@@ -4298,6 +3423,7 @@ async function fetchMapPresets() {
     ) {
       selectedObstaclePreset.value = obstaclePresets.value[0].key
     }
+    appliedObstacleSceneKey.value = detectObstacleSceneKey(blockedCells.value)
   } catch (error) {
     console.error('Fetch map presets error:', error)
     obstaclePresets.value = []
@@ -4315,6 +3441,8 @@ async function fetchMapLayout() {
     if (!Array.isArray(data?.blocked_cells)) {
       blockedCells.value = [...DEFAULT_BLOCKED_CELLS]
       syncedBlockedCells.value = [...DEFAULT_BLOCKED_CELLS]
+      appliedObstacleSceneKey.value = 'default_shelves'
+      selectedObstaclePreset.value = 'default_shelves'
       return
     }
 
@@ -4324,18 +3452,34 @@ async function fetchMapLayout() {
         y: Number(cell.y)
       }))
     )
-    blockedCells.value = normalized
-    syncedBlockedCells.value = normalized
+    const { filtered, skipped } = filterBlockedCellsAgainstOccupied(normalized)
+    blockedCells.value = filtered
+    syncedBlockedCells.value = filtered
+    appliedObstacleSceneKey.value = detectObstacleSceneKey(filtered)
+    if (appliedObstacleSceneKey.value !== 'custom') {
+      selectedObstaclePreset.value = appliedObstacleSceneKey.value
+    }
+    if (skipped.length > 0) {
+      setObstacleLayoutStatus('info', obstacleSkippedOccupiedText(skipped.length))
+    }
   } catch (error) {
     console.error('Fetch map layout error:', error)
     blockedCells.value = [...DEFAULT_BLOCKED_CELLS]
     syncedBlockedCells.value = [...DEFAULT_BLOCKED_CELLS]
+    appliedObstacleSceneKey.value = 'default_shelves'
+    selectedObstaclePreset.value = 'default_shelves'
   }
 }
 
 async function applyObstaclePreset() {
+  if (!ensureObstacleMutationAllowed()) {
+    return false
+  }
   if (!selectedObstaclePreset.value) {
     setObstacleLayoutStatus('error', settingsLocale.value.obstaclePresetNone)
+    return false
+  }
+  if (obstacleLayoutDirty.value && !window.confirm(confirmDiscardObstacleChangesText())) {
     return false
   }
 
@@ -4349,11 +3493,23 @@ async function applyObstaclePreset() {
       throw createApiError(data, 'Apply obstacle preset failed')
     }
     const normalized = normalizeBlockedCellList(data.blocked_cells ?? [])
-    blockedCells.value = normalized
-    syncedBlockedCells.value = normalized
+    const { filtered, skipped } = filterBlockedCellsAgainstOccupied(normalized)
+    blockedCells.value = filtered
+    syncedBlockedCells.value = filtered
+    appliedObstacleSceneKey.value = detectObstacleSceneKey(filtered)
+    if (appliedObstacleSceneKey.value !== 'custom') {
+      selectedObstaclePreset.value = appliedObstacleSceneKey.value
+    }
     clearPreview()
     cancelSelection()
-    setObstacleLayoutStatus('success', settingsLocale.value.obstacleApplied)
+    setObstacleLayoutStatus(
+      'success',
+      mergeObstacleStatusMessage(
+        settingsLocale.value.obstacleApplied,
+        Number(data?.skipped_occupied_count ?? 0) + skipped.length
+      )
+    )
+    await scheduleAutoIfReady()
     return true
   } catch (error) {
     console.error('Apply obstacle preset error:', error)
@@ -4374,11 +3530,20 @@ function downloadObstacleLayout() {
 }
 
 function triggerObstacleLayoutImport() {
+  if (!ensureObstacleMutationAllowed()) {
+    return
+  }
   obstacleLayoutFileInputRef.value?.click()
 }
 
 async function importObstacleLayout(rawText) {
   try {
+    if (!ensureObstacleMutationAllowed()) {
+      return
+    }
+    if (obstacleLayoutDirty.value && !window.confirm(confirmDiscardObstacleChangesText())) {
+      return
+    }
     const parsed = JSON.parse(rawText)
     const rawCells = Array.isArray(parsed)
       ? parsed
@@ -4389,16 +3554,19 @@ async function importObstacleLayout(rawText) {
       throw new Error('Invalid obstacle layout')
     }
 
-    blockedCells.value = normalizeBlockedCellList(
+    const normalized = normalizeBlockedCellList(
       rawCells.map(cell => ({
         x: Number(cell?.x),
         y: Number(cell?.y)
       }))
     )
-    const saved = await saveBlockedCells()
-    if (saved) {
-      setObstacleLayoutStatus('success', settingsLocale.value.obstacleImported)
+    const { filtered, skipped } = filterBlockedCellsAgainstOccupied(normalized)
+    blockedCells.value = filtered
+    appliedObstacleSceneKey.value = detectObstacleSceneKey(filtered)
+    if (appliedObstacleSceneKey.value !== 'custom') {
+      selectedObstaclePreset.value = appliedObstacleSceneKey.value
     }
+    setObstacleLayoutStatus('info', mergeObstacleStatusMessage(obstacleImportedPendingSaveText(), skipped.length))
   } catch (error) {
     console.error('Import obstacle layout error:', error)
     setObstacleLayoutStatus('error', error?.message || 'Import obstacle layout failed')
@@ -4456,12 +3624,11 @@ async function refreshState() {
   polling = true
   try {
     await refreshCoreState()
-    if (dispatchMode.value === 'auto') {
-      if (!hasActiveTask()) {
-        clearAutoPaths()
-      }
-      await tryAutoSchedule()
+    await tryManualBoundSchedule()
+    if (dispatchMode.value === 'auto' && !hasActiveTask()) {
+      clearAutoPaths()
     }
+    await tryAutoSchedule()
   } finally {
     polling = false
   }
@@ -4503,9 +3670,66 @@ async function resumeSelectedAgv() {
     }
     setFaultPanelStatus(faultLocale.value.resumeSuccess, 'success')
     await refreshCoreState()
+    await scheduleAutoIfReady()
   } catch (error) {
     console.error('Resume AGV error:', error)
     setFaultPanelStatus(error?.message || faultLocale.value.resume, 'error')
+  } finally {
+    agvActionLoadingId.value = null
+  }
+}
+
+async function moveSelectedAgvToMaintenance() {
+  if (!selectedBackendAgv.value) return
+  agvActionLoadingId.value = selectedBackendAgv.value.id
+  try {
+    const res = await fetch(`${API_BASE}/agv/${selectedBackendAgv.value.id}/to-maintenance`, {
+      method: 'POST'
+    })
+    const data = await res.json()
+    if (!res.ok) {
+      throw createApiError(data, moveToMaintenanceText())
+    }
+    if (locale.value === 'ja') {
+      setFaultPanelStatus(`AGV #${selectedBackendAgv.value.id} を整備リストへ移動しました。`, 'success')
+    } else if (locale.value === 'zh') {
+      setFaultPanelStatus(`AGV #${selectedBackendAgv.value.id} 已移入维护列表。`, 'success')
+    } else {
+      setFaultPanelStatus(`AGV #${selectedBackendAgv.value.id} moved to maintenance list.`, 'success')
+    }
+    cancelSelection()
+    await refreshCoreState()
+  } catch (error) {
+    console.error('Move AGV to maintenance error:', error)
+    setFaultPanelStatus(error?.message || moveToMaintenanceText(), 'error')
+  } finally {
+    agvActionLoadingId.value = null
+  }
+}
+
+async function returnAgvToService(agvId) {
+  if (!agvId) return
+  agvActionLoadingId.value = agvId
+  try {
+    const res = await fetch(`${API_BASE}/agv/${agvId}/return-to-service`, {
+      method: 'POST'
+    })
+    const data = await res.json()
+    if (!res.ok) {
+      throw createApiError(data, returnToServiceText())
+    }
+    if (locale.value === 'ja') {
+      setFaultPanelStatus(`AGV #${agvId} を再び待機に戻しました。`, 'success')
+    } else if (locale.value === 'zh') {
+      setFaultPanelStatus(`AGV #${agvId} 已恢复上岗。`, 'success')
+    } else {
+      setFaultPanelStatus(`AGV #${agvId} returned to service.`, 'success')
+    }
+    await refreshCoreState()
+    await scheduleAutoIfReady()
+  } catch (error) {
+    console.error('Return AGV to service error:', error)
+    setFaultPanelStatus(error?.message || returnToServiceText(), 'error')
   } finally {
     agvActionLoadingId.value = null
   }
@@ -4554,6 +3778,7 @@ async function resolveFaultEventItem(eventItem) {
     }
     setFaultPanelStatus(faultLocale.value.faultResolved, 'success')
     await refreshCoreState()
+    await scheduleAutoIfReady()
   } catch (error) {
     console.error('Resolve fault event error:', error)
     setFaultPanelStatus(error?.message || faultLocale.value.resolve, 'error')
@@ -4563,8 +3788,23 @@ async function resolveFaultEventItem(eventItem) {
 }
 
 function onKeyDown(event) {
+  const target = event.target
+  const isTypingTarget =
+    target instanceof HTMLElement &&
+    (target.tagName === 'INPUT' ||
+      target.tagName === 'TEXTAREA' ||
+      target.tagName === 'SELECT' ||
+      target.isContentEditable)
+  if (isTypingTarget) return
+
   if (event.key === 'f' || event.key === 'F') {
     cancelSelection()
+    return
+  }
+
+  if (event.key === 'r' || event.key === 'R') {
+    event.preventDefault()
+    toggleAlgorithmMode()
   }
 }
 
@@ -4576,8 +3816,6 @@ function onMapContextMenu(event) {
 watch(dispatchMode, mode => {
   cancelSelection()
   clearPreview()
-  dispatchHelpPinned.value = false
-  showDispatchHelp.value = false
   if (mode !== 'auto') {
     cancelTaskChainMapPick(false)
   }
@@ -4585,6 +3823,7 @@ watch(dispatchMode, mode => {
     clearAutoPaths()
     clearAutoMarkers()
   }
+  saveMapDisplaySettings()
 })
 
 watch(obstacleEditMode, enabled => {
@@ -4593,6 +3832,21 @@ watch(obstacleEditMode, enabled => {
   cancelSelection()
   clearPreview()
   cancelTaskChainMapPick(false)
+})
+
+watch(obstacleMutationLocked, locked => {
+  if (locked) {
+    if (obstacleEditMode.value) {
+      obstacleEditMode.value = false
+    }
+    setObstacleLayoutStatus('error', obstacleMutationLockedText())
+    return
+  }
+  if (obstacleLayoutDirty.value) {
+    setObstacleLayoutStatus('info', settingsLocale.value.obstacleDirty)
+    return
+  }
+  setObstacleLayoutStatus('success', settingsLocale.value.obstacleSaved)
 })
 
 watch(taskBuilderMode, mode => {
@@ -4643,6 +3897,7 @@ watch(
 onMounted(() => {
   loadCustomPoints()
   loadTaskTemplates()
+  loadExperimentRecords()
   loadMapDisplaySettings()
   loadPanelSections()
   loadPanelSummaryMode()
@@ -4668,6 +3923,7 @@ onMounted(() => {
   window.addEventListener('resize', onWindowResize)
   window.addEventListener('mousemove', onGlobalMouseMove)
   window.addEventListener('mouseup', onGlobalMouseUp)
+  showGuideCenter.value = true
 })
 
 watch(
@@ -4682,6 +3938,14 @@ watch(
   customTaskTemplates,
   () => {
     saveTaskTemplates()
+  },
+  { deep: true }
+)
+
+watch(
+  experimentRecords,
+  () => {
+    saveExperimentRecords()
   },
   { deep: true }
 )
@@ -4733,29 +3997,80 @@ watch(faultEventFilter, () => {
 })
 
 watch(selectedBackendAgv, agv => {
+  if (dispatchMode.value === 'manual' && agv && agv.status === 'idle' && !trackedManualTaskId.value) {
+    syncManualDispatchBuilderState()
+    return
+  }
   if (agv) return
   showFaultReportForm.value = false
   resetFaultReportForm()
 })
 
 watch(
-  [tasks, agvs, trackedManualTaskId, selectedBackendAgv, dispatchMode],
+  [dispatchMode, selectedAgvId, taskBuilderMode],
   () => {
     if (dispatchMode.value !== 'manual') return
-    if (!trackedManualTaskId.value) return
+    syncManualDispatchBuilderState()
+  }
+)
+
+watch(
+  [tasks, agvs, trackedManualTaskId, selectedBackendAgv, dispatchMode, manualDispatchStep],
+  () => {
+    if (dispatchMode.value !== 'manual') return
+    if (!trackedManualTaskId.value) {
+      if (manualDispatchStep.value !== 'idle') {
+        return
+      }
+      if (selectedBackendAgv.value?.status === 'idle' && !taskChainMapPickActive.value) {
+        clearManualDispatchPreview()
+      }
+      return
+    }
     if (!selectedBackendAgv.value) {
-      trackedManualTaskId.value = null
+      // Keep preview on transient poll mismatch; only clear when user has really deselected AGV.
+      if (!selectedAgvId.value) {
+        clearManualDispatchPreview()
+      }
       return
     }
 
     const trackedTask = tasks.value.find(task => task.id === trackedManualTaskId.value)
-    if (!trackedTask || ['finished', 'blocked', 'failed'].includes(trackedTask.status)) {
+    if (!trackedTask) {
+      return
+    }
+
+    if (['finished', 'blocked', 'failed'].includes(trackedTask.status)) {
+      if (trackedTask.status === 'blocked' && isRecoveryRequiredTask(trackedTask)) {
+        // Keep AGV selected after emergency stop so operator context does not vanish.
+        trackedManualTaskId.value = null
+        manualDispatchStep.value = 'idle'
+        clearManualDestination()
+        return
+      }
+      const remainingMs = manualPreviewMinVisibleUntil.value - Date.now()
+      if (remainingMs > 0) {
+        if (manualPreviewHoldTimer) {
+          clearTimeout(manualPreviewHoldTimer)
+        }
+        manualPreviewHoldTimer = setTimeout(() => {
+          manualPreviewHoldTimer = null
+          cancelSelection()
+        }, remainingMs + 20)
+        return
+      }
       cancelSelection()
       return
     }
 
     if (trackedTask.agv_id !== selectedBackendAgv.value.id) {
-      trackedManualTaskId.value = null
+      // Avoid auto-cancel flicker during polling. Only clear tracked preview if user switched to another idle AGV.
+      if (selectedBackendAgv.value.status === 'idle') {
+        trackedManualTaskId.value = null
+        manualDispatchStep.value = 'idle'
+        clearManualDestination()
+        return
+      }
       return
     }
 
@@ -4777,15 +4092,30 @@ watch(
   { deep: true }
 )
 
+watch(
+  [algorithm, blockedCells, tasks, previewTaskId],
+  () => {
+    if (!previewTaskId.value) return
+    const previewTask = tasks.value.find(task => task.id === previewTaskId.value)
+    if (!previewTask || !canPreviewTask(previewTask)) {
+      clearPreview()
+      return
+    }
+    refreshTaskPreview(previewTask)
+  },
+  { deep: true }
+)
+
 onBeforeUnmount(() => {
   if (timer) clearInterval(timer)
   if (clickTimer) clearTimeout(clickTimer)
-  if (previewTimer) clearTimeout(previewTimer)
-  if (dispatchHelpTimer) clearTimeout(dispatchHelpTimer)
-  if (templateApplyClickTimer) clearTimeout(templateApplyClickTimer)
+  clearPreview()
+  if (manualPreviewHoldTimer) clearTimeout(manualPreviewHoldTimer)
   if (taskBuilderJumpTimer) clearTimeout(taskBuilderJumpTimer)
-  if (panelSectionFocusTimer) clearTimeout(panelSectionFocusTimer)
-  stopFloatingCompareRefresh()
+  if (agvRecoveryJumpTimer) clearTimeout(agvRecoveryJumpTimer)
+  if (faultSelectedAgvPulseTimer) clearTimeout(faultSelectedAgvPulseTimer)
+  hideFloatingToast()
+  disposePanelCompareUi()
   if (mapResizeObserver) mapResizeObserver.disconnect()
   stopObstaclePaint()
   document.body.style.cursor = ''
@@ -4812,36 +4142,8 @@ onBeforeUnmount(() => {
         </select>
       </label>
 
-      <div class="field field-with-help">
-        <span class="field-label">
-          {{ t('dispatch') }}
-          <span
-            class="help-anchor"
-            @mouseenter="onDispatchHelpEnter"
-            @mouseleave="onDispatchHelpLeave"
-          >
-            <button
-              class="info-button"
-              :class="{ active: showDispatchHelp }"
-              type="button"
-              :title="t('dispatch_help_trigger')"
-              @click.stop="toggleDispatchHelp"
-            >
-              i
-            </button>
-            <div
-              v-if="showDispatchHelp"
-              class="help-popover"
-              @mouseenter="onDispatchHelpEnter"
-              @mouseleave="onDispatchHelpLeave"
-            >
-              <div class="help-title">{{ t('dispatch_help_title') }}</div>
-              <div class="help-line">{{ t('dispatch_help_auto') }}</div>
-              <div class="help-line">{{ t('dispatch_help_manual') }}</div>
-              <div class="help-line">{{ t('dispatch_help_form') }}</div>
-            </div>
-          </span>
-        </span>
+      <div class="field">
+        <span class="field-label">{{ t('dispatch') }}</span>
         <select v-model="dispatchMode">
           <option value="auto">{{ t('dispatch_auto') }}</option>
           <option value="manual">{{ t('dispatch_manual') }}</option>
@@ -4878,6 +4180,7 @@ onBeforeUnmount(() => {
     </div>
 
     <p class="toolbar-hint">{{ t('hint') }}</p>
+    <p class="toolbar-hint toolbar-hint-secondary">{{ toolbarGuideHintText }}</p>
       </div>
 
       <div class="page-top-spacer"></div>
@@ -5033,7 +4336,7 @@ onBeforeUnmount(() => {
                 stroke-width="3"
               />
               <polyline
-                v-if="shouldShowAutoPath"
+                v-if="showAutoRuntimeVisuals"
                 class="path-auto-start"
                 :points="autoPathToStartPoints"
                 fill="none"
@@ -5041,11 +4344,27 @@ onBeforeUnmount(() => {
                 stroke-dasharray="4 4"
               />
               <polyline
-                v-if="shouldShowAutoPath"
+                v-if="showAutoRuntimeVisuals"
                 class="path-auto-end"
                 :points="autoPathToEndPoints"
                 fill="none"
                 stroke-width="2"
+              />
+              <polyline
+                v-if="manualChainRoutePoints"
+                class="path-chain-route path-chain-manual"
+                :points="manualChainRoutePoints"
+                fill="none"
+                stroke-width="2"
+                stroke-dasharray="3 4"
+              />
+              <polyline
+                v-if="autoChainRoutePoints"
+                class="path-chain-route path-chain-auto"
+                :points="autoChainRoutePoints"
+                fill="none"
+                stroke-width="2"
+                stroke-dasharray="3 4"
               />
               <polyline
                 v-if="previewTaskId"
@@ -5076,7 +4395,7 @@ onBeforeUnmount(() => {
                 marker-end="url(#path-arrow-end)"
               />
               <line
-                v-for="segment in showPathArrows && shouldShowAutoPath ? autoPathToStartArrows : []"
+                v-for="segment in showPathArrows && showAutoRuntimeVisuals ? autoPathToStartArrows : []"
                 :key="`auto-start-${segment.id}`"
                 class="path-arrow path-arrow-auto-start"
                 :x1="segment.x1"
@@ -5086,7 +4405,7 @@ onBeforeUnmount(() => {
                 marker-end="url(#path-arrow-auto-start)"
               />
               <line
-                v-for="segment in showPathArrows && shouldShowAutoPath ? autoPathToEndArrows : []"
+                v-for="segment in showPathArrows && showAutoRuntimeVisuals ? autoPathToEndArrows : []"
                 :key="`auto-end-${segment.id}`"
                 class="path-arrow path-arrow-auto-end"
                 :x1="segment.x1"
@@ -5108,17 +4427,33 @@ onBeforeUnmount(() => {
             </svg>
 
             <div
-              v-if="mainStartMarker"
-              :class="showMarkerIcons ? 'point-icon point-icon-start' : 'marker start'"
-              :style="pointStyle(mainStartMarker, CELL_SIZE, showMarkerIcons ? 24 : 12)"
+              v-if="activeDisplayStartMarker"
+              :class="
+                showMarkerIcons
+                  ? [
+                      'point-icon',
+                      'point-icon-start',
+                      activeDisplayMarkerVariant === 'auto' ? 'point-icon-auto' : 'point-icon-manual'
+                    ]
+                  : 'marker start'
+              "
+              :style="pointStyle(activeDisplayStartMarker, CELL_SIZE, showMarkerIcons ? 24 : 12)"
             >
               <span v-if="showMarkerIcons">S</span>
             </div>
 
             <div
-              v-if="mainEndMarker"
-              :class="showMarkerIcons ? 'point-icon point-icon-end' : 'marker end'"
-              :style="pointStyle(mainEndMarker, CELL_SIZE, showMarkerIcons ? 24 : 12)"
+              v-if="activeDisplayEndMarker"
+              :class="
+                showMarkerIcons
+                  ? [
+                      'point-icon',
+                      'point-icon-end',
+                      activeDisplayMarkerVariant === 'auto' ? 'point-icon-auto' : 'point-icon-manual'
+                    ]
+                  : 'marker end'
+              "
+              :style="pointStyle(activeDisplayEndMarker, CELL_SIZE, showMarkerIcons ? 24 : 12)"
             >
               <span v-if="showMarkerIcons">E</span>
             </div>
@@ -5174,6 +4509,9 @@ onBeforeUnmount(() => {
             </button>
             <div v-if="showMapSettings" class="map-settings-panel">
               <div class="map-settings-title">{{ settingsLocale.title }}</div>
+              <button class="map-settings-guide-button" type="button" @click="openGuideCenter">
+                {{ guideCenterLocale.open }}
+              </button>
               <div class="map-settings-group">
                 <div class="map-settings-subtitle">{{ settingsLocale.mapGroup }}</div>
                 <label class="map-setting-row">
@@ -5196,10 +4534,18 @@ onBeforeUnmount(() => {
               <div class="map-settings-group">
                 <div class="map-settings-subtitle">{{ settingsLocale.obstacleGroup }}</div>
                 <label class="map-setting-row">
-                  <input :checked="obstacleEditMode" type="checkbox" @change="toggleObstacleEditMode" />
+                  <input
+                    :checked="obstacleEditMode"
+                    type="checkbox"
+                    :disabled="obstacleMutationLocked"
+                    @change="toggleObstacleEditMode"
+                  />
                   <span>{{ settingsLocale.obstacleEdit }}</span>
                 </label>
                 <p class="panel-hint map-settings-hint">{{ settingsLocale.obstacleHint }}</p>
+                <p v-if="obstacleMutationLocked" class="panel-hint map-settings-hint">
+                  {{ obstacleMutationLockedText() }}
+                </p>
                 <div class="map-settings-select-group">
                   <label class="map-settings-select-label" for="obstacle-preset-select">
                     {{ settingsLocale.obstaclePreset }}
@@ -5235,7 +4581,7 @@ onBeforeUnmount(() => {
                   <button
                     class="btn-secondary"
                     type="button"
-                    :disabled="obstacleMapSaving || obstaclePresets.length === 0"
+                    :disabled="obstacleMapSaving || obstacleMutationLocked || obstaclePresets.length === 0"
                     @click="applyObstaclePreset"
                   >
                     {{ settingsLocale.obstaclePresetApply }}
@@ -5243,7 +4589,7 @@ onBeforeUnmount(() => {
                   <button
                     class="btn-secondary"
                     type="button"
-                    :disabled="obstacleMapSaving || !obstacleLayoutDirty"
+                    :disabled="obstacleMapSaving || obstacleMutationLocked || !obstacleLayoutDirty"
                     @click="saveBlockedCells"
                   >
                     {{ settingsLocale.obstacleSave }}
@@ -5251,13 +4597,18 @@ onBeforeUnmount(() => {
                   <button class="btn-ghost" type="button" @click="downloadObstacleLayout">
                     {{ settingsLocale.obstacleExport }}
                   </button>
-                  <button class="btn-ghost" type="button" @click="triggerObstacleLayoutImport">
+                  <button
+                    class="btn-ghost"
+                    type="button"
+                    :disabled="obstacleMutationLocked"
+                    @click="triggerObstacleLayoutImport"
+                  >
                     {{ settingsLocale.obstacleImport }}
                   </button>
                   <button
                     class="btn-ghost"
                     type="button"
-                    :disabled="obstacleMapSaving"
+                    :disabled="obstacleMapSaving || obstacleMutationLocked"
                     @click="resetBlockedCellsToDefault"
                   >
                     {{ settingsLocale.obstacleReset }}
@@ -5380,18 +4731,34 @@ onBeforeUnmount(() => {
                 stroke-width="1.8"
               />
               <polyline
-                v-if="shouldShowAutoPath"
+                v-if="showAutoRuntimeVisuals"
                 class="path-auto-start minimap-path"
                 :points="minimapAutoPathToStartPoints"
                 fill="none"
                 stroke-width="1.4"
               />
               <polyline
-                v-if="shouldShowAutoPath"
+                v-if="showAutoRuntimeVisuals"
                 class="path-auto-end minimap-path"
                 :points="minimapAutoPathToEndPoints"
                 fill="none"
                 stroke-width="1.4"
+              />
+              <polyline
+                v-if="minimapManualChainRoutePoints"
+                class="path-chain-route path-chain-manual minimap-path"
+                :points="minimapManualChainRoutePoints"
+                fill="none"
+                stroke-width="1.2"
+                stroke-dasharray="2 3"
+              />
+              <polyline
+                v-if="minimapAutoChainRoutePoints"
+                class="path-chain-route path-chain-auto minimap-path"
+                :points="minimapAutoChainRoutePoints"
+                fill="none"
+                stroke-width="1.2"
+                stroke-dasharray="2 3"
               />
               <polyline
                 v-if="previewTaskId"
@@ -5413,16 +4780,32 @@ onBeforeUnmount(() => {
               }"
             ></div>
             <div
-              v-if="minimapStartMarker"
-              :class="showMarkerIcons ? 'minimap-point-icon minimap-point-start' : 'marker start minimap-marker-dot'"
-              :style="pointStyle(minimapStartMarker, minimapCellSize, showMarkerIcons ? 12 : 8)"
+              v-if="minimapDisplayStartMarker"
+              :class="
+                showMarkerIcons
+                  ? [
+                      'minimap-point-icon',
+                      'minimap-point-start',
+                      activeDisplayMarkerVariant === 'auto' ? 'minimap-point-auto' : 'minimap-point-manual'
+                    ]
+                  : 'marker start minimap-marker-dot'
+              "
+              :style="pointStyle(minimapDisplayStartMarker, minimapCellSize, showMarkerIcons ? 12 : 8)"
             >
               <span v-if="showMarkerIcons">S</span>
             </div>
             <div
-              v-if="minimapEndMarker"
-              :class="showMarkerIcons ? 'minimap-point-icon minimap-point-end' : 'marker end minimap-marker-dot'"
-              :style="pointStyle(minimapEndMarker, minimapCellSize, showMarkerIcons ? 12 : 8)"
+              v-if="minimapDisplayEndMarker"
+              :class="
+                showMarkerIcons
+                  ? [
+                      'minimap-point-icon',
+                      'minimap-point-end',
+                      activeDisplayMarkerVariant === 'auto' ? 'minimap-point-auto' : 'minimap-point-manual'
+                    ]
+                  : 'marker end minimap-marker-dot'
+              "
+              :style="pointStyle(minimapDisplayEndMarker, minimapCellSize, showMarkerIcons ? 12 : 8)"
             >
               <span v-if="showMarkerIcons">E</span>
             </div>
@@ -5514,14 +4897,16 @@ onBeforeUnmount(() => {
               <button class="dispatch-summary dispatch-summary-button" type="button" @click="toggleDispatchModeFromSummary">
                 <span class="dispatch-summary-label">{{ panelLocale.currentMode }}</span>
                 <strong>{{ currentDispatchModeLabel }}</strong>
-                <p>{{ currentDispatchModeHint }}</p>
               </button>
-
-              <div class="dispatch-summary dispatch-algorithm-note">
+              <button
+                class="dispatch-summary dispatch-summary-button dispatch-algorithm-note"
+                type="button"
+                @click="toggleAlgorithmMode"
+              >
                 <span class="dispatch-summary-label">{{ t('algorithm') }}</span>
                 <strong>{{ algorithmText(algorithm) }}</strong>
                 <p>{{ algorithmHintText }}</p>
-              </div>
+              </button>
 
               <div
                 v-if="compareDisplayMode === 'panel'"
@@ -5585,6 +4970,17 @@ onBeforeUnmount(() => {
                       </div>
                     </article>
                   </div>
+                  <div v-if="pathCompareResult" class="json-actions">
+                    <button class="btn-primary" type="button" @click="saveCurrentExperimentRecord">
+                      {{ experimentLocale.saveCurrent }}
+                    </button>
+                    <button class="btn-secondary" type="button" @click="exportCurrentCompareResultJson">
+                      {{ experimentLocale.exportCurrentJson }}
+                    </button>
+                    <button class="btn-secondary" type="button" @click="exportCurrentCompareResultCsv">
+                      {{ experimentLocale.exportCurrentCsv }}
+                    </button>
+                  </div>
                 </template>
               </div>
 
@@ -5623,7 +5019,11 @@ onBeforeUnmount(() => {
                 </div>
 
                 <template v-if="selectedBackendAgv">
-                  <div class="fault-selected-agv">
+                  <div
+                    ref="faultSelectedAgvCardRef"
+                    class="fault-selected-agv"
+                    :class="{ 'recovery-focus': faultSelectedAgvPulse }"
+                  >
                     <div class="fault-selected-line">
                       <strong>AGV #{{ selectedBackendAgv.id }}</strong>
                       <div class="fault-selected-head-actions">
@@ -5668,6 +5068,14 @@ onBeforeUnmount(() => {
                         @click="showFaultReportForm = !showFaultReportForm"
                       >
                         {{ faultLocale.reportFault }}
+                      </button>
+                      <button
+                        class="btn-secondary fault-action-button"
+                        type="button"
+                        :disabled="agvActionLoadingId === selectedBackendAgv.id || ['running', 'relocating'].includes(selectedBackendAgv.status)"
+                        @click="moveSelectedAgvToMaintenance"
+                      >
+                        {{ moveToMaintenanceText() }}
                       </button>
                     </div>
                     <div v-if="showFaultReportForm" class="fault-report-form">
@@ -5717,6 +5125,23 @@ onBeforeUnmount(() => {
                 </template>
                 <p v-else class="panel-hint">{{ faultLocale.noSelectedAgv }}</p>
 
+                <div v-if="maintenanceBackendAgvs.length > 0" class="fault-maintenance-panel">
+                  <div class="dispatch-summary-label">{{ maintenanceListTitleText() }}</div>
+                  <div class="fault-maintenance-list">
+                    <article v-for="maintenanceAgv in maintenanceBackendAgvs" :key="`maintenance-${maintenanceAgv.id}`" class="fault-maintenance-item">
+                      <strong>AGV #{{ maintenanceAgv.id }}</strong>
+                      <button
+                        class="btn-secondary fault-action-button"
+                        type="button"
+                        :disabled="agvActionLoadingId === maintenanceAgv.id"
+                        @click="returnAgvToService(maintenanceAgv.id)"
+                      >
+                        {{ returnToServiceText() }}
+                      </button>
+                    </article>
+                  </div>
+                </div>
+
                 <div v-if="faultPanelStatus" class="template-status" :class="faultPanelStatusType">
                   {{ faultPanelStatus }}
                 </div>
@@ -5765,15 +5190,16 @@ onBeforeUnmount(() => {
                 </div>
               </div>
 
-              <div class="task-form task-builder">
+              <div ref="taskBuilderRef" class="task-form task-builder">
                 <div class="task-builder-header">
-                  <h2>{{ taskBuilderLocale.title }}</h2>
+                  <h2>{{ taskBuilderTitleText }}</h2>
                   <button class="task-builder-mode-toggle" type="button" @click="toggleTaskBuilderMode">
                     <span class="task-builder-mode-toggle-label">{{ taskBuilderLocale.switchLabel }}</span>
                     <strong>{{ currentTaskBuilderModeCompactLabel }}</strong>
                   </button>
                 </div>
                 <p class="panel-hint">{{ currentTaskBuilderHint }}</p>
+                <p v-if="manualDispatchOriginText" class="panel-hint">{{ manualDispatchOriginText }}</p>
                 <p v-if="taskBuilderMode === 'chain'" class="panel-hint">{{ taskChainLocale.priorityHint }}</p>
                 <div class="task-builder-meta">
                   <div class="task-builder-meta-group">
@@ -5811,17 +5237,17 @@ onBeforeUnmount(() => {
 
                 <template v-if="taskBuilderMode === 'single'">
                   <div class="form-grid">
-                    <label>{{ t('form_start_x') }}</label>
+                    <label>{{ singleTaskStartLabelX }}</label>
                     <input v-model.number="taskForm.start_x" type="number" min="0" :max="GRID_COLS - 1" />
-                    <label>{{ t('form_start_y') }}</label>
+                    <label>{{ singleTaskStartLabelY }}</label>
                     <input v-model.number="taskForm.start_y" type="number" min="0" :max="GRID_ROWS - 1" />
-                    <label>{{ t('form_end_x') }}</label>
+                    <label>{{ singleTaskEndLabelX }}</label>
                     <input v-model.number="taskForm.end_x" type="number" min="0" :max="GRID_COLS - 1" />
-                    <label>{{ t('form_end_y') }}</label>
+                    <label>{{ singleTaskEndLabelY }}</label>
                     <input v-model.number="taskForm.end_y" type="number" min="0" :max="GRID_ROWS - 1" />
                   </div>
-                  <button class="btn-primary full-width" type="button" @click="addTaskFromForm">
-                    {{ t('add_task') }}
+                  <button class="btn-primary full-width" type="button" :disabled="!manualDispatchReady" @click="addTaskFromForm">
+                    {{ singleTaskSubmitText }}
                   </button>
                 </template>
 
@@ -5832,6 +5258,7 @@ onBeforeUnmount(() => {
                         class="btn-secondary"
                         type="button"
                         :class="{ active: taskChainMapPickActive }"
+                        :disabled="dispatchMode === 'manual' && !manualDispatchReady"
                         @click="toggleTaskChainMapPick"
                       >
                         {{ taskChainMapPickButtonText }}
@@ -5903,10 +5330,10 @@ onBeforeUnmount(() => {
                   <button
                     class="btn-primary full-width"
                     type="button"
-                    :disabled="taskChainStages.length < 2"
+                    :disabled="taskChainStages.length < 2 || !manualDispatchReady"
                     @click="addTaskChainFromForm"
                   >
-                    {{ taskChainLocale.createTask }}
+                    {{ chainTaskSubmitText }}
                   </button>
                 </template>
               </div>
@@ -5957,6 +5384,7 @@ onBeforeUnmount(() => {
                         v-if="group.key === 'blocked'"
                         class="queue-bulk-button"
                         type="button"
+                        :disabled="countRetryableBlockedTasks(group) === 0"
                         @click="retryAllBlockedTasksWithAStar(group)"
                       >
                         {{ t('queue_retry_all_astar') }}
@@ -6015,10 +5443,14 @@ onBeforeUnmount(() => {
                         <div v-if="formatTaskCurrentStage(task)" class="task-line">{{ formatTaskCurrentStage(task) }}</div>
                         <div class="task-line">{{ t('task_priority') }}: {{ task.priority }}</div>
                         <div v-if="formatTaskAlgorithm(task)" class="task-line">{{ formatTaskAlgorithm(task) }}</div>
+                        <div v-if="formatTaskInitialPoint(task)" class="task-line">{{ formatTaskInitialPoint(task) }}</div>
                         <div class="task-line">{{ formatTaskAgv(task) }}</div>
                         <div v-if="formatTaskPathStats(task)" class="task-line">{{ formatTaskPathStats(task) }}</div>
-                        <div class="task-line task-reason">
+                        <div class="task-line task-reason" :class="{ alert: isTaskReasonAlert(task) }">
                           {{ t('dispatch_reason') }}: {{ formatDispatchReason(task) }}
+                        </div>
+                        <div v-if="formatTaskLastAction(task)" class="task-line task-last-action">
+                          {{ taskLastActionLabel() }}: {{ formatTaskLastAction(task) }}
                         </div>
                         <div v-if="formatTaskTime(task)" class="task-line task-time">
                           {{ formatTaskTime(task) }}
@@ -6033,12 +5465,40 @@ onBeforeUnmount(() => {
                             {{ t('delete_task') }}
                           </button>
                           <button
-                            v-if="task.status === 'blocked'"
+                            v-if="task.status === 'blocked' && !isRecoveryRequiredTask(task) && isCellOccupiedTimeoutTask(task)"
                             class="btn-secondary task-action-button"
                             type="button"
+                            :disabled="isTaskRecoveryBusy(task.id) || !task.preferred_agv_id"
+                            @click="retryBlockedTaskFromCurrent(task)"
+                          >
+                            {{ retryFromCurrentButtonText() }}
+                          </button>
+                          <button
+                            v-if="task.status === 'blocked' && !isRecoveryRequiredTask(task)"
+                            class="btn-secondary task-action-button"
+                            type="button"
+                            :disabled="isTaskRecoveryBusy(task.id)"
                             @click="retryBlockedTaskWithAStar(task)"
                           >
                             {{ t('task_retry_astar') }}
+                          </button>
+                          <button
+                            v-if="task.status === 'blocked' && isRecoveryRequiredTask(task)"
+                            class="btn-secondary task-action-button"
+                            type="button"
+                            :disabled="isTaskRecoveryBusy(task.id) || !task.preferred_agv_id"
+                            @click="recoverBlockedTask(task, 'bound')"
+                          >
+                            {{ recoveryActionText('bound', task) }}
+                          </button>
+                          <button
+                            v-if="task.status === 'blocked' && isRecoveryRequiredTask(task)"
+                            class="btn-secondary task-action-button"
+                            type="button"
+                            :disabled="isTaskRecoveryBusy(task.id)"
+                            @click="recoverBlockedTask(task, 'reassign')"
+                          >
+                            {{ recoveryActionText('reassign', task) }}
                           </button>
                         </div>
                       </template>
@@ -6354,6 +5814,109 @@ onBeforeUnmount(() => {
               </div>
             </div>
           </section>
+
+          <section
+            ref="experimentsSectionRef"
+            class="panel-section"
+            :class="{
+              collapsed: !panelSections.experiments,
+              'search-hit': matchedPanelSectionKeys.includes('experiments'),
+              focused: focusedPanelSection === 'experiments'
+            }"
+          >
+            <button
+              class="panel-section-toggle"
+              type="button"
+              :aria-expanded="panelSections.experiments"
+              @click="togglePanelSection('experiments')"
+            >
+              <span>{{ panelLocale.sections.experiments }}</span>
+              <span class="panel-section-toggle-text">
+                {{ panelSections.experiments ? panelLocale.collapse : panelLocale.expand }}
+              </span>
+            </button>
+            <div v-show="panelSections.experiments" class="panel-section-body">
+              <div class="experiment-panel">
+                <h2>{{ experimentLocale.title }}</h2>
+                <p class="panel-hint">{{ experimentLocale.hint }}</p>
+
+                <div class="json-actions">
+                  <button class="btn-primary" type="button" @click="saveCurrentExperimentRecord">
+                    {{ experimentLocale.saveCurrent }}
+                  </button>
+                  <button class="btn-secondary" type="button" @click="exportCurrentCompareResultJson">
+                    {{ experimentLocale.exportCurrentJson }}
+                  </button>
+                  <button class="btn-secondary" type="button" @click="exportCurrentCompareResultCsv">
+                    {{ experimentLocale.exportCurrentCsv }}
+                  </button>
+                </div>
+
+                <div class="json-actions">
+                  <button class="btn-secondary" type="button" @click="exportAllExperimentRecordsJson">
+                    {{ experimentLocale.exportAllJson }}
+                  </button>
+                  <button class="btn-secondary" type="button" @click="exportAllExperimentRecordsCsv">
+                    {{ experimentLocale.exportAllCsv }}
+                  </button>
+                  <button class="btn-ghost" type="button" :disabled="experimentRecordCount === 0" @click="clearExperimentRecords">
+                    {{ experimentLocale.clearAll }}
+                  </button>
+                </div>
+
+                <div v-if="experimentStatus" class="template-status" :class="experimentStatusType">
+                  {{ experimentStatus }}
+                </div>
+
+                <div v-if="experimentRecordCount === 0" class="empty-note">
+                  {{ experimentLocale.empty }}
+                </div>
+
+                <div v-else class="experiment-record-list">
+                  <article
+                    v-for="(record, recordIndex) in experimentRecords"
+                    :key="record.id"
+                    class="experiment-record-card"
+                    :class="{ 'search-hit': matchedExperimentRecordIds.includes(record.id) }"
+                  >
+                    <div class="experiment-record-head">
+                      <strong :title="`ID: ${record.id}`">{{ formatExperimentCardTitle(record, recordIndex) }}</strong>
+                      <span class="point-badge">{{ record.task_mode === 'chain' ? taskChainLocale.title : taskBuilderLocale.single }}</span>
+                    </div>
+                    <div class="task-line">
+                      {{ t('task_stages') }}: {{ record.stage_count }} | {{ experimentLocale.obstacles }}: {{ record.obstacle_count }} | {{ record.grid_cols }}x{{ record.grid_rows }}
+                    </div>
+                    <div class="task-line">
+                      {{ experimentLocale.route }}: {{ record.route_summary }}
+                    </div>
+                    <div class="task-line">
+                      {{ experimentLocale.currentAlgorithm }}: {{ algorithmText(record.current_algorithm) }}
+                    </div>
+                    <div v-if="record.recommended_algorithm" class="task-line">
+                      {{ experimentLocale.recommendedAlgorithm }}: {{ algorithmText(record.recommended_algorithm) }}
+                    </div>
+                    <div class="task-line">
+                      {{ formatExperimentAlgorithms(record) }}
+                    </div>
+                    <div class="task-line task-time">
+                      {{ experimentLocale.savedAt }}: {{ formatExperimentSavedAt(record.saved_at) }}
+                    </div>
+                    <div class="task-actions">
+                      <button class="btn-secondary task-action-button" type="button" @click="exportExperimentRecord(record, 'json')">
+                        JSON
+                      </button>
+                      <button class="btn-secondary task-action-button" type="button" @click="exportExperimentRecord(record, 'csv')">
+                        CSV
+                      </button>
+                      <button class="btn-delete task-action-button" type="button" @click="deleteExperimentRecord(record.id)">
+                        {{ experimentLocale.delete }}
+                      </button>
+                    </div>
+                  </article>
+                </div>
+              </div>
+            </div>
+          </section>
         </div>
         <button
           v-if="taskTemplateJumpReady"
@@ -6364,14 +5927,57 @@ onBeforeUnmount(() => {
           {{ taskBuilderLocale.jumpAction }}
         </button>
         <button
+          v-if="agvRecoveryJumpReady && agvRecoveryJumpTargetAgvId"
+          class="agv-recovery-jump-button"
+          type="button"
+          @click="jumpToRecoveryAgvCard"
+        >
+          {{ agvRecoveryJumpButtonText() }}
+        </button>
+        <button
           v-if="showPanelBackToTop"
           class="back-to-top"
           type="button"
           :title="t('panel_back_to_top')"
           @click="scrollPanelToTop"
         >
-          鈫?        </button>
+          ↑
+        </button>
       </aside>
+    </div>
+
+    <div v-if="showGuideCenter" class="guide-modal-mask" @click.self="closeGuideCenter">
+      <section class="guide-modal" role="dialog" aria-modal="true">
+        <header class="guide-modal-header">
+          <strong>{{ guideCenterLocale.title }}</strong>
+          <button class="btn-ghost" type="button" @click="closeGuideCenter">
+            {{ guideCenterLocale.close }}
+          </button>
+        </header>
+        <div class="guide-modal-body">
+          <div class="guide-section">
+            <div class="guide-section-title">{{ guideCenterLocale.modeTitle }}</div>
+            <div class="guide-line">
+              {{ guideCenterLocale.modeAutoTitle }}：{{ panelLocale.modeAutoHint }}
+            </div>
+            <div class="guide-line">
+              {{ guideCenterLocale.modeManualTitle }}：{{ panelLocale.modeManualHint }}
+            </div>
+          </div>
+          <div class="guide-section">
+            <div class="guide-section-title">{{ guideCenterLocale.shortcutsTitle }}</div>
+            <div class="guide-line">{{ guideCenterLocale.shortcutCancel }}</div>
+            <div class="guide-line">{{ guideCenterLocale.shortcutAlgorithm }}</div>
+            <div class="guide-line">{{ guideCenterLocale.shortcutContext }}</div>
+          </div>
+          <div class="guide-section">
+            <div class="guide-section-title">{{ guideCenterLocale.workflowTitle }}</div>
+            <div class="guide-line">{{ guideCenterLocale.workflowAuto }}</div>
+            <div class="guide-line">{{ guideCenterLocale.workflowManual }}</div>
+            <div class="guide-line">{{ guideCenterLocale.workflowForm }}</div>
+          </div>
+        </div>
+      </section>
     </div>
 
     <div
@@ -6425,12 +6031,27 @@ onBeforeUnmount(() => {
           </div>
         </article>
       </div>
+      <div v-if="pathCompareResult" class="json-actions">
+        <button class="btn-primary" type="button" @click="saveCurrentExperimentRecord">
+          {{ experimentLocale.saveCurrent }}
+        </button>
+        <button class="btn-secondary" type="button" @click="exportCurrentCompareResultJson">
+          {{ experimentLocale.exportCurrentJson }}
+        </button>
+        <button class="btn-secondary" type="button" @click="exportCurrentCompareResultCsv">
+          {{ experimentLocale.exportCurrentCsv }}
+        </button>
+      </div>
+    </div>
+    <div
+      v-if="floatingToastVisible && floatingToastMessage"
+      class="floating-toast"
+      :class="`floating-toast-${floatingToastType}`"
+      role="status"
+      aria-live="polite"
+    >
+      {{ floatingToastMessage }}
     </div>
   </div>
 </template>
-
-
-
-
-
 

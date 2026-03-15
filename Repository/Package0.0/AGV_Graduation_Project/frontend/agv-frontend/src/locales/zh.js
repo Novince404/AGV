@@ -273,5 +273,161 @@ export default {
     "time_assigned": "分配",
     "time_started": "开始",
     "time_finished": "完成"
+  },
+  "uiLocales": {
+    "templateJson": {
+      "title": "模板 JSON",
+      "hint": "可导出自定义模板，也可从 JSON 批量导入。",
+      "placeholder": "{ \"templates\": [{ \"name\": \"入库口 A 到装配台 1\", \"start_x\": 0, \"start_y\": 0, \"end_x\": 6, \"end_y\": 2, \"priority\": 3 }] }",
+      "import": "导入模板",
+      "export": "导出自定义模板",
+      "importFile": "导入文件",
+      "downloadFile": "下载 JSON",
+      "clear": "清空模板 JSON",
+      "exportEmpty": "当前没有可导出的自定义模板",
+      "exportOk": "已导出数量",
+      "importOk": "已导入数量",
+      "importFail": "模板 JSON 格式无效或导入失败",
+      "skipped": "已跳过"
+    },
+    "panel": {
+      "sections": {
+        "control": "调度控制",
+        "queue": "任务队列",
+        "templates": "任务模板",
+        "points": "常用点位",
+        "json": "JSON 工具",
+        "experiments": "实验记录"
+      },
+      "expandAll": "全部展开",
+      "collapseAll": "全部收起",
+      "collapse": "收起",
+      "expand": "展开",
+      "currentMode": "当前模式",
+      "modeAuto": "自动调度",
+      "modeManual": "手动调车",
+      "modeAutoHint": "设置起点和终点后，系统会自动选择空闲 AGV 执行任务。",
+      "modeManualHint": "先选择 AGV，再指定目标位置，只调度这台车。"
+    },
+    "panelSearch": {
+      "placeholder": "搜索面板、任务、模板或点位",
+      "clear": "清空搜索",
+      "empty": "没有匹配的面板或条目",
+      "hits": "项匹配"
+    },
+    "guideCenter": {
+      "open": "使用说明",
+      "title": "操作说明中心",
+      "close": "关闭",
+      "modeTitle": "模式说明",
+      "modeAutoTitle": "自动调度",
+      "modeManualTitle": "手动调车",
+      "shortcutsTitle": "快捷键",
+      "shortcutCancel": "地图右键 / F：取消 AGV 选中",
+      "shortcutAlgorithm": "R：切换 simple / A*",
+      "shortcutContext": "地图右键：多段选点时可取消当前选点流程",
+      "workflowTitle": "基础流程"
+    },
+    "toolbarGuideHintText": "操作说明请见“说明中心”。",
+    "taskChain": {
+      "title": "阶段任务",
+      "hint": "用于 A -> B -> C 这类连续流程，同一任务会按阶段顺序连续执行。",
+      "stage": "阶段",
+      "stageLabel": "阶段名",
+      "stageLabelPlaceholder": "例如：装配工序",
+      "addStage": "新增阶段",
+      "removeStage": "删除",
+      "resetStages": "重置阶段",
+      "createTask": "创建阶段任务",
+      "progress": "进度",
+      "currentRoute": "当前阶段",
+      "overallRoute": "总路线",
+      "priorityHint": "优先级使用上方公共设置。",
+      "saveTemplate": "保存当前阶段任务为模板",
+      "stageCount": "阶段数",
+      "loadedHint": "已载入阶段模板，请使用下方阶段任务按钮创建。"
+    },
+    "taskBuilder": {
+      "title": "任务创建",
+      "single": "单段任务",
+      "chain": "阶段任务",
+      "singleCompact": "单段",
+      "chainCompact": "多段",
+      "switchLabel": "切换",
+      "singleHint": "用于创建 A -> B 的单段搬运任务。",
+      "jumpAction": "跳转到任务创建",
+      "jumpHint": "载入后可点击右下角黄色按钮跳转，双击可直接跳转。",
+      "loadedSingle": "已载入到单段任务表单。",
+      "loadedChain": "已载入到阶段任务表单。"
+    },
+    "taskJson": {
+      "singleExample": "填入单段示例",
+      "chainExample": "填入阶段示例",
+      "singleLoaded": "已填入单段任务 JSON 示例。",
+      "chainLoaded": "已填入阶段任务 JSON 示例。"
+    },
+    "taskJsonExampleFile": {
+      "singleDownload": "下载单段示例",
+      "chainDownload": "下载阶段示例",
+      "singleDownloaded": "已下载单段任务 JSON 示例。",
+      "chainDownloaded": "已下载阶段任务 JSON 示例。"
+    },
+    "taskChainMapPickUi": {
+      "start": "选点",
+      "cancel": "取消",
+      "stageCount": "预选",
+      "idleTemplate": "预选 {stages} 段 / 需 {required} 点，先点击“选点”，再到地图上选点。",
+      "statusProgressTemplate": "已选 {picked}/{required} 点，请继续选点。",
+      "statusDoneTemplate": "已选满 {required} 点，确认后创建 {stages} 段任务。"
+    },
+    "queueView": {
+      "collapseCards": "折叠卡片",
+      "expandCards": "展开卡片"
+    },
+    "experiment": {
+      "title": "实验记录",
+      "hint": "可保存当前算法对比结果，并导出为 JSON / CSV。",
+      "saveCurrent": "保存当前结果",
+      "exportCurrentJson": "导出当前 JSON",
+      "exportCurrentCsv": "导出当前 CSV",
+      "exportAllJson": "导出全部 JSON",
+      "exportAllCsv": "导出全部 CSV",
+      "clearAll": "清空记录",
+      "empty": "当前没有已保存的实验记录",
+      "noCompare": "请先执行算法对比。",
+      "savedOk": "实验记录已保存。",
+      "deletedOk": "实验记录已删除。",
+      "clearedOk": "实验记录已清空。",
+      "exportEmpty": "当前没有可导出的实验记录。",
+      "exportCurrentJsonOk": "已导出当前结果 JSON。",
+      "exportCurrentCsvOk": "已导出当前结果 CSV。",
+      "exportAllJsonOk": "已导出全部实验记录 JSON。",
+      "exportAllCsvOk": "已导出全部实验记录 CSV。",
+      "route": "路线",
+      "scene": "场景",
+      "obstacles": "障碍格",
+      "savedAt": "保存时间",
+      "currentAlgorithm": "当前算法",
+      "recommendedAlgorithm": "推荐算法",
+      "delete": "删除",
+      "recordPrefix": "记录"
+    },
+    "algorithmCompare": {
+      "title": "算法对比",
+      "hintSingle": "对当前单段路线进行 simple 与 A* 对比。",
+      "hintChain": "对当前阶段任务进行 simple 与 A* 对比。",
+      "run": "对比当前路线",
+      "clear": "清空结果",
+      "invalid": "当前表单坐标无效，无法进行算法对比。",
+      "reachable": "可达",
+      "unreachable": "不可达",
+      "total": "总长度",
+      "stages": "阶段长度",
+      "failedStage": "失败阶段",
+      "recommended": "推荐",
+      "current": "当前",
+      "apply": "使用中",
+      "switchTo": "切换"
+    }
   }
 }

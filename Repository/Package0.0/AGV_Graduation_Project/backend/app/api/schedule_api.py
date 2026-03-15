@@ -1,615 +1,28 @@
-from datetime import datetime
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
-from app.api.agv_api import agv_list
-from app.api.task_api import task_list
-from app.utils.agv_movement import move_agv
-from app.utils.api_error import raise_api_error
-from app.utils.path_planner import plan_path
-from app.utils.task_chain import (
-    get_current_stage,
-    mark_task_blocked,
-    mark_task_pending,
-    set_stage_paths,
-    sync_task_stage_fields,
+from fastapi import APIRouter
+
+from app.schemas.schedule import (
+    PathCompareRequest,
+    RecoverBlockedTaskRequest,
+    RetryBlockedTaskRequest,
+    ScheduleWithPathRequest,
 )
-from app.utils.warehouse_map import get_blocked_cell_payload
+from app.services import schedule_service
 
 
 router = APIRouter(prefix="/schedule", tags=["Schedule"])
 
 
-class ScheduleWithPathRequest(BaseModel):
-    task_id: int | None = None
-    agv_id: int | None = None
-    algorithm: str = "simple"
-    grid_cols: int = 10
-    grid_rows: int = 8
-
-
-class CompareStagePayload(BaseModel):
-    start_x: int
-    start_y: int
-    end_x: int
-    end_y: int
-    label: str | None = None
-
-
-class PathCompareRequest(BaseModel):
-    start_x: int | None = None
-    start_y: int | None = None
-    end_x: int | None = None
-    end_y: int | None = None
-    stages: list[CompareStagePayload] | None = None
-    grid_cols: int = 10
-    grid_rows: int = 8
-
-
-class RetryBlockedTaskRequest(BaseModel):
-    algorithm: str = "astar"
-    grid_cols: int = 10
-    grid_rows: int = 8
-
-
-def now_iso():
-    return datetime.now().isoformat(timespec="seconds")
-
-
-def _is_valid_grid_coordinate(value: int, max_value: int):
-    return isinstance(value, int) and 0 <= value < max_value
-
-
-def _validate_stage_bounds(stages: list[dict], grid_cols: int, grid_rows: int):
-    for stage in stages:
-        if (
-            not _is_valid_grid_coordinate(stage["start_x"], grid_cols)
-            or not _is_valid_grid_coordinate(stage["start_y"], grid_rows)
-            or not _is_valid_grid_coordinate(stage["end_x"], grid_cols)
-            or not _is_valid_grid_coordinate(stage["end_y"], grid_rows)
-        ):
-            raise_api_error(400, "stage_out_of_grid", stage_index=stage["index"] + 1)
-
-
-def _mark_task_unreachable(task, algorithm: str, reason: str):
-    mark_task_blocked(task, reason=reason, algorithm=algorithm)
-
-
-def _normalize_algorithm_name(algorithm: str | None):
-    normalized = (algorithm or "simple").lower().strip()
-    if normalized not in {"simple", "astar"}:
-        raise_api_error(400, "unsupported_algorithm")
-    return normalized
-
-
-def _resolve_task_algorithm(task, fallback_algorithm: str):
-    preferred_algorithm = (getattr(task, "dispatch_algorithm", None) or "").lower().strip()
-    if preferred_algorithm in {"simple", "astar"} and task.status in {"pending", "blocked"}:
-        return preferred_algorithm
-    return fallback_algorithm
-
-
-def _select_schedulable_task(task_id: int | None):
-    if task_id is not None:
-        task = next((t for t in task_list if t.id == task_id), None)
-        if not task:
-            raise_api_error(404, "task_not_found")
-        sync_task_stage_fields(task)
-        if task.status not in {"pending", "blocked"}:
-            raise_api_error(400, "task_not_schedulable")
-        return task
-    return None
-
-
-def _select_idle_agv(agv_id: int | None):
-    if agv_id is not None:
-        agv = next((a for a in agv_list if a.id == agv_id), None)
-        if not agv:
-            raise_api_error(404, "agv_not_found")
-        if agv.status != "idle":
-            raise_api_error(400, "agv_not_idle")
-        return agv
-
-    idle_agv = next((a for a in agv_list if a.status == "idle"), None)
-    if not idle_agv:
-        raise_api_error(400, "no_idle_agv")
-    return idle_agv
-
-
-def _get_pending_tasks():
-    pending_tasks = [t for t in task_list if t.status in {"pending", "blocked"}]
-    for task in pending_tasks:
-        sync_task_stage_fields(task)
-    return pending_tasks
-
-
-def _get_idle_agvs():
-    return [a for a in agv_list if a.status == "idle"]
-
-
-def _path_length(
-    algorithm: str,
-    sx: int,
-    sy: int,
-    ex: int,
-    ey: int,
-    grid_cols: int,
-    grid_rows: int,
-):
-    path = plan_path(algorithm, sx, sy, ex, ey, grid_cols, grid_rows)
-    if not path:
-        return None
-    return max(len(path) - 1, 0)
-
-
-def _pick_task_and_agv(
-    task_id: int | None,
-    agv_id: int | None,
-    algorithm: str,
-    grid_cols: int,
-    grid_rows: int,
-):
-    task = _select_schedulable_task(task_id)
-    if task is not None:
-        if agv_id is not None:
-            agv = _select_idle_agv(agv_id)
-            distance = _path_length(
-                algorithm,
-                agv.x,
-                agv.y,
-                task.start_x,
-                task.start_y,
-                grid_cols,
-                grid_rows,
-            )
-            if distance is None:
-                _mark_task_unreachable(
-                    task,
-                    algorithm,
-                    f"当前算法 {algorithm} 下，AGV 无法到达任务起点",
-                )
-                raise HTTPException(status_code=400, detail="Task unreachable with current algorithm")
-            return task, agv, distance
-
-        idle_agvs = _get_idle_agvs()
-        if not idle_agvs:
-            raise HTTPException(status_code=400, detail="No idle AGV")
-
-        best_agv = None
-        best_distance = None
-        for agv in idle_agvs:
-            distance = _path_length(
-                algorithm,
-                agv.x,
-                agv.y,
-                task.start_x,
-                task.start_y,
-                grid_cols,
-                grid_rows,
-            )
-            if distance is None:
-                continue
-            if best_distance is None or (distance, agv.id) < (best_distance, best_agv.id):
-                best_distance = distance
-                best_agv = agv
-
-        if best_agv is None or best_distance is None:
-            _mark_task_unreachable(
-                task,
-                algorithm,
-                f"当前算法 {algorithm} 下，没有空闲 AGV 可到达任务起点",
-            )
-            raise HTTPException(status_code=400, detail="Task unreachable with current algorithm")
-        return task, best_agv, best_distance
-
-    pending_tasks = _get_pending_tasks()
-    if not pending_tasks:
-        raise HTTPException(status_code=400, detail="No pending tasks")
-
-    idle_agvs = _get_idle_agvs()
-    if not idle_agvs:
-        raise HTTPException(status_code=400, detail="No idle AGV")
-
-    if agv_id is not None:
-        agv = _select_idle_agv(agv_id)
-        best_task = None
-        best_key = None
-        best_distance = None
-        for t in pending_tasks:
-            dist = _path_length(algorithm, agv.x, agv.y, t.start_x, t.start_y, grid_cols, grid_rows)
-            if dist is None:
-                continue
-            key = (-t.priority, dist, t.id)
-            if best_key is None or key < best_key:
-                best_key = key
-                best_task = t
-                best_distance = dist
-        if best_task is None:
-            raise HTTPException(status_code=400, detail="No reachable tasks")
-        return best_task, agv, best_distance
-
-    best_pair = None
-    best_key = None
-    best_distance = None
-    for t in pending_tasks:
-        reachable = False
-        for a in idle_agvs:
-            dist = _path_length(algorithm, a.x, a.y, t.start_x, t.start_y, grid_cols, grid_rows)
-            if dist is None:
-                continue
-            reachable = True
-            key = (-t.priority, dist, t.id, a.id)
-            if best_key is None or key < best_key:
-                best_key = key
-                best_pair = (t, a)
-                best_distance = dist
-        if reachable:
-            if t.status == "blocked":
-                mark_task_pending(t)
-        else:
-            _mark_task_unreachable(
-                t,
-                algorithm,
-                f"当前算法 {algorithm} 下，没有空闲 AGV 可到达任务起点",
-            )
-
-    if best_pair is None:
-        raise HTTPException(status_code=400, detail="No reachable tasks")
-    return best_pair[0], best_pair[1], best_distance
-
-
-def _pick_task_and_agv_resolved(
-    task_id: int | None,
-    agv_id: int | None,
-    algorithm: str,
-    grid_cols: int,
-    grid_rows: int,
-):
-    task = _select_schedulable_task(task_id)
-    if task is not None:
-        task_algorithm = algorithm
-        if agv_id is not None:
-            agv = _select_idle_agv(agv_id)
-            distance = _path_length(
-                task_algorithm,
-                agv.x,
-                agv.y,
-                task.start_x,
-                task.start_y,
-                grid_cols,
-                grid_rows,
-            )
-            if distance is None:
-                _mark_task_unreachable(
-                    task,
-                    task_algorithm,
-                    f"task_start_unreachable:{task_algorithm}",
-                )
-                raise_api_error(400, "task_start_unreachable", algorithm=task_algorithm)
-            return task, agv, distance, task_algorithm
-
-        idle_agvs = _get_idle_agvs()
-        if not idle_agvs:
-            raise_api_error(400, "no_idle_agv")
-
-        best_agv = None
-        best_distance = None
-        for agv in idle_agvs:
-            distance = _path_length(
-                task_algorithm,
-                agv.x,
-                agv.y,
-                task.start_x,
-                task.start_y,
-                grid_cols,
-                grid_rows,
-            )
-            if distance is None:
-                continue
-            if best_distance is None or (distance, agv.id) < (best_distance, best_agv.id):
-                best_distance = distance
-                best_agv = agv
-
-        if best_agv is None or best_distance is None:
-            _mark_task_unreachable(
-                task,
-                task_algorithm,
-                f"task_start_unreachable:{task_algorithm}",
-            )
-            raise_api_error(400, "task_start_unreachable", algorithm=task_algorithm)
-        return task, best_agv, best_distance, task_algorithm
-
-    pending_tasks = _get_pending_tasks()
-    if not pending_tasks:
-        raise_api_error(400, "no_pending_tasks")
-
-    idle_agvs = _get_idle_agvs()
-    if not idle_agvs:
-        raise_api_error(400, "no_idle_agv")
-
-    if agv_id is not None:
-        agv = _select_idle_agv(agv_id)
-        best_task = None
-        best_key = None
-        best_distance = None
-        best_algorithm = algorithm
-        for pending_task in pending_tasks:
-            task_algorithm = _resolve_task_algorithm(pending_task, algorithm)
-            distance = _path_length(
-                task_algorithm,
-                agv.x,
-                agv.y,
-                pending_task.start_x,
-                pending_task.start_y,
-                grid_cols,
-                grid_rows,
-            )
-            if distance is None:
-                continue
-            key = (-pending_task.priority, distance, pending_task.id)
-            if best_key is None or key < best_key:
-                best_key = key
-                best_task = pending_task
-                best_distance = distance
-                best_algorithm = task_algorithm
-        if best_task is None:
-            raise_api_error(400, "no_reachable_tasks")
-        return best_task, agv, best_distance, best_algorithm
-
-    best_pair = None
-    best_key = None
-    best_distance = None
-    best_algorithm = algorithm
-    for pending_task in pending_tasks:
-        reachable = False
-        task_algorithm = _resolve_task_algorithm(pending_task, algorithm)
-        for agv in idle_agvs:
-            distance = _path_length(
-                task_algorithm,
-                agv.x,
-                agv.y,
-                pending_task.start_x,
-                pending_task.start_y,
-                grid_cols,
-                grid_rows,
-            )
-            if distance is None:
-                continue
-            reachable = True
-            key = (-pending_task.priority, distance, pending_task.id, agv.id)
-            if best_key is None or key < best_key:
-                best_key = key
-                best_pair = (pending_task, agv)
-                best_distance = distance
-                best_algorithm = task_algorithm
-        if reachable:
-            if pending_task.status == "blocked":
-                mark_task_pending(pending_task)
-        else:
-            _mark_task_unreachable(
-                pending_task,
-                task_algorithm,
-                f"task_start_unreachable:{task_algorithm}",
-            )
-
-    if best_pair is None:
-        raise_api_error(400, "no_reachable_tasks")
-    return best_pair[0], best_pair[1], best_distance, best_algorithm
-
-
-def _build_compare_stages(req: PathCompareRequest):
-    if req.stages:
-        stages = [
-            {
-                "index": index,
-                "label": stage.label,
-                "start_x": stage.start_x,
-                "start_y": stage.start_y,
-                "end_x": stage.end_x,
-                "end_y": stage.end_y,
-            }
-            for index, stage in enumerate(req.stages)
-        ]
-        _validate_stage_bounds(stages, req.grid_cols, req.grid_rows)
-        return stages
-
-    if None in {req.start_x, req.start_y, req.end_x, req.end_y}:
-        raise_api_error(400, "task_coordinates_required")
-
-    stages = [
-        {
-            "index": 0,
-            "label": None,
-            "start_x": req.start_x,
-            "start_y": req.start_y,
-            "end_x": req.end_x,
-            "end_y": req.end_y,
-        }
-    ]
-    _validate_stage_bounds(stages, req.grid_cols, req.grid_rows)
-    return stages
-
-
-def _compare_algorithm(
-    algorithm: str,
-    stages: list[dict],
-    grid_cols: int,
-    grid_rows: int,
-):
-    stage_results = []
-    total_length = 0
-
-    for stage in stages:
-        path = plan_path(
-            algorithm,
-            stage["start_x"],
-            stage["start_y"],
-            stage["end_x"],
-            stage["end_y"],
-            grid_cols,
-            grid_rows,
-        )
-
-        if not path:
-            return {
-                "algorithm": algorithm,
-                "reachable": False,
-                "total_length": None,
-                "failed_stage_index": stage["index"],
-                "stage_results": [
-                    *stage_results,
-                    {
-                        "index": stage["index"],
-                        "label": stage["label"],
-                        "reachable": False,
-                        "path_length": None,
-                    },
-                ],
-            }
-
-        path_length = max(len(path) - 1, 0)
-        total_length += path_length
-        stage_results.append(
-            {
-                "index": stage["index"],
-                "label": stage["label"],
-                "reachable": True,
-                "path_length": path_length,
-            }
-        )
-
-    return {
-        "algorithm": algorithm,
-        "reachable": True,
-        "total_length": total_length,
-        "failed_stage_index": None,
-        "stage_results": stage_results,
-    }
-
-
-def _schedule_task(
-    task_id: int | None,
-    agv_id: int | None,
-    algorithm: str,
-    grid_cols: int,
-    grid_rows: int,
-):
-    algorithm = _normalize_algorithm_name(algorithm)
-    schedule_mode = "manual" if task_id is not None or agv_id is not None else "auto"
-
-    task, agv, dispatch_distance, task_algorithm = _pick_task_and_agv_resolved(
-        task_id,
-        agv_id,
-        algorithm,
-        grid_cols,
-        grid_rows,
-    )
-    stage = get_current_stage(task)
-
-    if task.created_at is None:
-        task.created_at = now_iso()
-    path_to_start = plan_path(
-        task_algorithm,
-        agv.x,
-        agv.y,
-        stage.start_x,
-        stage.start_y,
-        grid_cols,
-        grid_rows,
-    )
-    path_to_end = plan_path(
-        task_algorithm,
-        stage.start_x,
-        stage.start_y,
-        stage.end_x,
-        stage.end_y,
-        grid_cols,
-        grid_rows,
-    )
-    if not path_to_start or not path_to_end:
-        _mark_task_unreachable(
-            task,
-            task_algorithm,
-            f"task_route_unreachable:{task_algorithm}",
-        )
-        task.dispatch_reason = f"task_route_unreachable:{task_algorithm}"
-        raise_api_error(400, "task_route_unreachable", algorithm=task_algorithm)
-
-    task.status = "assigned"
-    task.agv_id = agv.id
-    task.assigned_at = now_iso()
-
-    agv.task_id = task.id
-
-    set_stage_paths(task, path_to_start, path_to_end)
-    task.dispatch_mode = schedule_mode
-    task.dispatch_distance = dispatch_distance
-    task.dispatch_algorithm = task_algorithm
-    task.dispatch_reason = (
-        f"mode={schedule_mode}, priority={task.priority}, distance={dispatch_distance}, agv={agv.id}, algorithm={task_algorithm}, stage={task.current_stage_index + 1}/{task.total_stages}"
-    )
-
-    if len(path_to_start) > 1:
-        agv.status = "relocating"
-    else:
-        agv.status = "running"
-        task.status = "running"
-        task.started_at = now_iso()
-        if stage.started_at is None:
-            stage.started_at = task.started_at
-
-    move_agv(agv.id, task.id, task_algorithm, grid_cols, grid_rows)
-
-    full_path = path_to_start[:]
-    if path_to_end:
-        if full_path and path_to_end[0] == full_path[-1]:
-            full_path.extend(path_to_end[1:])
-        else:
-            full_path.extend(path_to_end)
-
-    path_stats = {
-        "to_start": max(len(path_to_start) - 1, 0),
-        "to_end": max(len(path_to_end) - 1, 0),
-        "total": max(len(full_path) - 1, 0),
-    }
-
-    return {
-        "message": "Task scheduled",
-        "algorithm": task_algorithm,
-        "task": {
-            "id": task.id,
-            "status": task.status,
-            "start_x": stage.start_x,
-            "start_y": stage.start_y,
-            "end_x": stage.end_x,
-            "end_y": stage.end_y,
-            "priority": task.priority,
-            "current_stage_index": task.current_stage_index,
-            "total_stages": task.total_stages,
-        },
-        "agv": {
-            "id": agv.id,
-            "status": agv.status,
-            "x": agv.x,
-            "y": agv.y,
-        },
-        "path": full_path,
-        "path_to_start": path_to_start,
-        "path_to_end": path_to_end,
-        "path_stats": path_stats,
-        "blocked_cells": get_blocked_cell_payload(grid_cols, grid_rows),
-    }
-
-
 @router.post("/")
 def schedule_task():
-    return _schedule_task(None, None, "simple", 10, 8)
+    return schedule_service.schedule_task_default()
 
 
 @router.post("/with_path")
 def schedule_task_with_path(req: ScheduleWithPathRequest):
-    return _schedule_task(
+    return schedule_service.schedule_task_with_path(
         req.task_id,
         req.agv_id,
+        req.schedule_mode,
         req.algorithm,
         req.grid_cols,
         req.grid_rows,
@@ -618,53 +31,43 @@ def schedule_task_with_path(req: ScheduleWithPathRequest):
 
 @router.post("/compare_path")
 def compare_path(req: PathCompareRequest):
-    stages = _build_compare_stages(req)
-    return {
-        "grid_cols": req.grid_cols,
-        "grid_rows": req.grid_rows,
-        "stage_count": len(stages),
-        "blocked_cells": get_blocked_cell_payload(req.grid_cols, req.grid_rows),
-        "results": {
-            "simple": _compare_algorithm("simple", stages, req.grid_cols, req.grid_rows),
-            "astar": _compare_algorithm("astar", stages, req.grid_cols, req.grid_rows),
-        },
-    }
+    return schedule_service.compare_path(
+        req.start_x,
+        req.start_y,
+        req.end_x,
+        req.end_y,
+        req.stages,
+        req.grid_cols,
+        req.grid_rows,
+    )
 
 
 @router.post("/retry_blocked/{task_id}")
 def retry_blocked_task(task_id: int, req: RetryBlockedTaskRequest):
-    algorithm = _normalize_algorithm_name(req.algorithm)
-    if algorithm != "astar":
-        raise_api_error(400, "blocked_retry_requires_astar")
+    return schedule_service.retry_blocked_task(
+        task_id,
+        req.algorithm,
+        req.grid_cols,
+        req.grid_rows,
+    )
 
-    task = next((t for t in task_list if t.id == task_id), None)
-    if not task:
-        raise_api_error(404, "task_not_found")
 
-    sync_task_stage_fields(task)
-    if task.status != "blocked":
-        raise_api_error(400, "task_not_blocked")
+@router.post("/retry_blocked_from_current/{task_id}")
+def retry_blocked_task_from_current(task_id: int, req: RetryBlockedTaskRequest):
+    return schedule_service.retry_blocked_task_from_current(
+        task_id,
+        req.algorithm,
+        req.grid_cols,
+        req.grid_rows,
+    )
 
-    task.dispatch_algorithm = algorithm
 
-    if not _get_idle_agvs():
-        mark_task_pending(task)
-        task.dispatch_algorithm = algorithm
-        task.dispatch_mode = "manual"
-        task.dispatch_reason = "retry_waiting_for_idle_agv:astar"
-        return {
-            "message": "Task queued for A* retry",
-            "queued": True,
-            "algorithm": algorithm,
-            "task": {
-                "id": task.id,
-                "status": task.status,
-                "dispatch_algorithm": task.dispatch_algorithm,
-                "dispatch_reason": task.dispatch_reason,
-            },
-            "blocked_cells": get_blocked_cell_payload(req.grid_cols, req.grid_rows),
-        }
-
-    result = _schedule_task(task_id, None, algorithm, req.grid_cols, req.grid_rows)
-    result["queued"] = False
-    return result
+@router.post("/recover_blocked/{task_id}")
+def recover_blocked_task(task_id: int, req: RecoverBlockedTaskRequest):
+    return schedule_service.recover_blocked_task(
+        task_id,
+        req.mode,
+        req.algorithm,
+        req.grid_cols,
+        req.grid_rows,
+    )

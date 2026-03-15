@@ -1,0 +1,307 @@
+﻿AGV_Graduation_Project 项目结构与模块功能说明
+========================================
+
+文档目的
+--------
+本文件用于向导师说明当前毕业设计代码结构、各模块职责、前后端交互流程与运行方式。
+
+一、项目总体目录结构
+--------------------
+AGV_Graduation_Project/
+  backend/
+    main.py
+    requirements.txt
+    app/
+      __init__.py
+      api/
+        agv_api.py
+        task_api.py
+        schedule_api.py
+        status_api.py
+        fault_api.py
+      models/
+        agv.py
+        task.py
+        fault_event.py
+      utils/
+        agv_movement.py
+        path_planner.py
+        warehouse_map.py
+        task_chain.py
+        fault_state.py
+        status_map.py
+        api_error.py
+  frontend/
+    agv-frontend/
+      package.json
+      vite.config.js
+      index.html
+      src/
+        App.vue
+        main.js
+        assets/
+          agv-map.css
+        config/
+          defaultData.js
+        locales/
+          index.js
+          zh.js
+          ja.js
+          en.js
+        composables/
+          useDispatchScheduler.js
+          useLocalPersistence.js
+          useTemplatePointActions.js
+          usePanelCompareUi.js
+          useDataExportActions.js
+          useMapViewport.js
+          useTaskBuilderState.js
+        utils/
+          pathPreview.js
+          taskChain.js
+          templateHelpers.js
+          pointHelpers.js
+          csv.js
+          fileDownload.js
+  run_dev.bat
+  CHANGELOG.md
+  .gitignore
+
+说明：
+1) backend/venv 与 frontend/node_modules 为运行依赖目录，未列入核心结构说明。
+2) 当前系统数据仍以内存结构（后端）+ localStorage（前端配置缓存）为主，数据库层尚未正式落地。
+
+二、后端结构与职责（FastAPI）
+-----------------------------
+1. backend/main.py
+- 后端入口文件。
+- 创建 FastAPI 应用。
+- 配置 CORS（允许前端 localhost:5173 访问）。
+- 注册路由：AGV、Task、Schedule、Status、Fault。
+
+2. backend/app/api/
+- agv_api.py
+  1) 维护 AGV 列表（当前内存对象）。
+  2) 提供 AGV 列表查询。
+  3) 提供 AGV 急停/恢复接口。
+  4) 急停时会联动任务状态（必要时打回 blocked）。
+
+- task_api.py
+  1) 维护任务列表（当前内存对象）。
+  2) 支持单段/多段任务创建。
+  3) 支持任务导入导出（JSON）。
+  4) 支持删除待分配/不可达任务。
+  5) 包含任务阶段字段同步、坐标合法性与障碍校验调用。
+
+- schedule_api.py
+  1) 调度核心入口。
+  2) 支持自动调度（按优先级+距离选任务与AGV）。
+  3) 支持手动绑定（指定任务或指定AGV）。
+  4) 路径规划调用 simple/A*。
+  5) 输出 path_to_start/path_to_end。
+  6) 支持算法对比 compare_path。
+  7) 支持 blocked 任务改用 A* 重试。
+
+- status_api.py
+  1) 提供 AGV/Task 状态色板。
+  2) 提供地图障碍查询、更新、预设切换、重置。
+  3) 更新障碍时会过滤 AGV 当前占位，避免障碍覆盖车辆位置。
+
+- fault_api.py
+  1) 提供故障上报接口。
+  2) 提供故障列表查询与故障解除接口。
+  3) 与 AGV 状态、任务 blocked 状态联动。
+
+3. backend/app/models/
+- agv.py
+  AGV 数据模型（id, x, y, status, task_id, active_fault_event_id）。
+
+- task.py
+  Task 与 TaskStage 数据模型。
+  支持多段任务字段：current_stage_index、total_stages、stages、dispatch_algorithm、dispatch_mode 等。
+
+- fault_event.py
+  FaultEvent 数据模型。
+  含 event_type、severity、status、reported_at、resolved_at 等。
+
+4. backend/app/utils/
+- path_planner.py
+  路径规划算法实现：
+  1) simple（轴向曼哈顿两种顺序尝试）
+  2) A*（四邻域）
+  并统一通过 plan_path 对外提供调用。
+
+- agv_movement.py
+  AGV 线程运动模拟：
+  1) 按路径逐步移动。
+  2) 支持多段任务阶段推进。
+  3) 含碰撞占位保护（目标格被占时等待）。
+  4) 处理 fault/emergency_stop 中断。
+
+- warehouse_map.py
+  地图网格尺寸、默认障碍、障碍预设管理。
+  支持当前障碍集合读写与预设输出。
+
+- task_chain.py
+  多段任务工具层：阶段构建、当前阶段同步、路径写入、阶段推进、任务 blocked/pending 状态切换。
+
+- fault_state.py
+  故障事件内存存储与生命周期管理（创建、查询、按状态筛选、解除）。
+
+- status_map.py
+  AGV/TASK 状态颜色定义。
+
+- api_error.py
+  统一错误输出封装（error_code + 细节字段）。
+
+三、已实现后端接口（当前）
+-------------------------
+1) AGV
+- GET /agv/list
+  功能：获取 AGV 列表。
+- POST /agv/{agv_id}/emergency-stop
+  功能：急停 AGV，必要时中断其任务。
+- POST /agv/{agv_id}/resume
+  功能：恢复急停 AGV。
+
+2) Task
+- GET /task/list
+  功能：获取任务列表。
+- POST /task/create
+  功能：创建任务（单段或多段）。
+- POST /task/finish/{task_id}
+  功能：手动结束运行任务。
+- POST /task/import_json
+  功能：批量导入任务。
+- GET /task/export_json
+  功能：导出任务。
+- DELETE /task/{task_id}
+  功能：删除待分配/不可达任务。
+
+3) Schedule
+- POST /schedule/
+  功能：默认 simple 自动调度一次。
+- POST /schedule/with_path
+  功能：按参数调度并返回路径。
+- POST /schedule/compare_path
+  功能：simple 与 A* 对比。
+- POST /schedule/retry_blocked/{task_id}
+  功能：blocked 任务改用 A* 重试（有空闲车则立即调度，否则入待分配）。
+
+4) Status/Map
+- GET /status/agv
+- GET /status/task
+- GET /status/map
+- GET /status/map/presets
+- PUT /status/map
+- POST /status/map/preset/{preset_key}
+- POST /status/map/reset
+
+5) Fault
+- POST /fault/report
+- GET /fault/list
+- POST /fault/{event_id}/resolve
+
+四、前端结构与职责（Vue3 + Vite）
+-------------------------------
+1. src/main.js
+- 前端入口，挂载 App.vue。
+
+2. src/App.vue（主页面编排层）
+- 负责页面整体布局与状态编排。
+- 对接后端接口（任务、调度、地图、故障、AGV）。
+- 聚合 composables 与 utils，完成：
+  1) 地图渲染与交互
+  2) AGV 显示与选车
+  3) 自动/手动调度触发
+  4) 任务创建（单段、多段、模板、JSON）
+  5) 队列显示、路径预览、算法对比
+  6) 故障面板、急停/恢复、报障
+  7) 多语言显示
+
+3. src/assets/agv-map.css
+- 地图、右侧控制栏、悬浮层、状态提示、路径图层等视觉样式。
+
+4. src/config/defaultData.js
+- 默认点位库与默认任务模板配置。
+- 说明：当前文件中的部分中文文本存在编码乱码，后续建议统一 UTF-8 清理。
+
+5. src/locales/
+- zh.js / ja.js / en.js：多语言词典。
+- index.js：词典出口。
+- 说明：zh/ja 目前有部分乱码键值，需继续做编码修复。
+
+6. src/composables/
+- useDispatchScheduler.js
+  自动调度与手动绑定调度轮询逻辑。
+
+- useLocalPersistence.js
+  本地持久化：面板展开、显示选项、模板、实验记录等 localStorage 管理。
+
+- useTemplatePointActions.js
+  点位/模板增删改、模板 JSON 导入导出、模板载入任务构建器。
+
+- usePanelCompareUi.js
+  右侧面板定位、搜索跳转、算法对比面板与悬浮窗联动。
+
+- useDataExportActions.js
+  实验数据与示例任务 JSON/CSV 导出。
+
+- useMapViewport.js
+  地图缩放、拖拽、小地图导航、面板宽度拖拽。
+
+- useTaskBuilderState.js
+  单段/多段任务构建器状态管理与地图选点流程控制。
+
+7. src/utils/
+- pathPreview.js
+  前端路径预览算法（simple/A*），用于悬停或对比展示。
+
+- taskChain.js
+  多段任务前端数据结构工具（阶段构造、默认链、起终点解析等）。
+
+- templateHelpers.js
+  模板标准化、签名去重、导入导出格式处理。
+
+- pointHelpers.js
+  自定义点位规范化与创建。
+
+- csv.js
+  CSV 文本拼装。
+
+- fileDownload.js
+  下载工具（JSON/CSV）。
+
+五、当前核心运行流程（简述）
+--------------------------
+1) 前端创建任务（单段/多段） -> /task/create
+2) 调度触发 -> /schedule/with_path
+3) 后端按算法生成 path_to_start + path_to_end
+4) 后端线程 move_agv 按路径推进 AGV 坐标
+5) 前端轮询 /agv/list + /task/list 刷新状态与路径展示
+6) 遇到不可达则任务进入 blocked，可改用 A* 重试
+7) 故障/急停事件可中断任务并进入 fault 流程
+
+六、运行入口与启动方式
+----------------------
+1) 推荐启动脚本：run_dev.bat
+- 自动启动 backend（uvicorn）
+- 自动启动 frontend（vite）
+- 自动尝试打开浏览器到 http://localhost:5173/
+
+2) 后端单独启动
+- 进入 backend，激活 venv
+- 执行：python -m uvicorn main:app --reload
+
+3) 前端单独启动
+- 进入 frontend/agv-frontend
+- 执行：npm run dev
+
+七、现阶段技术状态（供导师沟通）
+------------------------------
+1) 调度、路径规划、故障处理、地图交互已形成可演示闭环。
+2) 后端仍以内存数据为主，SQLAlchemy/MySQL 依赖已在 requirements 中预留，尚未完成实体持久化迁移。
+3) 前端已完成从超大单文件向 composables/utils/locales/config 拆分，但 App.vue 仍是主编排层，后续可继续组件化。
+4) 多语言体系已搭建，中文/日文词典存在局部编码问题，已识别为后续修复项。
+
+（文档生成时间：2026-03-13）

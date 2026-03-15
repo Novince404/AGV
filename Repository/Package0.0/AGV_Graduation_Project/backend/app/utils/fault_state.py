@@ -1,9 +1,13 @@
 from datetime import datetime
 
 from app.models.fault_event import FaultEvent
-
-
-fault_event_list: list[FaultEvent] = []
+from app.repositories.fault_repository import (
+    add_fault_event,
+    get_fault_event_by_id,
+    get_next_fault_event_id,
+    list_fault_events_store,
+    list_open_fault_events_for_agv,
+)
 
 
 def now_iso():
@@ -19,7 +23,7 @@ def create_fault_event(
     event_type: str = "fault",
     task_id: int | None = None,
 ):
-    next_id = max((event.id for event in fault_event_list), default=0) + 1
+    next_id = get_next_fault_event_id()
     event = FaultEvent(
         id=next_id,
         agv_id=agv_id,
@@ -32,29 +36,22 @@ def create_fault_event(
         reported_by=reported_by,
         task_id=task_id,
     )
-    fault_event_list.append(event)
-    return event
+    return add_fault_event(event)
 
 
 def list_fault_events(status: str | None = None):
-    events = fault_event_list
+    events = list_fault_events_store()
     if status in {"open", "resolved"}:
         events = [event for event in events if event.status == status]
     return sorted(events, key=lambda item: (item.reported_at, item.id), reverse=True)
 
 
 def get_fault_event(event_id: int):
-    return next((event for event in fault_event_list if event.id == event_id), None)
+    return get_fault_event_by_id(event_id)
 
 
 def get_open_fault_events_for_agv(agv_id: int, event_type: str | None = None):
-    return [
-        event
-        for event in fault_event_list
-        if event.agv_id == agv_id
-        and event.status == "open"
-        and (event_type is None or event.event_type == event_type)
-    ]
+    return list_open_fault_events_for_agv(agv_id, event_type)
 
 
 def resolve_fault_event(event_id: int):

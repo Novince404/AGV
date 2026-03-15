@@ -1,262 +1,41 @@
-from datetime import datetime
 from fastapi import APIRouter
-from pydantic import BaseModel
-from app.models.task import Task
-from app.api.agv_api import agv_list
-from app.utils.api_error import raise_api_error
-from app.utils.task_chain import build_stage_models, sync_task_stage_fields
-from app.utils.warehouse_map import DEFAULT_GRID_COLS, DEFAULT_GRID_ROWS, get_blocked_cells
+
+from app.schemas.task import TaskCreateRequest, TaskImportRequest
+from app.services import task_service
 
 
 router = APIRouter(prefix="/task", tags=["Task"])
 
 
-class TaskStagePayload(BaseModel):
-    start_x: int
-    start_y: int
-    end_x: int
-    end_y: int
-    label: str | None = None
-
-
-class TaskCreateRequest(BaseModel):
-    start_x: int | None = None
-    start_y: int | None = None
-    end_x: int | None = None
-    end_y: int | None = None
-    priority: int = 1
-    stages: list[TaskStagePayload] | None = None
-
-
-class TaskImportItem(BaseModel):
-    id: int | None = None
-    start_x: int | None = None
-    start_y: int | None = None
-    end_x: int | None = None
-    end_y: int | None = None
-    priority: int = 1
-    stages: list[TaskStagePayload] | None = None
-
-
-class TaskImportRequest(BaseModel):
-    tasks: list[TaskImportItem]
-
-
-def now_iso():
-    return datetime.now().isoformat(timespec="seconds")
-
-
-def _is_valid_grid_coordinate(value: int, max_value: int):
-    return isinstance(value, int) and 0 <= value < max_value
-
-
-def _validate_task_stages(stages, grid_cols: int = DEFAULT_GRID_COLS, grid_rows: int = DEFAULT_GRID_ROWS):
-    blocked = get_blocked_cells(grid_cols, grid_rows)
-
-    for index, stage in enumerate(stages):
-        points = (
-            (stage.start_x, stage.start_y, "start"),
-            (stage.end_x, stage.end_y, "end"),
-        )
-        for x, y, point_type in points:
-            if not _is_valid_grid_coordinate(x, grid_cols) or not _is_valid_grid_coordinate(y, grid_rows):
-                raise_api_error(
-                    400,
-                    "stage_out_of_grid",
-                    stage_index=index + 1,
-                    point_type=point_type,
-                )
-            if (x, y) in blocked:
-                raise_api_error(
-                    400,
-                    "stage_blocked",
-                    stage_index=index + 1,
-                    point_type=point_type,
-                )
-
-
-def serialize_task_for_json(task: Task):
-    payload = {
-        "id": task.id,
-        "start_x": task.overall_start_x if task.overall_start_x is not None else task.start_x,
-        "start_y": task.overall_start_y if task.overall_start_y is not None else task.start_y,
-        "end_x": task.overall_end_x if task.overall_end_x is not None else task.end_x,
-        "end_y": task.overall_end_y if task.overall_end_y is not None else task.end_y,
-        "priority": task.priority,
-    }
-
-    if task.stages and len(task.stages) > 1:
-        payload["stages"] = [
-            {
-                "label": stage.label,
-                "start_x": stage.start_x,
-                "start_y": stage.start_y,
-                "end_x": stage.end_x,
-                "end_y": stage.end_y,
-            }
-            for stage in task.stages
-        ]
-
-    return payload
-
-
-def build_task_stages(item: TaskCreateRequest | TaskImportItem):
-    if item.stages:
-        stages = build_stage_models(item.stages)
-        _validate_task_stages(stages)
-        return stages
-
-    if None in {item.start_x, item.start_y, item.end_x, item.end_y}:
-        raise_api_error(400, "task_coordinates_required")
-
-    stages = build_stage_models(
-        [
-            TaskStagePayload(
-                start_x=item.start_x,
-                start_y=item.start_y,
-                end_x=item.end_x,
-                end_y=item.end_y,
-            )
-        ]
-    )
-    _validate_task_stages(stages)
-    return stages
-
-
-task_list = [
-    Task(
-        id=1,
-        start_x=1,
-        start_y=1,
-        end_x=5,
-        end_y=5,
-        priority=3,
-        status="pending",
-        created_at=now_iso(),
-    ),
-    Task(
-        id=2,
-        start_x=2,
-        start_y=3,
-        end_x=6,
-        end_y=2,
-        priority=2,
-        status="pending",
-        created_at=now_iso(),
-    ),
-]
+# Keep compatibility for modules importing task_list from api.task_api.
+task_list = task_service.task_list
 
 
 @router.get("/list")
 def get_tasks():
-    return task_list
+    return task_service.get_tasks()
 
 
 @router.post("/create")
 def create_task(req: TaskCreateRequest):
-    next_id = max((t.id for t in task_list), default=0) + 1
-    stages = build_task_stages(req)
-    first_stage = stages[0]
-    last_stage = stages[-1]
-    task = Task(
-        id=next_id,
-        start_x=first_stage.start_x,
-        start_y=first_stage.start_y,
-        end_x=first_stage.end_x,
-        end_y=first_stage.end_y,
-        priority=req.priority,
-        status="pending",
-        created_at=now_iso(),
-        current_stage_index=0,
-        total_stages=len(stages),
-        overall_start_x=first_stage.start_x,
-        overall_start_y=first_stage.start_y,
-        overall_end_x=last_stage.end_x,
-        overall_end_y=last_stage.end_y,
-        stages=stages,
-    )
-    sync_task_stage_fields(task)
-    task_list.append(task)
-    return {"message": "Task created", "task": task}
+    return task_service.create_task(req)
 
 
 @router.post("/finish/{task_id}")
 def finish_task(task_id: int):
-    task = next((t for t in task_list if t.id == task_id), None)
-    if not task:
-        raise_api_error(404, "task_not_found")
-
-    if task.status != "running":
-        raise_api_error(400, "task_not_running")
-
-    agv = next((a for a in agv_list if a.id == task.agv_id), None)
-    if not agv:
-        raise_api_error(404, "related_agv_not_found")
-
-    task.status = "finished"
-    task.finished_at = now_iso()
-    agv.status = "idle"
-    agv.task_id = None
-
-    return {"message": "Task finished", "task": task, "agv": agv}
+    return task_service.finish_task(task_id)
 
 
 @router.post("/import_json")
 def import_tasks(req: TaskImportRequest):
-    existing_ids = {t.id for t in task_list}
-    next_id = max(existing_ids, default=0) + 1
-    created_ids = []
-
-    for item in req.tasks:
-        task_id = item.id
-        if task_id is None or task_id in existing_ids or task_id < 1:
-            task_id = next_id
-            next_id += 1
-        existing_ids.add(task_id)
-        stages = build_task_stages(item)
-        first_stage = stages[0]
-        last_stage = stages[-1]
-
-        task = Task(
-            id=task_id,
-            start_x=first_stage.start_x,
-            start_y=first_stage.start_y,
-            end_x=first_stage.end_x,
-            end_y=first_stage.end_y,
-            priority=item.priority,
-            status="pending",
-            created_at=now_iso(),
-            current_stage_index=0,
-            total_stages=len(stages),
-            overall_start_x=first_stage.start_x,
-            overall_start_y=first_stage.start_y,
-            overall_end_x=last_stage.end_x,
-            overall_end_y=last_stage.end_y,
-            stages=stages,
-        )
-        sync_task_stage_fields(task)
-        task_list.append(task)
-        created_ids.append(task_id)
-
-    return {"message": "Tasks imported", "count": len(created_ids), "task_ids": created_ids}
+    return task_service.import_tasks(req.tasks)
 
 
 @router.get("/export_json")
 def export_tasks():
-    return {
-        "version": 2,
-        "exported_at": now_iso(),
-        "tasks": [serialize_task_for_json(task) for task in task_list],
-    }
+    return task_service.export_tasks()
 
 
 @router.delete("/{task_id}")
 def delete_task(task_id: int):
-    task = next((t for t in task_list if t.id == task_id), None)
-    if not task:
-        raise_api_error(404, "task_not_found")
-    if task.status not in {"pending", "blocked"}:
-        raise_api_error(400, "task_delete_not_allowed")
-
-    task_list.remove(task)
-    return {"message": "Task deleted", "task_id": task_id}
+    return task_service.delete_task(task_id)

@@ -106,6 +106,7 @@ def mark_task_pending(task: Task):
     task.agv_id = None
     task.assigned_at = None
     task.dispatch_distance = None
+    task.cell_wait_retry_count = 0
     task.dispatch_reason = None
     clear_task_paths(task)
     return task
@@ -116,6 +117,7 @@ def mark_task_blocked(task: Task, reason: str, algorithm: str | None = None):
     task.agv_id = None
     task.assigned_at = None
     task.dispatch_distance = None
+    task.cell_wait_retry_count = 0
     if algorithm is not None:
         task.dispatch_algorithm = algorithm
     task.dispatch_reason = reason
