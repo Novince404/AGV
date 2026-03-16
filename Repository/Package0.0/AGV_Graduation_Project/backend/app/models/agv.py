@@ -1,6 +1,7 @@
-from pydantic import BaseModel
+from app.models.tracked_model import TrackedModel
 
-class AGV(BaseModel):
+
+class AGV(TrackedModel):
     id: int
     x: int
     y: int

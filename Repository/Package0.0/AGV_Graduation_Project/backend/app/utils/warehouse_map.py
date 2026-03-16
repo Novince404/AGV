@@ -1,4 +1,10 @@
-﻿DEFAULT_GRID_COLS = 10
+from __future__ import annotations
+
+from app.repositories.map_repository import get_layout_state as get_runtime_layout_state
+from app.repositories.map_repository import set_layout_state as persist_runtime_layout_state
+
+
+DEFAULT_GRID_COLS = 10
 DEFAULT_GRID_ROWS = 8
 
 # Fixed shelf layout for the current warehouse demo map.
@@ -91,8 +97,6 @@ DEFAULT_MAP_PRESETS = {
     },
 }
 
-CURRENT_BLOCKED_CELLS = set(DEFAULT_BLOCKED_CELLS)
-
 
 def _normalize_cells(cells, grid_cols: int, grid_rows: int) -> set[tuple[int, int]]:
     normalized = set()
@@ -109,8 +113,22 @@ def get_default_blocked_cells(
     return _normalize_cells(DEFAULT_BLOCKED_CELLS, grid_cols, grid_rows)
 
 
+def get_map_layout_state() -> dict[str, object]:
+    return get_runtime_layout_state(
+        DEFAULT_GRID_COLS,
+        DEFAULT_GRID_ROWS,
+        get_default_blocked_cells(),
+    )
+
+
+def get_current_grid_size() -> tuple[int, int]:
+    state = get_map_layout_state()
+    return int(state["grid_cols"]), int(state["grid_rows"])
+
+
 def get_blocked_cells(grid_cols: int = DEFAULT_GRID_COLS, grid_rows: int = DEFAULT_GRID_ROWS) -> set[tuple[int, int]]:
-    return _normalize_cells(CURRENT_BLOCKED_CELLS, grid_cols, grid_rows)
+    state = get_map_layout_state()
+    return _normalize_cells(state["blocked_cells"], grid_cols, grid_rows)
 
 
 def set_blocked_cells(
@@ -118,9 +136,16 @@ def set_blocked_cells(
     grid_cols: int = DEFAULT_GRID_COLS,
     grid_rows: int = DEFAULT_GRID_ROWS,
 ) -> set[tuple[int, int]]:
-    global CURRENT_BLOCKED_CELLS
-    CURRENT_BLOCKED_CELLS = _normalize_cells(cells, grid_cols, grid_rows)
-    return get_blocked_cells(grid_cols, grid_rows)
+    normalized = _normalize_cells(cells, grid_cols, grid_rows)
+    updated = persist_runtime_layout_state(
+        normalized,
+        grid_cols,
+        grid_rows,
+        DEFAULT_GRID_COLS,
+        DEFAULT_GRID_ROWS,
+        get_default_blocked_cells(),
+    )
+    return _normalize_cells(updated["blocked_cells"], grid_cols, grid_rows)
 
 
 def reset_blocked_cells(

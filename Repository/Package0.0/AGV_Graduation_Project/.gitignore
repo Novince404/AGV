@@ -8,6 +8,6 @@ backend/venv/
 
 frontend/agv-frontend/node_modules/
 frontend/agv-frontend/dist/
+backend/*.db
 
 .DS_Store
-

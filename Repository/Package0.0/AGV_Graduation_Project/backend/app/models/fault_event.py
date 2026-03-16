@@ -1,7 +1,7 @@
-from pydantic import BaseModel
+from app.models.tracked_model import TrackedModel
 
 
-class FaultEvent(BaseModel):
+class FaultEvent(TrackedModel):
     id: int
     agv_id: int
     fault_type: str

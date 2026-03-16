@@ -1,7 +1,7 @@
-from pydantic import BaseModel
+from app.models.tracked_model import TrackedModel
 
 
-class TaskStage(BaseModel):
+class TaskStage(TrackedModel):
     index: int
     start_x: int
     start_y: int
@@ -16,7 +16,7 @@ class TaskStage(BaseModel):
     finished_at: str | None = None
 
 
-class Task(BaseModel):
+class Task(TrackedModel):
     id: int
     start_x: int
     start_y: int
@@ -49,3 +49,20 @@ class Task(BaseModel):
     overall_end_x: int | None = None
     overall_end_y: int | None = None
     stages: list[TaskStage] | None = None
+
+    def bind_on_change(self, callback):
+        super().bind_on_change(callback)
+        self._bind_stage_callbacks()
+        return self
+
+    def _bind_stage_callbacks(self):
+        if not self.stages:
+            return
+        for stage in self.stages:
+            if hasattr(stage, "bind_on_change"):
+                stage.bind_on_change(self._notify_change)
+
+    def __setattr__(self, name, value):
+        super().__setattr__(name, value)
+        if name == "stages":
+            self._bind_stage_callbacks()

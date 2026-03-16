@@ -1,5 +1,30 @@
 # Changelog
 
+## v1.6.0 - 2026-03-16
+
+### Added
+- Added tracked backend models so SQL-backed AGV, task, task-stage, and fault-event objects can persist mutation-heavy runtime changes during the A3 transition.
+- Added map-layout repository facade plus `memory/sql` map stores for blocked-cell and grid-size persistence preparation.
+- Added point-library and task-template backend models, repositories, services, schemas, and API endpoints:
+  - `GET /point/list`
+  - `POST /point/upsert`
+  - `DELETE /point/{point_id}`
+  - `GET /template/list`
+  - `POST /template/upsert`
+  - `DELETE /template/{template_id}`
+- Added `run_sqlite_dev.bat` for one-click local SQLite validation alongside the normal dev startup flow.
+
+### Improved
+- Improved SQL repository adapters so AGV, task, fault, map, point, and template storage now use real ORM-backed cache/persist logic instead of temporary pure-memory proxy stubs.
+- Improved warehouse-map runtime handling so layout state now flows through repository facades instead of only module-level blocked-cell globals.
+- Improved database documentation and environment templates for switching between `memory`, `sqlite`, and `mysql` modes during A3 validation.
+- Improved default backend seed data so point-library and task-template structures are ready for later frontend-to-backend migration.
+
+### Fixed
+- Fixed SQL-mode persistence gaps where runtime object field mutations could be lost without an explicit save path.
+- Fixed map-layout persistence preparation so blocked-cell updates and resets can be validated under SQLite-backed execution.
+- Fixed A3 backend extension gaps by wiring point/template routes into `backend/main.py` and keeping default memory behavior compatible.
+
 ## v1.5.0 - 2026-03-15
 
 ### Added
