@@ -5,6 +5,7 @@ import { LOCALE_TEXTS } from './locales'
 import { DEFAULT_POINT_LIBRARY, DEFAULT_TASK_TEMPLATES } from './config/defaultData'
 import { useDispatchScheduler } from './composables/useDispatchScheduler'
 import { useLocalPersistence } from './composables/useLocalPersistence'
+import { usePointTemplateBackend } from './composables/usePointTemplateBackend'
 import { useTemplatePointActions } from './composables/useTemplatePointActions'
 import { usePanelCompareUi } from './composables/usePanelCompareUi'
 import { useDataExportActions } from './composables/useDataExportActions'
@@ -120,8 +121,12 @@ const customPointForm = ref({
 })
 
 const pointSearch = ref('')
+const builtinPoints = ref([...DEFAULT_POINT_LIBRARY])
+const builtinTemplates = ref([...DEFAULT_TASK_TEMPLATES])
 const customPoints = ref([])
 const customTaskTemplates = ref([])
+const pointsLoadedFromApi = ref(false)
+const templatesLoadedFromApi = ref(false)
 const pointFormStatus = ref('')
 const pointFormStatusType = ref('info')
 const taskTemplateStatus = ref('')
@@ -415,8 +420,8 @@ const minimapViewportStyle = computed(() => {
     height: `${visibleHeight * scale}px`
   }
 })
-const pointLibrary = computed(() => [...DEFAULT_POINT_LIBRARY, ...customPoints.value])
-const taskTemplates = computed(() => [...DEFAULT_TASK_TEMPLATES, ...customTaskTemplates.value])
+const pointLibrary = computed(() => [...builtinPoints.value, ...customPoints.value])
+const taskTemplates = computed(() => [...builtinTemplates.value, ...customTaskTemplates.value])
 const currentDispatchModeLabel = computed(() =>
   dispatchMode.value === 'auto' ? panelLocale.value.modeAuto : panelLocale.value.modeManual
 )
@@ -635,12 +640,12 @@ const {
 
 const autoDraftMarkerDisplayActive = computed(() => {
   if (dispatchMode.value !== 'auto') return false
-  if (taskBuilderMode.value === 'chain') return taskChainMapPickActive.value
+  if (taskBuilderMode.value === 'chain' && taskChainMapPickActive.value) return true
   return mapDraftPrimedMode.value === 'auto' || autoDraftPicking.value
 })
 const manualDraftMarkerDisplayActive = computed(() => {
   if (dispatchMode.value !== 'manual') return false
-  if (taskBuilderMode.value === 'chain') return taskChainMapPickActive.value
+  if (taskBuilderMode.value === 'chain' && taskChainMapPickActive.value) return true
   return mapDraftPrimedMode.value === 'manual' || manualDraftPicking.value || manualDispatchStep.value === 'awaiting_end'
 })
 const manualDraftDisplayEndMarker = computed(() => {
@@ -1605,6 +1610,48 @@ function buildTemplateExportPayload() {
   })
 }
 
+async function hydratePointTemplateBackend() {
+  const legacyCustomPoints = [...customPoints.value]
+  const legacyCustomTemplates = [...customTaskTemplates.value]
+
+  const pointsOk = await fetchPointLibraryFromBackend()
+  if (pointsOk) {
+    await syncLegacyCustomPointsToBackend(legacyCustomPoints)
+  }
+
+  const templatesOk = await fetchTaskTemplatesFromBackend()
+  if (templatesOk) {
+    await syncLegacyCustomTemplatesToBackend(legacyCustomTemplates)
+  }
+}
+
+const {
+  fetchPointLibraryFromBackend,
+  fetchTaskTemplatesFromBackend,
+  savePointToBackend,
+  deletePointFromBackend,
+  saveTemplateToBackend,
+  saveTemplatesBatchToBackend,
+  deleteTemplateFromBackend,
+  syncLegacyCustomPointsToBackend,
+  syncLegacyCustomTemplatesToBackend
+} = usePointTemplateBackend({
+  API_BASE,
+  GRID_COLS,
+  GRID_ROWS,
+  defaultPoints: DEFAULT_POINT_LIBRARY,
+  defaultTemplates: DEFAULT_TASK_TEMPLATES,
+  builtinPoints,
+  builtinTemplates,
+  pointsLoadedFromApi,
+  templatesLoadedFromApi,
+  customPoints,
+  customTaskTemplates,
+  normalizeTemplateStages,
+  isValidGridCoordinate,
+  createApiError
+})
+
 const {
   applyPointToTaskForm,
   addCustomPoint,
@@ -1650,6 +1697,11 @@ const {
   isValidGridCoordinate,
   createTaskChainStage,
   buildCustomPoint,
+  savePointToBackend,
+  deletePointFromBackend,
+  saveTemplateToBackend,
+  saveTemplatesBatchToBackend,
+  deleteTemplateFromBackend,
   syncManualDispatchBuilderState,
   hideTaskBuilderJumpButton,
   showTaskBuilderJumpButton,
@@ -3897,6 +3949,7 @@ watch(
 onMounted(() => {
   loadCustomPoints()
   loadTaskTemplates()
+  void hydratePointTemplateBackend()
   loadExperimentRecords()
   loadMapDisplaySettings()
   loadPanelSections()

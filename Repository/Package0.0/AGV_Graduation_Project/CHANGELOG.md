@@ -1,5 +1,23 @@
 # Changelog
 
+## v2.0.0-beta.1 - 2026-03-17
+
+### Added
+- Added backend `.env` loading support so database mode and connection settings can be managed from `backend/.env`.
+- Added `run_mysql_check.bat` and `run_mysql_dev.bat` for one-click MySQL validation and startup.
+- Added `backend/scripts/mysql_config_check.py` and `backend/scripts/sqlite_smoke_check.py` for database-mode self-checks.
+- Added `frontend/agv-frontend/src/composables/usePointTemplateBackend.js` to connect point-library and template flows to backend APIs.
+
+### Improved
+- Improved frontend point/template persistence so backend APIs are preferred while local fallback and legacy localStorage migration remain available.
+- Improved developer startup scripts so `run_dev.bat` follows `backend/.env`, while dedicated SQLite/MySQL launchers are available for A3 testing.
+- Improved database documentation and environment examples for `memory`, `sqlite`, and `mysql` workflows.
+
+### Fixed
+- Fixed MySQL mode startup preparation by documenting and requiring `cryptography` for current authentication methods.
+- Fixed SQL persistence timing so assigned tasks and AGV bindings are written as one complete state instead of partial snapshots.
+- Fixed automatic draft-marker display conditions while preparing repeated map-based task creation during active runtime.
+
 ## v1.6.0 - 2026-03-16
 
 ### Added

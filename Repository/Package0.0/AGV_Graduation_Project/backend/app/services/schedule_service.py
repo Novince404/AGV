@@ -502,32 +502,41 @@ def _schedule_task(
         task.dispatch_reason = f"task_route_unreachable:{task_algorithm}"
         raise_api_error(400, "task_route_unreachable", algorithm=task_algorithm)
 
-    task.status = "assigned"
-    task.agv_id = agv.id
-    task.preferred_agv_id = agv.id if schedule_mode == "manual" else None
-    if schedule_mode == "manual" and task.dispatch_origin_x is None and task.dispatch_origin_y is None:
-        task.dispatch_origin_x = agv.x
-        task.dispatch_origin_y = agv.y
-    task.assigned_at = now_iso()
+    task.suspend_change_notifications()
+    agv.suspend_change_notifications()
+    try:
+        task.status = "assigned"
+        task.agv_id = agv.id
+        task.preferred_agv_id = agv.id if schedule_mode == "manual" else None
+        if schedule_mode == "manual" and task.dispatch_origin_x is None and task.dispatch_origin_y is None:
+            task.dispatch_origin_x = agv.x
+            task.dispatch_origin_y = agv.y
+        task.assigned_at = now_iso()
 
-    agv.task_id = task.id
-    set_stage_paths(task, path_to_start, path_to_end)
-    task.dispatch_mode = schedule_mode
-    task.dispatch_distance = dispatch_distance
-    task.dispatch_algorithm = task_algorithm
-    task.cell_wait_retry_count = 0
-    task.dispatch_reason = (
-        f"mode={schedule_mode}, priority={task.priority}, distance={dispatch_distance}, agv={agv.id}, algorithm={task_algorithm}, stage={task.current_stage_index + 1}/{task.total_stages}"
-    )
+        agv.task_id = task.id
+        set_stage_paths(task, path_to_start, path_to_end)
+        task.dispatch_mode = schedule_mode
+        task.dispatch_distance = dispatch_distance
+        task.dispatch_algorithm = task_algorithm
+        task.cell_wait_retry_count = 0
+        task.dispatch_reason = (
+            f"mode={schedule_mode}, priority={task.priority}, distance={dispatch_distance}, agv={agv.id}, algorithm={task_algorithm}, stage={task.current_stage_index + 1}/{task.total_stages}"
+        )
 
-    if len(path_to_start) > 1:
-        agv.status = "relocating"
-    else:
-        agv.status = "running"
-        task.status = "running"
-        task.started_at = now_iso()
-        if stage.started_at is None:
-            stage.started_at = task.started_at
+        if len(path_to_start) > 1:
+            agv.status = "relocating"
+        else:
+            agv.status = "running"
+            task.status = "running"
+            task.started_at = now_iso()
+            if stage.started_at is None:
+                stage.started_at = task.started_at
+    finally:
+        task.resume_change_notifications()
+        agv.resume_change_notifications()
+
+    task.notify_change()
+    agv.notify_change()
 
     move_agv(agv.id, task.id, task_algorithm, grid_cols, grid_rows)
 

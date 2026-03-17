@@ -29,6 +29,11 @@ export function useTemplatePointActions(options) {
     isValidGridCoordinate,
     createTaskChainStage,
     buildCustomPoint,
+    savePointToBackend,
+    deletePointFromBackend,
+    saveTemplateToBackend,
+    saveTemplatesBatchToBackend,
+    deleteTemplateFromBackend,
     syncManualDispatchBuilderState,
     hideTaskBuilderJumpButton,
     showTaskBuilderJumpButton,
@@ -72,7 +77,7 @@ export function useTemplatePointActions(options) {
     templateJsonStatus.value = message
   }
 
-  function addCustomPoint() {
+  async function addCustomPoint() {
     const name = customPointForm.value.name.trim()
     const zone = customPointForm.value.zone.trim()
     const x = Number(customPointForm.value.x)
@@ -88,18 +93,25 @@ export function useTemplatePointActions(options) {
       return
     }
 
-    customPoints.value = [...customPoints.value, buildCustomPoint({ name, zone, x, y })]
+    const point = buildCustomPoint({ name, zone, x, y })
+    const handledByBackend = savePointToBackend ? await savePointToBackend(point) : false
+    if (!handledByBackend) {
+      customPoints.value = [...customPoints.value, point]
+    }
 
     resetCustomPointForm()
     setPointFormStatus('success', t('point_form_saved'))
   }
 
-  function deleteCustomPoint(point) {
+  async function deleteCustomPoint(point) {
     if (!point.custom) return
     const ok = window.confirm(t('confirm_delete_point'))
     if (!ok) return
 
-    customPoints.value = customPoints.value.filter(item => item.id !== point.id)
+    const handledByBackend = deletePointFromBackend ? await deletePointFromBackend(point.id) : false
+    if (!handledByBackend) {
+      customPoints.value = customPoints.value.filter(item => item.id !== point.id)
+    }
     setPointFormStatus('success', t('point_form_deleted'))
   }
 
@@ -150,7 +162,7 @@ export function useTemplatePointActions(options) {
     void applyTaskTemplate(template, { focus: true })
   }
 
-  function saveCurrentTaskAsTemplate() {
+  async function saveCurrentTaskAsTemplate() {
     const name = taskTemplateForm.value.name.trim()
     if (!name) {
       setTaskTemplateStatus('error', t('template_form_invalid_name'))
@@ -175,13 +187,16 @@ export function useTemplatePointActions(options) {
       return
     }
 
-    customTaskTemplates.value = [...customTaskTemplates.value, template]
+    const handledByBackend = saveTemplateToBackend ? await saveTemplateToBackend(template) : false
+    if (!handledByBackend) {
+      customTaskTemplates.value = [...customTaskTemplates.value, template]
+    }
     taskTemplateForm.value.name = ''
     hideTaskBuilderJumpButton()
     setTaskTemplateStatus('success', t('template_form_saved'))
   }
 
-  function saveCurrentTaskChainAsTemplate() {
+  async function saveCurrentTaskChainAsTemplate() {
     const name = taskTemplateForm.value.name.trim()
     if (!name) {
       setTaskTemplateStatus('error', t('template_form_invalid_name'))
@@ -199,18 +214,24 @@ export function useTemplatePointActions(options) {
       return
     }
 
-    customTaskTemplates.value = [...customTaskTemplates.value, template]
+    const handledByBackend = saveTemplateToBackend ? await saveTemplateToBackend(template) : false
+    if (!handledByBackend) {
+      customTaskTemplates.value = [...customTaskTemplates.value, template]
+    }
     taskTemplateForm.value.name = ''
     hideTaskBuilderJumpButton()
     setTaskTemplateStatus('success', t('template_form_saved'))
   }
 
-  function deleteTaskTemplate(template) {
+  async function deleteTaskTemplate(template) {
     if (!template.custom) return
     const ok = window.confirm(t('confirm_delete_template'))
     if (!ok) return
 
-    customTaskTemplates.value = customTaskTemplates.value.filter(item => item.id !== template.id)
+    const handledByBackend = deleteTemplateFromBackend ? await deleteTemplateFromBackend(template.id) : false
+    if (!handledByBackend) {
+      customTaskTemplates.value = customTaskTemplates.value.filter(item => item.id !== template.id)
+    }
     hideTaskBuilderJumpButton()
     setTaskTemplateStatus('success', t('template_form_deleted'))
   }
@@ -233,7 +254,7 @@ export function useTemplatePointActions(options) {
     setTemplateJsonStatus('info', '')
   }
 
-  function importTaskTemplatesFromRaw(rawText) {
+  async function importTaskTemplatesFromRaw(rawText) {
     if (!rawText.trim()) return
     setTemplateJsonStatus('info', '')
 
@@ -282,7 +303,10 @@ export function useTemplatePointActions(options) {
       return
     }
 
-    customTaskTemplates.value = [...customTaskTemplates.value, ...imported]
+    const handledByBackend = saveTemplatesBatchToBackend ? await saveTemplatesBatchToBackend(imported) : false
+    if (!handledByBackend) {
+      customTaskTemplates.value = [...customTaskTemplates.value, ...imported]
+    }
     setTemplateJsonStatus(
       'success',
       formatTemplateJsonSummary(templateJsonLocale.value.importOk, imported.length, skipped)
@@ -290,7 +314,7 @@ export function useTemplatePointActions(options) {
   }
 
   function importTaskTemplatesFromJson() {
-    importTaskTemplatesFromRaw(templateJsonText.value)
+    void importTaskTemplatesFromRaw(templateJsonText.value)
   }
 
   function downloadTemplateJsonFile() {
@@ -331,7 +355,7 @@ export function useTemplatePointActions(options) {
     try {
       const text = await file.text()
       templateJsonText.value = text
-      importTaskTemplatesFromRaw(text)
+      await importTaskTemplatesFromRaw(text)
     } catch (error) {
       console.error('Read template json file error:', error)
       setTemplateJsonStatus('error', templateJsonLocale.value.importFail)

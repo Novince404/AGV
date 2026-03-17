@@ -27,6 +27,9 @@ class TrackedModel(BaseModel):
         if self._change_notifications_enabled and self._on_change:
             self._on_change()
 
+    def notify_change(self):
+        self._notify_change()
+
     def __setattr__(self, name, value):
         if name.startswith("_"):
             super().__setattr__(name, value)
