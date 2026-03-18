@@ -186,12 +186,32 @@ def get_map_presets_payload(
     for key, preset in DEFAULT_MAP_PRESETS.items():
         cells = _normalize_cells(preset["cells"], grid_cols, grid_rows)
         payload.append(
-            {
-                "key": key,
-                "name": preset["name"],
-                "description": preset["description"],
-                "blocked_count": len(cells),
-                "blocked_cells": [{"x": x, "y": y} for x, y in sorted(cells)],
-            }
+            build_map_preset_payload(
+                key=key,
+                name=preset["name"],
+                description=preset["description"],
+                cells=cells,
+                custom=False,
+                deletable=False,
+            )
         )
     return payload
+
+
+def build_map_preset_payload(
+    key: str,
+    name,
+    description,
+    cells: set[tuple[int, int]],
+    custom: bool,
+    deletable: bool,
+) -> dict:
+    return {
+        "key": key,
+        "name": name,
+        "description": description,
+        "blocked_count": len(cells),
+        "blocked_cells": [{"x": x, "y": y} for x, y in sorted(cells)],
+        "custom": custom,
+        "deletable": deletable,
+    }

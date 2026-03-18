@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.schemas.status import MapLayoutUpdateRequest
+from app.schemas.status import MapLayoutUpdateRequest, MapPresetCreateRequest
 from app.services import status_service
 
 
@@ -35,6 +35,16 @@ def update_map_layout(req: MapLayoutUpdateRequest):
 @router.post("/map/preset/{preset_key}")
 def apply_map_layout_preset(preset_key: str):
     return status_service.apply_map_layout_preset(preset_key)
+
+
+@router.post("/map/preset")
+def save_map_layout_preset(req: MapPresetCreateRequest):
+    return status_service.save_map_layout_preset(req)
+
+
+@router.delete("/map/preset/{preset_key}")
+def delete_map_layout_preset(preset_key: str):
+    return status_service.delete_map_layout_preset(preset_key)
 
 
 @router.post("/map/reset")

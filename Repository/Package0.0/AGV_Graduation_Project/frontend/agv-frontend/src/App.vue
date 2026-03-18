@@ -175,6 +175,7 @@ const panelSections = ref({
   experiments: false
 })
 const queueGroupsCollapsed = ref(buildDefaultQueueGroupState())
+const taskQueueViewFilter = ref('all')
 const taskCardCollapsed = ref({})
 const summaryZoomArmed = ref(false)
 
@@ -384,6 +385,7 @@ const selectedObstaclePresetInfo = computed(
 const appliedObstaclePresetInfo = computed(
   () => obstaclePresets.value.find(preset => preset.key === appliedObstacleSceneKey.value) ?? null
 )
+const selectedObstaclePresetDeletable = computed(() => Boolean(selectedObstaclePresetInfo.value?.deletable))
 const syncedBlockedCellSet = computed(
   () => new Set(syncedBlockedCells.value.map(cell => `${cell.x},${cell.y}`))
 )
@@ -1172,12 +1174,32 @@ const taskGroups = computed(() => {
 
   return groups.map(group => ({
     ...group,
-    tasks: sortTasks(tasks.value.filter(task => task.status === group.key), group.key)
+    tasks: sortTasks(
+      tasks.value.filter(task => task.status === group.key && taskMatchesQueueFilter(task)),
+      group.key
+    )
   }))
 })
 
+const orphanedTaskCount = computed(() => tasks.value.filter(task => isTaskOrphaned(task)).length)
+
 function isBlockedCell(x, y) {
   return blockedCellSet.value.has(blockedCellKey(x, y))
+}
+
+function isTaskOrphaned(task) {
+  if (!task || !['assigned', 'running'].includes(task.status)) return false
+  const relatedAgv =
+    (task.agv_id ? agvs.value.find(agv => agv.id === task.agv_id) : null) ??
+    agvs.value.find(agv => agv.task_id === task.id)
+  return !relatedAgv
+}
+
+function taskMatchesQueueFilter(task) {
+  if (taskQueueViewFilter.value === 'orphaned') {
+    return isTaskOrphaned(task)
+  }
+  return true
 }
 
 function formatCompareStageLengths(result) {
@@ -1895,12 +1917,14 @@ function syncDisplayedPathsFromTasks() {
   } else {
     const shouldHoldManualPreview =
       Boolean(trackedManualTaskId.value) && manualPreviewMinVisibleUntil.value > Date.now()
+    const shouldHoldAutoDraft =
+      dispatchMode.value === 'auto' &&
+      (autoDraftPicking.value || taskChainMapPickActive.value || mapDraftPrimedMode.value === 'auto')
     if (!shouldHoldManualPreview) {
       clearManualPaths()
       if (
         dispatchMode.value === 'auto' &&
-        !taskChainMapPickActive.value &&
-        !(taskBuilderMode.value === 'single' && Boolean(startPoint.value) && !endPoint.value) &&
+        !shouldHoldAutoDraft &&
         !manualDisplayTask.value
       ) {
         startPoint.value = null
@@ -2452,8 +2476,9 @@ function onGlobalMouseUp() {
 }
 
 async function deleteTask(task) {
-  if (!['pending', 'blocked'].includes(task.status)) return
-  const ok = window.confirm(t('confirm_delete_task'))
+  if (!isTaskDeletable(task)) return
+  const confirmText = isTaskActiveAndBound(task) ? t('confirm_delete_active_task') : t('confirm_delete_task')
+  const ok = window.confirm(confirmText)
   if (!ok) return
 
   try {
@@ -2467,9 +2492,106 @@ async function deleteTask(task) {
     if (previewTaskId.value === task.id) {
       clearPreview()
     }
-    await fetchTasks()
+    await Promise.all([fetchTasks(), fetchAgvs()])
+    showFloatingToast(t('task_deleted_ok'), 'success')
   } catch (error) {
     console.error('Delete task error:', error)
+    showFloatingToast(error?.message || t('task_delete_failed'), 'error')
+  }
+}
+
+function isTaskDeletable(task) {
+  return Boolean(task)
+}
+
+function isTaskActiveAndBound(task) {
+  if (!task || !['assigned', 'running'].includes(task.status)) return false
+  const relatedAgv =
+    (task.agv_id ? agvs.value.find(agv => agv.id === task.agv_id) : null) ??
+    agvs.value.find(agv => agv.task_id === task.id)
+  return Boolean(relatedAgv)
+}
+
+function buildTaskExportFilename(prefix) {
+  const timestamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')
+  return `${prefix}-${timestamp}.json`
+}
+
+async function exportFinishedTasksToJson() {
+  const finishedCount = tasks.value.filter(task => task.status === 'finished').length
+  if (finishedCount === 0) {
+    showFloatingToast(t('queue_no_finished_tasks'), 'info')
+    return
+  }
+
+  try {
+    const res = await fetch(`${API_BASE}/task/export_json?status=finished`)
+    const data = await res.json()
+    if (!res.ok) {
+      throw createApiError(data, 'Finished task export failed')
+    }
+    downloadJsonFile(buildTaskExportFilename('agv-finished-tasks'), JSON.stringify(data, null, 2))
+    showFloatingToast(t('finished_tasks_exported'), 'success')
+  } catch (error) {
+    console.error('Export finished tasks error:', error)
+    showFloatingToast(error?.message || t('task_export_failed'), 'error')
+  }
+}
+
+async function deleteFinishedTasks() {
+  const finishedCount = tasks.value.filter(task => task.status === 'finished').length
+  if (finishedCount === 0) {
+    showFloatingToast(t('queue_no_finished_tasks'), 'info')
+    return
+  }
+  if (!window.confirm(t('confirm_delete_finished_tasks'))) {
+    return
+  }
+
+  try {
+    const res = await fetch(`${API_BASE}/task/finished`, {
+      method: 'DELETE'
+    })
+    const data = await res.json()
+    if (!res.ok) {
+      throw createApiError(data, 'Delete finished tasks failed')
+    }
+    if (previewTaskId.value && !tasks.value.some(task => task.id === previewTaskId.value && task.status !== 'finished')) {
+      clearPreview()
+    }
+    await fetchTasks()
+    showFloatingToast(t('finished_tasks_deleted'), 'success')
+  } catch (error) {
+    console.error('Delete finished tasks error:', error)
+    showFloatingToast(error?.message || t('task_delete_failed'), 'error')
+  }
+}
+
+async function deleteOrphanedTasks() {
+  if (orphanedTaskCount.value === 0) {
+    showFloatingToast(t('queue_no_orphaned_tasks'), 'info')
+    return
+  }
+  if (!window.confirm(t('confirm_delete_orphaned_tasks'))) {
+    return
+  }
+
+  try {
+    const res = await fetch(`${API_BASE}/task/orphaned`, {
+      method: 'DELETE'
+    })
+    const data = await res.json()
+    if (!res.ok) {
+      throw createApiError(data, 'Delete orphaned tasks failed')
+    }
+    await fetchTasks()
+    if (previewTaskId.value && !tasks.value.some(task => task.id === previewTaskId.value && isTaskOrphaned(task))) {
+      clearPreview()
+    }
+    showFloatingToast(t('orphaned_tasks_deleted'), 'success')
+  } catch (error) {
+    console.error('Delete orphaned tasks error:', error)
+    showFloatingToast(error?.message || t('task_delete_failed'), 'error')
   }
 }
 
@@ -3239,6 +3361,24 @@ function obstacleMutationLockedText() {
   return 'Obstacle layout changes are blocked while AGVs are running or relocating. Wait until active tasks finish.'
 }
 
+function obstaclePresetNamePromptText() {
+  if (locale.value === 'ja') return 'カスタム障害プリセット名を入力してください。'
+  if (locale.value === 'zh') return '请输入自定义障碍预设名称。'
+  return 'Enter a name for the custom obstacle preset.'
+}
+
+function obstaclePresetNameRequiredText() {
+  if (locale.value === 'ja') return 'プリセット名は空にできません。'
+  if (locale.value === 'zh') return '预设名称不能为空。'
+  return 'Preset name cannot be empty.'
+}
+
+function obstaclePresetDeleteConfirmText() {
+  if (locale.value === 'ja') return '現在のカスタム障害プリセットを削除しますか？'
+  if (locale.value === 'zh') return '确定删除当前自定义障碍预设吗？'
+  return 'Delete the current custom obstacle preset?'
+}
+
 function obstacleSkippedOccupiedText(count) {
   if (!count) return ''
   if (locale.value === 'ja') return `AGV が占有中の ${count} マスは障害から除外しました。`
@@ -3405,6 +3545,94 @@ async function saveBlockedCells() {
   } catch (error) {
     console.error('Save blocked cells error:', error)
     setObstacleLayoutStatus('error', error?.message || 'Save blocked cells failed')
+    return false
+  } finally {
+    obstacleMapSaving.value = false
+  }
+}
+
+async function saveCurrentObstaclePreset() {
+  const presetNameInput = window.prompt(obstaclePresetNamePromptText(), '')
+  if (presetNameInput === null) {
+    return false
+  }
+
+  const presetName = presetNameInput.trim()
+  if (!presetName) {
+    setObstacleLayoutStatus('error', obstaclePresetNameRequiredText())
+    return false
+  }
+
+  obstacleMapSaving.value = true
+  try {
+    const { filtered, skipped } = filterBlockedCellsAgainstOccupied(blockedCells.value)
+    const res = await fetch(`${API_BASE}/status/map/preset`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: presetName,
+        blocked_cells: filtered,
+        grid_cols: GRID_COLS,
+        grid_rows: GRID_ROWS
+      })
+    })
+    const data = await res.json()
+    if (!res.ok) {
+      throw createApiError(data, 'Save obstacle preset failed')
+    }
+
+    await fetchMapPresets()
+    const newPresetKey = data?.preset?.key
+    if (newPresetKey && obstaclePresets.value.some(preset => preset.key === newPresetKey)) {
+      selectedObstaclePreset.value = newPresetKey
+    }
+    appliedObstacleSceneKey.value = detectObstacleSceneKey(blockedCells.value)
+    setObstacleLayoutStatus(
+      'success',
+      mergeObstacleStatusMessage(
+        settingsLocale.value.obstaclePresetSavedCustom,
+        Number(data?.skipped_occupied_count ?? skipped.length ?? 0)
+      )
+    )
+    return true
+  } catch (error) {
+    console.error('Save obstacle preset error:', error)
+    setObstacleLayoutStatus('error', error?.message || 'Save obstacle preset failed')
+    return false
+  } finally {
+    obstacleMapSaving.value = false
+  }
+}
+
+async function deleteSelectedObstaclePreset() {
+  if (!selectedObstaclePresetDeletable.value) {
+    setObstacleLayoutStatus('error', settingsLocale.value.obstaclePresetDeleteOnlyCustom)
+    return false
+  }
+  if (!window.confirm(obstaclePresetDeleteConfirmText())) {
+    return false
+  }
+
+  obstacleMapSaving.value = true
+  try {
+    const res = await fetch(`${API_BASE}/status/map/preset/${selectedObstaclePreset.value}`, {
+      method: 'DELETE'
+    })
+    const data = await res.json()
+    if (!res.ok) {
+      throw createApiError(data, 'Delete obstacle preset failed')
+    }
+
+    await fetchMapPresets()
+    appliedObstacleSceneKey.value = detectObstacleSceneKey(blockedCells.value)
+    if (appliedObstacleSceneKey.value !== 'custom') {
+      selectedObstaclePreset.value = appliedObstacleSceneKey.value
+    }
+    setObstacleLayoutStatus('success', settingsLocale.value.obstaclePresetDeleted)
+    return true
+  } catch (error) {
+    console.error('Delete obstacle preset error:', error)
+    setObstacleLayoutStatus('error', error?.message || 'Delete obstacle preset failed')
     return false
   } finally {
     obstacleMapSaving.value = false
@@ -4642,6 +4870,22 @@ onBeforeUnmount(() => {
                   <button
                     class="btn-secondary"
                     type="button"
+                    :disabled="obstacleMapSaving"
+                    @click="saveCurrentObstaclePreset"
+                  >
+                    {{ settingsLocale.obstaclePresetSaveCustom }}
+                  </button>
+                  <button
+                    class="btn-ghost"
+                    type="button"
+                    :disabled="obstacleMapSaving || !selectedObstaclePresetDeletable"
+                    @click="deleteSelectedObstaclePreset"
+                  >
+                    {{ settingsLocale.obstaclePresetDelete }}
+                  </button>
+                  <button
+                    class="btn-secondary"
+                    type="button"
                     :disabled="obstacleMapSaving || obstacleMutationLocked || !obstacleLayoutDirty"
                     @click="saveBlockedCells"
                   >
@@ -5416,6 +5660,32 @@ onBeforeUnmount(() => {
             <div v-show="panelSections.queue" class="panel-section-body">
               <div class="queue-panel">
                 <h2>{{ t('tasks') }}</h2>
+                <div class="queue-toolbar">
+                  <button
+                    class="queue-bulk-button"
+                    :class="{ active: taskQueueViewFilter === 'all' }"
+                    type="button"
+                    @click="taskQueueViewFilter = 'all'"
+                  >
+                    {{ t('queue_filter_all') }}
+                  </button>
+                  <button
+                    class="queue-bulk-button"
+                    :class="{ active: taskQueueViewFilter === 'orphaned' }"
+                    type="button"
+                    @click="taskQueueViewFilter = 'orphaned'"
+                  >
+                    {{ t('queue_filter_orphaned') }} ({{ orphanedTaskCount }})
+                  </button>
+                  <button
+                    class="queue-bulk-button danger"
+                    type="button"
+                    :disabled="orphanedTaskCount === 0"
+                    @click="deleteOrphanedTasks"
+                  >
+                    {{ t('queue_clear_orphaned') }}
+                  </button>
+                </div>
                 <div v-if="tasks.length === 0" class="empty">{{ t('tasks_empty') }}</div>
 
                 <section v-for="group in taskGroups" :key="group.key" class="queue-group">
@@ -5458,6 +5728,22 @@ onBeforeUnmount(() => {
                       >
                         {{ queueViewLocale.expandCards }}
                       </button>
+                      <button
+                        v-if="group.key === 'finished'"
+                        class="queue-bulk-button"
+                        type="button"
+                        @click="exportFinishedTasksToJson"
+                      >
+                        {{ t('queue_export_finished') }}
+                      </button>
+                      <button
+                        v-if="group.key === 'finished'"
+                        class="queue-bulk-button danger"
+                        type="button"
+                        @click="deleteFinishedTasks"
+                      >
+                        {{ t('queue_delete_finished') }}
+                      </button>
                     </div>
 
                     <div v-else class="queue-empty">
@@ -5498,6 +5784,9 @@ onBeforeUnmount(() => {
                         <div v-if="formatTaskAlgorithm(task)" class="task-line">{{ formatTaskAlgorithm(task) }}</div>
                         <div v-if="formatTaskInitialPoint(task)" class="task-line">{{ formatTaskInitialPoint(task) }}</div>
                         <div class="task-line">{{ formatTaskAgv(task) }}</div>
+                        <div v-if="isTaskOrphaned(task)" class="task-line task-reason alert">
+                          {{ t('task_orphaned_hint') }}
+                        </div>
                         <div v-if="formatTaskPathStats(task)" class="task-line">{{ formatTaskPathStats(task) }}</div>
                         <div class="task-line task-reason" :class="{ alert: isTaskReasonAlert(task) }">
                           {{ t('dispatch_reason') }}: {{ formatDispatchReason(task) }}
@@ -5510,7 +5799,7 @@ onBeforeUnmount(() => {
                         </div>
                         <div class="task-actions">
                           <button
-                            v-if="['pending', 'blocked'].includes(task.status)"
+                            v-if="isTaskDeletable(task)"
                             class="btn-delete task-action-button"
                             type="button"
                             @click="deleteTask(task)"
@@ -5832,15 +6121,15 @@ onBeforeUnmount(() => {
             <div v-show="panelSections.json" class="panel-section-body">
               <div class="json-tools">
                 <h2>{{ t('json_tools') }}</h2>
-                <div class="json-example-actions">
+                <div class="json-example-grid">
                   <button class="btn-secondary" type="button" @click="fillTaskJsonExample('single')">
                     {{ taskJsonLocale.singleExample }}
                   </button>
-                  <button class="btn-ghost" type="button" @click="downloadTaskJsonExample('single')">
-                    {{ taskJsonExampleFileLocale.singleDownload }}
-                  </button>
                   <button class="btn-secondary" type="button" @click="fillTaskJsonExample('chain')">
                     {{ taskJsonLocale.chainExample }}
+                  </button>
+                  <button class="btn-ghost" type="button" @click="downloadTaskJsonExample('single')">
+                    {{ taskJsonExampleFileLocale.singleDownload }}
                   </button>
                   <button class="btn-ghost" type="button" @click="downloadTaskJsonExample('chain')">
                     {{ taskJsonExampleFileLocale.chainDownload }}
@@ -5893,25 +6182,26 @@ onBeforeUnmount(() => {
                 <h2>{{ experimentLocale.title }}</h2>
                 <p class="panel-hint">{{ experimentLocale.hint }}</p>
 
-                <div class="json-actions">
+                <div class="experiment-action-stack">
                   <button class="btn-primary" type="button" @click="saveCurrentExperimentRecord">
                     {{ experimentLocale.saveCurrent }}
                   </button>
-                  <button class="btn-secondary" type="button" @click="exportCurrentCompareResultJson">
-                    {{ experimentLocale.exportCurrentJson }}
-                  </button>
-                  <button class="btn-secondary" type="button" @click="exportCurrentCompareResultCsv">
-                    {{ experimentLocale.exportCurrentCsv }}
-                  </button>
-                </div>
-
-                <div class="json-actions">
-                  <button class="btn-secondary" type="button" @click="exportAllExperimentRecordsJson">
-                    {{ experimentLocale.exportAllJson }}
-                  </button>
-                  <button class="btn-secondary" type="button" @click="exportAllExperimentRecordsCsv">
-                    {{ experimentLocale.exportAllCsv }}
-                  </button>
+                  <div class="experiment-action-grid">
+                    <button class="btn-secondary" type="button" @click="exportCurrentCompareResultJson">
+                      {{ experimentLocale.exportCurrentJson }}
+                    </button>
+                    <button class="btn-secondary" type="button" @click="exportCurrentCompareResultCsv">
+                      {{ experimentLocale.exportCurrentCsv }}
+                    </button>
+                  </div>
+                  <div class="experiment-action-grid">
+                    <button class="btn-secondary" type="button" @click="exportAllExperimentRecordsJson">
+                      {{ experimentLocale.exportAllJson }}
+                    </button>
+                    <button class="btn-secondary" type="button" @click="exportAllExperimentRecordsCsv">
+                      {{ experimentLocale.exportAllCsv }}
+                    </button>
+                  </div>
                   <button class="btn-ghost" type="button" :disabled="experimentRecordCount === 0" @click="clearExperimentRecords">
                     {{ experimentLocale.clearAll }}
                   </button>

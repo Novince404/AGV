@@ -32,8 +32,18 @@ def import_tasks(req: TaskImportRequest):
 
 
 @router.get("/export_json")
-def export_tasks():
-    return task_service.export_tasks()
+def export_tasks(status: str | None = None):
+    return task_service.export_tasks(status)
+
+
+@router.delete("/finished")
+def delete_finished_tasks():
+    return task_service.delete_finished_tasks()
+
+
+@router.delete("/orphaned")
+def delete_orphaned_tasks():
+    return task_service.delete_orphaned_tasks()
 
 
 @router.delete("/{task_id}")

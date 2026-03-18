@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from app.models.task import Task
-from app.repositories.agv_repository import get_agv_by_id
+from app.repositories.agv_repository import get_agv_by_id, list_agvs
 from app.repositories.task_repository import (
     add_task,
     get_existing_task_ids,
@@ -109,6 +109,34 @@ def serialize_task_for_json(task: Task):
     return payload
 
 
+def _find_related_agv(task: Task):
+    if task.agv_id is not None:
+        agv = get_agv_by_id(task.agv_id)
+        if agv is not None:
+            return agv
+    return next((agv for agv in list_agvs() if agv.task_id == task.id), None)
+
+
+def _can_delete_task(task: Task) -> bool:
+    return task.status in {"pending", "blocked", "finished", "assigned", "running"}
+
+
+def _cleanup_related_agv(task: Task):
+    agv = _find_related_agv(task)
+    if agv is None:
+        return None
+
+    if agv.task_id == task.id:
+        agv.task_id = None
+    if agv.status not in {"maintenance", "fault"}:
+        agv.status = "idle"
+    return agv
+
+
+def _is_orphaned_task(task: Task) -> bool:
+    return task.status in {"assigned", "running"} and _find_related_agv(task) is None
+
+
 def get_tasks():
     return list_tasks()
 
@@ -210,11 +238,15 @@ def import_tasks(items: list[Any]):
     return {"message": "Tasks imported", "count": len(created_ids), "task_ids": created_ids}
 
 
-def export_tasks():
+def export_tasks(status: str | None = None):
+    exported_tasks = list_tasks()
+    if status:
+        exported_tasks = [task for task in exported_tasks if task.status == status]
     return {
         "version": 2,
         "exported_at": now_iso(),
-        "tasks": [serialize_task_for_json(task) for task in list_tasks()],
+        "status_filter": status,
+        "tasks": [serialize_task_for_json(task) for task in exported_tasks],
     }
 
 
@@ -222,8 +254,41 @@ def delete_task(task_id: int):
     task = get_task_by_id(task_id)
     if not task:
         raise_api_error(404, "task_not_found")
-    if task.status not in {"pending", "blocked"}:
+    if not _can_delete_task(task):
         raise_api_error(400, "task_delete_not_allowed")
 
+    if task.status in {"assigned", "running"}:
+        task.status = "cancelled"
+        task.agv_id = None
+    _cleanup_related_agv(task)
     remove_task(task)
     return {"message": "Task deleted", "task_id": task_id}
+
+
+def delete_finished_tasks():
+    finished_tasks = [task for task in list_tasks() if task.status == "finished"]
+    removed_ids = []
+    for task in finished_tasks:
+        _cleanup_related_agv(task)
+        remove_task(task)
+        removed_ids.append(task.id)
+
+    return {
+        "message": "Finished tasks deleted",
+        "count": len(removed_ids),
+        "task_ids": removed_ids,
+    }
+
+
+def delete_orphaned_tasks():
+    orphaned_tasks = [task for task in list_tasks() if _is_orphaned_task(task)]
+    removed_ids = []
+    for task in orphaned_tasks:
+        remove_task(task)
+        removed_ids.append(task.id)
+
+    return {
+        "message": "Orphaned tasks deleted",
+        "count": len(removed_ids),
+        "task_ids": removed_ids,
+    }

@@ -1,9 +1,21 @@
 from __future__ import annotations
 
+import re
+import time
+
+from app.models.map_preset import MapPreset, MapPresetCell
 from app.repositories.agv_repository import list_agvs
+from app.repositories.map_preset_repository import (
+    get_map_preset_by_key,
+    list_map_presets,
+    remove_map_preset,
+    upsert_map_preset,
+)
 from app.utils.api_error import raise_api_error
 from app.utils.status_map import AGV_STATUS_COLOR, TASK_STATUS_COLOR
 from app.utils.warehouse_map import (
+    DEFAULT_MAP_PRESETS,
+    build_map_preset_payload,
     get_blocked_cell_payload,
     get_current_grid_size,
     get_default_blocked_cells,
@@ -19,6 +31,37 @@ def _filter_occupied_cells(cells: set[tuple[int, int]]):
     filtered = {cell for cell in cells if cell not in occupied}
     skipped = sorted(cell for cell in cells if cell in occupied)
     return filtered, skipped
+
+
+def _normalize_requested_cells(cells: list, grid_cols: int, grid_rows: int) -> set[tuple[int, int]]:
+    normalized = set()
+    for cell in cells:
+        x = int(cell.x)
+        y = int(cell.y)
+        if 0 <= x < grid_cols and 0 <= y < grid_rows:
+            normalized.add((x, y))
+    return normalized
+
+
+def _build_custom_preset_key(name: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "_", name.strip().lower()).strip("_")
+    slug = slug or "preset"
+    return f"custom_{slug}_{int(time.time() * 1000)}"
+
+
+def _get_custom_map_preset_cells(
+    preset_key: str,
+    grid_cols: int,
+    grid_rows: int,
+) -> set[tuple[int, int]]:
+    preset = get_map_preset_by_key(preset_key)
+    if preset is None:
+        raise KeyError(preset_key)
+    return {
+        (int(cell.x), int(cell.y))
+        for cell in preset.blocked_cells
+        if 0 <= int(cell.x) < grid_cols and 0 <= int(cell.y) < grid_rows
+    }
 
 
 def get_agv_status_map():
@@ -42,10 +85,28 @@ def get_map_layout():
 
 def get_map_presets():
     grid_cols, grid_rows = get_current_grid_size()
+    builtin_presets = get_map_presets_payload(grid_cols, grid_rows)
+    custom_presets = []
+    for preset in list_map_presets():
+        cells = {
+            (int(cell.x), int(cell.y))
+            for cell in preset.blocked_cells
+            if 0 <= int(cell.x) < grid_cols and 0 <= int(cell.y) < grid_rows
+        }
+        custom_presets.append(
+            build_map_preset_payload(
+                key=preset.key,
+                name=preset.custom_name,
+                description=preset.description,
+                cells=cells,
+                custom=True,
+                deletable=True,
+            )
+        )
     return {
         "grid_cols": grid_cols,
         "grid_rows": grid_rows,
-        "presets": get_map_presets_payload(grid_cols, grid_rows),
+        "presets": builtin_presets + custom_presets,
     }
 
 
@@ -68,7 +129,10 @@ def apply_map_layout_preset(preset_key: str):
     try:
         preset_cells = get_map_preset_cells(preset_key, grid_cols, grid_rows)
     except KeyError:
-        raise_api_error(404, "preset_not_found")
+        try:
+            preset_cells = _get_custom_map_preset_cells(preset_key, grid_cols, grid_rows)
+        except KeyError:
+            raise_api_error(404, "preset_not_found")
 
     filtered, skipped = _filter_occupied_cells(preset_cells)
     updated = set_blocked_cells(filtered, grid_cols, grid_rows)
@@ -80,6 +144,53 @@ def apply_map_layout_preset(preset_key: str):
         "preset_key": preset_key,
         "skipped_occupied_cells": [{"x": x, "y": y} for x, y in skipped],
         "skipped_occupied_count": len(skipped),
+    }
+
+
+def save_map_layout_preset(payload):
+    grid_cols = int(payload.grid_cols)
+    grid_rows = int(payload.grid_rows)
+    custom_name = payload.name.strip()
+    if not custom_name:
+        raise_api_error(400, "preset_name_required")
+
+    requested = _normalize_requested_cells(payload.blocked_cells, grid_cols, grid_rows)
+    filtered, skipped = _filter_occupied_cells(requested)
+    preset = MapPreset(
+        key=_build_custom_preset_key(custom_name),
+        custom_name=custom_name,
+        description=(payload.description or "").strip() or None,
+        blocked_cells=[MapPresetCell(x=x, y=y) for x, y in sorted(filtered)],
+        custom=True,
+    )
+    upsert_map_preset(preset)
+    return {
+        "message": "Map preset saved",
+        "preset": build_map_preset_payload(
+            key=preset.key,
+            name=preset.custom_name,
+            description=preset.description,
+            cells=filtered,
+            custom=True,
+            deletable=True,
+        ),
+        "skipped_occupied_cells": [{"x": x, "y": y} for x, y in skipped],
+        "skipped_occupied_count": len(skipped),
+    }
+
+
+def delete_map_layout_preset(preset_key: str):
+    if preset_key in DEFAULT_MAP_PRESETS:
+        raise_api_error(400, "builtin_preset_cannot_be_deleted")
+
+    preset = get_map_preset_by_key(preset_key)
+    if preset is None:
+        raise_api_error(404, "preset_not_found")
+
+    remove_map_preset(preset_key)
+    return {
+        "message": "Map preset deleted",
+        "preset_key": preset_key,
     }
 
 

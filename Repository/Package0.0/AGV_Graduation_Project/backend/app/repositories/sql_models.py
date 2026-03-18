@@ -124,6 +124,32 @@ class MapBlockedCellEntity(Base):
     layout: Mapped["MapLayoutEntity"] = relationship(back_populates="blocked_cells")
 
 
+class MapPresetEntity(Base):
+    __tablename__ = "map_preset"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    custom_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    custom: Mapped[bool] = mapped_column(nullable=False, default=True)
+
+    blocked_cells: Mapped[list["MapPresetCellEntity"]] = relationship(
+        back_populates="preset",
+        cascade="all, delete-orphan",
+        order_by="MapPresetCellEntity.id",
+    )
+
+
+class MapPresetCellEntity(Base):
+    __tablename__ = "map_preset_cell"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    preset_id: Mapped[str] = mapped_column(ForeignKey("map_preset.id"), nullable=False, index=True)
+    x: Mapped[int] = mapped_column(Integer, nullable=False)
+    y: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    preset: Mapped["MapPresetEntity"] = relationship(back_populates="blocked_cells")
+
+
 class PointLibraryEntity(Base):
     __tablename__ = "point_library"
 

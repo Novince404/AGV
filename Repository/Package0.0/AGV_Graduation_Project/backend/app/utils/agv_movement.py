@@ -48,6 +48,10 @@ def should_interrupt_agv(agv, task, algorithm: str):
     return True
 
 
+def should_cancel_task(agv, task):
+    return getattr(task, "status", None) == "cancelled" or agv.task_id != task.id
+
+
 def is_cell_occupied_by_other_agv(agv_id: int, x: int, y: int):
     return any(
         other.id != agv_id
@@ -66,6 +70,8 @@ def move_to_point_with_collision_guard(agv, task, point, algorithm: str, active_
     wait_started_at = time.monotonic()
 
     while True:
+        if should_cancel_task(agv, task):
+            return "cancelled"
         if should_interrupt_agv(agv, task, algorithm):
             return "interrupted"
 
@@ -121,6 +127,8 @@ def move_agv(
             return
 
         while True:
+            if should_cancel_task(agv, task):
+                return
             if should_interrupt_agv(agv, task, algorithm):
                 return
 
@@ -174,6 +182,8 @@ def move_agv(
                     if move_result == "retry":
                         should_retry_stage = True
                         break
+                    if move_result == "cancelled":
+                        return
                     return
             if should_retry_stage:
                 continue
@@ -199,6 +209,8 @@ def move_agv(
                 if move_result == "retry":
                     should_retry_stage = True
                     break
+                if move_result == "cancelled":
+                    return
                 return
             if should_retry_stage:
                 continue
