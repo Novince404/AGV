@@ -8,6 +8,13 @@
 - Added frontend `useUiSettingsBackend.js` so map display settings can be synchronized to backend storage with local fallback kept in place.
 - Added Windows packaging skeleton files: `build_frontend_dist.bat`, `run_packaged_dev.bat`, `build_windows_package.bat`, `start_agv.bat`, `backend/package_entry.py`, `backend/packaging/backend.spec`, and `backend/requirements-package.txt`.
 - Added `PACKAGING_WINDOWS.md` to document the lowest-deliverable Windows packaging flow.
+- Added minimum-delivery documentation set:
+  - `QUICKSTART_MINIMUM_DELIVERY.md`
+  - `SQLITE_DEMO_GUIDE.md`
+  - `DEMO_SCRIPT_MINIMUM_DELIVERY.md`
+  - `TEST_CHECKLIST_MINIMUM_DELIVERY.md`
+  - `TROUBLESHOOTING_MINIMUM_DELIVERY.md`
+  - `RELEASE_STRATEGY.md`
 
 ### Improved
 - Improved the map settings panel by grouping map information, obstacle layout actions, and persisted display settings into a clearer MVP structure.
