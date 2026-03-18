@@ -25,10 +25,12 @@ def _configure_packaged_environment() -> None:
 
 def main() -> None:
     _configure_packaged_environment()
+    host = os.getenv("AGV_HOST", "127.0.0.1")
+    port = int(os.getenv("AGV_PORT", "8000"))
 
     from main import app
 
-    uvicorn.run(app, host="127.0.0.1", port=8000, reload=False)
+    uvicorn.run(app, host=host, port=port, reload=False)
 
 
 if __name__ == "__main__":

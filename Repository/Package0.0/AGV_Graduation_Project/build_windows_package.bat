@@ -2,6 +2,8 @@
 setlocal
 
 echo === AGV Windows Package Build ===
+set "ROOT_PACKAGE_DIR=%~dp0dist\AGV_Dispatch_Package"
+set "PYI_PACKAGE_DIR=%~dp0backend\dist\AGV_Dispatch_Package"
 
 call "%~dp0build_frontend_dist.bat"
 if errorlevel 1 exit /b 1
@@ -23,9 +25,11 @@ if errorlevel 1 (
   exit /b 1
 )
 
-if not exist "%~dp0dist\AGV_Dispatch_Package\data" mkdir "%~dp0dist\AGV_Dispatch_Package\data"
-copy /Y "%~dp0start_agv.bat" "%~dp0dist\AGV_Dispatch_Package\start_agv.bat" >nul
+if not exist "%ROOT_PACKAGE_DIR%" mkdir "%ROOT_PACKAGE_DIR%"
+xcopy "%PYI_PACKAGE_DIR%\*" "%ROOT_PACKAGE_DIR%\" /E /I /Y >nul
+if not exist "%ROOT_PACKAGE_DIR%\data" mkdir "%ROOT_PACKAGE_DIR%\data"
+copy /Y "%~dp0start_agv.bat" "%ROOT_PACKAGE_DIR%\start_agv.bat" >nul
 
 echo Package build completed:
-echo   %~dp0dist\AGV_Dispatch_Package
+echo   %ROOT_PACKAGE_DIR%
 endlocal

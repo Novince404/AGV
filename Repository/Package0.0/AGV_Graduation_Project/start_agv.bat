@@ -1,11 +1,13 @@
 @echo off
 setlocal
 
-set "APP_URL=http://127.0.0.1:8000/"
+set "AGV_HOST=127.0.0.1"
+set "AGV_PORT=8000"
+set "APP_URL=http://%AGV_HOST%:%AGV_PORT%/"
 set "CHROME_EXE=C:\Program Files\Google\Chrome\Application\chrome.exe"
 
 if exist "%~dp0backend.exe" (
-  start "AGV Backend Package" "%~dp0backend.exe"
+  start "AGV Backend Package" cmd /c "set AGV_HOST=%AGV_HOST% && set AGV_PORT=%AGV_PORT% && \"%~dp0backend.exe\""
 ) else (
   call "%~dp0run_packaged_dev.bat"
   exit /b %errorlevel%

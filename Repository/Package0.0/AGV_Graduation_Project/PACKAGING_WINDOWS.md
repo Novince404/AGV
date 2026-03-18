@@ -73,6 +73,10 @@ dist\AGV_Dispatch_Package\
   - `AGV_DATA_BACKEND=sqlite`
   - `AGV_SERVE_FRONTEND_DIST=true`
   - SQLite 数据文件位于 `data/agv_dispatch.db`
+- 可选环境变量：
+  - `AGV_HOST`
+  - `AGV_PORT`
+  用于调整本地验证时的监听地址与端口
 
 ## 当前阶段说明
 - 本轮属于模块 2 的首版骨架落地。

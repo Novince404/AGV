@@ -15,6 +15,7 @@
 - Improved map layout refresh handling so current grid information and active preset information are reflected in the settings panel.
 - Improved frontend API base resolution so the app can run both under Vite (`5173 -> 8000`) and under backend-hosted packaged mode (`8000 -> 8000`).
 - Improved backend settings loading so packaged runtime can locate `.env`, bundled frontend dist, and a default SQLite database path more reliably.
+- Improved packaging verification flow by adding a buildable one-folder package and validating both packaged-dev mode and packaged `backend.exe` startup smoke tests.
 
 ### Fixed
 - Fixed multilingual gaps for recently added task-management and map-setting labels across Chinese, English, and Japanese locale files.
