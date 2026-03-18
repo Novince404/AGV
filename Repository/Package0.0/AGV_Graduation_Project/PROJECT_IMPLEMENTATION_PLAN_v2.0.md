@@ -21,7 +21,7 @@
 | 模块 0 | 基线固化 | 已完成（首版） | 当前 UI/文案优化已纳入新基线；本计划文档与 `CHANGELOG.md` 已同步落地。 |
 | 模块 1 | 地图设置 MVP | 已完成（首版） | 已补 `/status/ui-settings`、前端地图显示设置后端持久化、地图信息区展示。 |
 | 模块 2 | 最低可交付版封装试运行 | 已完成（首版试运行） | 已完成前端 `dist` 构建、后端静态托管、PyInstaller one-folder 打包与封装包烟雾测试。 |
-| 模块 3 | 最低可交付系统收口 | 进行中（文档首版已完成） | 已补一键启动说明、SQLite 演示说明、演示脚本、测试清单、故障排查、版本策略。 |
+| 模块 3 | 最低可交付系统收口 | 进行中（自动化回归基线已完成） | 已补文档资产，并完成 SQLite / MySQL / packaged 自动化回归；仍建议补一轮人工终验。 |
 | 模块 4 | 动态地图尺寸与地图方案重构 | 未开始 | 高风险重构，放在 MVP 之后。 |
 | 模块 5 | 登录、角色与产品化主线 | 未开始 | 属于完整产品路线。 |
 | 模块 6 | 企业端与完整产品路线 | 未开始 | 在角色体系稳定后推进。 |
@@ -169,7 +169,15 @@
 - 已新增 `TEST_CHECKLIST_MINIMUM_DELIVERY.md`
 - 已新增 `TROUBLESHOOTING_MINIMUM_DELIVERY.md`
 - 已新增 `RELEASE_STRATEGY.md`
-- 模块 3 当前已完成“文档与流程资产首版”，后续还需结合完整回归结果做最终收口
+- 已新增 `MINIMUM_DELIVERY_BASELINE_v2.0.md`
+- 已完成自动化回归：
+  - 前端 lint / build
+  - 后端 compileall
+  - SQLite smoke
+  - MySQL config check
+  - packaged dev smoke
+  - packaged exe smoke
+- 模块 3 当前已形成“可答辩版自动化基线”，后续还需补一轮人工终验做最终收口
 
 ## 模块 4：动态地图尺寸与地图方案重构
 

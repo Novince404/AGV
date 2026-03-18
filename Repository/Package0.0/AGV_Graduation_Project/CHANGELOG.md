@@ -15,6 +15,7 @@
   - `TEST_CHECKLIST_MINIMUM_DELIVERY.md`
   - `TROUBLESHOOTING_MINIMUM_DELIVERY.md`
   - `RELEASE_STRATEGY.md`
+- Added `MINIMUM_DELIVERY_BASELINE_v2.0.md` to record the current answer-defense regression baseline.
 
 ### Improved
 - Improved the map settings panel by grouping map information, obstacle layout actions, and persisted display settings into a clearer MVP structure.
@@ -28,6 +29,8 @@
 - Fixed multilingual gaps for recently added task-management and map-setting labels across Chinese, English, and Japanese locale files.
 - Fixed backend/frontend mismatch for map display settings by storing legend layout, opacity, minimap visibility, marker visibility, path arrows, compare mode, and sidebar section state in one shared payload.
 - Fixed packaged-mode readiness gaps by allowing FastAPI to serve frontend `dist` directly when enabled.
+- Fixed `run_mysql_check.bat` so it respects the real `backend/.env` database configuration instead of forcing the old root/password placeholder.
+- Fixed `start_agv.bat` so packaged startup waits for backend readiness before opening the browser.
 
 ## v2.0.0-beta.1 - 2026-03-17
 
