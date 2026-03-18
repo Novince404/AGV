@@ -4,6 +4,7 @@ import re
 import time
 
 from app.models.map_preset import MapPreset, MapPresetCell
+from app.core.settings import get_settings
 from app.repositories.agv_repository import list_agvs
 from app.repositories.map_preset_repository import (
     get_map_preset_by_key,
@@ -11,6 +12,8 @@ from app.repositories.map_preset_repository import (
     remove_map_preset,
     upsert_map_preset,
 )
+from app.repositories.ui_settings_repository import get_ui_settings as get_ui_settings_store
+from app.repositories.ui_settings_repository import save_ui_settings as save_ui_settings_store
 from app.utils.api_error import raise_api_error
 from app.utils.status_map import AGV_STATUS_COLOR, TASK_STATUS_COLOR
 from app.utils.warehouse_map import (
@@ -24,6 +27,25 @@ from app.utils.warehouse_map import (
     get_map_presets_payload,
     set_blocked_cells,
 )
+
+
+DEFAULT_UI_SETTINGS = {
+    "show_minimap": True,
+    "show_marker_icons": True,
+    "show_path_arrows": False,
+    "show_status_legend": True,
+    "status_legend_layout": "horizontal",
+    "status_legend_opacity": 0.55,
+    "compare_display_mode": "panel",
+    "panel_sections": {
+        "control": True,
+        "queue": True,
+        "templates": False,
+        "points": False,
+        "json": False,
+        "experiments": False,
+    },
+}
 
 
 def _filter_occupied_cells(cells: set[tuple[int, int]]):
@@ -80,6 +102,46 @@ def get_map_layout():
         "grid_cols": grid_cols,
         "grid_rows": grid_rows,
         "blocked_cells": get_blocked_cell_payload(grid_cols, grid_rows),
+    }
+
+
+def _normalize_ui_settings(payload) -> dict:
+    sections = payload.panel_sections.model_dump() if hasattr(payload.panel_sections, "model_dump") else dict(payload["panel_sections"])
+    opacity = max(0.2, min(0.9, float(payload.status_legend_opacity)))
+    return {
+        "show_minimap": bool(payload.show_minimap),
+        "show_marker_icons": bool(payload.show_marker_icons),
+        "show_path_arrows": bool(payload.show_path_arrows),
+        "show_status_legend": bool(payload.show_status_legend),
+        "status_legend_layout": payload.status_legend_layout,
+        "status_legend_opacity": opacity,
+        "compare_display_mode": payload.compare_display_mode,
+        "panel_sections": {
+            "control": bool(sections.get("control", DEFAULT_UI_SETTINGS["panel_sections"]["control"])),
+            "queue": bool(sections.get("queue", DEFAULT_UI_SETTINGS["panel_sections"]["queue"])),
+            "templates": bool(sections.get("templates", DEFAULT_UI_SETTINGS["panel_sections"]["templates"])),
+            "points": bool(sections.get("points", DEFAULT_UI_SETTINGS["panel_sections"]["points"])),
+            "json": bool(sections.get("json", DEFAULT_UI_SETTINGS["panel_sections"]["json"])),
+            "experiments": bool(sections.get("experiments", DEFAULT_UI_SETTINGS["panel_sections"]["experiments"])),
+        },
+    }
+
+
+def get_ui_settings():
+    payload = get_ui_settings_store(DEFAULT_UI_SETTINGS)
+    return {
+        **payload,
+        "data_backend": get_settings().data_backend,
+    }
+
+
+def update_ui_settings(payload):
+    normalized = _normalize_ui_settings(payload)
+    saved = save_ui_settings_store(normalized)
+    return {
+        **saved,
+        "data_backend": get_settings().data_backend,
+        "message": "UI settings updated",
     }
 
 

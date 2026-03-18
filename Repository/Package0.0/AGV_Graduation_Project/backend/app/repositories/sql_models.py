@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import ForeignKey, Integer, JSON, String, Text
+from sqlalchemy import Boolean, Float, ForeignKey, Integer, JSON, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -148,6 +148,20 @@ class MapPresetCellEntity(Base):
     y: Mapped[int] = mapped_column(Integer, nullable=False)
 
     preset: Mapped["MapPresetEntity"] = relationship(back_populates="blocked_cells")
+
+
+class UiSettingsEntity(Base):
+    __tablename__ = "ui_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    show_minimap: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    show_marker_icons: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    show_path_arrows: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    show_status_legend: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    status_legend_layout: Mapped[str] = mapped_column(String(16), nullable=False, default="horizontal")
+    status_legend_opacity: Mapped[float] = mapped_column(Float, nullable=False, default=0.55)
+    compare_display_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="panel")
+    panel_sections: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
 
 
 class PointLibraryEntity(Base):

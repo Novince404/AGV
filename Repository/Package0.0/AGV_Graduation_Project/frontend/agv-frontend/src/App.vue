@@ -6,6 +6,7 @@ import { DEFAULT_POINT_LIBRARY, DEFAULT_TASK_TEMPLATES } from './config/defaultD
 import { useDispatchScheduler } from './composables/useDispatchScheduler'
 import { useLocalPersistence } from './composables/useLocalPersistence'
 import { usePointTemplateBackend } from './composables/usePointTemplateBackend'
+import { useUiSettingsBackend } from './composables/useUiSettingsBackend'
 import { useTemplatePointActions } from './composables/useTemplatePointActions'
 import { usePanelCompareUi } from './composables/usePanelCompareUi'
 import { useDataExportActions } from './composables/useDataExportActions'
@@ -89,6 +90,8 @@ const agvs = ref([])
 const localAgvs = ref([])
 const tasks = ref([])
 const blockedCells = ref([...DEFAULT_BLOCKED_CELLS])
+const currentGridCols = ref(GRID_COLS)
+const currentGridRows = ref(GRID_ROWS)
 
 const dispatchMode = ref('auto')
 const locale = ref('zh')
@@ -234,6 +237,8 @@ const appliedObstacleSceneKey = ref('default_shelves')
 const obstacleLayoutStatus = ref('')
 const obstacleLayoutStatusType = ref('info')
 const obstacleLayoutFileInputRef = ref(null)
+const importedObstacleLayoutPendingPreset = ref(false)
+const importedObstaclePresetSuggestedName = ref('')
 const compareDisplayMode = ref('panel')
 const comparePanelExpanded = ref(false)
 const showFloatingCompare = ref(false)
@@ -379,12 +384,19 @@ const obstacleMutationLocked = computed(
     tasks.value.some(task => ['assigned', 'running'].includes(task.status))
 )
 const blockedCellCount = computed(() => blockedCells.value.length)
+const mapSizeLabel = computed(() => `${currentGridCols.value} x ${currentGridRows.value}`)
 const selectedObstaclePresetInfo = computed(
   () => obstaclePresets.value.find(preset => preset.key === selectedObstaclePreset.value) ?? null
 )
 const appliedObstaclePresetInfo = computed(
   () => obstaclePresets.value.find(preset => preset.key === appliedObstacleSceneKey.value) ?? null
 )
+const currentObstaclePresetLabel = computed(() => {
+  if (appliedObstaclePresetInfo.value) return obstaclePresetName(appliedObstaclePresetInfo.value)
+  if (locale.value === 'ja') return 'カスタム'
+  if (locale.value === 'zh') return '自定义'
+  return 'Custom'
+})
 const selectedObstaclePresetDeletable = computed(() => Boolean(selectedObstaclePresetInfo.value?.deletable))
 const syncedBlockedCellSet = computed(
   () => new Set(syncedBlockedCells.value.map(cell => `${cell.x},${cell.y}`))
@@ -1460,7 +1472,23 @@ const {
       priority: template?.priority,
       stages: normalizeTemplateStages(template),
       custom: true
-    })
+      })
+  })
+
+const {
+  backendMode: uiSettingsBackendMode,
+  fetchUiSettings
+} = useUiSettingsBackend({
+  API_BASE,
+  panelSections,
+  showMinimap,
+  showMarkerIcons,
+  showPathArrows,
+  showStatusLegend,
+  statusLegendLayout,
+  statusLegendOpacity,
+  compareDisplayMode,
+  clampValue
 })
 
 const {
@@ -3350,9 +3378,15 @@ function confirmDiscardObstacleChangesText() {
 }
 
 function obstacleImportedPendingSaveText() {
-  if (locale.value === 'ja') return '障害レイアウトを読み込みました。保存後に比較や調度へ反映されます。'
-  if (locale.value === 'zh') return '已导入障碍布局，请点击“保存障碍”后再用于算法对比和调度。'
-  return 'Obstacle layout imported. Save it before using it for comparison or dispatch.'
+  if (locale.value === 'ja') return '障害レイアウトを読み込みました。「保存障害」で反映するか、そのままプリセットとして保存できます。'
+  if (locale.value === 'zh') return '已导入障碍布局。你可以先“保存障碍”再使用，也可以直接把当前导入布局保存为预设。'
+  return 'Obstacle layout imported. Save it to the map or store the imported layout directly as a preset.'
+}
+
+function invalidObstacleLayoutText() {
+  if (locale.value === 'ja') return '障害レイアウト JSON の形式が正しくありません。'
+  if (locale.value === 'zh') return '障碍布局 JSON 格式无效。'
+  return 'Invalid obstacle layout JSON.'
 }
 
 function obstacleMutationLockedText() {
@@ -3373,6 +3407,35 @@ function obstaclePresetNameRequiredText() {
   return 'Preset name cannot be empty.'
 }
 
+function defaultImportedObstaclePresetName() {
+  if (locale.value === 'ja') return '読み込みレイアウト'
+  if (locale.value === 'zh') return '导入布局'
+  return 'Imported Layout'
+}
+
+function obstacleImportSaveAsPresetText() {
+  if (locale.value === 'ja') return '読み込みをプリセット保存'
+  if (locale.value === 'zh') return '导入另存预设'
+  return 'Save Import as Preset'
+}
+
+function sanitizeObstaclePresetName(value) {
+  const trimmed = String(value ?? '').trim()
+  const fileName = trimmed.split(/[\\/]/).pop() ?? ''
+  const withoutExtension = fileName.replace(/\.[^.]+$/, '').trim()
+  return withoutExtension || defaultImportedObstaclePresetName()
+}
+
+function rememberImportedObstacleLayoutPreset(sourceName = '') {
+  importedObstacleLayoutPendingPreset.value = true
+  importedObstaclePresetSuggestedName.value = sanitizeObstaclePresetName(sourceName)
+}
+
+function clearImportedObstacleLayoutPreset() {
+  importedObstacleLayoutPendingPreset.value = false
+  importedObstaclePresetSuggestedName.value = ''
+}
+
 function obstaclePresetDeleteConfirmText() {
   if (locale.value === 'ja') return '現在のカスタム障害プリセットを削除しますか？'
   if (locale.value === 'zh') return '确定删除当前自定义障碍预设吗？'
@@ -3390,6 +3453,15 @@ function mergeObstacleStatusMessage(baseMessage, skippedCount = 0) {
   const skippedText = obstacleSkippedOccupiedText(skippedCount)
   if (!skippedText) return baseMessage
   return `${baseMessage} ${skippedText}`
+}
+
+function applyGridSizeFromPayload(payload) {
+  if (Number.isInteger(Number(payload?.grid_cols))) {
+    currentGridCols.value = Number(payload.grid_cols)
+  }
+  if (Number.isInteger(Number(payload?.grid_rows))) {
+    currentGridRows.value = Number(payload.grid_rows)
+  }
 }
 
 function obstaclePresetName(preset) {
@@ -3529,6 +3601,7 @@ async function saveBlockedCells() {
     if (!res.ok) {
       throw createApiError(data, 'Save blocked cells failed')
     }
+    applyGridSizeFromPayload(data)
     const normalized = normalizeBlockedCellList(data.blocked_cells ?? filtered)
     blockedCells.value = normalized
     syncedBlockedCells.value = normalized
@@ -3536,6 +3609,7 @@ async function saveBlockedCells() {
     if (appliedObstacleSceneKey.value !== 'custom') {
       selectedObstaclePreset.value = appliedObstacleSceneKey.value
     }
+    clearImportedObstacleLayoutPreset()
     clearPreview()
     cancelSelection()
     const skippedCount = Number(data?.skipped_occupied_count ?? skipped.length ?? 0)
@@ -3551,8 +3625,8 @@ async function saveBlockedCells() {
   }
 }
 
-async function saveCurrentObstaclePreset() {
-  const presetNameInput = window.prompt(obstaclePresetNamePromptText(), '')
+async function saveCurrentObstaclePreset(defaultName = '') {
+  const presetNameInput = window.prompt(obstaclePresetNamePromptText(), defaultName)
   if (presetNameInput === null) {
     return false
   }
@@ -3581,6 +3655,7 @@ async function saveCurrentObstaclePreset() {
       throw createApiError(data, 'Save obstacle preset failed')
     }
 
+    applyGridSizeFromPayload(data)
     await fetchMapPresets()
     const newPresetKey = data?.preset?.key
     if (newPresetKey && obstaclePresets.value.some(preset => preset.key === newPresetKey)) {
@@ -3594,6 +3669,7 @@ async function saveCurrentObstaclePreset() {
         Number(data?.skipped_occupied_count ?? skipped.length ?? 0)
       )
     )
+    clearImportedObstacleLayoutPreset()
     return true
   } catch (error) {
     console.error('Save obstacle preset error:', error)
@@ -3602,6 +3678,10 @@ async function saveCurrentObstaclePreset() {
   } finally {
     obstacleMapSaving.value = false
   }
+}
+
+async function saveImportedObstacleAsPreset() {
+  return saveCurrentObstaclePreset(importedObstaclePresetSuggestedName.value || defaultImportedObstaclePresetName())
 }
 
 async function deleteSelectedObstaclePreset() {
@@ -3628,6 +3708,7 @@ async function deleteSelectedObstaclePreset() {
     if (appliedObstacleSceneKey.value !== 'custom') {
       selectedObstaclePreset.value = appliedObstacleSceneKey.value
     }
+    clearImportedObstacleLayoutPreset()
     setObstacleLayoutStatus('success', settingsLocale.value.obstaclePresetDeleted)
     return true
   } catch (error) {
@@ -3655,6 +3736,7 @@ async function resetBlockedCellsToDefault() {
     if (!res.ok) {
       throw createApiError(data, 'Reset blocked cells failed')
     }
+    applyGridSizeFromPayload(data)
     const normalized = normalizeBlockedCellList(data.blocked_cells ?? [])
     const { filtered, skipped } = filterBlockedCellsAgainstOccupied(normalized)
     blockedCells.value = filtered
@@ -3663,6 +3745,7 @@ async function resetBlockedCellsToDefault() {
     if (appliedObstacleSceneKey.value !== 'custom') {
       selectedObstaclePreset.value = appliedObstacleSceneKey.value
     }
+    clearImportedObstacleLayoutPreset()
     clearPreview()
     cancelSelection()
     setObstacleLayoutStatus(
@@ -3696,6 +3779,7 @@ async function fetchMapPresets() {
       throw new Error(`Map preset request failed: ${res.status}`)
     }
     const data = await res.json()
+    applyGridSizeFromPayload(data)
     obstaclePresets.value = Array.isArray(data?.presets) ? data.presets : []
     if (
       obstaclePresets.value.length > 0 &&
@@ -3719,13 +3803,16 @@ async function fetchMapLayout() {
 
     const data = await res.json()
     if (!Array.isArray(data?.blocked_cells)) {
+      applyGridSizeFromPayload(data)
       blockedCells.value = [...DEFAULT_BLOCKED_CELLS]
       syncedBlockedCells.value = [...DEFAULT_BLOCKED_CELLS]
       appliedObstacleSceneKey.value = 'default_shelves'
       selectedObstaclePreset.value = 'default_shelves'
+      clearImportedObstacleLayoutPreset()
       return
     }
 
+    applyGridSizeFromPayload(data)
     const normalized = normalizeBlockedCellList(
       data.blocked_cells.map(cell => ({
         x: Number(cell.x),
@@ -3739,6 +3826,7 @@ async function fetchMapLayout() {
     if (appliedObstacleSceneKey.value !== 'custom') {
       selectedObstaclePreset.value = appliedObstacleSceneKey.value
     }
+    clearImportedObstacleLayoutPreset()
     if (skipped.length > 0) {
       setObstacleLayoutStatus('info', obstacleSkippedOccupiedText(skipped.length))
     }
@@ -3748,6 +3836,7 @@ async function fetchMapLayout() {
     syncedBlockedCells.value = [...DEFAULT_BLOCKED_CELLS]
     appliedObstacleSceneKey.value = 'default_shelves'
     selectedObstaclePreset.value = 'default_shelves'
+    clearImportedObstacleLayoutPreset()
   }
 }
 
@@ -3772,6 +3861,7 @@ async function applyObstaclePreset() {
     if (!res.ok) {
       throw createApiError(data, 'Apply obstacle preset failed')
     }
+    applyGridSizeFromPayload(data)
     const normalized = normalizeBlockedCellList(data.blocked_cells ?? [])
     const { filtered, skipped } = filterBlockedCellsAgainstOccupied(normalized)
     blockedCells.value = filtered
@@ -3780,6 +3870,7 @@ async function applyObstaclePreset() {
     if (appliedObstacleSceneKey.value !== 'custom') {
       selectedObstaclePreset.value = appliedObstacleSceneKey.value
     }
+    clearImportedObstacleLayoutPreset()
     clearPreview()
     cancelSelection()
     setObstacleLayoutStatus(
@@ -3816,7 +3907,7 @@ function triggerObstacleLayoutImport() {
   obstacleLayoutFileInputRef.value?.click()
 }
 
-async function importObstacleLayout(rawText) {
+async function importObstacleLayout(rawText, sourceName = '') {
   try {
     if (!ensureObstacleMutationAllowed()) {
       return
@@ -3831,7 +3922,7 @@ async function importObstacleLayout(rawText) {
         ? parsed.blocked_cells
         : null
     if (!rawCells) {
-      throw new Error('Invalid obstacle layout')
+      throw new Error(invalidObstacleLayoutText())
     }
 
     const normalized = normalizeBlockedCellList(
@@ -3846,6 +3937,7 @@ async function importObstacleLayout(rawText) {
     if (appliedObstacleSceneKey.value !== 'custom') {
       selectedObstaclePreset.value = appliedObstacleSceneKey.value
     }
+    rememberImportedObstacleLayoutPreset(sourceName)
     setObstacleLayoutStatus('info', mergeObstacleStatusMessage(obstacleImportedPendingSaveText(), skipped.length))
   } catch (error) {
     console.error('Import obstacle layout error:', error)
@@ -3859,7 +3951,7 @@ async function onObstacleLayoutFileChange(event) {
   if (!file) return
 
   const text = await file.text()
-  await importObstacleLayout(text)
+  await importObstacleLayout(text, file.name)
 }
 
 async function fetchAgvs() {
@@ -4181,6 +4273,7 @@ onMounted(() => {
   loadExperimentRecords()
   loadMapDisplaySettings()
   loadPanelSections()
+  void fetchUiSettings()
   loadPanelSummaryMode()
   loadTaskQueueView()
   syncPanelWidth()
@@ -4910,6 +5003,15 @@ onBeforeUnmount(() => {
                   >
                     {{ settingsLocale.obstacleReset }}
                   </button>
+                  <button
+                    v-if="importedObstacleLayoutPendingPreset"
+                    class="btn-secondary"
+                    type="button"
+                    :disabled="obstacleMapSaving"
+                    @click="saveImportedObstacleAsPreset"
+                  >
+                    {{ obstacleImportSaveAsPresetText() }}
+                  </button>
                 </div>
                 <input
                   ref="obstacleLayoutFileInputRef"
@@ -4918,6 +5020,27 @@ onBeforeUnmount(() => {
                   class="hidden-file-input"
                   @change="onObstacleLayoutFileChange"
                 />
+              </div>
+              <div class="map-settings-group">
+                <div class="map-settings-subtitle">{{ settingsLocale.infoGroup }}</div>
+                <div class="map-settings-info-grid">
+                  <div class="map-settings-info-card">
+                    <div class="map-settings-info-label">{{ settingsLocale.mapInfoSize }}</div>
+                    <div class="map-settings-info-value">{{ mapSizeLabel }}</div>
+                  </div>
+                  <div class="map-settings-info-card">
+                    <div class="map-settings-info-label">{{ settingsLocale.mapInfoPreset }}</div>
+                    <div class="map-settings-info-value">{{ currentObstaclePresetLabel }}</div>
+                  </div>
+                  <div class="map-settings-info-card">
+                    <div class="map-settings-info-label">{{ settingsLocale.mapInfoBlocked }}</div>
+                    <div class="map-settings-info-value">{{ blockedCellCount }}</div>
+                  </div>
+                  <div class="map-settings-info-card">
+                    <div class="map-settings-info-label">{{ settingsLocale.mapInfoBackend }}</div>
+                    <div class="map-settings-info-value">{{ uiSettingsBackendMode }}</div>
+                  </div>
+                </div>
               </div>
               <div class="map-settings-group">
                 <div class="map-settings-subtitle">{{ settingsLocale.compareGroup }}</div>
@@ -5915,7 +6038,7 @@ onBeforeUnmount(() => {
                     rows="6"
                     :placeholder="templateJsonLocale.placeholder"
                   ></textarea>
-                  <div class="json-actions">
+                  <div class="template-json-action-grid">
                     <button class="btn-secondary" type="button" @click="importTaskTemplatesFromJson">
                       {{ templateJsonLocale.import }}
                     </button>
@@ -5928,6 +6051,8 @@ onBeforeUnmount(() => {
                     <button class="btn-secondary" type="button" @click="downloadTemplateJsonFile">
                       {{ templateJsonLocale.downloadFile }}
                     </button>
+                  </div>
+                  <div class="template-json-action-stack">
                     <button class="btn-ghost" type="button" @click="clearTemplateJsonText">
                       {{ templateJsonLocale.clear }}
                     </button>

@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel
 
 from app.utils.warehouse_map import DEFAULT_GRID_COLS, DEFAULT_GRID_ROWS
@@ -20,4 +22,24 @@ class MapPresetCreateRequest(BaseModel):
     blocked_cells: list[BlockedCellPayload]
     grid_cols: int = DEFAULT_GRID_COLS
     grid_rows: int = DEFAULT_GRID_ROWS
+
+
+class UiPanelSectionsPayload(BaseModel):
+    control: bool = True
+    queue: bool = True
+    templates: bool = False
+    points: bool = False
+    json: bool = False
+    experiments: bool = False
+
+
+class UiSettingsUpdateRequest(BaseModel):
+    show_minimap: bool = True
+    show_marker_icons: bool = True
+    show_path_arrows: bool = False
+    show_status_legend: bool = True
+    status_legend_layout: Literal["horizontal", "vertical"] = "horizontal"
+    status_legend_opacity: float = 0.55
+    compare_display_mode: Literal["panel", "floating"] = "panel"
+    panel_sections: UiPanelSectionsPayload = UiPanelSectionsPayload()
 

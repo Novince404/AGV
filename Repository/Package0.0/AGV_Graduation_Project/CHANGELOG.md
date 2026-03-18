@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- Added root-level implementation plan sources `PROJECT_IMPLEMENTATION_PLAN_v2.0.md` and `PROJECT_IMPLEMENTATION_PLAN_v2.0.docx` for the next graduation-project delivery stage.
+- Added backend UI settings persistence with `GET /status/ui-settings` and `PUT /status/ui-settings`.
+- Added frontend `useUiSettingsBackend.js` so map display settings can be synchronized to backend storage with local fallback kept in place.
+
+### Improved
+- Improved the map settings panel by grouping map information, obstacle layout actions, and persisted display settings into a clearer MVP structure.
+- Improved obstacle-layout, JSON-template, and task-management related UI wording/layout while keeping the current workflow intact.
+- Improved map layout refresh handling so current grid information and active preset information are reflected in the settings panel.
+
+### Fixed
+- Fixed multilingual gaps for recently added task-management and map-setting labels across Chinese, English, and Japanese locale files.
+- Fixed backend/frontend mismatch for map display settings by storing legend layout, opacity, minimap visibility, marker visibility, path arrows, compare mode, and sidebar section state in one shared payload.
+
 ## v2.0.0-beta.1 - 2026-03-17
 
 ### Added

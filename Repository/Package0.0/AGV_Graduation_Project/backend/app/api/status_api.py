@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.schemas.status import MapLayoutUpdateRequest, MapPresetCreateRequest
+from app.schemas.status import MapLayoutUpdateRequest, MapPresetCreateRequest, UiSettingsUpdateRequest
 from app.services import status_service
 
 
@@ -20,6 +20,16 @@ def get_task_status_map():
 @router.get("/map")
 def get_map_layout():
     return status_service.get_map_layout()
+
+
+@router.get("/ui-settings")
+def get_ui_settings():
+    return status_service.get_ui_settings()
+
+
+@router.put("/ui-settings")
+def update_ui_settings(req: UiSettingsUpdateRequest):
+    return status_service.update_ui_settings(req)
 
 
 @router.get("/map/presets")
