@@ -5,6 +5,9 @@
 ## 目标
 - 将当前系统整理为“可答辩版基线”。
 - 本文档记录本轮已完成的自动化回归结果，以及答辩前仍建议人工复核的项目。
+- 与人工终验配套的执行与记录资产已补齐：
+  - `MANUAL_VERIFICATION_RUNBOOK_v2.0.md`
+  - `MANUAL_VERIFICATION_RECORD_v2.0.md`
 
 ## 本轮环境
 - 项目版本：`v2.0.0-beta.1` 基线继续推进
@@ -131,11 +134,13 @@ PACKAGED_EXE_SMOKE_OK
 
 ## 当前结论
 - **自动化可验证部分已达到“可答辩版基线”**
+- 目前已补齐人工终验执行手册与记录模板
 - 若再补一轮人工终验并记录结果，可将模块 3 标记为完整完成
 
 ## 建议下一步
-1. 按 `TEST_CHECKLIST_MINIMUM_DELIVERY.md` 跑一轮人工终验
-2. 将人工终验结果追加到本文件
-3. 如无严重阻断问题，可准备：
+1. 按 `MANUAL_VERIFICATION_RUNBOOK_v2.0.md` 执行人工终验
+2. 将结果填入 `MANUAL_VERIFICATION_RECORD_v2.0.md`
+3. 将终验结论摘要追加到本文件
+4. 如无严重阻断问题，可准备：
    - 新一版 beta release
    - 或直接迈向模块 4（动态地图尺寸与地图方案重构）

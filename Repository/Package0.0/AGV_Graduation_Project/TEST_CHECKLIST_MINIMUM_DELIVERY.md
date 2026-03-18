@@ -5,6 +5,9 @@
 ## 使用说明
 - 本清单用于模块 3 的交付收口测试。
 - 每次准备演示、发布 beta、或生成封装包后，建议至少跑一遍。
+- 如果要执行完整人工终验，请配合：
+  - `MANUAL_VERIFICATION_RUNBOOK_v2.0.md`
+  - `MANUAL_VERIFICATION_RECORD_v2.0.md`
 
 ## 一、启动与环境
 - [ ] `run_dev.bat` 可正常启动

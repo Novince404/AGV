@@ -16,6 +16,7 @@
   - `TROUBLESHOOTING_MINIMUM_DELIVERY.md`
   - `RELEASE_STRATEGY.md`
 - Added `MINIMUM_DELIVERY_BASELINE_v2.0.md` to record the current answer-defense regression baseline.
+- Added `MANUAL_VERIFICATION_RUNBOOK_v2.0.md` and `MANUAL_VERIFICATION_RECORD_v2.0.md` so module 3 has dedicated human-verification execution and record assets.
 
 ### Improved
 - Improved the map settings panel by grouping map information, obstacle layout actions, and persisted display settings into a clearer MVP structure.
