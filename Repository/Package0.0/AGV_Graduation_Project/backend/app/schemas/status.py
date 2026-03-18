@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.utils.warehouse_map import DEFAULT_GRID_COLS, DEFAULT_GRID_ROWS
 
@@ -25,11 +25,13 @@ class MapPresetCreateRequest(BaseModel):
 
 
 class UiPanelSectionsPayload(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     control: bool = True
     queue: bool = True
     templates: bool = False
     points: bool = False
-    json: bool = False
+    json_panel: bool = Field(default=False, alias="json")
     experiments: bool = False
 
 

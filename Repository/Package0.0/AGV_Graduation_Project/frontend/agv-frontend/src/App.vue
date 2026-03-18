@@ -56,7 +56,19 @@ const GRID_COLS = 10
 const GRID_ROWS = 8
 const CELL_SIZE = 50
 const AGV_SIZE = 30
-const API_BASE = 'http://127.0.0.1:8000'
+const API_BASE = (() => {
+  const configured = import.meta.env.VITE_API_BASE?.trim()
+  if (configured) {
+    return configured.replace(/\/$/, '')
+  }
+  if (typeof window !== 'undefined') {
+    const { protocol, hostname, port } = window.location
+    if (port === '8000') {
+      return `${protocol}//${hostname}${port ? `:${port}` : ''}`
+    }
+  }
+  return 'http://127.0.0.1:8000'
+})()
 const CUSTOM_POINTS_STORAGE_KEY = 'agv_custom_points'
 const MAP_DISPLAY_STORAGE_KEY = 'agv_map_display_settings'
 const TASK_TEMPLATE_STORAGE_KEY = 'agv_task_templates'

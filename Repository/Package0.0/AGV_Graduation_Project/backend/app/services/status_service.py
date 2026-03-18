@@ -106,7 +106,11 @@ def get_map_layout():
 
 
 def _normalize_ui_settings(payload) -> dict:
-    sections = payload.panel_sections.model_dump() if hasattr(payload.panel_sections, "model_dump") else dict(payload["panel_sections"])
+    sections = (
+        payload.panel_sections.model_dump(by_alias=True)
+        if hasattr(payload.panel_sections, "model_dump")
+        else dict(payload["panel_sections"])
+    )
     opacity = max(0.2, min(0.9, float(payload.status_legend_opacity)))
     return {
         "show_minimap": bool(payload.show_minimap),

@@ -10,5 +10,8 @@ backend/.env
 frontend/agv-frontend/node_modules/
 frontend/agv-frontend/dist/
 backend/*.db
+dist/
+build/
+data/
 
 .DS_Store

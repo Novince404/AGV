@@ -20,7 +20,7 @@
 | --- | --- | --- | --- |
 | 模块 0 | 基线固化 | 已完成（首版） | 当前 UI/文案优化已纳入新基线；本计划文档与 `CHANGELOG.md` 已同步落地。 |
 | 模块 1 | 地图设置 MVP | 已完成（首版） | 已补 `/status/ui-settings`、前端地图显示设置后端持久化、地图信息区展示。 |
-| 模块 2 | 最低可交付版封装试运行 | 未开始 | 下一阶段优先项。 |
+| 模块 2 | 最低可交付版封装试运行 | 进行中（首版骨架已完成） | 已补前端 `dist` 构建、后端静态托管、PyInstaller 入口/spec 与启动器脚本。 |
 | 模块 3 | 最低可交付系统收口 | 未开始 | 在封装试运行稳定后推进。 |
 | 模块 4 | 动态地图尺寸与地图方案重构 | 未开始 | 高风险重构，放在 MVP 之后。 |
 | 模块 5 | 登录、角色与产品化主线 | 未开始 | 属于完整产品路线。 |
@@ -121,6 +121,18 @@
 - 新机器或干净环境下，只靠封装包即可启动演示。
 - 不需要先手动跑 Vite、Uvicorn、MySQL。
 - 自动 / 手动 / 多段任务、点位、模板、障碍预设均可操作。
+
+### 本轮落地结果
+- 已新增 `build_frontend_dist.bat`
+- 已新增 `run_packaged_dev.bat`
+- 已新增 `build_windows_package.bat`
+- 已新增 `start_agv.bat`
+- 已新增 `backend/package_entry.py`
+- 已新增 `backend/packaging/backend.spec`
+- 已新增 `backend/requirements-package.txt`
+- 已新增 `PACKAGING_WINDOWS.md`
+- 后端已支持在 `AGV_SERVE_FRONTEND_DIST=true` 时直接托管前端 `dist`
+- 前端 API 地址已调整为兼容“Vite 开发模式”和“后端同源托管模式”
 
 ## 模块 3：最低可交付系统收口
 

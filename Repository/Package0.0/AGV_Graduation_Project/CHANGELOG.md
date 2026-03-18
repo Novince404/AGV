@@ -6,15 +6,20 @@
 - Added root-level implementation plan sources `PROJECT_IMPLEMENTATION_PLAN_v2.0.md` and `PROJECT_IMPLEMENTATION_PLAN_v2.0.docx` for the next graduation-project delivery stage.
 - Added backend UI settings persistence with `GET /status/ui-settings` and `PUT /status/ui-settings`.
 - Added frontend `useUiSettingsBackend.js` so map display settings can be synchronized to backend storage with local fallback kept in place.
+- Added Windows packaging skeleton files: `build_frontend_dist.bat`, `run_packaged_dev.bat`, `build_windows_package.bat`, `start_agv.bat`, `backend/package_entry.py`, `backend/packaging/backend.spec`, and `backend/requirements-package.txt`.
+- Added `PACKAGING_WINDOWS.md` to document the lowest-deliverable Windows packaging flow.
 
 ### Improved
 - Improved the map settings panel by grouping map information, obstacle layout actions, and persisted display settings into a clearer MVP structure.
 - Improved obstacle-layout, JSON-template, and task-management related UI wording/layout while keeping the current workflow intact.
 - Improved map layout refresh handling so current grid information and active preset information are reflected in the settings panel.
+- Improved frontend API base resolution so the app can run both under Vite (`5173 -> 8000`) and under backend-hosted packaged mode (`8000 -> 8000`).
+- Improved backend settings loading so packaged runtime can locate `.env`, bundled frontend dist, and a default SQLite database path more reliably.
 
 ### Fixed
 - Fixed multilingual gaps for recently added task-management and map-setting labels across Chinese, English, and Japanese locale files.
 - Fixed backend/frontend mismatch for map display settings by storing legend layout, opacity, minimap visibility, marker visibility, path arrows, compare mode, and sidebar section state in one shared payload.
+- Fixed packaged-mode readiness gaps by allowing FastAPI to serve frontend `dist` directly when enabled.
 
 ## v2.0.0-beta.1 - 2026-03-17
 

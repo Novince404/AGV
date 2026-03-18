@@ -3,10 +3,10 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from functools import lru_cache
-from pathlib import Path
 
+from app.core.runtime_paths import get_default_frontend_dist_dir, get_default_sqlite_url, get_env_file_candidates
 
-ENV_FILE_PATH = Path(__file__).resolve().parents[2] / ".env"
+ENV_FILE_PATHS = get_env_file_candidates()
 
 
 def _split_csv(raw: str | None) -> list[str]:
@@ -31,16 +31,16 @@ def _parse_int(raw: str | None, default: int) -> int:
 
 
 def _load_env_file() -> dict[str, str]:
-    if not ENV_FILE_PATH.exists():
-        return {}
-
     env_values: dict[str, str] = {}
-    for line in ENV_FILE_PATH.read_text(encoding="utf-8").splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#") or "=" not in stripped:
+    for env_path in ENV_FILE_PATHS:
+        if not env_path.exists():
             continue
-        key, value = stripped.split("=", 1)
-        env_values[key.strip()] = value.strip().strip('"').strip("'")
+        for line in env_path.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#") or "=" not in stripped:
+                continue
+            key, value = stripped.split("=", 1)
+            env_values[key.strip()] = value.strip().strip('"').strip("'")
     return env_values
 
 
@@ -56,6 +56,8 @@ class AppSettings:
     database_auto_create: bool
     database_connect_timeout_sec: int
     database_pool_pre_ping: bool
+    serve_frontend_dist: bool
+    frontend_dist_dir: str
 
 
 @lru_cache(maxsize=1)
@@ -86,7 +88,7 @@ def get_settings() -> AppSettings:
         "AGV_DATABASE_URL",
         file_env.get(
             "AGV_DATABASE_URL",
-            "mysql+pymysql://root:password@127.0.0.1:3306/agv_dispatch?charset=utf8mb4",
+            get_default_sqlite_url() if data_backend == "sqlite" else "mysql+pymysql://root:password@127.0.0.1:3306/agv_dispatch?charset=utf8mb4",
         ),
     )
     database_echo = _parse_bool(os.getenv("AGV_DATABASE_ECHO", file_env.get("AGV_DATABASE_ECHO")), False)
@@ -105,6 +107,14 @@ def get_settings() -> AppSettings:
         os.getenv("AGV_DATABASE_POOL_PRE_PING", file_env.get("AGV_DATABASE_POOL_PRE_PING")),
         True,
     )
+    serve_frontend_dist = _parse_bool(
+        os.getenv("AGV_SERVE_FRONTEND_DIST", file_env.get("AGV_SERVE_FRONTEND_DIST")),
+        False,
+    )
+    frontend_dist_dir = os.getenv(
+        "AGV_FRONTEND_DIST_DIR",
+        file_env.get("AGV_FRONTEND_DIST_DIR", str(get_default_frontend_dist_dir())),
+    )
 
     return AppSettings(
         app_title=app_title,
@@ -117,4 +127,6 @@ def get_settings() -> AppSettings:
         database_auto_create=database_auto_create,
         database_connect_timeout_sec=database_connect_timeout_sec,
         database_pool_pre_ping=database_pool_pre_ping,
+        serve_frontend_dist=serve_frontend_dist,
+        frontend_dist_dir=frontend_dist_dir,
     )
