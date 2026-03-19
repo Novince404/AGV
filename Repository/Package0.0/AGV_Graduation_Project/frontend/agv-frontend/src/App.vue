@@ -76,8 +76,6 @@ const PANEL_SECTION_STORAGE_KEY = 'agv_panel_sections'
 const PANEL_SUMMARY_MODE_STORAGE_KEY = 'agv_panel_summary_mode'
 const TASK_QUEUE_VIEW_STORAGE_KEY = 'agv_task_queue_view'
 const EXPERIMENT_RECORDS_STORAGE_KEY = 'agv_experiment_records'
-const MAP_WIDTH = GRID_COLS * CELL_SIZE
-const MAP_HEIGHT = GRID_ROWS * CELL_SIZE
 const MINIMAP_WIDTH = 168
 const MIN_ZOOM = 0.75
 const MAX_ZOOM = 3
@@ -104,6 +102,60 @@ const tasks = ref([])
 const blockedCells = ref([...DEFAULT_BLOCKED_CELLS])
 const currentGridCols = ref(GRID_COLS)
 const currentGridRows = ref(GRID_ROWS)
+const mapWidth = computed(() => currentGridCols.value * CELL_SIZE)
+const mapHeight = computed(() => currentGridRows.value * CELL_SIZE)
+
+function gridColsValue() {
+  return Number(currentGridCols.value || GRID_COLS)
+}
+
+function gridRowsValue() {
+  return Number(currentGridRows.value || GRID_ROWS)
+}
+
+function clampXToCurrentGrid(value) {
+  return clampValue(Math.round(Number(value) || 0), 0, Math.max(0, gridColsValue() - 1))
+}
+
+function clampYToCurrentGrid(value) {
+  return clampValue(Math.round(Number(value) || 0), 0, Math.max(0, gridRowsValue() - 1))
+}
+
+function isWithinCurrentGrid(point) {
+  if (!point) return false
+  return (
+    Number.isInteger(Number(point.x)) &&
+    Number.isInteger(Number(point.y)) &&
+    Number(point.x) >= 0 &&
+    Number(point.x) < gridColsValue() &&
+    Number(point.y) >= 0 &&
+    Number(point.y) < gridRowsValue()
+  )
+}
+
+function sanitizeGridDimensionInput(value, fallback) {
+  const normalizedFallback = Math.max(1, Math.round(Number(fallback) || 1))
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) return normalizedFallback
+  return Math.max(1, Math.round(numeric))
+}
+
+function isPrimitiveGridOverride(value) {
+  return ['string', 'number'].includes(typeof value)
+}
+
+function setMapResizePreviewDraft(cols, rows) {
+  const normalizedCols = sanitizeGridDimensionInput(cols, gridColsValue())
+  const normalizedRows = sanitizeGridDimensionInput(rows, gridRowsValue())
+  mapResizePreviewCols.value = normalizedCols
+  mapResizePreviewRows.value = normalizedRows
+  mapResizePreviewColsInput.value = String(normalizedCols)
+  mapResizePreviewRowsInput.value = String(normalizedRows)
+  return {
+    requestedCols: normalizedCols,
+    requestedRows: normalizedRows
+  }
+}
 
 const dispatchMode = ref('auto')
 const locale = ref('zh')
@@ -211,6 +263,7 @@ const manualPathToEnd = ref([])
 const autoPathToStart = ref([])
 const autoPathToEnd = ref([])
 const layoutRef = ref(null)
+const mapSettingsPanelRef = ref(null)
 const mapViewportRef = ref(null)
 const minimapRef = ref(null)
 const panelRef = ref(null)
@@ -230,8 +283,8 @@ const windowWidth = ref(typeof window !== 'undefined' ? window.innerWidth : 1280
 const mapZoom = ref(1)
 const mapOffsetX = ref(0)
 const mapOffsetY = ref(0)
-const mapViewportWidth = ref(MAP_WIDTH)
-const mapViewportHeight = ref(MAP_HEIGHT)
+const mapViewportWidth = ref(mapWidth.value)
+const mapViewportHeight = ref(mapHeight.value)
 const isMapPanning = ref(false)
 const showMapSettings = ref(false)
 const showStatusLegend = ref(true)
@@ -245,6 +298,13 @@ const obstacleMapSaving = ref(false)
 const syncedBlockedCells = ref([...DEFAULT_BLOCKED_CELLS])
 const obstaclePresets = ref([])
 const mapProfiles = ref([])
+const mapProfileApplyingKey = ref('')
+const mapProfileDeletingKey = ref('')
+const mapProfileExportingKey = ref('')
+const mapProfileImporting = ref(false)
+const mapProfileSaving = ref(false)
+const mapProfilePreviewingKey = ref('')
+const mapProfileActionSummary = ref(null)
 const selectedObstaclePreset = ref('default_shelves')
 const appliedObstacleSceneKey = ref('default_shelves')
 const currentMapProfile = ref(null)
@@ -252,11 +312,18 @@ const mapSizeResizeReady = ref(false)
 const mapSizeResizeLockReason = ref('ready')
 const mapResizePreviewCols = ref(GRID_COLS)
 const mapResizePreviewRows = ref(GRID_ROWS)
+const mapResizePreviewColsInput = ref(String(GRID_COLS))
+const mapResizePreviewRowsInput = ref(String(GRID_ROWS))
 const mapResizePreview = ref(null)
 const mapResizePreviewLoading = ref(false)
+const mapPreviewFocusCells = ref([])
+const mapResizePreviewDirty = ref(false)
+const mapResizeHighlightedSection = ref('')
+const mapResizeHighlightedItemKeys = ref([])
 const obstacleLayoutStatus = ref('')
 const obstacleLayoutStatusType = ref('info')
 const obstacleLayoutFileInputRef = ref(null)
+const mapProfileFileInputRef = ref(null)
 const importedObstacleLayoutPendingPreset = ref(false)
 const importedObstaclePresetSuggestedName = ref('')
 const compareDisplayMode = ref('panel')
@@ -292,6 +359,10 @@ let compareFloatingDragging = false
 let compareFloatingDragOffsetX = 0
 let compareFloatingDragOffsetY = 0
 let manualPreviewHoldTimer = null
+let mapPreviewFocusTimer = null
+let mapResizeSectionHighlightTimer = null
+let mapResizeItemHighlightTimer = null
+let mapPreviewFocusSequence = 0
 
 const { t, localeTexts, localizeDispatchReason, localizeApiErrorDetail, createApiError } = useLocaleText(locale)
 const {
@@ -378,13 +449,13 @@ const pageTopStyle = computed(() =>
       }
 )
 const mapStageStyle = computed(() => ({
-  width: `${MAP_WIDTH}px`,
-  height: `${MAP_HEIGHT}px`,
+  width: `${mapWidth.value}px`,
+  height: `${mapHeight.value}px`,
   transform: `translate(${mapOffsetX.value}px, ${mapOffsetY.value}px) scale(${mapZoom.value})`
 }))
 const mapZoomLabel = computed(() => `${Math.round(mapZoom.value * 100)}%`)
-const minimapScale = computed(() => MINIMAP_WIDTH / MAP_WIDTH)
-const minimapHeight = computed(() => MAP_HEIGHT * minimapScale.value)
+const minimapScale = computed(() => (mapWidth.value > 0 ? MINIMAP_WIDTH / mapWidth.value : 1))
+const minimapHeight = computed(() => mapHeight.value * minimapScale.value)
 const minimapCellSize = computed(() => CELL_SIZE * minimapScale.value)
 const blockedCellSet = computed(
   () => new Set(blockedCells.value.map(cell => `${cell.x},${cell.y}`))
@@ -424,6 +495,9 @@ const currentMapProfileLabel = computed(() => {
   return 'Unknown'
 })
 const currentMapProfileDescription = computed(() => localizedMapProfileField(currentMapProfile.value?.description))
+const previewedMapProfile = computed(
+  () => mapProfiles.value.find(profile => profile.key === mapProfilePreviewingKey.value) ?? null
+)
 const mapSizeResizeStatusLabel = computed(() => {
   if (mapSizeResizeReady.value) return settingsLocale.value.mapInfoResizeReady
   if (mapSizeResizeLockReason.value === 'active_tasks_and_busy_agvs') {
@@ -443,26 +517,211 @@ const mapResizePreviewStatusLabel = computed(() => {
     ? settingsLocale.value.resizePreviewReady
     : settingsLocale.value.resizePreviewBlocked
 })
-const mapResizePreviewReasons = computed(() => {
+const mapResizeRequestedCols = computed(() =>
+  sanitizeGridDimensionInput(mapResizePreviewColsInput.value, gridColsValue())
+)
+const mapResizeRequestedRows = computed(() =>
+  sanitizeGridDimensionInput(mapResizePreviewRowsInput.value, gridRowsValue())
+)
+const mapResizeRequestedSizeLabel = computed(
+  () => `${mapResizeRequestedCols.value} x ${mapResizeRequestedRows.value}`
+)
+function buildMapResizeReasonItem(blocker) {
+  const base = {
+    key: blocker,
+    text: blocker,
+    targetSectionKey: ''
+  }
+  switch (blocker) {
+    case 'active_tasks_present':
+      return {
+        ...base,
+        text: settingsLocale.value.resizeReasonActiveTasks
+      }
+    case 'agvs_not_idle':
+      return {
+        ...base,
+        text: settingsLocale.value.resizeReasonBusyAgvs
+      }
+    case 'agvs_out_of_bounds':
+      return {
+        ...base,
+        text: settingsLocale.value.resizeReasonOverflowAgvs,
+        targetSectionKey: 'agv'
+      }
+    case 'points_out_of_bounds':
+      return {
+        ...base,
+        text: settingsLocale.value.resizeReasonOverflowPoints,
+        targetSectionKey: 'points'
+      }
+    case 'templates_out_of_bounds':
+      return {
+        ...base,
+        text: settingsLocale.value.resizeReasonOverflowTemplates,
+        targetSectionKey: 'templates'
+      }
+    case 'blocked_cells_out_of_bounds':
+      return {
+        ...base,
+        text: settingsLocale.value.resizeReasonOverflowObstacles,
+        targetSectionKey: 'obstacles'
+      }
+    default:
+      return base
+  }
+}
+
+const mapResizePreviewReasonItems = computed(() => {
   if (!Array.isArray(mapResizePreview.value?.blockers)) return []
-  return mapResizePreview.value.blockers.map(blocker => {
-    switch (blocker) {
-      case 'active_tasks_present':
-        return settingsLocale.value.resizeReasonActiveTasks
-      case 'agvs_not_idle':
-        return settingsLocale.value.resizeReasonBusyAgvs
-      case 'agvs_out_of_bounds':
-        return settingsLocale.value.resizeReasonOverflowAgvs
-      case 'points_out_of_bounds':
-        return settingsLocale.value.resizeReasonOverflowPoints
-      case 'templates_out_of_bounds':
-        return settingsLocale.value.resizeReasonOverflowTemplates
-      case 'blocked_cells_out_of_bounds':
-        return settingsLocale.value.resizeReasonOverflowObstacles
-      default:
-        return blocker
+  return mapResizePreview.value.blockers.map(buildMapResizeReasonItem)
+})
+
+function createPreviewFocusCell(x, y) {
+  const cell = {
+    x: Number(x),
+    y: Number(y)
+  }
+  return isWithinCurrentGrid(cell) ? cell : null
+}
+
+function resolveTemplateOverflowFocusCell(item) {
+  const requestedCols = Math.max(
+    1,
+    Number(mapResizePreview.value?.requested_grid_cols ?? mapResizePreviewCols.value ?? gridColsValue())
+  )
+  const requestedRows = Math.max(
+    1,
+    Number(mapResizePreview.value?.requested_grid_rows ?? mapResizePreviewRows.value ?? gridRowsValue())
+  )
+  const template = taskTemplates.value.find(templateItem => String(templateItem.id) === String(item?.id))
+  if (!template) return null
+
+  const stages =
+    Array.isArray(template.stages) && template.stages.length > 0
+      ? template.stages.map((stage, index) => ({
+          ...createTaskChainStage(stage),
+          index: Number.isInteger(Number(stage?.index)) ? Number(stage.index) : index
+        }))
+      : [{ ...createTaskChainStage(template), index: 0 }]
+  const invalidIndexes = Array.isArray(item?.invalid_stage_indexes)
+    ? item.invalid_stage_indexes.map(index => Number(index))
+    : []
+
+  for (const invalidIndex of invalidIndexes) {
+    const stage = stages.find(stageItem => stageItem.index === invalidIndex) ?? stages[invalidIndex]
+    if (!stage) continue
+
+    const candidates = [
+      {
+        x: stage.start_x,
+        y: stage.start_y,
+        invalid:
+          !isValidGridCoordinate(stage.start_x, requestedCols) ||
+          !isValidGridCoordinate(stage.start_y, requestedRows)
+      },
+      {
+        x: stage.end_x,
+        y: stage.end_y,
+        invalid:
+          !isValidGridCoordinate(stage.end_x, requestedCols) ||
+          !isValidGridCoordinate(stage.end_y, requestedRows)
+      }
+    ]
+
+    const invalidCandidate = candidates.find(candidate => candidate.invalid)
+    if (invalidCandidate) {
+      const focusCell = createPreviewFocusCell(invalidCandidate.x, invalidCandidate.y)
+      if (focusCell) return focusCell
     }
-  })
+
+    const fallbackCandidate = candidates
+      .map(candidate => createPreviewFocusCell(candidate.x, candidate.y))
+      .find(Boolean)
+    if (fallbackCandidate) return fallbackCandidate
+  }
+
+  return null
+}
+
+const mapResizePreviewDetailSections = computed(() => {
+  if (!mapResizePreview.value) return []
+
+  const sections = []
+  const agvItems = Array.isArray(mapResizePreview.value.agv_overflows)
+    ? mapResizePreview.value.agv_overflows.map(item => ({
+        key: `agv-${item.id}-${item.x}-${item.y}`,
+        text: `#${item.id} · (${item.x}, ${item.y}) · ${String(item.status || '').toUpperCase()}`,
+        focus: createPreviewFocusCell(item.x, item.y)
+      }))
+    : []
+  const pointItems = Array.isArray(mapResizePreview.value.point_overflows)
+    ? mapResizePreview.value.point_overflows.map(item => ({
+        key: `point-${item.id}`,
+        text: `${item.name} · (${item.x}, ${item.y})`,
+        focus: createPreviewFocusCell(item.x, item.y)
+      }))
+    : []
+  const templateItems = Array.isArray(mapResizePreview.value.template_overflows)
+    ? mapResizePreview.value.template_overflows.map(item => ({
+        key: `template-${item.id}`,
+        text: `${item.name} · ${settingsLocale.value.resizePreviewTemplateStages}: ${(item.invalid_stage_indexes ?? []).map(index => Number(index) + 1).join(', ') || '—'}`,
+        focus: resolveTemplateOverflowFocusCell(item)
+      }))
+    : []
+  const obstacleItems = Array.isArray(mapResizePreview.value.blocked_overflows)
+    ? mapResizePreview.value.blocked_overflows.map(item => ({
+        key: `blocked-${item.x}-${item.y}`,
+        text: `(${item.x}, ${item.y})`,
+        focus: createPreviewFocusCell(item.x, item.y)
+      }))
+    : []
+
+  if (agvItems.length > 0) {
+    sections.push({
+      key: 'agv',
+      title: settingsLocale.value.resizePreviewOverflowAgvs,
+      items: agvItems,
+    })
+  }
+  if (pointItems.length > 0) {
+    sections.push({
+      key: 'points',
+      title: settingsLocale.value.resizePreviewOverflowPoints,
+      items: pointItems,
+    })
+  }
+  if (templateItems.length > 0) {
+    sections.push({
+      key: 'templates',
+      title: settingsLocale.value.resizePreviewOverflowTemplates,
+      items: templateItems,
+    })
+  }
+  if (obstacleItems.length > 0) {
+    sections.push({
+      key: 'obstacles',
+      title: settingsLocale.value.resizePreviewOverflowObstacles,
+      items: obstacleItems,
+    })
+  }
+  return sections
+})
+const mapResizePreviewMatchesInput = computed(() => {
+  if (!mapResizePreview.value) return false
+  return (
+    Number(mapResizePreview.value.requested_grid_cols) === mapResizeRequestedCols.value &&
+    Number(mapResizePreview.value.requested_grid_rows) === mapResizeRequestedRows.value
+  )
+})
+const canApplyMapResize = computed(() => {
+  if (obstacleLayoutDirty.value) return false
+  if (!mapResizePreview.value?.can_apply) return false
+  if (!mapResizePreviewMatchesInput.value) return false
+  return (
+    mapResizeRequestedCols.value !== gridColsValue() ||
+    mapResizeRequestedRows.value !== gridRowsValue()
+  )
 })
 const selectedObstaclePresetDeletable = computed(() => Boolean(selectedObstaclePresetInfo.value?.deletable))
 const syncedBlockedCellSet = computed(
@@ -489,10 +748,10 @@ const minimapAutoPathToEndPoints = computed(() =>
 )
 const minimapViewportStyle = computed(() => {
   const scale = minimapScale.value
-  const visibleWidth = Math.min(MAP_WIDTH, mapViewportWidth.value / mapZoom.value)
-  const visibleHeight = Math.min(MAP_HEIGHT, mapViewportHeight.value / mapZoom.value)
-  const visibleX = clampValue(-mapOffsetX.value / mapZoom.value, 0, MAP_WIDTH - visibleWidth)
-  const visibleY = clampValue(-mapOffsetY.value / mapZoom.value, 0, MAP_HEIGHT - visibleHeight)
+  const visibleWidth = Math.min(mapWidth.value, mapViewportWidth.value / mapZoom.value)
+  const visibleHeight = Math.min(mapHeight.value, mapViewportHeight.value / mapZoom.value)
+  const visibleX = clampValue(-mapOffsetX.value / mapZoom.value, 0, mapWidth.value - visibleWidth)
+  const visibleY = clampValue(-mapOffsetY.value / mapZoom.value, 0, mapHeight.value - visibleHeight)
 
   return {
     left: `${visibleX * scale}px`,
@@ -1424,8 +1683,8 @@ function taskTemplateTypeText(template) {
 function normalizeTemplateStages(template) {
   return normalizeTemplateStagesRaw(template, {
     createTaskChainStage,
-    gridCols: GRID_COLS,
-    gridRows: GRID_ROWS
+    gridCols: gridColsValue(),
+    gridRows: gridRowsValue()
   })
 }
 
@@ -1528,8 +1787,8 @@ const {
   clampValue,
   normalizeCustomPoints: parsed =>
     normalizeStoredCustomPoints(parsed, {
-      gridCols: GRID_COLS,
-      gridRows: GRID_ROWS,
+      gridCols: gridColsValue(),
+      gridRows: gridRowsValue(),
       isValidGridCoordinate
     }),
   templateFromStored: template =>
@@ -1754,8 +2013,8 @@ const {
   syncLegacyCustomTemplatesToBackend
 } = usePointTemplateBackend({
   API_BASE,
-  GRID_COLS,
-  GRID_ROWS,
+  GRID_COLS: currentGridCols,
+  GRID_ROWS: currentGridRows,
   defaultPoints: DEFAULT_POINT_LIBRARY,
   defaultTemplates: DEFAULT_TASK_TEMPLATES,
   builtinPoints,
@@ -1786,8 +2045,8 @@ const {
   handleTemplateFileChange
 } = useTemplatePointActions({
   t,
-  GRID_COLS,
-  GRID_ROWS,
+  GRID_COLS: currentGridCols,
+  GRID_ROWS: currentGridRows,
   taskForm,
   taskChainStages,
   taskBuilderMode,
@@ -1856,8 +2115,8 @@ function hasActiveTask() {
 
 const { tryAutoSchedule, tryManualBoundSchedule, scheduleAutoIfReady } = useDispatchScheduler({
   API_BASE,
-  GRID_COLS,
-  GRID_ROWS,
+  GRID_COLS: currentGridCols,
+  GRID_ROWS: currentGridRows,
   algorithm,
   dispatchMode,
   obstacleEditMode,
@@ -2039,6 +2298,7 @@ const {
   changeMapZoom,
   clampMapTransform,
   updateMapViewportMetrics,
+  focusMapAtWorld,
   getCellFromEvent,
   getCellFromClient,
   onMapWheel,
@@ -2049,14 +2309,14 @@ const {
   handleGlobalMouseUp
 } = useMapViewport({
   constants: {
-    MAP_WIDTH,
-    MAP_HEIGHT,
+    MAP_WIDTH: mapWidth,
+    MAP_HEIGHT: mapHeight,
     MINIMAP_WIDTH,
     MIN_ZOOM,
     MAX_ZOOM,
     CELL_SIZE,
-    GRID_COLS,
-    GRID_ROWS
+    GRID_COLS: currentGridCols,
+    GRID_ROWS: currentGridRows
   },
   refs: {
     layoutRef,
@@ -2088,8 +2348,8 @@ const {
   onTaskLeave
 } = useTaskPreview({
   algorithm,
-  GRID_COLS,
-  GRID_ROWS,
+  GRID_COLS: currentGridCols,
+  GRID_ROWS: currentGridRows,
   isBlockedCell,
   currentTaskStage,
   taskRemainingWaypoints,
@@ -2418,6 +2678,8 @@ async function createTaskAndSchedule(agvId) {
         start_y: startPoint.value.y,
         end_x: endPoint.value.x,
         end_y: endPoint.value.y,
+        grid_cols: gridColsValue(),
+        grid_rows: gridRowsValue(),
         priority: taskPriority.value,
         ...(isManualFlow ? buildManualTaskCreateMeta(manualAgv) : {})
       })
@@ -2442,8 +2704,8 @@ async function createTaskAndSchedule(agvId) {
         agv_id: isManualFlow ? agvId : null,
         schedule_mode: isManualFlow ? 'manual' : 'auto',
         algorithm: algorithm.value,
-        grid_cols: GRID_COLS,
-        grid_rows: GRID_ROWS
+        grid_cols: gridColsValue(),
+        grid_rows: gridRowsValue()
       })
     })
     const scheduleData = await scheduleRes.json()
@@ -2713,8 +2975,8 @@ async function recoverBlockedTask(task, mode) {
       body: JSON.stringify({
         mode,
         algorithm: preferredAlgorithm,
-        grid_cols: GRID_COLS,
-        grid_rows: GRID_ROWS
+        grid_cols: gridColsValue(),
+        grid_rows: gridRowsValue()
       })
     })
     const data = await res.json()
@@ -2777,8 +3039,8 @@ async function retryBlockedTaskFromCurrent(task, algorithmName = null) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         algorithm: selectedAlgorithm,
-        grid_cols: GRID_COLS,
-        grid_rows: GRID_ROWS
+        grid_cols: gridColsValue(),
+        grid_rows: gridRowsValue()
       })
     })
     const data = await res.json()
@@ -2843,8 +3105,8 @@ async function retryBlockedTaskWithAStar(task) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         algorithm: 'astar',
-        grid_cols: GRID_COLS,
-        grid_rows: GRID_ROWS
+        grid_cols: gridColsValue(),
+        grid_rows: gridRowsValue()
       })
     })
     const data = await res.json()
@@ -2918,8 +3180,8 @@ async function retryAllBlockedTasksWithAStar(taskGroup) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           algorithm: 'astar',
-          grid_cols: GRID_COLS,
-          grid_rows: GRID_ROWS
+          grid_cols: gridColsValue(),
+          grid_rows: gridRowsValue()
         })
       })
       const data = await res.json()
@@ -2968,10 +3230,10 @@ async function submitTaskPayload(payload) {
       }))
       .filter(
         stage =>
-          isValidGridCoordinate(stage.start_x, GRID_COLS) &&
-          isValidGridCoordinate(stage.start_y, GRID_ROWS) &&
-          isValidGridCoordinate(stage.end_x, GRID_COLS) &&
-          isValidGridCoordinate(stage.end_y, GRID_ROWS)
+          isValidGridCoordinate(stage.start_x, gridColsValue()) &&
+          isValidGridCoordinate(stage.start_y, gridRowsValue()) &&
+          isValidGridCoordinate(stage.end_x, gridColsValue()) &&
+          isValidGridCoordinate(stage.end_y, gridRowsValue())
       )
 
     if (normalizedStages.length !== payload.stages.length || normalizedStages.length === 0) {
@@ -3001,10 +3263,10 @@ async function submitTaskPayload(payload) {
     window.alert(t('point_form_invalid_coords'))
     return false
   } else if (
-    !isValidGridCoordinate(Number(payload.start_x), GRID_COLS) ||
-    !isValidGridCoordinate(Number(payload.start_y), GRID_ROWS) ||
-    !isValidGridCoordinate(Number(payload.end_x), GRID_COLS) ||
-    !isValidGridCoordinate(Number(payload.end_y), GRID_ROWS)
+    !isValidGridCoordinate(Number(payload.start_x), gridColsValue()) ||
+    !isValidGridCoordinate(Number(payload.start_y), gridRowsValue()) ||
+    !isValidGridCoordinate(Number(payload.end_x), gridColsValue()) ||
+    !isValidGridCoordinate(Number(payload.end_y), gridRowsValue())
   ) {
     window.alert(t('point_form_invalid_coords'))
     return false
@@ -3031,7 +3293,11 @@ async function submitTaskPayload(payload) {
     const res = await fetch(`${API_BASE}/task/create`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
+      body: JSON.stringify({
+        ...payload,
+        grid_cols: gridColsValue(),
+        grid_rows: gridRowsValue()
+      })
     })
     const data = await res.json()
     if (!res.ok) {
@@ -3058,8 +3324,8 @@ async function submitTaskPayload(payload) {
           agv_id: manualAgv.id,
           schedule_mode: 'manual',
           algorithm: algorithm.value,
-          grid_cols: GRID_COLS,
-          grid_rows: GRID_ROWS
+          grid_cols: gridColsValue(),
+          grid_rows: gridRowsValue()
         })
       })
       const scheduleData = await scheduleRes.json()
@@ -3152,8 +3418,8 @@ function buildCompareSnapshot() {
     saved_at: new Date().toISOString(),
     scene_key: appliedSceneKey,
     scene_name: currentSceneLabel(),
-    grid_cols: GRID_COLS,
-    grid_rows: GRID_ROWS,
+    grid_cols: gridColsValue(),
+    grid_rows: gridRowsValue(),
     obstacle_count: blockedCellCount.value,
     task_mode: taskBuilderMode.value,
     stage_count: pathCompareResult.value?.stage_count ?? (Array.isArray(payload?.stages) ? payload.stages.length : 1),
@@ -3204,10 +3470,10 @@ function buildPathComparePayload() {
       stages.length < 2 ||
       stages.some(
         stage =>
-          !isValidGridCoordinate(stage.start_x, GRID_COLS) ||
-          !isValidGridCoordinate(stage.start_y, GRID_ROWS) ||
-          !isValidGridCoordinate(stage.end_x, GRID_COLS) ||
-          !isValidGridCoordinate(stage.end_y, GRID_ROWS)
+          !isValidGridCoordinate(stage.start_x, gridColsValue()) ||
+          !isValidGridCoordinate(stage.start_y, gridRowsValue()) ||
+          !isValidGridCoordinate(stage.end_x, gridColsValue()) ||
+          !isValidGridCoordinate(stage.end_y, gridRowsValue())
       )
     ) {
       return null
@@ -3215,8 +3481,8 @@ function buildPathComparePayload() {
 
     return {
       stages,
-      grid_cols: GRID_COLS,
-      grid_rows: GRID_ROWS
+      grid_cols: gridColsValue(),
+      grid_rows: gridRowsValue()
     }
   }
 
@@ -3225,15 +3491,15 @@ function buildPathComparePayload() {
     start_y: Number(taskForm.value.start_y),
     end_x: Number(taskForm.value.end_x),
     end_y: Number(taskForm.value.end_y),
-    grid_cols: GRID_COLS,
-    grid_rows: GRID_ROWS
+    grid_cols: gridColsValue(),
+    grid_rows: gridRowsValue()
   }
 
   if (
-    !isValidGridCoordinate(payload.start_x, GRID_COLS) ||
-    !isValidGridCoordinate(payload.start_y, GRID_ROWS) ||
-    !isValidGridCoordinate(payload.end_x, GRID_COLS) ||
-    !isValidGridCoordinate(payload.end_y, GRID_ROWS)
+    !isValidGridCoordinate(payload.start_x, gridColsValue()) ||
+    !isValidGridCoordinate(payload.start_y, gridRowsValue()) ||
+    !isValidGridCoordinate(payload.end_x, gridColsValue()) ||
+    !isValidGridCoordinate(payload.end_y, gridRowsValue())
   ) {
     return null
   }
@@ -3529,10 +3795,108 @@ function applyGridSizeFromPayload(payload) {
   if (Number.isInteger(Number(payload?.grid_rows))) {
     currentGridRows.value = Number(payload.grid_rows)
   }
-  if (!mapResizePreview.value) {
-    mapResizePreviewCols.value = currentGridCols.value
-    mapResizePreviewRows.value = currentGridRows.value
+  if (!mapResizePreview.value && !mapResizePreviewDirty.value) {
+    setMapResizePreviewDraft(currentGridCols.value, currentGridRows.value)
   }
+}
+
+function createMapResizePreviewSnapshot(cols, rows, canApply = true) {
+  return {
+    current_grid_cols: cols,
+    current_grid_rows: rows,
+    requested_grid_cols: cols,
+    requested_grid_rows: rows,
+    can_apply: canApply,
+    blockers: [],
+    active_task_count: 0,
+    busy_agv_count: 0,
+    agv_overflow_count: 0,
+    point_overflow_count: 0,
+    template_overflow_count: 0,
+    blocked_overflow_count: 0,
+  }
+}
+
+function sanitizeDraftStateForCurrentGrid() {
+  let adjusted = false
+
+  const nextTaskForm = {
+    ...taskForm.value,
+    start_x: clampXToCurrentGrid(taskForm.value.start_x),
+    start_y: clampYToCurrentGrid(taskForm.value.start_y),
+    end_x: clampXToCurrentGrid(taskForm.value.end_x),
+    end_y: clampYToCurrentGrid(taskForm.value.end_y),
+  }
+  if (
+    nextTaskForm.start_x !== taskForm.value.start_x ||
+    nextTaskForm.start_y !== taskForm.value.start_y ||
+    nextTaskForm.end_x !== taskForm.value.end_x ||
+    nextTaskForm.end_y !== taskForm.value.end_y
+  ) {
+    taskForm.value = nextTaskForm
+    adjusted = true
+  }
+
+  const nextChainStages = taskChainStages.value.map(stage => {
+    const nextStage = {
+      ...stage,
+      start_x: clampXToCurrentGrid(stage.start_x),
+      start_y: clampYToCurrentGrid(stage.start_y),
+      end_x: clampXToCurrentGrid(stage.end_x),
+      end_y: clampYToCurrentGrid(stage.end_y),
+    }
+    if (
+      nextStage.start_x !== stage.start_x ||
+      nextStage.start_y !== stage.start_y ||
+      nextStage.end_x !== stage.end_x ||
+      nextStage.end_y !== stage.end_y
+    ) {
+      adjusted = true
+    }
+    return nextStage
+  })
+  taskChainStages.value = nextChainStages
+
+  const nextCustomPointForm = {
+    ...customPointForm.value,
+    x: clampXToCurrentGrid(customPointForm.value.x),
+    y: clampYToCurrentGrid(customPointForm.value.y),
+  }
+  if (
+    nextCustomPointForm.x !== customPointForm.value.x ||
+    nextCustomPointForm.y !== customPointForm.value.y
+  ) {
+    customPointForm.value = nextCustomPointForm
+    adjusted = true
+  }
+
+  const nextPickPoints = taskChainMapPickPoints.value.filter(isWithinCurrentGrid)
+  if (nextPickPoints.length !== taskChainMapPickPoints.value.length) {
+    taskChainMapPickPoints.value = nextPickPoints
+    adjusted = true
+  }
+
+  if (taskBuilderMode.value === 'chain' && taskChainMapPickActive.value) {
+    startPoint.value = taskChainMapPickPoints.value[0] ?? null
+    endPoint.value = taskChainMapPickPoints.value.at(-1) ?? null
+  } else {
+    if (startPoint.value && !isWithinCurrentGrid(startPoint.value)) {
+      startPoint.value = {
+        x: clampXToCurrentGrid(startPoint.value.x),
+        y: clampYToCurrentGrid(startPoint.value.y),
+      }
+      adjusted = true
+    }
+    if (endPoint.value && !isWithinCurrentGrid(endPoint.value)) {
+      endPoint.value = {
+        x: clampXToCurrentGrid(endPoint.value.x),
+        y: clampYToCurrentGrid(endPoint.value.y),
+      }
+      adjusted = true
+    }
+  }
+
+  return adjusted
 }
 
 function obstaclePresetName(preset) {
@@ -3562,11 +3926,558 @@ function isCurrentMapProfile(profile) {
   return Boolean(profile?.key && currentMapProfile.value?.key && profile.key === currentMapProfile.value.key)
 }
 
-async function runMapResizePrecheck() {
-  const requestedCols = Math.max(1, Number(mapResizePreviewCols.value || 0))
-  const requestedRows = Math.max(1, Number(mapResizePreviewRows.value || 0))
-  mapResizePreviewCols.value = requestedCols
-  mapResizePreviewRows.value = requestedRows
+function isMapProfileApplying(profile) {
+  return Boolean(profile?.key && mapProfileApplyingKey.value === profile.key)
+}
+
+function isMapProfileDeleting(profile) {
+  return Boolean(profile?.key && mapProfileDeletingKey.value === profile.key)
+}
+
+function isMapProfileExporting(profile) {
+  return Boolean(profile?.key && mapProfileExportingKey.value === profile.key)
+}
+
+function isMapProfilePreviewing(profile) {
+  return Boolean(profile?.key && mapProfilePreviewingKey.value === profile.key && mapResizePreviewLoading.value)
+}
+
+function isMapProfilePreviewed(profile) {
+  return Boolean(profile?.key && mapProfilePreviewingKey.value === profile.key && mapResizePreviewMatchesInput.value)
+}
+
+function mapProfilePreviewStatus(profile) {
+  if (isCurrentMapProfile(profile)) return 'current'
+  if (!isMapProfilePreviewed(profile)) return ''
+  return mapResizePreview.value?.can_apply ? 'ready' : 'blocked'
+}
+
+function mapProfilePreviewStatusText(profile) {
+  const status = mapProfilePreviewStatus(profile)
+  if (status === 'current') return settingsLocale.value.mapProfileCurrent
+  if (status === 'ready') return settingsLocale.value.mapProfilePreviewReady
+  if (status === 'blocked') return settingsLocale.value.mapProfilePreviewBlocked
+  return ''
+}
+
+function mapProfilePreviewReasonItems(profile) {
+  if (!isMapProfilePreviewed(profile)) return []
+  if (mapProfilePreviewStatus(profile) !== 'blocked') return []
+  return mapResizePreviewReasonItems.value.slice(0, 3)
+}
+
+function focusMapResizeReasonKey(reasonKey) {
+  const reason = buildMapResizeReasonItem(reasonKey)
+  if (!reason?.key) return
+  focusMapResizeReasonItem(reason)
+}
+
+function mapProfileActionSummaryTitle() {
+  if (!mapProfileActionSummary.value) return ''
+  if (mapProfileActionSummary.value.type === 'blocked') {
+    return settingsLocale.value.mapProfileSummaryBlockedTitle
+  }
+  if (mapProfileActionSummary.value.type === 'forced') {
+    return settingsLocale.value.mapProfileSummaryForcedTitle
+  }
+  return ''
+}
+
+function exportMapProfileActionSummary() {
+  const summary = mapProfileActionSummary.value
+  if (!summary || summary.type !== 'forced') return false
+  try {
+    const payload = {
+      version: 1,
+      exported_at: new Date().toISOString(),
+      type: summary.type,
+      previous_profile_name: summary.previousProfileName || null,
+      applied_profile_name: summary.profileName || null,
+      previous_size: summary.previousSizeLabel || null,
+      applied_size: summary.nextSizeLabel || null,
+      previous_blocked_count: Number(summary.previousBlockedCount ?? 0),
+      applied_blocked_count: Number(summary.nextBlockedCount ?? 0),
+      relocated_agv_count: Number(summary.relocatedAgvs?.length ?? 0),
+      trimmed_blocked_cells_count: Number(summary.trimmedBlockedCount ?? 0),
+      relocated_agvs: Array.isArray(summary.relocatedAgvs) ? summary.relocatedAgvs : [],
+      trimmed_blocked_cells: Array.isArray(summary.trimmedBlockedCells) ? summary.trimmedBlockedCells : [],
+    }
+    downloadJsonFile(buildTaskExportFilename('agv-map-profile-force-diff'), JSON.stringify(payload, null, 2))
+    showFloatingToast(settingsLocale.value.mapProfileSummaryExportSuccess, 'success')
+    return true
+  } catch (error) {
+    console.error('Export map profile summary error:', error)
+    showFloatingToast(settingsLocale.value.mapProfileSummaryExportFailed, 'error')
+    return false
+  }
+}
+
+function canForceApplyPreviewResult() {
+  if (!mapResizePreview.value || mapResizePreview.value.can_apply) return false
+  return Boolean(mapResizePreview.value.force_apply_allowed)
+}
+
+function canForceApplyMapProfile(profile) {
+  return Boolean(isMapProfilePreviewed(profile) && canForceApplyPreviewResult())
+}
+
+function mapResizeSectionDomId(sectionKey = 'reasons') {
+  return `map-resize-preview-section-${sectionKey || 'reasons'}`
+}
+
+function highlightMapResizeSection(sectionKey) {
+  mapResizeHighlightedSection.value = sectionKey
+  if (mapResizeSectionHighlightTimer) {
+    clearTimeout(mapResizeSectionHighlightTimer)
+  }
+  mapResizeSectionHighlightTimer = setTimeout(() => {
+    mapResizeHighlightedSection.value = ''
+    mapResizeSectionHighlightTimer = null
+  }, 1800)
+}
+
+function highlightMapResizeItems(itemKeys = []) {
+  mapResizeHighlightedItemKeys.value = [...new Set((Array.isArray(itemKeys) ? itemKeys : [itemKeys]).filter(Boolean))]
+  if (mapResizeItemHighlightTimer) {
+    clearTimeout(mapResizeItemHighlightTimer)
+  }
+  if (mapResizeHighlightedItemKeys.value.length === 0) {
+    mapResizeItemHighlightTimer = null
+    return
+  }
+  mapResizeItemHighlightTimer = setTimeout(() => {
+    mapResizeHighlightedItemKeys.value = []
+    mapResizeItemHighlightTimer = null
+  }, 1800)
+}
+
+function collectSectionFocusCells(section) {
+  if (!section?.items) return []
+  return section.items
+    .map(item => item.focus)
+    .filter(cell => cell && Number.isFinite(Number(cell.x)) && Number.isFinite(Number(cell.y)))
+}
+
+function focusMapResizeReasonItem(reason) {
+  if (!reason) return
+  const targetSectionKey = reason.targetSectionKey || 'reasons'
+  highlightMapResizeSection(targetSectionKey)
+
+  if (reason.targetSectionKey) {
+    const targetSection = mapResizePreviewDetailSections.value.find(section => section.key === reason.targetSectionKey)
+    const itemKeys = targetSection?.items?.map(item => item.key) ?? []
+    highlightMapResizeItems(itemKeys)
+    if (targetSection?.title) {
+      showFloatingToast(`${settingsLocale.value.resizePreviewDetailTitle}: ${targetSection.title}`, 'info')
+    } else {
+      showFloatingToast(reason.text, 'info')
+    }
+    const focusCells = collectSectionFocusCells(targetSection)
+    if (focusCells.length > 0) {
+      focusMapPreviewCells(focusCells)
+    }
+  } else {
+    highlightMapResizeItems([])
+    showFloatingToast(reason.text, 'info')
+  }
+
+  const targetElement =
+    typeof document !== 'undefined'
+      ? document.getElementById(mapResizeSectionDomId(targetSectionKey))
+      : null
+  if (!targetElement) return
+
+  const panelElement = mapSettingsPanelRef.value
+  if (panelElement && typeof panelElement.scrollTo === 'function') {
+    const panelRect = panelElement.getBoundingClientRect()
+    const targetRect = targetElement.getBoundingClientRect()
+    const nextScrollTop = panelElement.scrollTop + (targetRect.top - panelRect.top) - 12
+    panelElement.scrollTop = Math.max(0, nextScrollTop)
+  } else {
+    targetElement.scrollIntoView({
+      behavior: 'auto',
+      block: 'start',
+    })
+  }
+}
+
+function normalizeMapResizePreviewInputs() {
+  mapResizePreviewDirty.value = true
+  return setMapResizePreviewDraft(mapResizePreviewColsInput.value, mapResizePreviewRowsInput.value)
+}
+
+function markMapResizePreviewDirty() {
+  mapResizePreviewDirty.value = true
+}
+
+function focusMapPreviewCells(cells) {
+  const normalizedCells = [...new Map(
+    (Array.isArray(cells) ? cells : [cells])
+      .filter(cell => cell && Number.isFinite(Number(cell.x)) && Number.isFinite(Number(cell.y)))
+      .map(cell => {
+        const x = Number(cell.x)
+        const y = Number(cell.y)
+        return [`${x},${y}`, { x, y }]
+      })
+  ).values()]
+  if (normalizedCells.length === 0) return
+
+  const minX = Math.min(...normalizedCells.map(cell => cell.x))
+  const maxX = Math.max(...normalizedCells.map(cell => cell.x))
+  const minY = Math.min(...normalizedCells.map(cell => cell.y))
+  const maxY = Math.max(...normalizedCells.map(cell => cell.y))
+
+  focusMapAtWorld(((minX + maxX + 1) / 2) * CELL_SIZE, ((minY + maxY + 1) / 2) * CELL_SIZE)
+  mapPreviewFocusCells.value = normalizedCells.map(cell => ({
+    ...cell,
+    key: `focus-${++mapPreviewFocusSequence}-${cell.x}-${cell.y}`,
+  }))
+
+  if (mapPreviewFocusTimer) {
+    clearTimeout(mapPreviewFocusTimer)
+  }
+  mapPreviewFocusTimer = setTimeout(() => {
+    mapPreviewFocusCells.value = []
+    mapPreviewFocusTimer = null
+  }, 1800)
+}
+
+function focusMapPreviewCell(cell) {
+  focusMapPreviewCells(cell ? [cell] : [])
+}
+
+async function saveCurrentMapProfile() {
+  const defaultName =
+    (typeof currentMapProfile.value?.name === 'string'
+      ? currentMapProfile.value.name
+      : currentMapProfileLabel.value) || `${gridColsValue()}x${gridRowsValue()}`
+  const profileNameInput = window.prompt(
+    `${settingsLocale.value.mapProfileSaveConfirm}\n\n${settingsLocale.value.mapProfileSave}`,
+    defaultName
+  )
+  if (profileNameInput === null) {
+    return false
+  }
+
+  const profileName = profileNameInput.trim()
+  if (!profileName) {
+    setObstacleLayoutStatus('error', settingsLocale.value.mapProfileNameRequired)
+    return false
+  }
+
+  mapProfileSaving.value = true
+  try {
+    const res = await fetch(`${API_BASE}/status/map/profile`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: profileName,
+        blocked_cells: blockedCells.value,
+        grid_cols: gridColsValue(),
+        grid_rows: gridRowsValue(),
+      })
+    })
+    const data = await res.json()
+    if (!res.ok) {
+      throw createApiError(data, settingsLocale.value.mapProfileSaveFailed)
+    }
+    await fetchMapProfiles()
+    const successMessage = data?.name_adjusted
+      ? formatMapProfileAdjustedMessage(data?.requested_name, data?.resolved_name)
+      : settingsLocale.value.mapProfileSaveSuccess
+    setObstacleLayoutStatus('success', successMessage)
+    showFloatingToast(successMessage, 'success')
+    return true
+  } catch (error) {
+    console.error('Save map profile error:', error)
+    setObstacleLayoutStatus('error', error?.message || settingsLocale.value.mapProfileSaveFailed)
+    return false
+  } finally {
+    mapProfileSaving.value = false
+  }
+}
+
+async function exportMapProfile(profile) {
+  if (!profile?.key) return false
+  mapProfileExportingKey.value = profile.key
+  try {
+    const res = await fetch(`${API_BASE}/status/map/profile/${encodeURIComponent(profile.key)}`)
+    const data = await res.json()
+    if (!res.ok) {
+      throw createApiError(data, settingsLocale.value.mapProfileExportFailed)
+    }
+
+    const payload = {
+      version: 1,
+      exported_at: new Date().toISOString(),
+      profile: {
+        key: data.key,
+        name: localizedMapProfileField(data.name) || data.key,
+        description: localizedMapProfileField(data.description),
+        grid_cols: Number(data.grid_cols),
+        grid_rows: Number(data.grid_rows),
+        custom: Boolean(data.custom),
+        blocked_count: Number(data.blocked_count ?? 0),
+        blocked_cells: Array.isArray(data.blocked_cells) ? data.blocked_cells : []
+      }
+    }
+    downloadJsonFile(`agv-map-profile-${data.key}.json`, JSON.stringify(payload, null, 2))
+    showFloatingToast(settingsLocale.value.mapProfileExportSuccess, 'success')
+    return true
+  } catch (error) {
+    console.error('Export map profile error:', error)
+    showFloatingToast(error?.message || settingsLocale.value.mapProfileExportFailed, 'error')
+    return false
+  } finally {
+    mapProfileExportingKey.value = ''
+  }
+}
+
+function triggerMapProfileImport() {
+  mapProfileFileInputRef.value?.click()
+}
+
+function normalizeImportedMapProfilePayload(payload) {
+  const profile = payload?.profile ?? payload ?? {}
+  const name = String(profile.name ?? '').trim()
+  if (!name) return null
+
+  const gridCols = sanitizeGridDimensionInput(profile.grid_cols, gridColsValue())
+  const gridRows = sanitizeGridDimensionInput(profile.grid_rows, gridRowsValue())
+  const rawCells = Array.isArray(profile.blocked_cells) ? profile.blocked_cells : []
+  const blockedCells = normalizeBlockedCellList(
+    rawCells
+      .filter(cell => Number.isFinite(Number(cell?.x)) && Number.isFinite(Number(cell?.y)))
+      .map(cell => ({
+        x: Math.round(Number(cell.x)),
+        y: Math.round(Number(cell.y))
+      }))
+  )
+
+  return {
+    name,
+    description: String(profile.description ?? '').trim() || null,
+    grid_cols: gridCols,
+    grid_rows: gridRows,
+    blocked_cells: blockedCells
+  }
+}
+
+function formatMapProfileAdjustedMessage(requestedName, resolvedName) {
+  return settingsLocale.value.mapProfileNameAdjusted
+    .replace('{requested}', requestedName || resolvedName || '')
+    .replace('{resolved}', resolvedName || requestedName || '')
+}
+
+async function onMapProfileFileChange(event) {
+  const input = event?.target
+  const file = input?.files?.[0]
+  if (!file) return
+
+  mapProfileImporting.value = true
+  try {
+    const rawText = await file.text()
+    const parsed = JSON.parse(rawText)
+    const normalized = normalizeImportedMapProfilePayload(parsed)
+    if (!normalized) {
+      throw new Error(settingsLocale.value.mapProfileImportInvalid)
+    }
+
+    const res = await fetch(`${API_BASE}/status/map/profile`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(normalized)
+    })
+    const data = await res.json()
+    if (!res.ok) {
+      throw createApiError(data, settingsLocale.value.mapProfileImportFailed)
+    }
+
+    await fetchMapProfiles()
+    const successMessage = data?.name_adjusted
+      ? formatMapProfileAdjustedMessage(data?.requested_name, data?.resolved_name)
+      : settingsLocale.value.mapProfileImportSuccess
+    setObstacleLayoutStatus('success', successMessage)
+    showFloatingToast(successMessage, 'success')
+  } catch (error) {
+    console.error('Import map profile error:', error)
+    setObstacleLayoutStatus('error', error?.message || settingsLocale.value.mapProfileImportFailed)
+    showFloatingToast(error?.message || settingsLocale.value.mapProfileImportFailed, 'error')
+  } finally {
+    mapProfileImporting.value = false
+    if (input) {
+      input.value = ''
+    }
+  }
+}
+
+async function deleteMapProfile(profile) {
+  if (!profile?.key || !profile?.deletable) {
+    return false
+  }
+  if (!window.confirm(settingsLocale.value.mapProfileDeleteConfirm)) {
+    return false
+  }
+
+  mapProfileDeletingKey.value = profile.key
+  try {
+    const res = await fetch(`${API_BASE}/status/map/profile/${encodeURIComponent(profile.key)}`, {
+      method: 'DELETE'
+    })
+    const data = await res.json()
+    if (!res.ok) {
+      throw createApiError(data, settingsLocale.value.mapProfileDeleteFailed)
+    }
+    if (mapProfilePreviewingKey.value === profile.key) {
+      mapProfilePreviewingKey.value = ''
+    }
+    await fetchMapProfiles()
+    setObstacleLayoutStatus('success', settingsLocale.value.mapProfileDeleteSuccess)
+    showFloatingToast(settingsLocale.value.mapProfileDeleteSuccess, 'success')
+    return true
+  } catch (error) {
+    console.error('Delete map profile error:', error)
+    setObstacleLayoutStatus('error', error?.message || settingsLocale.value.mapProfileDeleteFailed)
+    return false
+  } finally {
+    mapProfileDeletingKey.value = ''
+  }
+}
+
+async function applyMapProfile(profile) {
+  if (!profile?.key) return false
+  if (obstacleLayoutDirty.value) {
+    setObstacleLayoutStatus('error', obstacleSaveRequiredText())
+    return false
+  }
+  if (isCurrentMapProfile(profile)) {
+    showFloatingToast(settingsLocale.value.mapProfileApplyCurrent, 'info')
+    return false
+  }
+
+  const profileName = localizedMapProfileField(profile.name) || profile.key
+  const forceApply = canForceApplyMapProfile(profile)
+  const confirmMessage = forceApply
+    ? settingsLocale.value.mapProfileForceApplyConfirm
+    : settingsLocale.value.mapProfileApplyConfirm
+  if (!window.confirm(`${confirmMessage}\n${profileName}`)) {
+    return false
+  }
+
+  const requestedCols = Math.max(1, Number(profile.grid_cols || 0))
+  const requestedRows = Math.max(1, Number(profile.grid_rows || 0))
+  const previousSizeLabel = `${gridColsValue()} x ${gridRowsValue()}`
+  const previousBlockedCount = blockedCells.value.length
+  const previousProfileName = currentMapProfileLabel.value
+  mapProfileApplyingKey.value = profile.key
+  mapProfilePreviewingKey.value = profile.key
+  mapProfileActionSummary.value = null
+  mapResizePreviewDirty.value = true
+  setMapResizePreviewDraft(requestedCols, requestedRows)
+
+  try {
+    const query = forceApply ? '?force=true' : ''
+    const res = await fetch(`${API_BASE}/status/map/profile/${encodeURIComponent(profile.key)}${query}`, {
+      method: 'POST'
+    })
+    const data = await res.json()
+    if (!res.ok) {
+      if (Array.isArray(data?.detail?.blockers)) {
+        mapResizePreview.value = {
+          ...(mapResizePreview.value ?? createMapResizePreviewSnapshot(gridColsValue(), gridRowsValue(), false)),
+          ...data.detail,
+          can_apply: false,
+          requested_grid_cols: requestedCols,
+          requested_grid_rows: requestedRows,
+        }
+        mapProfileActionSummary.value = {
+          type: 'blocked',
+          profileName,
+          blockers: data.detail.blockers,
+          forceApplyAllowed: Boolean(data.detail.force_apply_allowed),
+        }
+        await nextTick()
+        if (data.detail.blockers.length > 0) {
+          focusMapResizeReasonKey(data.detail.blockers[0])
+        }
+      }
+      throw createApiError(data, settingsLocale.value.mapProfileApplyFailed)
+    }
+
+    applyGridSizeFromPayload(data)
+    mapResizePreviewDirty.value = false
+    const normalized = normalizeBlockedCellList(data?.blocked_cells ?? blockedCells.value)
+    blockedCells.value = normalized
+    syncedBlockedCells.value = normalized
+    appliedObstacleSceneKey.value = detectObstacleSceneKey(normalized)
+    if (appliedObstacleSceneKey.value !== 'custom') {
+      selectedObstaclePreset.value = appliedObstacleSceneKey.value
+    }
+    clearImportedObstacleLayoutPreset()
+    mapResizePreview.value = createMapResizePreviewSnapshot(requestedCols, requestedRows, true)
+    await Promise.all([fetchMapProfiles(), fetchMapPresets()])
+    await nextTick()
+    updateMapViewportMetrics(true)
+    clearPreview()
+    cancelSelection()
+
+    let successMessage = mergeObstacleStatusMessage(
+      forceApply ? settingsLocale.value.mapProfileForceApplySuccess : settingsLocale.value.mapProfileApplySuccess,
+      Number(data?.skipped_occupied_count ?? 0)
+    )
+    if (forceApply) {
+      successMessage = successMessage
+        .replace('{agvs}', String(Number(data?.relocated_agv_count ?? 0)))
+        .replace('{blocked}', String(Number(data?.trimmed_blocked_cells_count ?? 0)))
+      mapProfileActionSummary.value = {
+        type: 'forced',
+        profileName,
+        previousProfileName,
+        previousSizeLabel,
+        nextSizeLabel: `${requestedCols} x ${requestedRows}`,
+        previousBlockedCount,
+        nextBlockedCount: normalized.length,
+        relocatedAgvs: Array.isArray(data?.relocated_agvs) ? data.relocated_agvs : [],
+        trimmedBlockedCount: Number(data?.trimmed_blocked_cells_count ?? 0),
+        trimmedBlockedCells: Array.isArray(data?.trimmed_blocked_cells) ? data.trimmed_blocked_cells : [],
+      }
+      const focusCells = [
+        ...(Array.isArray(data?.relocated_agvs) ? data.relocated_agvs.map(item => item?.to).filter(Boolean) : []),
+      ]
+      if (focusCells.length > 0) {
+        focusMapPreviewCells(focusCells)
+      }
+    } else {
+      mapProfileActionSummary.value = null
+    }
+    setObstacleLayoutStatus('success', successMessage)
+    showFloatingToast(successMessage, 'success')
+    return true
+  } catch (error) {
+    console.error('Apply map profile error:', error)
+    setObstacleLayoutStatus('error', error?.message || settingsLocale.value.mapProfileApplyFailed)
+    return false
+  } finally {
+    mapProfileApplyingKey.value = ''
+  }
+}
+
+async function runMapResizePrecheck(nextCols = null, nextRows = null, previewProfileKey = '') {
+  if (obstacleLayoutDirty.value) {
+    setObstacleLayoutStatus('error', obstacleSaveRequiredText())
+    return
+  }
+  const requestedCols = sanitizeGridDimensionInput(
+    isPrimitiveGridOverride(nextCols) ? nextCols : mapResizePreviewColsInput.value,
+    gridColsValue()
+  )
+  const requestedRows = sanitizeGridDimensionInput(
+    isPrimitiveGridOverride(nextRows) ? nextRows : mapResizePreviewRowsInput.value,
+    gridRowsValue()
+  )
+  mapResizePreviewDirty.value = true
+  setMapResizePreviewDraft(requestedCols, requestedRows)
+  mapProfilePreviewingKey.value = previewProfileKey || ''
   mapResizePreviewLoading.value = true
   try {
     const params = new URLSearchParams({
@@ -3580,7 +4491,96 @@ async function runMapResizePrecheck() {
     mapResizePreview.value = await res.json()
   } catch (error) {
     console.error('Map resize precheck error:', error)
+    if (previewProfileKey) {
+      mapProfilePreviewingKey.value = ''
+    }
     showFloatingToast(error?.message || settingsLocale.value.resizePreviewRequestFailed, 'error')
+  } finally {
+    mapResizePreviewLoading.value = false
+  }
+}
+
+async function previewMapProfile(profile) {
+  if (!profile?.key) return
+  if (obstacleLayoutDirty.value) {
+    setObstacleLayoutStatus('error', obstacleSaveRequiredText())
+    return
+  }
+  mapResizePreviewDirty.value = true
+  await runMapResizePrecheck(profile.grid_cols, profile.grid_rows, profile.key)
+}
+
+async function applyMapResize() {
+  if (obstacleLayoutDirty.value) {
+    setObstacleLayoutStatus('error', obstacleSaveRequiredText())
+    return false
+  }
+  const { requestedCols, requestedRows } = normalizeMapResizePreviewInputs()
+  mapProfilePreviewingKey.value = ''
+
+  if (requestedCols === gridColsValue() && requestedRows === gridRowsValue()) {
+    showFloatingToast(settingsLocale.value.resizeApplyNoChange, 'info')
+    return false
+  }
+  if (!mapResizePreviewMatchesInput.value) {
+    showFloatingToast(settingsLocale.value.resizePreviewStale, 'error')
+    return false
+  }
+  if (!mapResizePreview.value?.can_apply) {
+    showFloatingToast(settingsLocale.value.resizeApplyBlocked, 'error')
+    return false
+  }
+  if (!window.confirm(settingsLocale.value.resizeApplyConfirm)) {
+    return false
+  }
+
+  mapResizePreviewLoading.value = true
+  try {
+    const res = await fetch(`${API_BASE}/status/map/resize`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        grid_cols: requestedCols,
+        grid_rows: requestedRows,
+      })
+    })
+    const data = await res.json()
+    if (!res.ok) {
+      if (Array.isArray(data?.detail?.blockers)) {
+        mapResizePreview.value = {
+          ...(mapResizePreview.value ?? createMapResizePreviewSnapshot(gridColsValue(), gridRowsValue(), false)),
+          ...data.detail,
+          can_apply: false,
+          requested_grid_cols: requestedCols,
+          requested_grid_rows: requestedRows,
+        }
+      }
+      throw createApiError(data, settingsLocale.value.resizeApplyFailed)
+    }
+
+    applyGridSizeFromPayload(data)
+    mapResizePreviewDirty.value = false
+    const normalized = normalizeBlockedCellList(data?.blocked_cells ?? blockedCells.value)
+    blockedCells.value = normalized
+    syncedBlockedCells.value = normalized
+    appliedObstacleSceneKey.value = detectObstacleSceneKey(normalized)
+    if (appliedObstacleSceneKey.value !== 'custom') {
+      selectedObstaclePreset.value = appliedObstacleSceneKey.value
+    }
+    clearImportedObstacleLayoutPreset()
+    mapResizePreview.value = createMapResizePreviewSnapshot(requestedCols, requestedRows, true)
+    await Promise.all([fetchMapProfiles(), fetchMapPresets()])
+    await nextTick()
+    updateMapViewportMetrics(true)
+    clearPreview()
+    cancelSelection()
+    setObstacleLayoutStatus('success', settingsLocale.value.resizeApplySuccess)
+    showFloatingToast(settingsLocale.value.resizeApplySuccess, 'success')
+    return true
+  } catch (error) {
+    console.error('Apply map resize error:', error)
+    setObstacleLayoutStatus('error', error?.message || settingsLocale.value.resizeApplyFailed)
+    return false
   } finally {
     mapResizePreviewLoading.value = false
   }
@@ -3698,8 +4698,8 @@ async function saveBlockedCells() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         blocked_cells: filtered,
-        grid_cols: GRID_COLS,
-        grid_rows: GRID_ROWS
+        grid_cols: gridColsValue(),
+        grid_rows: gridRowsValue()
       })
     })
     const data = await res.json()
@@ -3751,8 +4751,8 @@ async function saveCurrentObstaclePreset(defaultName = '') {
       body: JSON.stringify({
         name: presetName,
         blocked_cells: filtered,
-        grid_cols: GRID_COLS,
-        grid_rows: GRID_ROWS
+        grid_cols: gridColsValue(),
+        grid_rows: gridRowsValue()
       })
     })
     const data = await res.json()
@@ -4037,8 +5037,8 @@ async function applyObstaclePreset() {
 
 function downloadObstacleLayout() {
   const payload = {
-    grid_cols: GRID_COLS,
-    grid_rows: GRID_ROWS,
+    grid_cols: gridColsValue(),
+    grid_rows: gridRowsValue(),
     blocked_cells: normalizeBlockedCellList(blockedCells.value)
   }
   downloadJsonFile('agv-obstacle-layout.json', JSON.stringify(payload, null, 2))
@@ -4512,6 +5512,18 @@ watch([showAutoPath, showMarkerIcons, showPathArrows, showStatusLegend, statusLe
   saveMapDisplaySettings()
 })
 
+watch([currentGridCols, currentGridRows], async ([nextCols, nextRows], [prevCols, prevRows]) => {
+  const changed = Number(nextCols) !== Number(prevCols) || Number(nextRows) !== Number(prevRows)
+  if (changed) {
+    const adjusted = sanitizeDraftStateForCurrentGrid()
+    if (adjusted) {
+      showFloatingToast(settingsLocale.value.resizeDraftAdjusted, 'info')
+    }
+  }
+  await nextTick()
+  updateMapViewportMetrics(true)
+})
+
 watch(
   [queueGroupsCollapsed, taskCardCollapsed],
   () => {
@@ -4639,6 +5651,9 @@ onBeforeUnmount(() => {
   if (clickTimer) clearTimeout(clickTimer)
   clearPreview()
   if (manualPreviewHoldTimer) clearTimeout(manualPreviewHoldTimer)
+  if (mapPreviewFocusTimer) clearTimeout(mapPreviewFocusTimer)
+  if (mapResizeSectionHighlightTimer) clearTimeout(mapResizeSectionHighlightTimer)
+  if (mapResizeItemHighlightTimer) clearTimeout(mapResizeItemHighlightTimer)
   if (taskBuilderJumpTimer) clearTimeout(taskBuilderJumpTimer)
   if (agvRecoveryJumpTimer) clearTimeout(agvRecoveryJumpTimer)
   if (faultSelectedAgvPulseTimer) clearTimeout(faultSelectedAgvPulseTimer)
@@ -4832,7 +5847,19 @@ onBeforeUnmount(() => {
               }"
             ></div>
 
-            <svg class="path-layer" :width="MAP_WIDTH" :height="MAP_HEIGHT">
+            <div
+              v-for="focusCell in mapPreviewFocusCells"
+              :key="focusCell.key"
+              class="map-preview-focus-cell"
+              :style="{
+                left: `${focusCell.x * CELL_SIZE}px`,
+                top: `${focusCell.y * CELL_SIZE}px`,
+                width: `${CELL_SIZE}px`,
+                height: `${CELL_SIZE}px`
+              }"
+            ></div>
+
+            <svg class="path-layer" :width="mapWidth" :height="mapHeight">
               <defs>
                 <marker id="path-arrow-start" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
                   <path d="M0,0 L8,4 L0,8 z" class="arrow-head start"></path>
@@ -5035,7 +6062,7 @@ onBeforeUnmount(() => {
             <button class="map-control-button" type="button" @click="toggleMapSettings">
               {{ settingsLocale.title }}
             </button>
-            <div v-if="showMapSettings" class="map-settings-panel">
+            <div v-if="showMapSettings" ref="mapSettingsPanelRef" class="map-settings-panel">
               <div class="map-settings-title">{{ settingsLocale.title }}</div>
               <button class="map-settings-guide-button" type="button" @click="openGuideCenter">
                 {{ guideCenterLocale.open }}
@@ -5210,6 +6237,175 @@ onBeforeUnmount(() => {
               <div class="map-settings-group">
                 <div class="map-settings-subtitle">{{ settingsLocale.profileGroup }}</div>
                 <p class="panel-hint map-settings-hint">{{ settingsLocale.profileGroupHint }}</p>
+                <p v-if="previewedMapProfile" class="panel-hint map-settings-hint">
+                  {{
+                    settingsLocale.mapProfilePreviewTarget
+                      .replace('{name}', localizedMapProfileField(previewedMapProfile.name) || previewedMapProfile.key)
+                      .replace('{size}', `${previewedMapProfile.grid_cols} x ${previewedMapProfile.grid_rows}`)
+                  }}
+                </p>
+                <div
+                  v-if="mapProfileActionSummary"
+                  class="map-profile-summary-card"
+                  :class="{
+                    'is-blocked': mapProfileActionSummary.type === 'blocked',
+                    'is-forced': mapProfileActionSummary.type === 'forced'
+                  }"
+                >
+                  <div class="map-profile-summary-title">{{ mapProfileActionSummaryTitle() }}</div>
+                  <div class="map-profile-summary-text">
+                    {{ mapProfileActionSummary.profileName }}
+                  </div>
+                  <div
+                    v-if="mapProfileActionSummary.type === 'blocked' && mapProfileActionSummary.forceApplyAllowed"
+                    class="map-profile-summary-text"
+                  >
+                    {{ settingsLocale.mapProfileSummaryForceHint }}
+                  </div>
+                  <ul
+                    v-if="mapProfileActionSummary.type === 'blocked' && Array.isArray(mapProfileActionSummary.blockers)"
+                    class="map-size-preview-list compact"
+                  >
+                    <li
+                      v-for="reasonKey in mapProfileActionSummary.blockers"
+                      :key="`summary-${reasonKey}`"
+                    >
+                      <button
+                        type="button"
+                        class="map-size-preview-reason-action"
+                        @click.stop="focusMapResizeReasonKey(reasonKey)"
+                      >
+                        {{ buildMapResizeReasonItem(reasonKey).text }}
+                      </button>
+                    </li>
+                  </ul>
+                  <div
+                    v-if="mapProfileActionSummary.type === 'forced'"
+                    class="map-profile-summary-metrics"
+                  >
+                    <div class="map-profile-summary-metric">
+                      {{
+                        settingsLocale.mapProfileSummaryPreviousProfile
+                          .replace('{name}', mapProfileActionSummary.previousProfileName || '—')
+                      }}
+                    </div>
+                    <div class="map-profile-summary-metric">
+                      {{
+                        settingsLocale.mapProfileSummaryNextProfile
+                          .replace('{name}', mapProfileActionSummary.profileName || '—')
+                      }}
+                    </div>
+                    <div class="map-profile-summary-metric">
+                      {{
+                        settingsLocale.mapProfileSummarySizeBefore
+                          .replace('{size}', mapProfileActionSummary.previousSizeLabel || '—')
+                      }}
+                    </div>
+                    <div class="map-profile-summary-metric">
+                      {{
+                        settingsLocale.mapProfileSummarySizeAfter
+                          .replace('{size}', mapProfileActionSummary.nextSizeLabel || '—')
+                      }}
+                    </div>
+                    <div class="map-profile-summary-metric">
+                      {{
+                        settingsLocale.mapProfileSummaryBlockedBefore
+                          .replace('{count}', String(mapProfileActionSummary.previousBlockedCount ?? 0))
+                      }}
+                    </div>
+                    <div class="map-profile-summary-metric">
+                      {{
+                        settingsLocale.mapProfileSummaryBlockedAfter
+                          .replace('{count}', String(mapProfileActionSummary.nextBlockedCount ?? 0))
+                      }}
+                    </div>
+                    <div class="map-profile-summary-metric">
+                      {{
+                        settingsLocale.mapProfileSummaryRelocated
+                          .replace('{count}', String(mapProfileActionSummary.relocatedAgvs?.length ?? 0))
+                      }}
+                    </div>
+                    <div class="map-profile-summary-metric">
+                      {{
+                        settingsLocale.mapProfileSummaryTrimmed
+                          .replace('{count}', String(mapProfileActionSummary.trimmedBlockedCount ?? 0))
+                      }}
+                    </div>
+                  </div>
+                  <div
+                    v-if="mapProfileActionSummary.type === 'forced'"
+                    class="map-profile-summary-actions"
+                  >
+                    <button
+                      type="button"
+                      class="btn-ghost"
+                      @click="exportMapProfileActionSummary"
+                    >
+                      {{ settingsLocale.mapProfileSummaryExport }}
+                    </button>
+                  </div>
+                  <div
+                    v-if="mapProfileActionSummary.type === 'forced' && mapProfileActionSummary.trimmedBlockedCells?.length"
+                    class="map-profile-summary-text"
+                  >
+                    {{ settingsLocale.mapProfileSummaryTrimmedList }}
+                  </div>
+                  <ul
+                    v-if="mapProfileActionSummary.type === 'forced' && mapProfileActionSummary.trimmedBlockedCells?.length"
+                    class="map-size-preview-list compact"
+                  >
+                    <li
+                      v-for="cell in mapProfileActionSummary.trimmedBlockedCells"
+                      :key="`trimmed-${cell.x}-${cell.y}`"
+                    >
+                      <span>
+                        ({{ cell.x }}, {{ cell.y }})
+                      </span>
+                    </li>
+                  </ul>
+                  <ul
+                    v-if="mapProfileActionSummary.type === 'forced' && mapProfileActionSummary.relocatedAgvs?.length"
+                    class="map-size-preview-list compact"
+                  >
+                    <li
+                      v-for="item in mapProfileActionSummary.relocatedAgvs"
+                      :key="`relocated-${item.id}`"
+                    >
+                      <button
+                        type="button"
+                        class="map-size-preview-detail-action"
+                        @click.stop="focusMapPreviewCell(item.to)"
+                      >
+                        AGV #{{ item.id }} · ({{ item.from.x }}, {{ item.from.y }}) → ({{ item.to.x }}, {{ item.to.y }})
+                      </button>
+                    </li>
+                  </ul>
+                </div>
+                <div class="map-settings-actions">
+                  <button
+                    class="btn-secondary"
+                    type="button"
+                    :disabled="mapProfileSaving || mapProfileImporting"
+                    @click="saveCurrentMapProfile"
+                  >
+                    {{ mapProfileSaving ? settingsLocale.mapProfileApplying : settingsLocale.mapProfileSave }}
+                  </button>
+                  <button
+                    class="btn-ghost"
+                    type="button"
+                    :disabled="mapProfileSaving || mapProfileImporting"
+                    @click="triggerMapProfileImport"
+                  >
+                    {{ mapProfileImporting ? settingsLocale.mapProfileImporting : settingsLocale.mapProfileImport }}
+                  </button>
+                </div>
+                <input
+                  ref="mapProfileFileInputRef"
+                  type="file"
+                  accept="application/json,.json"
+                  class="hidden-file-input"
+                  @change="onMapProfileFileChange"
+                />
                 <div class="map-profile-grid">
                   <div
                     v-for="profile in mapProfiles"
@@ -5229,6 +6425,94 @@ onBeforeUnmount(() => {
                     <div class="map-profile-desc">
                       {{ localizedMapProfileField(profile.description) }}
                     </div>
+                    <div
+                      v-if="mapProfilePreviewStatusText(profile)"
+                      class="map-profile-preview-status"
+                      :class="{
+                        'is-ready': mapProfilePreviewStatus(profile) === 'ready',
+                        'is-blocked': mapProfilePreviewStatus(profile) === 'blocked',
+                        'is-current': mapProfilePreviewStatus(profile) === 'current'
+                      }"
+                    >
+                      {{ mapProfilePreviewStatusText(profile) }}
+                    </div>
+                    <div
+                      v-if="mapProfilePreviewReasonItems(profile).length > 0"
+                      class="map-profile-preview-reasons"
+                    >
+                      <div class="map-profile-preview-reason-title">
+                        {{ settingsLocale.mapProfilePreviewReasonTitle }}
+                      </div>
+                      <ul class="map-size-preview-list compact">
+                        <li
+                          v-for="reason in mapProfilePreviewReasonItems(profile)"
+                          :key="`${profile.key}-${reason.key}`"
+                        >
+                          <button
+                            type="button"
+                            class="map-size-preview-reason-action"
+                            @click.stop="focusMapResizeReasonItem(reason)"
+                          >
+                            {{ reason.text }}
+                          </button>
+                        </li>
+                      </ul>
+                    </div>
+                    <div class="map-profile-actions">
+                      <button
+                        :class="canForceApplyMapProfile(profile) ? 'btn-danger' : 'btn-secondary'"
+                        type="button"
+                        :disabled="isCurrentMapProfile(profile) || Boolean(mapProfileApplyingKey) || Boolean(mapProfileDeletingKey) || Boolean(mapProfileExportingKey) || mapProfileImporting"
+                        @click="applyMapProfile(profile)"
+                      >
+                        {{
+                          isCurrentMapProfile(profile)
+                            ? settingsLocale.mapProfileCurrent
+                            : isMapProfileApplying(profile)
+                              ? settingsLocale.mapProfileApplying
+                            : canForceApplyMapProfile(profile)
+                              ? settingsLocale.mapProfileForceApply
+                              : settingsLocale.mapProfileApply
+                        }}
+                      </button>
+                      <button
+                        class="btn-ghost"
+                        type="button"
+                        :disabled="Boolean(mapProfileApplyingKey) || Boolean(mapProfileDeletingKey) || Boolean(mapProfileExportingKey) || mapProfileImporting || isMapProfilePreviewing(profile)"
+                        @click="previewMapProfile(profile)"
+                      >
+                        {{
+                          isMapProfilePreviewing(profile)
+                            ? settingsLocale.mapProfilePreviewing
+                            : settingsLocale.mapProfilePreview
+                          }}
+                      </button>
+                      <button
+                        class="btn-ghost"
+                        type="button"
+                        :disabled="Boolean(mapProfileApplyingKey) || Boolean(mapProfileDeletingKey) || Boolean(mapProfileExportingKey) || mapProfileImporting"
+                        @click="exportMapProfile(profile)"
+                      >
+                        {{
+                          isMapProfileExporting(profile)
+                            ? settingsLocale.mapProfileExporting
+                            : settingsLocale.mapProfileExport
+                        }}
+                      </button>
+                      <button
+                        v-if="profile.deletable"
+                        class="btn-delete"
+                        type="button"
+                        :disabled="Boolean(mapProfileApplyingKey) || Boolean(mapProfileDeletingKey) || Boolean(mapProfileExportingKey) || mapProfileImporting"
+                        @click="deleteMapProfile(profile)"
+                      >
+                        {{
+                          isMapProfileDeleting(profile)
+                            ? settingsLocale.mapProfileDeleting
+                            : settingsLocale.mapProfileDelete
+                        }}
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -5239,21 +6523,25 @@ onBeforeUnmount(() => {
                   <label class="map-settings-select-group">
                     <span class="map-settings-select-label">{{ settingsLocale.resizePreviewCols }}</span>
                     <input
-                      v-model.number="mapResizePreviewCols"
+                      v-model="mapResizePreviewColsInput"
                       class="map-settings-number-input"
                       type="number"
                       min="1"
                       step="1"
+                      @input="markMapResizePreviewDirty"
+                      @blur="normalizeMapResizePreviewInputs"
                     />
                   </label>
                   <label class="map-settings-select-group">
                     <span class="map-settings-select-label">{{ settingsLocale.resizePreviewRows }}</span>
                     <input
-                      v-model.number="mapResizePreviewRows"
+                      v-model="mapResizePreviewRowsInput"
                       class="map-settings-number-input"
                       type="number"
                       min="1"
                       step="1"
+                      @input="markMapResizePreviewDirty"
+                      @blur="normalizeMapResizePreviewInputs"
                     />
                   </label>
                 </div>
@@ -5262,9 +6550,17 @@ onBeforeUnmount(() => {
                     class="btn-secondary"
                     type="button"
                     :disabled="mapResizePreviewLoading"
-                    @click="runMapResizePrecheck"
+                    @click="runMapResizePrecheck()"
                   >
                     {{ settingsLocale.resizePreviewRun }}
+                  </button>
+                  <button
+                    class="btn-primary"
+                    type="button"
+                    :disabled="mapResizePreviewLoading || !canApplyMapResize"
+                    @click="applyMapResize"
+                  >
+                    {{ settingsLocale.resizeApply }}
                   </button>
                 </div>
                 <div class="map-settings-info-grid">
@@ -5274,7 +6570,7 @@ onBeforeUnmount(() => {
                   </div>
                   <div class="map-settings-info-card">
                     <div class="map-settings-info-label">{{ settingsLocale.resizePreviewRequested }}</div>
-                    <div class="map-settings-info-value">{{ mapResizePreviewCols }} x {{ mapResizePreviewRows }}</div>
+                    <div class="map-settings-info-value">{{ mapResizeRequestedSizeLabel }}</div>
                   </div>
                   <div class="map-settings-info-card">
                     <div class="map-settings-info-label">{{ settingsLocale.resizePreviewResult }}</div>
@@ -5305,11 +6601,61 @@ onBeforeUnmount(() => {
                     <div class="map-settings-info-value">{{ mapResizePreview?.blocked_overflow_count ?? '—' }}</div>
                   </div>
                 </div>
-                <div v-if="mapResizePreviewReasons.length > 0" class="map-size-preview-reasons">
+                <div
+                  v-if="mapResizePreviewReasonItems.length > 0"
+                  :id="mapResizeSectionDomId('reasons')"
+                  class="map-size-preview-reasons"
+                  :class="{ 'is-highlighted': mapResizeHighlightedSection === 'reasons' }"
+                >
                   <div class="map-settings-select-label">{{ settingsLocale.resizePreviewReasonTitle }}</div>
                   <ul class="map-size-preview-list">
-                    <li v-for="reason in mapResizePreviewReasons" :key="reason">{{ reason }}</li>
+                    <li v-for="reason in mapResizePreviewReasonItems" :key="reason.key">
+                      <button
+                        type="button"
+                        class="map-size-preview-reason-action"
+                        @click.stop="focusMapResizeReasonItem(reason)"
+                      >
+                        {{ reason.text }}
+                      </button>
+                    </li>
                   </ul>
+                </div>
+                <div v-if="mapResizePreviewDetailSections.length > 0" class="map-size-preview-details">
+                  <div class="map-settings-select-label">{{ settingsLocale.resizePreviewDetailTitle }}</div>
+                  <div class="map-size-preview-detail-grid">
+                    <article
+                      v-for="section in mapResizePreviewDetailSections"
+                      :key="section.key"
+                      :id="mapResizeSectionDomId(section.key)"
+                      class="map-size-preview-detail-card"
+                      :class="{ 'is-highlighted': mapResizeHighlightedSection === section.key }"
+                    >
+                      <div class="map-size-preview-detail-title">{{ section.title }}</div>
+                      <ul class="map-size-preview-list compact">
+                        <li v-for="item in section.items" :key="item.key">
+                          <button
+                            v-if="item.focus"
+                            type="button"
+                            class="map-size-preview-detail-action"
+                            :class="{ 'is-highlighted': mapResizeHighlightedItemKeys.includes(item.key) }"
+                            :title="item.text"
+                            @click="
+                              highlightMapResizeItems([item.key]);
+                              focusMapPreviewCell(item.focus)
+                            "
+                          >
+                            {{ item.text }}
+                          </button>
+                          <span
+                            v-else
+                            :class="{ 'map-size-preview-detail-item-highlighted': mapResizeHighlightedItemKeys.includes(item.key) }"
+                          >
+                            {{ item.text }}
+                          </span>
+                        </li>
+                      </ul>
+                    </article>
+                  </div>
                 </div>
               </div>
               <div class="map-settings-group">
@@ -5928,13 +7274,13 @@ onBeforeUnmount(() => {
                 <template v-if="taskBuilderMode === 'single'">
                   <div class="form-grid">
                     <label>{{ singleTaskStartLabelX }}</label>
-                    <input v-model.number="taskForm.start_x" type="number" min="0" :max="GRID_COLS - 1" />
+                    <input v-model.number="taskForm.start_x" type="number" min="0" :max="currentGridCols - 1" />
                     <label>{{ singleTaskStartLabelY }}</label>
-                    <input v-model.number="taskForm.start_y" type="number" min="0" :max="GRID_ROWS - 1" />
+                    <input v-model.number="taskForm.start_y" type="number" min="0" :max="currentGridRows - 1" />
                     <label>{{ singleTaskEndLabelX }}</label>
-                    <input v-model.number="taskForm.end_x" type="number" min="0" :max="GRID_COLS - 1" />
+                    <input v-model.number="taskForm.end_x" type="number" min="0" :max="currentGridCols - 1" />
                     <label>{{ singleTaskEndLabelY }}</label>
-                    <input v-model.number="taskForm.end_y" type="number" min="0" :max="GRID_ROWS - 1" />
+                    <input v-model.number="taskForm.end_y" type="number" min="0" :max="currentGridRows - 1" />
                   </div>
                   <button class="btn-primary full-width" type="button" :disabled="!manualDispatchReady" @click="addTaskFromForm">
                     {{ singleTaskSubmitText }}
@@ -6000,13 +7346,13 @@ onBeforeUnmount(() => {
                       <label>{{ taskChainLocale.stageLabel }}</label>
                       <input v-model.trim="stage.label" type="text" :placeholder="taskChainLocale.stageLabelPlaceholder" />
                       <label>{{ t('form_start_x') }}</label>
-                      <input v-model.number="stage.start_x" type="number" min="0" :max="GRID_COLS - 1" />
+                      <input v-model.number="stage.start_x" type="number" min="0" :max="currentGridCols - 1" />
                       <label>{{ t('form_start_y') }}</label>
-                      <input v-model.number="stage.start_y" type="number" min="0" :max="GRID_ROWS - 1" />
+                      <input v-model.number="stage.start_y" type="number" min="0" :max="currentGridRows - 1" />
                       <label>{{ t('form_end_x') }}</label>
-                      <input v-model.number="stage.end_x" type="number" min="0" :max="GRID_COLS - 1" />
+                      <input v-model.number="stage.end_x" type="number" min="0" :max="currentGridCols - 1" />
                       <label>{{ t('form_end_y') }}</label>
-                      <input v-model.number="stage.end_y" type="number" min="0" :max="GRID_ROWS - 1" />
+                      <input v-model.number="stage.end_y" type="number" min="0" :max="currentGridRows - 1" />
                     </div>
                   </div>
                   <div class="task-chain-actions">
@@ -6421,9 +7767,9 @@ onBeforeUnmount(() => {
                       :placeholder="t('point_form_zone_placeholder')"
                     />
                     <label>{{ t('form_start_x') }}</label>
-                    <input v-model.number="customPointForm.x" type="number" min="0" :max="GRID_COLS - 1" />
+                    <input v-model.number="customPointForm.x" type="number" min="0" :max="currentGridCols - 1" />
                     <label>{{ t('form_start_y') }}</label>
-                    <input v-model.number="customPointForm.y" type="number" min="0" :max="GRID_ROWS - 1" />
+                    <input v-model.number="customPointForm.y" type="number" min="0" :max="currentGridRows - 1" />
                   </div>
                   <button class="btn-primary full-width" type="button" @click="addCustomPoint">
                     {{ t('point_add') }}
@@ -6792,4 +8138,5 @@ onBeforeUnmount(() => {
     </div>
   </div>
 </template>
+
 

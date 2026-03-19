@@ -7,6 +7,14 @@
 - Added backend UI settings persistence with `GET /status/ui-settings` and `PUT /status/ui-settings`.
 - Added `GET /status/map/profiles` plus read-only map profile metadata so module 4 has a low-risk starting point before true dynamic size editing.
 - Added `GET /status/map/resize-precheck` so target map sizes can be dry-checked against active tasks, AGVs, points, templates, and blocked cells before real resizing is enabled.
+- Added `POST /status/map/resize` plus guarded frontend save flow so map size can now be updated after a successful precheck.
+- Added `POST /status/map/profile/{profile_key}` plus guarded frontend map-profile switching for built-in warehouse schemes.
+- Added custom map-profile persistence so current map size and obstacle layout can be saved, deleted, and re-applied as reusable profiles.
+- Added map-profile import/export so saved and built-in profile layouts can now be archived as JSON and restored back into the profile list.
+- Added a guarded map-profile force-apply path for AGV/obstacle-only overflow cases, including automatic AGV relocation, obstacle trimming, and clearer blocker-to-map highlighting.
+- Added profile-linked resize precheck so each map profile can now be dry-checked directly before applying.
+- Updated the main map canvas, minimap, task preview, scheduler payloads, and point/template validation to follow the current runtime grid size instead of only the original hardcoded size.
+- Added draft-state clamping after map resize so single-task forms, chain-task forms, custom point drafts, and in-progress chain map picks do not remain out of bounds after the size changes.
 - Added frontend `useUiSettingsBackend.js` so map display settings can be synchronized to backend storage with local fallback kept in place.
 - Added Windows packaging skeleton files: `build_frontend_dist.bat`, `run_packaged_dev.bat`, `build_windows_package.bat`, `start_agv.bat`, `backend/package_entry.py`, `backend/packaging/backend.spec`, and `backend/requirements-package.txt`.
 - Added `PACKAGING_WINDOWS.md` to document the lowest-deliverable Windows packaging flow.
@@ -24,6 +32,13 @@
 - Improved the map settings panel by grouping map information, obstacle layout actions, and persisted display settings into a clearer MVP structure.
 - Improved the map settings panel again by showing current map profile, available profiles, and whether runtime state is ready for future size editing.
 - Improved the map settings panel further with a read-only resize precheck area that previews blockers and out-of-bounds counts before any real map-size editing is introduced.
+- Improved the map settings panel again by turning built-in map profiles into directly applicable guarded actions instead of metadata-only cards.
+- Improved the map settings panel once more with custom profile save/delete actions so module 4 can keep evolving without forcing users back to runtime-only map schemes.
+- Improved the map profile cards with direct precheck actions and clearer ready/blocked feedback before switching profiles.
+- Improved the map profile workflow again by linking profile precheck targets to the resize-precheck area and restoring a real Japanese locale layer instead of the temporary English fallback.
+- Improved blocked profile prechecks once more by surfacing the top blocker reasons directly on each previewed map-profile card.
+- Improved map-profile blocker feedback again so repeated clicks retrigger highlights, same-type overflow reasons highlight all affected targets, and force-apply results now show before/after summary details.
+- Improved force-apply review flow by adding a downloadable JSON diff for the before/after map-profile summary card.
 - Improved obstacle-layout, JSON-template, and task-management related UI wording/layout while keeping the current workflow intact.
 - Improved map layout refresh handling so current grid information and active preset information are reflected in the settings panel.
 - Improved frontend API base resolution so the app can run both under Vite (`5173 -> 8000`) and under backend-hosted packaged mode (`8000 -> 8000`).

@@ -150,6 +150,34 @@ class MapPresetCellEntity(Base):
     preset: Mapped["MapPresetEntity"] = relationship(back_populates="blocked_cells")
 
 
+class MapProfileEntity(Base):
+    __tablename__ = "map_profile"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    custom_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    grid_cols: Mapped[int] = mapped_column(Integer, nullable=False)
+    grid_rows: Mapped[int] = mapped_column(Integer, nullable=False)
+    custom: Mapped[bool] = mapped_column(nullable=False, default=True)
+
+    blocked_cells: Mapped[list["MapProfileCellEntity"]] = relationship(
+        back_populates="profile",
+        cascade="all, delete-orphan",
+        order_by="MapProfileCellEntity.id",
+    )
+
+
+class MapProfileCellEntity(Base):
+    __tablename__ = "map_profile_cell"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    profile_id: Mapped[str] = mapped_column(ForeignKey("map_profile.id"), nullable=False, index=True)
+    x: Mapped[int] = mapped_column(Integer, nullable=False)
+    y: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    profile: Mapped["MapProfileEntity"] = relationship(back_populates="blocked_cells")
+
+
 class UiSettingsEntity(Base):
     __tablename__ = "ui_settings"
 

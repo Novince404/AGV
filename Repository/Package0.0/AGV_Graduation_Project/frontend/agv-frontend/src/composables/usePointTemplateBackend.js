@@ -31,10 +31,22 @@ export function usePointTemplateBackend(options) {
   const pointsLoadedFromApi = pointsLoadedFromApiRef ?? ref(false)
   const templatesLoadedFromApi = templatesLoadedFromApiRef ?? ref(false)
 
+  function resolveValue(value) {
+    return value && typeof value === 'object' && 'value' in value ? value.value : value
+  }
+
+  function gridCols() {
+    return Number(resolveValue(GRID_COLS))
+  }
+
+  function gridRows() {
+    return Number(resolveValue(GRID_ROWS))
+  }
+
   function normalizeBackendPoint(point) {
     const x = Number(point?.x)
     const y = Number(point?.y)
-    if (!isValidGridCoordinate(x, GRID_COLS) || !isValidGridCoordinate(y, GRID_ROWS)) {
+    if (!isValidGridCoordinate(x, gridCols()) || !isValidGridCoordinate(y, gridRows())) {
       return null
     }
 
@@ -65,10 +77,10 @@ export function usePointTemplateBackend(options) {
           }))
           .filter(
             stage =>
-              isValidGridCoordinate(stage.start_x, GRID_COLS) &&
-              isValidGridCoordinate(stage.start_y, GRID_ROWS) &&
-              isValidGridCoordinate(stage.end_x, GRID_COLS) &&
-              isValidGridCoordinate(stage.end_y, GRID_ROWS)
+              isValidGridCoordinate(stage.start_x, gridCols()) &&
+              isValidGridCoordinate(stage.start_y, gridRows()) &&
+              isValidGridCoordinate(stage.end_x, gridCols()) &&
+              isValidGridCoordinate(stage.end_y, gridRows())
           )
       : []
 

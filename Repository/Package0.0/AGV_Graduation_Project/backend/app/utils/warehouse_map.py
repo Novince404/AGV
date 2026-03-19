@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from app.repositories.map_repository import get_layout_state as get_runtime_layout_state
 from app.repositories.map_repository import set_layout_state as persist_runtime_layout_state
@@ -35,7 +35,7 @@ DEFAULT_MAP_PRESETS = {
         },
         "description": {
             "zh": "两列货架，中间保留关键通道，适合基础算法对比。",
-            "ja": "2 列の棚と通路を保つ標準配置で、基本的なアルゴリズム比較に適しています。",
+            "ja": "2 列の棚と通路を確保した標準配置で、基本アルゴリズム比較に適しています。",
             "en": "Two shelf columns with corridor gaps for baseline algorithm comparison.",
         },
         "cells": DEFAULT_BLOCKED_CELLS,
@@ -107,13 +107,52 @@ DEFAULT_MAP_PROFILES = {
         },
         "description": {
             "zh": "当前毕业设计默认使用的 10 x 8 演示地图方案，后续模块 4 将在此基础上扩展动态地图尺寸。",
-            "ja": "現行の卒業設計で既定使用している 10 x 8 のデモ用マップ構成です。後続のモジュール 4 で動的サイズ拡張を行います。",
+            "ja": "現行の卒業設計で既定利用している 10 x 8 のデモ用マップ構成です。後続のモジュール 4 で動的サイズ拡張を行います。",
             "en": "The default 10 x 8 demo warehouse profile used by the current project. Dynamic map sizing will build on top of this in module 4.",
         },
         "grid_cols": DEFAULT_GRID_COLS,
         "grid_rows": DEFAULT_GRID_ROWS,
+        "cells": DEFAULT_BLOCKED_CELLS,
         "custom": False,
-    }
+    },
+    "warehouse_expanded_12x9": {
+        "name": {
+            "zh": "扩展示范仓库",
+            "ja": "拡張デモ倉庫",
+            "en": "Expanded Demo Warehouse",
+        },
+        "description": {
+            "zh": "在默认演示仓库基础上扩展到 12 x 9，并增加一组货架列，便于验证尺寸升级后的路线规划。",
+            "ja": "標準デモ倉庫を 12 x 9 に拡張し、棚列を追加した構成で、拡張サイズ後の経路計画を検証しやすくしています。",
+            "en": "Expands the demo warehouse to 12 x 9 with an extra shelf lane for larger-map path planning checks.",
+        },
+        "grid_cols": 12,
+        "grid_rows": 9,
+        "cells": {
+            (3, 0), (3, 1), (3, 2), (3, 4), (3, 5), (3, 6), (3, 7), (3, 8),
+            (7, 0), (7, 1), (7, 2), (7, 4), (7, 5), (7, 6), (7, 7), (7, 8),
+        },
+        "custom": False,
+    },
+    "warehouse_large_14x10": {
+        "name": {
+            "zh": "大尺寸演示仓库",
+            "ja": "大型デモ倉庫",
+            "en": "Large Demo Warehouse",
+        },
+        "description": {
+            "zh": "扩展到 14 x 10 的大尺寸地图方案，用于演示地图 profile 切换与更大范围调度。",
+            "ja": "14 x 10 の大型マップ構成で、マップ profile 切替と広い範囲の調度を演示します。",
+            "en": "A 14 x 10 large-map profile for demonstrating profile switching and wider dispatch coverage.",
+        },
+        "grid_cols": 14,
+        "grid_rows": 10,
+        "cells": {
+            (4, 0), (4, 1), (4, 2), (4, 3), (4, 5), (4, 6), (4, 7), (4, 8), (4, 9),
+            (9, 0), (9, 1), (9, 2), (9, 4), (9, 5), (9, 6), (9, 7), (9, 8), (9, 9),
+        },
+        "custom": False,
+    },
 }
 
 
@@ -198,101 +237,6 @@ def get_blocked_cell_payload(
     return [{"x": x, "y": y} for x, y in sorted(get_blocked_cells(grid_cols, grid_rows))]
 
 
-def get_map_presets_payload(
-    grid_cols: int = DEFAULT_GRID_COLS, grid_rows: int = DEFAULT_GRID_ROWS
-) -> list[dict]:
-    payload = []
-    for key, preset in DEFAULT_MAP_PRESETS.items():
-        cells = _normalize_cells(preset["cells"], grid_cols, grid_rows)
-        payload.append(
-            build_map_preset_payload(
-                key=key,
-                name=preset["name"],
-                description=preset["description"],
-                cells=cells,
-                custom=False,
-                deletable=False,
-                grid_cols=grid_cols,
-                grid_rows=grid_rows,
-                profile_key=DEFAULT_MAP_PROFILE_KEY,
-            )
-        )
-    return payload
-
-
-def build_map_profile_payload(
-    key: str,
-    name,
-    description,
-    grid_cols: int,
-    grid_rows: int,
-    *,
-    custom: bool,
-    editable: bool,
-) -> dict:
-    return {
-        "key": key,
-        "name": name,
-        "description": description,
-        "grid_cols": int(grid_cols),
-        "grid_rows": int(grid_rows),
-        "custom": custom,
-        "editable": editable,
-    }
-
-
-def get_map_profiles_payload() -> list[dict]:
-    payload = []
-    for key, profile in DEFAULT_MAP_PROFILES.items():
-        payload.append(
-            build_map_profile_payload(
-                key=key,
-                name=profile["name"],
-                description=profile["description"],
-                grid_cols=int(profile["grid_cols"]),
-                grid_rows=int(profile["grid_rows"]),
-                custom=bool(profile.get("custom", False)),
-                editable=False,
-            )
-        )
-    return payload
-
-
-def get_current_map_profile_payload(
-    grid_cols: int = DEFAULT_GRID_COLS,
-    grid_rows: int = DEFAULT_GRID_ROWS,
-) -> dict:
-    for key, profile in DEFAULT_MAP_PROFILES.items():
-        if int(profile["grid_cols"]) == int(grid_cols) and int(profile["grid_rows"]) == int(grid_rows):
-            return build_map_profile_payload(
-                key=key,
-                name=profile["name"],
-                description=profile["description"],
-                grid_cols=grid_cols,
-                grid_rows=grid_rows,
-                custom=bool(profile.get("custom", False)),
-                editable=False,
-            )
-
-    return build_map_profile_payload(
-        key=f"runtime_{int(grid_cols)}x{int(grid_rows)}",
-        name={
-            "zh": "运行时地图方案",
-            "ja": "実行時マップ構成",
-            "en": "Runtime Map Profile",
-        },
-        description={
-            "zh": "当前运行中的地图尺寸未匹配到内置方案，后续可作为自定义地图方案的入口。",
-            "ja": "現在の実行時マップサイズは組み込みプロファイルに一致しておらず、将来のカスタムマップ構成の入口として扱います。",
-            "en": "The current runtime map size does not match a built-in profile and can later become the entry point for custom map schemes.",
-        },
-        grid_cols=grid_cols,
-        grid_rows=grid_rows,
-        custom=True,
-        editable=False,
-    )
-
-
 def build_map_preset_payload(
     key: str,
     name,
@@ -316,3 +260,126 @@ def build_map_preset_payload(
         "grid_rows": int(grid_rows),
         "profile_key": profile_key,
     }
+
+
+def build_map_profile_payload(
+    key: str,
+    name,
+    description,
+    grid_cols: int,
+    grid_rows: int,
+    *,
+    custom: bool,
+    editable: bool,
+    deletable: bool = False,
+) -> dict:
+    return {
+        "key": key,
+        "name": name,
+        "description": description,
+        "grid_cols": int(grid_cols),
+        "grid_rows": int(grid_rows),
+        "custom": custom,
+        "editable": editable,
+        "deletable": deletable,
+    }
+
+
+def get_map_profile_definition(profile_key: str) -> dict | None:
+    profile = DEFAULT_MAP_PROFILES.get(profile_key)
+    if profile is None:
+        return None
+    return {
+        "key": profile_key,
+        "name": profile["name"],
+        "description": profile["description"],
+        "grid_cols": int(profile["grid_cols"]),
+        "grid_rows": int(profile["grid_rows"]),
+        "cells": _normalize_cells(profile.get("cells", set()), int(profile["grid_cols"]), int(profile["grid_rows"])),
+        "custom": bool(profile.get("custom", False)),
+    }
+
+
+def get_map_profile_cells(profile_key: str) -> set[tuple[int, int]]:
+    profile = get_map_profile_definition(profile_key)
+    if profile is None:
+        raise KeyError(profile_key)
+    return set(profile["cells"])
+
+
+def get_map_presets_payload(
+    grid_cols: int = DEFAULT_GRID_COLS, grid_rows: int = DEFAULT_GRID_ROWS
+) -> list[dict]:
+    current_profile_key = get_current_map_profile_payload(grid_cols, grid_rows)["key"]
+    payload = []
+    for key, preset in DEFAULT_MAP_PRESETS.items():
+        cells = _normalize_cells(preset["cells"], grid_cols, grid_rows)
+        payload.append(
+            build_map_preset_payload(
+                key=key,
+                name=preset["name"],
+                description=preset["description"],
+                cells=cells,
+                custom=False,
+                deletable=False,
+                grid_cols=grid_cols,
+                grid_rows=grid_rows,
+                profile_key=current_profile_key,
+            )
+        )
+    return payload
+
+
+def get_map_profiles_payload() -> list[dict]:
+    payload = []
+    for key, profile in DEFAULT_MAP_PROFILES.items():
+        payload.append(
+            build_map_profile_payload(
+                key=key,
+                name=profile["name"],
+                description=profile["description"],
+                grid_cols=int(profile["grid_cols"]),
+                grid_rows=int(profile["grid_rows"]),
+                custom=bool(profile.get("custom", False)),
+                editable=False,
+                deletable=False,
+            )
+        )
+    return payload
+
+
+def get_current_map_profile_payload(
+    grid_cols: int = DEFAULT_GRID_COLS,
+    grid_rows: int = DEFAULT_GRID_ROWS,
+) -> dict:
+    for key, profile in DEFAULT_MAP_PROFILES.items():
+        if int(profile["grid_cols"]) == int(grid_cols) and int(profile["grid_rows"]) == int(grid_rows):
+            return build_map_profile_payload(
+                key=key,
+                name=profile["name"],
+                description=profile["description"],
+                grid_cols=grid_cols,
+                grid_rows=grid_rows,
+                custom=bool(profile.get("custom", False)),
+                editable=False,
+                deletable=False,
+            )
+
+    return build_map_profile_payload(
+        key=f"runtime_{int(grid_cols)}x{int(grid_rows)}",
+        name={
+            "zh": "运行时地图方案",
+            "ja": "実行時マップ構成",
+            "en": "Runtime Map Profile",
+        },
+        description={
+            "zh": "当前运行中的地图尺寸尚未匹配到内置方案，后续可作为自定义地图方案的入口。",
+            "ja": "現在の実行時マップサイズは組み込み profile に一致しておらず、将来のカスタムマップ構成の入口になります。",
+            "en": "The current runtime map size does not match a built-in profile and can later become the entry point for custom map schemes.",
+        },
+        grid_cols=grid_cols,
+        grid_rows=grid_rows,
+        custom=True,
+        editable=False,
+        deletable=False,
+    )

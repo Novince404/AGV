@@ -22,12 +22,24 @@ export function useTaskPreview(options) {
 
   let previewTimer = null
 
+  function resolveValue(value) {
+    return value && typeof value === 'object' && 'value' in value ? value.value : value
+  }
+
+  function gridCols() {
+    return Number(resolveValue(GRID_COLS))
+  }
+
+  function gridRows() {
+    return Number(resolveValue(GRID_ROWS))
+  }
+
   const previewPathPoints = computed(() => toSvgPoints(previewPath.value))
   const previewPathArrows = computed(() => toArrowSegments(previewPath.value))
 
   function buildPreviewPathByAlgorithm(sx, sy, ex, ey) {
     return algorithm.value === 'astar'
-      ? buildAStarPath(sx, sy, ex, ey, GRID_COLS, GRID_ROWS, isBlockedCell)
+      ? buildAStarPath(sx, sy, ex, ey, gridCols(), gridRows(), isBlockedCell)
       : buildSimplePath(sx, sy, ex, ey, isBlockedCell)
   }
 

@@ -3,9 +3,16 @@ from __future__ import annotations
 import re
 import time
 
+from app.models.map_profile import MapProfile, MapProfileCell
 from app.models.map_preset import MapPreset, MapPresetCell
 from app.core.settings import get_settings
 from app.repositories.agv_repository import list_agvs
+from app.repositories.map_profile_repository import (
+    get_map_profile_by_key,
+    list_map_profiles,
+    remove_map_profile,
+    upsert_map_profile,
+)
 from app.repositories.point_repository import list_points
 from app.repositories.task_repository import list_tasks
 from app.repositories.map_preset_repository import (
@@ -21,6 +28,7 @@ from app.utils.api_error import raise_api_error
 from app.utils.status_map import AGV_STATUS_COLOR, TASK_STATUS_COLOR
 from app.utils.warehouse_map import (
     DEFAULT_MAP_PRESETS,
+    build_map_profile_payload,
     build_map_preset_payload,
     get_current_map_profile_payload,
     get_blocked_cell_payload,
@@ -28,6 +36,8 @@ from app.utils.warehouse_map import (
     get_current_grid_size,
     get_default_blocked_cells,
     get_map_layout_state,
+    get_map_profile_cells,
+    get_map_profile_definition,
     get_map_profiles_payload,
     get_map_preset_cells,
     get_map_presets_payload,
@@ -52,6 +62,8 @@ DEFAULT_UI_SETTINGS = {
         "experiments": False,
     },
 }
+
+FORCE_APPLY_ALLOWED_BLOCKERS = {"agvs_out_of_bounds", "blocked_cells_out_of_bounds"}
 
 
 def _filter_occupied_cells(cells: set[tuple[int, int]]):
@@ -81,6 +93,42 @@ def _build_custom_preset_key(name: str) -> str:
     return f"custom_{slug}_{int(time.time() * 1000)}"
 
 
+def _build_custom_profile_key(name: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "_", name.strip().lower()).strip("_")
+    slug = slug or "profile"
+    return f"custom_profile_{slug}_{int(time.time() * 1000)}"
+
+
+def _collect_existing_profile_names() -> set[str]:
+    names = set()
+    for profile_payload in get_map_profiles_payload():
+        name = str(profile_payload.get("name") or "").strip()
+        if name:
+            names.add(name.casefold())
+    for profile in list_map_profiles():
+        name = str(getattr(profile, "custom_name", "") or "").strip()
+        if name:
+            names.add(name.casefold())
+    return names
+
+
+def _resolve_unique_profile_name(requested_name: str) -> tuple[str, bool]:
+    normalized = requested_name.strip()
+    if not normalized:
+        return "", False
+
+    existing_names = _collect_existing_profile_names()
+    if normalized.casefold() not in existing_names:
+        return normalized, False
+
+    suffix = 2
+    while True:
+        candidate = f"{normalized} ({suffix})"
+        if candidate.casefold() not in existing_names:
+            return candidate, True
+        suffix += 1
+
+
 def _get_custom_map_preset_cells(
     preset_key: str,
     grid_cols: int,
@@ -94,6 +142,138 @@ def _get_custom_map_preset_cells(
         for cell in preset.blocked_cells
         if 0 <= int(cell.x) < grid_cols and 0 <= int(cell.y) < grid_rows
     }
+
+
+def _get_custom_map_profile_cells(profile_key: str) -> set[tuple[int, int]]:
+    profile = get_map_profile_by_key(profile_key)
+    if profile is None:
+        raise KeyError(profile_key)
+    return {(int(cell.x), int(cell.y)) for cell in profile.blocked_cells}
+
+
+def _normalize_cells_signature(cells: set[tuple[int, int]] | list[tuple[int, int]]) -> tuple[tuple[int, int], ...]:
+    return tuple(sorted((int(x), int(y)) for x, y in cells))
+
+
+def _is_force_apply_allowed(precheck: dict) -> bool:
+    blockers = set(precheck.get("blockers") or [])
+    if not blockers:
+        return False
+    if not blockers.issubset(FORCE_APPLY_ALLOWED_BLOCKERS):
+        return False
+    return (
+        int(precheck.get("active_task_count", 0)) == 0
+        and int(precheck.get("busy_agv_count", 0)) == 0
+        and int(precheck.get("point_overflow_count", 0)) == 0
+        and int(precheck.get("template_overflow_count", 0)) == 0
+    )
+
+
+def _find_nearest_available_cell(
+    origin_x: int,
+    origin_y: int,
+    grid_cols: int,
+    grid_rows: int,
+    blocked_cells: set[tuple[int, int]],
+    reserved_cells: set[tuple[int, int]],
+) -> tuple[int, int] | None:
+    candidates = []
+    for x in range(int(grid_cols)):
+        for y in range(int(grid_rows)):
+            cell = (x, y)
+            if cell in blocked_cells or cell in reserved_cells:
+                continue
+            distance = abs(int(origin_x) - x) + abs(int(origin_y) - y)
+            candidates.append((distance, abs(int(origin_y) - y), abs(int(origin_x) - x), y, x, cell))
+    if not candidates:
+        return None
+    candidates.sort()
+    return candidates[0][-1]
+
+
+def _relocate_out_of_bounds_agvs_for_force_apply(
+    requested_grid_cols: int,
+    requested_grid_rows: int,
+    blocked_cells: set[tuple[int, int]],
+) -> list[dict]:
+    all_agvs = list_agvs()
+    reserved_cells = {
+        (int(agv.x), int(agv.y))
+        for agv in all_agvs
+        if _is_within_grid(agv.x, agv.y, requested_grid_cols, requested_grid_rows)
+    }
+    relocated = []
+    for agv in sorted(all_agvs, key=lambda item: int(item.id)):
+        if _is_within_grid(agv.x, agv.y, requested_grid_cols, requested_grid_rows):
+            continue
+        next_cell = _find_nearest_available_cell(
+            origin_x=int(agv.x),
+            origin_y=int(agv.y),
+            grid_cols=requested_grid_cols,
+            grid_rows=requested_grid_rows,
+            blocked_cells=blocked_cells,
+            reserved_cells=reserved_cells,
+        )
+        if next_cell is None:
+            raise_api_error(400, "map_profile_force_no_safe_agv_cell")
+        previous = {"x": int(agv.x), "y": int(agv.y)}
+        agv.x = int(next_cell[0])
+        agv.y = int(next_cell[1])
+        reserved_cells.add(next_cell)
+        relocated.append(
+            {
+                "id": int(agv.id),
+                "from": previous,
+                "to": {"x": int(next_cell[0]), "y": int(next_cell[1])},
+            }
+        )
+    return relocated
+
+
+def _build_custom_profile_payload(profile: MapProfile) -> dict:
+    cells = {(int(cell.x), int(cell.y)) for cell in profile.blocked_cells}
+    return build_map_profile_payload(
+        key=profile.key,
+        name=profile.custom_name,
+        description=profile.description,
+        grid_cols=int(profile.grid_cols),
+        grid_rows=int(profile.grid_rows),
+        custom=True,
+        editable=True,
+        deletable=True,
+    ) | {
+        "blocked_count": len(cells),
+    }
+
+
+def _resolve_current_profile_payload(
+    grid_cols: int,
+    grid_rows: int,
+    blocked_cells: set[tuple[int, int]] | None = None,
+) -> dict:
+    normalized_cells = _normalize_cells_signature(blocked_cells or get_blocked_cells(grid_cols, grid_rows))
+
+    for profile in list_map_profiles():
+        profile_cells = {(int(cell.x), int(cell.y)) for cell in profile.blocked_cells}
+        if (
+            int(profile.grid_cols) == int(grid_cols)
+            and int(profile.grid_rows) == int(grid_rows)
+            and _normalize_cells_signature(profile_cells) == normalized_cells
+        ):
+            return _build_custom_profile_payload(profile)
+
+    for profile_payload in get_map_profiles_payload():
+        definition = get_map_profile_definition(profile_payload["key"])
+        if definition is None:
+            continue
+        if (
+            int(definition["grid_cols"]) == int(grid_cols)
+            and int(definition["grid_rows"]) == int(grid_rows)
+            and _normalize_cells_signature(definition["cells"]) == normalized_cells
+        ):
+            return profile_payload
+
+    return get_current_map_profile_payload(grid_cols, grid_rows)
 
 
 def get_agv_status_map():
@@ -161,6 +341,7 @@ def update_ui_settings(payload):
 
 def get_map_presets():
     grid_cols, grid_rows = get_current_grid_size()
+    current_profile = _resolve_current_profile_payload(grid_cols, grid_rows)
     builtin_presets = get_map_presets_payload(grid_cols, grid_rows)
     custom_presets = []
     for preset in list_map_presets():
@@ -179,7 +360,7 @@ def get_map_presets():
                 deletable=True,
                 grid_cols=grid_cols,
                 grid_rows=grid_rows,
-                profile_key=get_current_map_profile_payload(grid_cols, grid_rows)["key"],
+                profile_key=current_profile["key"],
             )
         )
     return {
@@ -191,6 +372,7 @@ def get_map_presets():
 
 def get_map_profiles():
     grid_cols, grid_rows = get_current_grid_size()
+    blocked_cells = get_blocked_cells(grid_cols, grid_rows)
     active_tasks = [
         task
         for task in list_tasks()
@@ -211,13 +393,52 @@ def get_map_profiles():
     else:
         resize_lock_reason = "ready"
 
+    custom_profiles = [_build_custom_profile_payload(profile) for profile in list_map_profiles()]
     return {
-        "current_profile": get_current_map_profile_payload(grid_cols, grid_rows),
-        "profiles": get_map_profiles_payload(),
+        "current_profile": _resolve_current_profile_payload(grid_cols, grid_rows, blocked_cells),
+        "profiles": get_map_profiles_payload() + custom_profiles,
         "can_resize_now": can_resize_now,
         "resize_lock_reason": resize_lock_reason,
         "active_task_count": len(active_tasks),
         "busy_agv_count": len(busy_agvs),
+    }
+
+
+def get_map_profile_detail(profile_key: str):
+    custom_profile = get_map_profile_by_key(profile_key)
+    if custom_profile is not None:
+        cells = {(int(cell.x), int(cell.y)) for cell in custom_profile.blocked_cells}
+        return build_map_profile_payload(
+            key=custom_profile.key,
+            name=custom_profile.custom_name,
+            description=custom_profile.description,
+            grid_cols=int(custom_profile.grid_cols),
+            grid_rows=int(custom_profile.grid_rows),
+            custom=True,
+            editable=True,
+            deletable=True,
+        ) | {
+            "blocked_count": len(cells),
+            "blocked_cells": [{"x": x, "y": y} for x, y in sorted(cells)],
+        }
+
+    profile_definition = get_map_profile_definition(profile_key)
+    if profile_definition is None:
+        raise_api_error(404, "profile_not_found")
+
+    cells = {(int(x), int(y)) for x, y in profile_definition["cells"]}
+    return build_map_profile_payload(
+        key=profile_definition["key"],
+        name=profile_definition["name"],
+        description=profile_definition["description"],
+        grid_cols=int(profile_definition["grid_cols"]),
+        grid_rows=int(profile_definition["grid_rows"]),
+        custom=bool(profile_definition.get("custom", False)),
+        editable=False,
+        deletable=False,
+    ) | {
+        "blocked_count": len(cells),
+        "blocked_cells": [{"x": x, "y": y} for x, y in sorted(cells)],
     }
 
 
@@ -304,6 +525,15 @@ def get_map_resize_precheck(requested_grid_cols: int, requested_grid_rows: int):
         "requested_grid_cols": requested_grid_cols,
         "requested_grid_rows": requested_grid_rows,
         "can_apply": len(blockers) == 0,
+        "force_apply_allowed": _is_force_apply_allowed(
+            {
+                "blockers": blockers,
+                "active_task_count": len(active_tasks),
+                "busy_agv_count": len(busy_agvs),
+                "point_overflow_count": len(point_overflows),
+                "template_overflow_count": len(template_overflows),
+            }
+        ),
         "blockers": blockers,
         "active_task_count": len(active_tasks),
         "busy_agv_count": len(busy_agvs),
@@ -315,6 +545,170 @@ def get_map_resize_precheck(requested_grid_cols: int, requested_grid_rows: int):
         "point_overflows": point_overflows[:8],
         "template_overflows": template_overflows[:8],
         "blocked_overflows": blocked_overflows[:8],
+    }
+
+
+def resize_map_layout(requested_grid_cols: int, requested_grid_rows: int):
+    precheck = get_map_resize_precheck(requested_grid_cols, requested_grid_rows)
+    if not precheck["can_apply"]:
+        raise_api_error(
+            400,
+            "map_resize_blocked",
+            blockers=precheck["blockers"],
+            active_task_count=precheck["active_task_count"],
+            busy_agv_count=precheck["busy_agv_count"],
+            agv_overflow_count=precheck["agv_overflow_count"],
+            point_overflow_count=precheck["point_overflow_count"],
+            template_overflow_count=precheck["template_overflow_count"],
+            blocked_overflow_count=precheck["blocked_overflow_count"],
+        )
+
+    current_grid_cols, current_grid_rows = get_current_grid_size()
+    current_cells = get_blocked_cells(current_grid_cols, current_grid_rows)
+    updated = set_blocked_cells(current_cells, requested_grid_cols, requested_grid_rows)
+    return {
+        "message": "Map size updated",
+        "grid_cols": int(requested_grid_cols),
+        "grid_rows": int(requested_grid_rows),
+        "blocked_cells": [{"x": x, "y": y} for x, y in sorted(updated)],
+        "current_profile": _resolve_current_profile_payload(requested_grid_cols, requested_grid_rows, updated),
+        "can_apply": True,
+    }
+
+
+def apply_map_profile(profile_key: str, force: bool = False):
+    profile = get_map_profile_definition(profile_key)
+    if profile is None:
+        custom_profile = get_map_profile_by_key(profile_key)
+        if custom_profile is None:
+            raise_api_error(404, "map_profile_not_found")
+        profile = {
+            "key": custom_profile.key,
+            "name": custom_profile.custom_name,
+            "description": custom_profile.description,
+            "grid_cols": int(custom_profile.grid_cols),
+            "grid_rows": int(custom_profile.grid_rows),
+            "cells": _get_custom_map_profile_cells(profile_key),
+            "custom": True,
+        }
+
+    target_cols = int(profile["grid_cols"])
+    target_rows = int(profile["grid_rows"])
+    precheck = get_map_resize_precheck(target_cols, target_rows)
+    if not precheck["can_apply"]:
+        force_apply_allowed = _is_force_apply_allowed(precheck)
+        if force and force_apply_allowed:
+            if profile.get("custom"):
+                raw_profile_cells = _get_custom_map_profile_cells(profile_key)
+            else:
+                raw_profile_cells = get_map_profile_cells(profile_key)
+            in_bounds_profile_cells = {
+                (int(x), int(y))
+                for x, y in raw_profile_cells
+                if _is_within_grid(x, y, target_cols, target_rows)
+            }
+            trimmed_blocked_cells = sorted(raw_profile_cells - in_bounds_profile_cells)
+            relocated_agvs = _relocate_out_of_bounds_agvs_for_force_apply(
+                requested_grid_cols=target_cols,
+                requested_grid_rows=target_rows,
+                blocked_cells=in_bounds_profile_cells,
+            )
+            filtered, skipped = _filter_occupied_cells(in_bounds_profile_cells)
+            updated = set_blocked_cells(filtered, target_cols, target_rows)
+            return {
+                "message": "Map profile force applied",
+                "profile_key": profile_key,
+                "grid_cols": target_cols,
+                "grid_rows": target_rows,
+                "blocked_cells": [{"x": x, "y": y} for x, y in sorted(updated)],
+                "skipped_occupied_cells": [{"x": x, "y": y} for x, y in skipped],
+                "skipped_occupied_count": len(skipped),
+                "current_profile": _resolve_current_profile_payload(target_cols, target_rows, updated),
+                "can_apply": True,
+                "forced": True,
+                "force_apply_allowed": True,
+                "relocated_agvs": relocated_agvs,
+                "relocated_agv_count": len(relocated_agvs),
+                "trimmed_blocked_cells_count": len(trimmed_blocked_cells),
+                "trimmed_blocked_cells": [{"x": int(x), "y": int(y)} for x, y in trimmed_blocked_cells],
+            }
+        raise_api_error(
+            400,
+            "map_profile_blocked",
+            profile_key=profile_key,
+            force_apply_allowed=force_apply_allowed,
+            blockers=precheck["blockers"],
+            active_task_count=precheck["active_task_count"],
+            busy_agv_count=precheck["busy_agv_count"],
+            agv_overflow_count=precheck["agv_overflow_count"],
+            point_overflow_count=precheck["point_overflow_count"],
+            template_overflow_count=precheck["template_overflow_count"],
+            blocked_overflow_count=precheck["blocked_overflow_count"],
+            agv_overflows=precheck["agv_overflows"],
+            point_overflows=precheck["point_overflows"],
+            template_overflows=precheck["template_overflows"],
+            blocked_overflows=precheck["blocked_overflows"],
+        )
+
+    if profile.get("custom"):
+        profile_cells = _get_custom_map_profile_cells(profile_key)
+    else:
+        profile_cells = get_map_profile_cells(profile_key)
+    filtered, skipped = _filter_occupied_cells(profile_cells)
+    updated = set_blocked_cells(filtered, target_cols, target_rows)
+    return {
+        "message": "Map profile applied",
+        "profile_key": profile_key,
+        "grid_cols": target_cols,
+        "grid_rows": target_rows,
+        "blocked_cells": [{"x": x, "y": y} for x, y in sorted(updated)],
+        "skipped_occupied_cells": [{"x": x, "y": y} for x, y in skipped],
+        "skipped_occupied_count": len(skipped),
+        "current_profile": _resolve_current_profile_payload(target_cols, target_rows, updated),
+        "can_apply": True,
+    }
+
+
+def save_map_profile(payload):
+    grid_cols = int(payload.grid_cols)
+    grid_rows = int(payload.grid_rows)
+    requested_name = payload.name.strip()
+    if not requested_name:
+        raise_api_error(400, "profile_name_required")
+    resolved_name, name_adjusted = _resolve_unique_profile_name(requested_name)
+
+    requested = _normalize_requested_cells(payload.blocked_cells, grid_cols, grid_rows)
+    profile = MapProfile(
+        key=_build_custom_profile_key(resolved_name),
+        custom_name=resolved_name,
+        description=(payload.description or "").strip() or None,
+        grid_cols=grid_cols,
+        grid_rows=grid_rows,
+        blocked_cells=[MapProfileCell(x=x, y=y) for x, y in sorted(requested)],
+        custom=True,
+    )
+    upsert_map_profile(profile)
+    return {
+        "message": "Map profile saved",
+        "profile": _build_custom_profile_payload(profile),
+        "requested_name": requested_name,
+        "resolved_name": resolved_name,
+        "name_adjusted": name_adjusted,
+    }
+
+
+def delete_map_profile(profile_key: str):
+    if get_map_profile_definition(profile_key) is not None:
+        raise_api_error(400, "builtin_profile_cannot_be_deleted")
+
+    profile = get_map_profile_by_key(profile_key)
+    if profile is None:
+        raise_api_error(404, "map_profile_not_found")
+
+    remove_map_profile(profile_key)
+    return {
+        "message": "Map profile deleted",
+        "profile_key": profile_key,
     }
 
 

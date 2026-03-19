@@ -16,7 +16,20 @@ class MapLayoutUpdateRequest(BaseModel):
     grid_rows: int = DEFAULT_GRID_ROWS
 
 
+class MapResizeRequest(BaseModel):
+    grid_cols: int = DEFAULT_GRID_COLS
+    grid_rows: int = DEFAULT_GRID_ROWS
+
+
 class MapPresetCreateRequest(BaseModel):
+    name: str
+    description: str | None = None
+    blocked_cells: list[BlockedCellPayload]
+    grid_cols: int = DEFAULT_GRID_COLS
+    grid_rows: int = DEFAULT_GRID_ROWS
+
+
+class MapProfileCreateRequest(BaseModel):
     name: str
     description: str | None = None
     blocked_cells: list[BlockedCellPayload]

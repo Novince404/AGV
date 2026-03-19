@@ -30,6 +30,30 @@ export function useMapViewport(options) {
     mapViewportHeight
   } = refs
 
+  function resolveValue(value) {
+    return value && typeof value === 'object' && 'value' in value ? value.value : value
+  }
+
+  function mapWidth() {
+    return Number(resolveValue(MAP_WIDTH))
+  }
+
+  function mapHeight() {
+    return Number(resolveValue(MAP_HEIGHT))
+  }
+
+  function gridCols() {
+    return Number(resolveValue(GRID_COLS))
+  }
+
+  function gridRows() {
+    return Number(resolveValue(GRID_ROWS))
+  }
+
+  function minimapWidth() {
+    return Number(resolveValue(MINIMAP_WIDTH))
+  }
+
   let mapViewReady = false
   let isMinimapDragging = false
   let isPanelResizing = false
@@ -45,8 +69,8 @@ export function useMapViewport(options) {
   }
 
   function clampMapTransform() {
-    const scaledWidth = MAP_WIDTH * mapZoom.value
-    const scaledHeight = MAP_HEIGHT * mapZoom.value
+    const scaledWidth = mapWidth() * mapZoom.value
+    const scaledHeight = mapHeight() * mapZoom.value
 
     if (scaledWidth <= mapViewportWidth.value) {
       mapOffsetX.value = (mapViewportWidth.value - scaledWidth) / 2
@@ -62,8 +86,8 @@ export function useMapViewport(options) {
   }
 
   function centerMapView() {
-    mapOffsetX.value = (mapViewportWidth.value - MAP_WIDTH * mapZoom.value) / 2
-    mapOffsetY.value = (mapViewportHeight.value - MAP_HEIGHT * mapZoom.value) / 2
+    mapOffsetX.value = (mapViewportWidth.value - mapWidth() * mapZoom.value) / 2
+    mapOffsetY.value = (mapViewportHeight.value - mapHeight() * mapZoom.value) / 2
     clampMapTransform()
   }
 
@@ -95,8 +119,8 @@ export function useMapViewport(options) {
     const viewport = mapViewportRef.value
     if (!viewport) return
 
-    mapViewportWidth.value = viewport.clientWidth || MAP_WIDTH
-    mapViewportHeight.value = viewport.clientHeight || MAP_HEIGHT
+    mapViewportWidth.value = viewport.clientWidth || mapWidth()
+    mapViewportHeight.value = viewport.clientHeight || mapHeight()
 
     if (!mapViewReady || shouldCenter) {
       centerMapView()
@@ -120,7 +144,7 @@ export function useMapViewport(options) {
     const worldX = (clientX - rect.left - mapOffsetX.value) / mapZoom.value
     const worldY = (clientY - rect.top - mapOffsetY.value) / mapZoom.value
 
-    if (worldX < 0 || worldX >= MAP_WIDTH || worldY < 0 || worldY >= MAP_HEIGHT) {
+    if (worldX < 0 || worldX >= mapWidth() || worldY < 0 || worldY >= mapHeight()) {
       return null
     }
 
@@ -131,13 +155,13 @@ export function useMapViewport(options) {
   }
 
   function getWorldPointFromMinimapEvent(event) {
-    const minimapScale = MAP_WIDTH > 0 ? Math.min(MINIMAP_WIDTH / MAP_WIDTH, 1) : 1
+    const minimapScale = mapWidth() > 0 ? Math.min(minimapWidth() / mapWidth(), 1) : 1
     const rect = minimapRef.value?.getBoundingClientRect()
-    if (!rect) return { x: MAP_WIDTH / 2, y: MAP_HEIGHT / 2 }
+    if (!rect) return { x: mapWidth() / 2, y: mapHeight() / 2 }
 
     return {
-      x: clampValue((event.clientX - rect.left) / minimapScale, 0, MAP_WIDTH),
-      y: clampValue((event.clientY - rect.top) / minimapScale, 0, MAP_HEIGHT)
+      x: clampValue((event.clientX - rect.left) / minimapScale, 0, mapWidth()),
+      y: clampValue((event.clientY - rect.top) / minimapScale, 0, mapHeight())
     }
   }
 
@@ -145,8 +169,8 @@ export function useMapViewport(options) {
     const point = getMapPointFromClient(event.clientX, event.clientY)
     if (!point) return null
     return {
-      x: clampValue(Math.floor(point.x / CELL_SIZE), 0, GRID_COLS - 1),
-      y: clampValue(Math.floor(point.y / CELL_SIZE), 0, GRID_ROWS - 1)
+      x: clampValue(Math.floor(point.x / CELL_SIZE), 0, gridCols() - 1),
+      y: clampValue(Math.floor(point.y / CELL_SIZE), 0, gridRows() - 1)
     }
   }
 
@@ -160,8 +184,8 @@ export function useMapViewport(options) {
     const point = getMapPointFromClient(clientX, clientY)
     if (!point) return null
     return {
-      x: clampValue(Math.floor(point.x / CELL_SIZE), 0, GRID_COLS - 1),
-      y: clampValue(Math.floor(point.y / CELL_SIZE), 0, GRID_ROWS - 1)
+      x: clampValue(Math.floor(point.x / CELL_SIZE), 0, gridCols() - 1),
+      y: clampValue(Math.floor(point.y / CELL_SIZE), 0, gridRows() - 1)
     }
   }
 

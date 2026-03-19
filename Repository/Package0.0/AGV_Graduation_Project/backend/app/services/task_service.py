@@ -17,7 +17,7 @@ from app.repositories.task_repository import (
 )
 from app.utils.api_error import raise_api_error
 from app.utils.task_chain import build_stage_models, sync_task_stage_fields
-from app.utils.warehouse_map import DEFAULT_GRID_COLS, DEFAULT_GRID_ROWS, get_blocked_cells
+from app.utils.warehouse_map import DEFAULT_GRID_COLS, DEFAULT_GRID_ROWS, get_blocked_cells, get_current_grid_size
 
 
 #
@@ -53,7 +53,15 @@ def _validate_task_stages(stages, grid_cols: int = DEFAULT_GRID_COLS, grid_rows:
                 raise_api_error(400, "stage_blocked", stage_index=index + 1, point_type=point_type)
 
 
-def _build_task_stages(item: Any):
+def _resolve_payload_grid_size(item: Any) -> tuple[int, int]:
+    requested_cols = _get_field(item, "grid_cols")
+    requested_rows = _get_field(item, "grid_rows")
+    if isinstance(requested_cols, int) and isinstance(requested_rows, int) and requested_cols > 0 and requested_rows > 0:
+        return requested_cols, requested_rows
+    return get_current_grid_size()
+
+
+def _build_task_stages(item: Any, grid_cols: int, grid_rows: int):
     stages = _get_field(item, "stages")
     if stages:
         normalized_stages = [
@@ -61,7 +69,7 @@ def _build_task_stages(item: Any):
             for stage in stages
         ]
         stage_models = build_stage_models(normalized_stages)
-        _validate_task_stages(stage_models)
+        _validate_task_stages(stage_models, grid_cols, grid_rows)
         return stage_models
 
     start_x = _get_field(item, "start_x")
@@ -82,7 +90,7 @@ def _build_task_stages(item: Any):
             )
         ]
     )
-    _validate_task_stages(stage_models)
+    _validate_task_stages(stage_models, grid_cols, grid_rows)
     return stage_models
 
 
@@ -143,7 +151,8 @@ def get_tasks():
 
 def create_task(payload: Any):
     next_id = get_next_task_id()
-    stages = _build_task_stages(payload)
+    grid_cols, grid_rows = _resolve_payload_grid_size(payload)
+    stages = _build_task_stages(payload, grid_cols, grid_rows)
     first_stage = stages[0]
     last_stage = stages[-1]
     task = Task(
@@ -204,7 +213,8 @@ def import_tasks(items: list[Any]):
             next_id += 1
         existing_ids.add(task_id)
 
-        stages = _build_task_stages(item)
+        grid_cols, grid_rows = _resolve_payload_grid_size(item)
+        stages = _build_task_stages(item, grid_cols, grid_rows)
         first_stage = stages[0]
         last_stage = stages[-1]
 

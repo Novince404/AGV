@@ -42,6 +42,18 @@ export function useTemplatePointActions(options) {
 
   let templateApplyClickTimer = null
 
+  function resolveValue(value) {
+    return value && typeof value === 'object' && 'value' in value ? value.value : value
+  }
+
+  function gridCols() {
+    return Number(resolveValue(GRID_COLS))
+  }
+
+  function gridRows() {
+    return Number(resolveValue(GRID_ROWS))
+  }
+
   function applyPointToTaskForm(target, point) {
     if (target === 'start') {
       taskForm.value.start_x = point.x
@@ -88,7 +100,7 @@ export function useTemplatePointActions(options) {
       return
     }
 
-    if (!isValidGridCoordinate(x, GRID_COLS) || !isValidGridCoordinate(y, GRID_ROWS)) {
+    if (!isValidGridCoordinate(x, gridCols()) || !isValidGridCoordinate(y, gridRows())) {
       setPointFormStatus('error', t('point_form_invalid_coords'))
       return
     }

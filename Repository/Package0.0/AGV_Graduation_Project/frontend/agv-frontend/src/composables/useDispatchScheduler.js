@@ -34,6 +34,18 @@ export function useDispatchScheduler(options) {
     bumpManualPreviewMinVisible
   } = options
 
+  function resolveValue(value) {
+    return value && typeof value === 'object' && 'value' in value ? value.value : value
+  }
+
+  function gridCols() {
+    return Number(resolveValue(GRID_COLS))
+  }
+
+  function gridRows() {
+    return Number(resolveValue(GRID_ROWS))
+  }
+
   function resolveTaskDisplayEndMarkerLocal(task) {
     if (Number(task?.total_stages ?? 1) > 1 && typeof resolveTaskOverallEndMarker === 'function') {
       return resolveTaskOverallEndMarker(task)
@@ -83,8 +95,8 @@ export function useDispatchScheduler(options) {
           agv_id: null,
           schedule_mode: 'auto',
           algorithm: algorithm.value,
-          grid_cols: GRID_COLS,
-          grid_rows: GRID_ROWS
+          grid_cols: gridCols(),
+          grid_rows: gridRows()
         })
       })
       const scheduleData = await scheduleRes.json()
@@ -135,8 +147,8 @@ export function useDispatchScheduler(options) {
           agv_id: candidate.preferred_agv_id,
           schedule_mode: 'manual',
           algorithm: (candidate.dispatch_algorithm || algorithm.value || 'simple').toLowerCase(),
-          grid_cols: GRID_COLS,
-          grid_rows: GRID_ROWS
+          grid_cols: gridCols(),
+          grid_rows: gridRows()
         })
       })
       const scheduleData = await scheduleRes.json()

@@ -1,6 +1,12 @@
 from fastapi import APIRouter
 
-from app.schemas.status import MapLayoutUpdateRequest, MapPresetCreateRequest, UiSettingsUpdateRequest
+from app.schemas.status import (
+    MapLayoutUpdateRequest,
+    MapProfileCreateRequest,
+    MapPresetCreateRequest,
+    MapResizeRequest,
+    UiSettingsUpdateRequest,
+)
 from app.services import status_service
 
 
@@ -42,9 +48,34 @@ def get_map_profiles():
     return status_service.get_map_profiles()
 
 
+@router.get("/map/profile/{profile_key}")
+def get_map_profile_detail(profile_key: str):
+    return status_service.get_map_profile_detail(profile_key)
+
+
 @router.get("/map/resize-precheck")
 def get_map_resize_precheck(grid_cols: int, grid_rows: int):
     return status_service.get_map_resize_precheck(grid_cols, grid_rows)
+
+
+@router.post("/map/resize")
+def resize_map_layout(req: MapResizeRequest):
+    return status_service.resize_map_layout(req.grid_cols, req.grid_rows)
+
+
+@router.post("/map/profile/{profile_key}")
+def apply_map_profile(profile_key: str, force: bool = False):
+    return status_service.apply_map_profile(profile_key, force=force)
+
+
+@router.post("/map/profile")
+def save_map_profile(req: MapProfileCreateRequest):
+    return status_service.save_map_profile(req)
+
+
+@router.delete("/map/profile/{profile_key}")
+def delete_map_profile(profile_key: str):
+    return status_service.delete_map_profile(profile_key)
 
 
 @router.put("/map")

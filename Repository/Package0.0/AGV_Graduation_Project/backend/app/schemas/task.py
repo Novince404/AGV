@@ -14,6 +14,8 @@ class TaskCreateRequest(BaseModel):
     start_y: int | None = None
     end_x: int | None = None
     end_y: int | None = None
+    grid_cols: int | None = None
+    grid_rows: int | None = None
     priority: int = 1
     stages: list[TaskStagePayload] | None = None
     dispatch_mode: str | None = None
@@ -30,6 +32,8 @@ class TaskImportItem(BaseModel):
     start_y: int | None = None
     end_x: int | None = None
     end_y: int | None = None
+    grid_cols: int | None = None
+    grid_rows: int | None = None
     priority: int = 1
     stages: list[TaskStagePayload] | None = None
     dispatch_mode: str | None = None
