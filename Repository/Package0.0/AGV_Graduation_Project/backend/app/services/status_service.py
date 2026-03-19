@@ -6,6 +6,7 @@ import time
 from app.models.map_preset import MapPreset, MapPresetCell
 from app.core.settings import get_settings
 from app.repositories.agv_repository import list_agvs
+from app.repositories.point_repository import list_points
 from app.repositories.task_repository import list_tasks
 from app.repositories.map_preset_repository import (
     get_map_preset_by_key,
@@ -13,6 +14,7 @@ from app.repositories.map_preset_repository import (
     remove_map_preset,
     upsert_map_preset,
 )
+from app.repositories.template_repository import list_task_templates
 from app.repositories.ui_settings_repository import get_ui_settings as get_ui_settings_store
 from app.repositories.ui_settings_repository import save_ui_settings as save_ui_settings_store
 from app.utils.api_error import raise_api_error
@@ -22,6 +24,7 @@ from app.utils.warehouse_map import (
     build_map_preset_payload,
     get_current_map_profile_payload,
     get_blocked_cell_payload,
+    get_blocked_cells,
     get_current_grid_size,
     get_default_blocked_cells,
     get_map_layout_state,
@@ -66,6 +69,10 @@ def _normalize_requested_cells(cells: list, grid_cols: int, grid_rows: int) -> s
         if 0 <= x < grid_cols and 0 <= y < grid_rows:
             normalized.add((x, y))
     return normalized
+
+
+def _is_within_grid(x: int, y: int, grid_cols: int, grid_rows: int) -> bool:
+    return 0 <= int(x) < int(grid_cols) and 0 <= int(y) < int(grid_rows)
 
 
 def _build_custom_preset_key(name: str) -> str:
@@ -211,6 +218,103 @@ def get_map_profiles():
         "resize_lock_reason": resize_lock_reason,
         "active_task_count": len(active_tasks),
         "busy_agv_count": len(busy_agvs),
+    }
+
+
+def get_map_resize_precheck(requested_grid_cols: int, requested_grid_rows: int):
+    requested_grid_cols = int(requested_grid_cols)
+    requested_grid_rows = int(requested_grid_rows)
+    if requested_grid_cols <= 0 or requested_grid_rows <= 0:
+        raise_api_error(400, "invalid_grid_size")
+
+    current_grid_cols, current_grid_rows = get_current_grid_size()
+    all_agvs = list_agvs()
+    active_tasks = [
+        task
+        for task in list_tasks()
+        if task.status in {"pending", "assigned", "running", "blocked"}
+    ]
+    busy_agvs = [
+        agv
+        for agv in all_agvs
+        if agv.status not in {"idle", "maintenance"}
+    ]
+    agv_overflows = [
+        {
+            "id": int(agv.id),
+            "status": agv.status,
+            "x": int(agv.x),
+            "y": int(agv.y),
+        }
+        for agv in all_agvs
+        if not _is_within_grid(agv.x, agv.y, requested_grid_cols, requested_grid_rows)
+    ]
+    point_overflows = [
+        {
+            "id": point.id,
+            "name": point.custom_name or point.name_key or point.id,
+            "x": int(point.x),
+            "y": int(point.y),
+        }
+        for point in list_points()
+        if not _is_within_grid(point.x, point.y, requested_grid_cols, requested_grid_rows)
+    ]
+
+    template_overflows = []
+    for template in list_task_templates():
+        invalid_stage_indexes = []
+        for stage in template.stages:
+            if not (
+                _is_within_grid(stage.start_x, stage.start_y, requested_grid_cols, requested_grid_rows)
+                and _is_within_grid(stage.end_x, stage.end_y, requested_grid_cols, requested_grid_rows)
+            ):
+                invalid_stage_indexes.append(int(stage.index))
+        if invalid_stage_indexes:
+            template_overflows.append(
+                {
+                    "id": template.id,
+                    "name": template.custom_name or template.name_key or template.id,
+                    "invalid_stage_indexes": invalid_stage_indexes,
+                }
+            )
+
+    blocked_overflows = [
+        {"x": int(x), "y": int(y)}
+        for x, y in sorted(get_blocked_cells(current_grid_cols, current_grid_rows))
+        if not _is_within_grid(x, y, requested_grid_cols, requested_grid_rows)
+    ]
+
+    blockers = []
+    if active_tasks:
+        blockers.append("active_tasks_present")
+    if busy_agvs:
+        blockers.append("agvs_not_idle")
+    if agv_overflows:
+        blockers.append("agvs_out_of_bounds")
+    if point_overflows:
+        blockers.append("points_out_of_bounds")
+    if template_overflows:
+        blockers.append("templates_out_of_bounds")
+    if blocked_overflows:
+        blockers.append("blocked_cells_out_of_bounds")
+
+    return {
+        "current_grid_cols": current_grid_cols,
+        "current_grid_rows": current_grid_rows,
+        "requested_grid_cols": requested_grid_cols,
+        "requested_grid_rows": requested_grid_rows,
+        "can_apply": len(blockers) == 0,
+        "blockers": blockers,
+        "active_task_count": len(active_tasks),
+        "busy_agv_count": len(busy_agvs),
+        "agv_overflow_count": len(agv_overflows),
+        "point_overflow_count": len(point_overflows),
+        "template_overflow_count": len(template_overflows),
+        "blocked_overflow_count": len(blocked_overflows),
+        "agv_overflows": agv_overflows[:8],
+        "point_overflows": point_overflows[:8],
+        "template_overflows": template_overflows[:8],
+        "blocked_overflows": blocked_overflows[:8],
     }
 
 

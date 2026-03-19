@@ -6,6 +6,7 @@
 - Added root-level implementation plan sources `PROJECT_IMPLEMENTATION_PLAN_v2.0.md` and `PROJECT_IMPLEMENTATION_PLAN_v2.0.docx` for the next graduation-project delivery stage.
 - Added backend UI settings persistence with `GET /status/ui-settings` and `PUT /status/ui-settings`.
 - Added `GET /status/map/profiles` plus read-only map profile metadata so module 4 has a low-risk starting point before true dynamic size editing.
+- Added `GET /status/map/resize-precheck` so target map sizes can be dry-checked against active tasks, AGVs, points, templates, and blocked cells before real resizing is enabled.
 - Added frontend `useUiSettingsBackend.js` so map display settings can be synchronized to backend storage with local fallback kept in place.
 - Added Windows packaging skeleton files: `build_frontend_dist.bat`, `run_packaged_dev.bat`, `build_windows_package.bat`, `start_agv.bat`, `backend/package_entry.py`, `backend/packaging/backend.spec`, and `backend/requirements-package.txt`.
 - Added `PACKAGING_WINDOWS.md` to document the lowest-deliverable Windows packaging flow.
@@ -22,6 +23,7 @@
 ### Improved
 - Improved the map settings panel by grouping map information, obstacle layout actions, and persisted display settings into a clearer MVP structure.
 - Improved the map settings panel again by showing current map profile, available profiles, and whether runtime state is ready for future size editing.
+- Improved the map settings panel further with a read-only resize precheck area that previews blockers and out-of-bounds counts before any real map-size editing is introduced.
 - Improved obstacle-layout, JSON-template, and task-management related UI wording/layout while keeping the current workflow intact.
 - Improved map layout refresh handling so current grid information and active preset information are reflected in the settings panel.
 - Improved frontend API base resolution so the app can run both under Vite (`5173 -> 8000`) and under backend-hosted packaged mode (`8000 -> 8000`).

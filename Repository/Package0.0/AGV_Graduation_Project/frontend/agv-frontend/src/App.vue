@@ -250,6 +250,10 @@ const appliedObstacleSceneKey = ref('default_shelves')
 const currentMapProfile = ref(null)
 const mapSizeResizeReady = ref(false)
 const mapSizeResizeLockReason = ref('ready')
+const mapResizePreviewCols = ref(GRID_COLS)
+const mapResizePreviewRows = ref(GRID_ROWS)
+const mapResizePreview = ref(null)
+const mapResizePreviewLoading = ref(false)
 const obstacleLayoutStatus = ref('')
 const obstacleLayoutStatusType = ref('info')
 const obstacleLayoutFileInputRef = ref(null)
@@ -432,6 +436,33 @@ const mapSizeResizeStatusLabel = computed(() => {
     return settingsLocale.value.mapInfoResizeBlockedAgvs
   }
   return settingsLocale.value.mapInfoResizeUnknown
+})
+const mapResizePreviewStatusLabel = computed(() => {
+  if (!mapResizePreview.value) return settingsLocale.value.resizePreviewNoResult
+  return mapResizePreview.value.can_apply
+    ? settingsLocale.value.resizePreviewReady
+    : settingsLocale.value.resizePreviewBlocked
+})
+const mapResizePreviewReasons = computed(() => {
+  if (!Array.isArray(mapResizePreview.value?.blockers)) return []
+  return mapResizePreview.value.blockers.map(blocker => {
+    switch (blocker) {
+      case 'active_tasks_present':
+        return settingsLocale.value.resizeReasonActiveTasks
+      case 'agvs_not_idle':
+        return settingsLocale.value.resizeReasonBusyAgvs
+      case 'agvs_out_of_bounds':
+        return settingsLocale.value.resizeReasonOverflowAgvs
+      case 'points_out_of_bounds':
+        return settingsLocale.value.resizeReasonOverflowPoints
+      case 'templates_out_of_bounds':
+        return settingsLocale.value.resizeReasonOverflowTemplates
+      case 'blocked_cells_out_of_bounds':
+        return settingsLocale.value.resizeReasonOverflowObstacles
+      default:
+        return blocker
+    }
+  })
 })
 const selectedObstaclePresetDeletable = computed(() => Boolean(selectedObstaclePresetInfo.value?.deletable))
 const syncedBlockedCellSet = computed(
@@ -3498,6 +3529,10 @@ function applyGridSizeFromPayload(payload) {
   if (Number.isInteger(Number(payload?.grid_rows))) {
     currentGridRows.value = Number(payload.grid_rows)
   }
+  if (!mapResizePreview.value) {
+    mapResizePreviewCols.value = currentGridCols.value
+    mapResizePreviewRows.value = currentGridRows.value
+  }
 }
 
 function obstaclePresetName(preset) {
@@ -3525,6 +3560,30 @@ function localizedMapProfileField(value) {
 
 function isCurrentMapProfile(profile) {
   return Boolean(profile?.key && currentMapProfile.value?.key && profile.key === currentMapProfile.value.key)
+}
+
+async function runMapResizePrecheck() {
+  const requestedCols = Math.max(1, Number(mapResizePreviewCols.value || 0))
+  const requestedRows = Math.max(1, Number(mapResizePreviewRows.value || 0))
+  mapResizePreviewCols.value = requestedCols
+  mapResizePreviewRows.value = requestedRows
+  mapResizePreviewLoading.value = true
+  try {
+    const params = new URLSearchParams({
+      grid_cols: String(requestedCols),
+      grid_rows: String(requestedRows),
+    })
+    const res = await fetch(`${API_BASE}/status/map/resize-precheck?${params.toString()}`)
+    if (!res.ok) {
+      throw new Error(`Map resize precheck failed: ${res.status}`)
+    }
+    mapResizePreview.value = await res.json()
+  } catch (error) {
+    console.error('Map resize precheck error:', error)
+    showFloatingToast(error?.message || settingsLocale.value.resizePreviewRequestFailed, 'error')
+  } finally {
+    mapResizePreviewLoading.value = false
+  }
 }
 
 function detectObstacleSceneKey(cells) {
@@ -5171,6 +5230,86 @@ onBeforeUnmount(() => {
                       {{ localizedMapProfileField(profile.description) }}
                     </div>
                   </div>
+                </div>
+              </div>
+              <div class="map-settings-group">
+                <div class="map-settings-subtitle">{{ settingsLocale.resizeGroup }}</div>
+                <p class="panel-hint map-settings-hint">{{ settingsLocale.resizeGroupHint }}</p>
+                <div class="map-settings-inline-grid">
+                  <label class="map-settings-select-group">
+                    <span class="map-settings-select-label">{{ settingsLocale.resizePreviewCols }}</span>
+                    <input
+                      v-model.number="mapResizePreviewCols"
+                      class="map-settings-number-input"
+                      type="number"
+                      min="1"
+                      step="1"
+                    />
+                  </label>
+                  <label class="map-settings-select-group">
+                    <span class="map-settings-select-label">{{ settingsLocale.resizePreviewRows }}</span>
+                    <input
+                      v-model.number="mapResizePreviewRows"
+                      class="map-settings-number-input"
+                      type="number"
+                      min="1"
+                      step="1"
+                    />
+                  </label>
+                </div>
+                <div class="map-settings-actions">
+                  <button
+                    class="btn-secondary"
+                    type="button"
+                    :disabled="mapResizePreviewLoading"
+                    @click="runMapResizePrecheck"
+                  >
+                    {{ settingsLocale.resizePreviewRun }}
+                  </button>
+                </div>
+                <div class="map-settings-info-grid">
+                  <div class="map-settings-info-card">
+                    <div class="map-settings-info-label">{{ settingsLocale.resizePreviewCurrent }}</div>
+                    <div class="map-settings-info-value">{{ currentGridCols }} x {{ currentGridRows }}</div>
+                  </div>
+                  <div class="map-settings-info-card">
+                    <div class="map-settings-info-label">{{ settingsLocale.resizePreviewRequested }}</div>
+                    <div class="map-settings-info-value">{{ mapResizePreviewCols }} x {{ mapResizePreviewRows }}</div>
+                  </div>
+                  <div class="map-settings-info-card">
+                    <div class="map-settings-info-label">{{ settingsLocale.resizePreviewResult }}</div>
+                    <div class="map-settings-info-value">{{ mapResizePreviewStatusLabel }}</div>
+                  </div>
+                  <div class="map-settings-info-card">
+                    <div class="map-settings-info-label">{{ settingsLocale.resizePreviewActiveTasks }}</div>
+                    <div class="map-settings-info-value">{{ mapResizePreview?.active_task_count ?? '—' }}</div>
+                  </div>
+                  <div class="map-settings-info-card">
+                    <div class="map-settings-info-label">{{ settingsLocale.resizePreviewBusyAgvs }}</div>
+                    <div class="map-settings-info-value">{{ mapResizePreview?.busy_agv_count ?? '—' }}</div>
+                  </div>
+                  <div class="map-settings-info-card">
+                    <div class="map-settings-info-label">{{ settingsLocale.resizePreviewOverflowAgvs }}</div>
+                    <div class="map-settings-info-value">{{ mapResizePreview?.agv_overflow_count ?? '—' }}</div>
+                  </div>
+                  <div class="map-settings-info-card">
+                    <div class="map-settings-info-label">{{ settingsLocale.resizePreviewOverflowPoints }}</div>
+                    <div class="map-settings-info-value">{{ mapResizePreview?.point_overflow_count ?? '—' }}</div>
+                  </div>
+                  <div class="map-settings-info-card">
+                    <div class="map-settings-info-label">{{ settingsLocale.resizePreviewOverflowTemplates }}</div>
+                    <div class="map-settings-info-value">{{ mapResizePreview?.template_overflow_count ?? '—' }}</div>
+                  </div>
+                  <div class="map-settings-info-card">
+                    <div class="map-settings-info-label">{{ settingsLocale.resizePreviewOverflowObstacles }}</div>
+                    <div class="map-settings-info-value">{{ mapResizePreview?.blocked_overflow_count ?? '—' }}</div>
+                  </div>
+                </div>
+                <div v-if="mapResizePreviewReasons.length > 0" class="map-size-preview-reasons">
+                  <div class="map-settings-select-label">{{ settingsLocale.resizePreviewReasonTitle }}</div>
+                  <ul class="map-size-preview-list">
+                    <li v-for="reason in mapResizePreviewReasons" :key="reason">{{ reason }}</li>
+                  </ul>
                 </div>
               </div>
               <div class="map-settings-group">

@@ -42,6 +42,11 @@ def get_map_profiles():
     return status_service.get_map_profiles()
 
 
+@router.get("/map/resize-precheck")
+def get_map_resize_precheck(grid_cols: int, grid_rows: int):
+    return status_service.get_map_resize_precheck(grid_cols, grid_rows)
+
+
 @router.put("/map")
 def update_map_layout(req: MapLayoutUpdateRequest):
     return status_service.update_map_layout(req.blocked_cells, req.grid_cols, req.grid_rows)
