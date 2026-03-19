@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v2.0.0 - 2026-03-19
 
 ### Added
 - Added root-level implementation plan sources `PROJECT_IMPLEMENTATION_PLAN_v2.0.md` and `PROJECT_IMPLEMENTATION_PLAN_v2.0.docx` for the next graduation-project delivery stage.
