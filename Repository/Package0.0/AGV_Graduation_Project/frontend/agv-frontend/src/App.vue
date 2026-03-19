@@ -244,8 +244,12 @@ const obstacleEditMode = ref(false)
 const obstacleMapSaving = ref(false)
 const syncedBlockedCells = ref([...DEFAULT_BLOCKED_CELLS])
 const obstaclePresets = ref([])
+const mapProfiles = ref([])
 const selectedObstaclePreset = ref('default_shelves')
 const appliedObstacleSceneKey = ref('default_shelves')
+const currentMapProfile = ref(null)
+const mapSizeResizeReady = ref(false)
+const mapSizeResizeLockReason = ref('ready')
 const obstacleLayoutStatus = ref('')
 const obstacleLayoutStatusType = ref('info')
 const obstacleLayoutFileInputRef = ref(null)
@@ -408,6 +412,26 @@ const currentObstaclePresetLabel = computed(() => {
   if (locale.value === 'ja') return 'カスタム'
   if (locale.value === 'zh') return '自定义'
   return 'Custom'
+})
+const currentMapProfileLabel = computed(() => {
+  if (currentMapProfile.value) return localizedMapProfileField(currentMapProfile.value?.name)
+  if (locale.value === 'ja') return '未识别'
+  if (locale.value === 'zh') return '未识别'
+  return 'Unknown'
+})
+const currentMapProfileDescription = computed(() => localizedMapProfileField(currentMapProfile.value?.description))
+const mapSizeResizeStatusLabel = computed(() => {
+  if (mapSizeResizeReady.value) return settingsLocale.value.mapInfoResizeReady
+  if (mapSizeResizeLockReason.value === 'active_tasks_and_busy_agvs') {
+    return settingsLocale.value.mapInfoResizeBlockedBoth
+  }
+  if (mapSizeResizeLockReason.value === 'active_tasks_present') {
+    return settingsLocale.value.mapInfoResizeBlockedTasks
+  }
+  if (mapSizeResizeLockReason.value === 'agvs_not_idle') {
+    return settingsLocale.value.mapInfoResizeBlockedAgvs
+  }
+  return settingsLocale.value.mapInfoResizeUnknown
 })
 const selectedObstaclePresetDeletable = computed(() => Boolean(selectedObstaclePresetInfo.value?.deletable))
 const syncedBlockedCellSet = computed(
@@ -3493,6 +3517,16 @@ function obstaclePresetDescription(preset) {
   )
 }
 
+function localizedMapProfileField(value) {
+  if (!value) return ''
+  if (typeof value === 'string') return value
+  return value[locale.value] ?? value.zh ?? value.en ?? ''
+}
+
+function isCurrentMapProfile(profile) {
+  return Boolean(profile?.key && currentMapProfile.value?.key && profile.key === currentMapProfile.value.key)
+}
+
 function detectObstacleSceneKey(cells) {
   const normalizedCells = normalizeBlockedCellList(cells)
   const currentKeys = normalizedCells.map(cell => blockedCellKey(cell.x, cell.y))
@@ -3804,6 +3838,45 @@ async function fetchMapPresets() {
     console.error('Fetch map presets error:', error)
     obstaclePresets.value = []
   }
+}
+
+async function fetchMapProfiles() {
+  try {
+    const res = await fetch(`${API_BASE}/status/map/profiles`)
+    if (!res.ok) {
+      throw new Error(`Map profile request failed: ${res.status}`)
+    }
+    const data = await res.json()
+    mapProfiles.value = Array.isArray(data?.profiles) ? data.profiles : []
+    currentMapProfile.value = data?.current_profile ?? null
+    syncMapSizeResizeState()
+  } catch (error) {
+    console.error('Fetch map profiles error:', error)
+    mapProfiles.value = []
+    currentMapProfile.value = null
+    syncMapSizeResizeState()
+  }
+}
+
+function syncMapSizeResizeState() {
+  const hasActiveTasks = tasks.value.some(task =>
+    ['pending', 'assigned', 'running', 'blocked'].includes(task.status)
+  )
+  const hasBusyAgvs = agvs.value.some(agv => !['idle', 'maintenance'].includes(agv.status))
+  mapSizeResizeReady.value = !hasActiveTasks && !hasBusyAgvs
+  if (hasActiveTasks && hasBusyAgvs) {
+    mapSizeResizeLockReason.value = 'active_tasks_and_busy_agvs'
+    return
+  }
+  if (hasActiveTasks) {
+    mapSizeResizeLockReason.value = 'active_tasks_present'
+    return
+  }
+  if (hasBusyAgvs) {
+    mapSizeResizeLockReason.value = 'agvs_not_idle'
+    return
+  }
+  mapSizeResizeLockReason.value = 'ready'
 }
 
 async function fetchMapLayout() {
@@ -4278,6 +4351,14 @@ watch(
   { deep: true }
 )
 
+watch(
+  [tasks, agvs],
+  () => {
+    syncMapSizeResizeState()
+  },
+  { deep: true }
+)
+
 onMounted(() => {
   loadCustomPoints()
   loadTaskTemplates()
@@ -4299,6 +4380,8 @@ onMounted(() => {
       mapResizeObserver.observe(mapViewportRef.value)
     }
   }
+  syncMapSizeResizeState()
+  void fetchMapProfiles()
   void fetchMapPresets()
   void fetchMapLayout()
   void refreshState()
@@ -5051,6 +5134,42 @@ onBeforeUnmount(() => {
                   <div class="map-settings-info-card">
                     <div class="map-settings-info-label">{{ settingsLocale.mapInfoBackend }}</div>
                     <div class="map-settings-info-value">{{ uiSettingsBackendMode }}</div>
+                  </div>
+                  <div class="map-settings-info-card">
+                    <div class="map-settings-info-label">{{ settingsLocale.mapInfoProfile }}</div>
+                    <div class="map-settings-info-value">{{ currentMapProfileLabel }}</div>
+                  </div>
+                  <div class="map-settings-info-card">
+                    <div class="map-settings-info-label">{{ settingsLocale.mapInfoResizeCheck }}</div>
+                    <div class="map-settings-info-value">{{ mapSizeResizeStatusLabel }}</div>
+                  </div>
+                </div>
+                <p v-if="currentMapProfileDescription" class="panel-hint map-settings-hint">
+                  {{ currentMapProfileDescription }}
+                </p>
+              </div>
+              <div class="map-settings-group">
+                <div class="map-settings-subtitle">{{ settingsLocale.profileGroup }}</div>
+                <p class="panel-hint map-settings-hint">{{ settingsLocale.profileGroupHint }}</p>
+                <div class="map-profile-grid">
+                  <div
+                    v-for="profile in mapProfiles"
+                    :key="profile.key"
+                    class="map-profile-card"
+                    :class="{ 'is-current': isCurrentMapProfile(profile) }"
+                  >
+                    <div class="map-profile-head">
+                      <div class="map-profile-name">{{ localizedMapProfileField(profile.name) }}</div>
+                      <span v-if="isCurrentMapProfile(profile)" class="map-profile-badge">
+                        {{ settingsLocale.mapProfileCurrent }}
+                      </span>
+                    </div>
+                    <div class="map-profile-meta">
+                      {{ profile.grid_cols }} x {{ profile.grid_rows }}
+                    </div>
+                    <div class="map-profile-desc">
+                      {{ localizedMapProfileField(profile.description) }}
+                    </div>
                   </div>
                 </div>
               </div>

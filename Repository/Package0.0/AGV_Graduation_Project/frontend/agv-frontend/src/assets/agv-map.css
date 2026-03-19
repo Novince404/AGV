@@ -588,6 +588,61 @@ h2 {
   word-break: break-word;
 }
 
+.map-profile-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.map-profile-card {
+  border: 1px solid #e5ddd1;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.72);
+  padding: 10px 12px;
+}
+
+.map-profile-card.is-current {
+  border-color: #c9a86a;
+  box-shadow: 0 0 0 1px rgba(201, 168, 106, 0.2);
+}
+
+.map-profile-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.map-profile-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: #2f3b4d;
+}
+
+.map-profile-badge {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(201, 168, 106, 0.2);
+  color: #7b5a18;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.map-profile-meta {
+  font-size: 12px;
+  font-weight: 600;
+  color: #6a6258;
+  margin-bottom: 4px;
+}
+
+.map-profile-desc {
+  font-size: 12px;
+  line-height: 1.5;
+  color: #5d6673;
+}
+
 .map-settings-select-group {
   display: flex;
   flex-direction: column;

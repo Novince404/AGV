@@ -6,6 +6,7 @@ from app.repositories.map_repository import set_layout_state as persist_runtime_
 
 DEFAULT_GRID_COLS = 10
 DEFAULT_GRID_ROWS = 8
+DEFAULT_MAP_PROFILE_KEY = "warehouse_demo_10x8"
 
 # Fixed shelf layout for the current warehouse demo map.
 DEFAULT_BLOCKED_CELLS = {
@@ -95,6 +96,24 @@ DEFAULT_MAP_PRESETS = {
             (7, 7),
         },
     },
+}
+
+DEFAULT_MAP_PROFILES = {
+    DEFAULT_MAP_PROFILE_KEY: {
+        "name": {
+            "zh": "标准演示仓库",
+            "ja": "標準デモ倉庫",
+            "en": "Standard Demo Warehouse",
+        },
+        "description": {
+            "zh": "当前毕业设计默认使用的 10 x 8 演示地图方案，后续模块 4 将在此基础上扩展动态地图尺寸。",
+            "ja": "現行の卒業設計で既定使用している 10 x 8 のデモ用マップ構成です。後続のモジュール 4 で動的サイズ拡張を行います。",
+            "en": "The default 10 x 8 demo warehouse profile used by the current project. Dynamic map sizing will build on top of this in module 4.",
+        },
+        "grid_cols": DEFAULT_GRID_COLS,
+        "grid_rows": DEFAULT_GRID_ROWS,
+        "custom": False,
+    }
 }
 
 
@@ -193,9 +212,85 @@ def get_map_presets_payload(
                 cells=cells,
                 custom=False,
                 deletable=False,
+                grid_cols=grid_cols,
+                grid_rows=grid_rows,
+                profile_key=DEFAULT_MAP_PROFILE_KEY,
             )
         )
     return payload
+
+
+def build_map_profile_payload(
+    key: str,
+    name,
+    description,
+    grid_cols: int,
+    grid_rows: int,
+    *,
+    custom: bool,
+    editable: bool,
+) -> dict:
+    return {
+        "key": key,
+        "name": name,
+        "description": description,
+        "grid_cols": int(grid_cols),
+        "grid_rows": int(grid_rows),
+        "custom": custom,
+        "editable": editable,
+    }
+
+
+def get_map_profiles_payload() -> list[dict]:
+    payload = []
+    for key, profile in DEFAULT_MAP_PROFILES.items():
+        payload.append(
+            build_map_profile_payload(
+                key=key,
+                name=profile["name"],
+                description=profile["description"],
+                grid_cols=int(profile["grid_cols"]),
+                grid_rows=int(profile["grid_rows"]),
+                custom=bool(profile.get("custom", False)),
+                editable=False,
+            )
+        )
+    return payload
+
+
+def get_current_map_profile_payload(
+    grid_cols: int = DEFAULT_GRID_COLS,
+    grid_rows: int = DEFAULT_GRID_ROWS,
+) -> dict:
+    for key, profile in DEFAULT_MAP_PROFILES.items():
+        if int(profile["grid_cols"]) == int(grid_cols) and int(profile["grid_rows"]) == int(grid_rows):
+            return build_map_profile_payload(
+                key=key,
+                name=profile["name"],
+                description=profile["description"],
+                grid_cols=grid_cols,
+                grid_rows=grid_rows,
+                custom=bool(profile.get("custom", False)),
+                editable=False,
+            )
+
+    return build_map_profile_payload(
+        key=f"runtime_{int(grid_cols)}x{int(grid_rows)}",
+        name={
+            "zh": "运行时地图方案",
+            "ja": "実行時マップ構成",
+            "en": "Runtime Map Profile",
+        },
+        description={
+            "zh": "当前运行中的地图尺寸未匹配到内置方案，后续可作为自定义地图方案的入口。",
+            "ja": "現在の実行時マップサイズは組み込みプロファイルに一致しておらず、将来のカスタムマップ構成の入口として扱います。",
+            "en": "The current runtime map size does not match a built-in profile and can later become the entry point for custom map schemes.",
+        },
+        grid_cols=grid_cols,
+        grid_rows=grid_rows,
+        custom=True,
+        editable=False,
+    )
 
 
 def build_map_preset_payload(
@@ -205,6 +300,9 @@ def build_map_preset_payload(
     cells: set[tuple[int, int]],
     custom: bool,
     deletable: bool,
+    grid_cols: int = DEFAULT_GRID_COLS,
+    grid_rows: int = DEFAULT_GRID_ROWS,
+    profile_key: str | None = DEFAULT_MAP_PROFILE_KEY,
 ) -> dict:
     return {
         "key": key,
@@ -214,4 +312,7 @@ def build_map_preset_payload(
         "blocked_cells": [{"x": x, "y": y} for x, y in sorted(cells)],
         "custom": custom,
         "deletable": deletable,
+        "grid_cols": int(grid_cols),
+        "grid_rows": int(grid_rows),
+        "profile_key": profile_key,
     }

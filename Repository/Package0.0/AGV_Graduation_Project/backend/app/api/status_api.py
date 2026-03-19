@@ -37,6 +37,11 @@ def get_map_presets():
     return status_service.get_map_presets()
 
 
+@router.get("/map/profiles")
+def get_map_profiles():
+    return status_service.get_map_profiles()
+
+
 @router.put("/map")
 def update_map_layout(req: MapLayoutUpdateRequest):
     return status_service.update_map_layout(req.blocked_cells, req.grid_cols, req.grid_rows)

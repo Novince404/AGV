@@ -6,6 +6,7 @@ import time
 from app.models.map_preset import MapPreset, MapPresetCell
 from app.core.settings import get_settings
 from app.repositories.agv_repository import list_agvs
+from app.repositories.task_repository import list_tasks
 from app.repositories.map_preset_repository import (
     get_map_preset_by_key,
     list_map_presets,
@@ -19,10 +20,12 @@ from app.utils.status_map import AGV_STATUS_COLOR, TASK_STATUS_COLOR
 from app.utils.warehouse_map import (
     DEFAULT_MAP_PRESETS,
     build_map_preset_payload,
+    get_current_map_profile_payload,
     get_blocked_cell_payload,
     get_current_grid_size,
     get_default_blocked_cells,
     get_map_layout_state,
+    get_map_profiles_payload,
     get_map_preset_cells,
     get_map_presets_payload,
     set_blocked_cells,
@@ -167,12 +170,47 @@ def get_map_presets():
                 cells=cells,
                 custom=True,
                 deletable=True,
+                grid_cols=grid_cols,
+                grid_rows=grid_rows,
+                profile_key=get_current_map_profile_payload(grid_cols, grid_rows)["key"],
             )
         )
     return {
         "grid_cols": grid_cols,
         "grid_rows": grid_rows,
         "presets": builtin_presets + custom_presets,
+    }
+
+
+def get_map_profiles():
+    grid_cols, grid_rows = get_current_grid_size()
+    active_tasks = [
+        task
+        for task in list_tasks()
+        if task.status in {"pending", "assigned", "running", "blocked"}
+    ]
+    busy_agvs = [
+        agv
+        for agv in list_agvs()
+        if agv.status not in {"idle", "maintenance"}
+    ]
+    can_resize_now = not active_tasks and not busy_agvs
+    if active_tasks and busy_agvs:
+        resize_lock_reason = "active_tasks_and_busy_agvs"
+    elif active_tasks:
+        resize_lock_reason = "active_tasks_present"
+    elif busy_agvs:
+        resize_lock_reason = "agvs_not_idle"
+    else:
+        resize_lock_reason = "ready"
+
+    return {
+        "current_profile": get_current_map_profile_payload(grid_cols, grid_rows),
+        "profiles": get_map_profiles_payload(),
+        "can_resize_now": can_resize_now,
+        "resize_lock_reason": resize_lock_reason,
+        "active_task_count": len(active_tasks),
+        "busy_agv_count": len(busy_agvs),
     }
 
 
