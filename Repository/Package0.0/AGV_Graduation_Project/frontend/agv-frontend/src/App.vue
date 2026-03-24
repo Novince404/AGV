@@ -66,6 +66,7 @@ const EnterpriseSettingsDialog = defineAsyncComponent(() => import('./components
 const EnterpriseApprovalDialog = defineAsyncComponent(() => import('./components/EnterpriseApprovalDialog.vue'))
 const AuthDialog = defineAsyncComponent(() => import('./components/AuthDialog.vue'))
 const OperationsAuditPanel = defineAsyncComponent(() => import('./components/OperationsAuditPanel.vue'))
+const AlgorithmCompareWorkspace = defineAsyncComponent(() => import('./components/AlgorithmCompareWorkspace.vue'))
 
 const GRID_COLS = 10
 const GRID_ROWS = 8
@@ -8307,6 +8308,27 @@ const operationsAuditPanelBindings = {
   buildOperationsEntryActionText
 }
 
+const algorithmCompareWorkspaceBindings = {
+  currentCompareHint,
+  pathCompareError,
+  pathCompareResult,
+  compareResultEntries,
+  algorithm,
+  recommendedCompareAlgorithm,
+  algorithmText,
+  compareResultBadgeText,
+  applyComparedAlgorithm,
+  formatCompareResultStatus,
+  algorithmCompareLocale,
+  formatCompareStageLengths,
+  authCanExperimentWrite,
+  buildCapabilityLockedTitle,
+  saveCurrentExperimentRecordWithAuth,
+  exportCurrentCompareResultJsonWithAuth,
+  exportCurrentCompareResultCsvWithAuth,
+  experimentLocale
+}
+
 const enterpriseApprovalDialogBindings = {
   t,
   enterpriseApprovalSummary,
@@ -9873,69 +9895,7 @@ onBeforeUnmount(() => {
                   </div>
                 </div>
                 <template v-if="comparePanelExpanded">
-                  <p class="panel-hint">{{ currentCompareHint }}</p>
-                  <div v-if="pathCompareError" class="template-status error">{{ pathCompareError }}</div>
-                  <div v-else-if="pathCompareResult" class="algorithm-compare-grid">
-                    <article
-                      v-for="entry in compareResultEntries"
-                      :key="entry[0]"
-                      class="algorithm-compare-card"
-                      :class="{
-                        active: algorithm === entry[0],
-                        recommended: recommendedCompareAlgorithm === entry[0]
-                      }"
-                    >
-                      <div class="algorithm-compare-card-head">
-                        <strong>{{ algorithmText(entry[0]) }}</strong>
-                        <button class="btn-ghost" type="button" @click="applyComparedAlgorithm(entry[0])">
-                          {{ compareResultBadgeText(entry[0]) }}
-                        </button>
-                      </div>
-                      <div class="task-line">
-                        {{ formatCompareResultStatus(entry[1]) }}
-                      </div>
-                      <div class="task-line">
-                        {{ algorithmCompareLocale.total }}:
-                        {{ entry[1].total_length ?? '--' }}
-                      </div>
-                      <div class="task-line">
-                        {{ algorithmCompareLocale.stages }}:
-                        {{ formatCompareStageLengths(entry[1]) || '--' }}
-                      </div>
-                      <div v-if="entry[1].failed_stage_index !== null" class="task-line task-reason">
-                        {{ algorithmCompareLocale.failedStage }}: {{ Number(entry[1].failed_stage_index) + 1 }}
-                      </div>
-                    </article>
-                  </div>
-                  <div v-if="pathCompareResult" class="json-actions">
-                    <button
-                      class="btn-primary"
-                      type="button"
-                      :disabled="!authCanExperimentWrite"
-                      :title="buildCapabilityLockedTitle('data', authCanExperimentWrite)"
-                      @click="saveCurrentExperimentRecordWithAuth"
-                    >
-                      {{ experimentLocale.saveCurrent }}
-                    </button>
-                    <button
-                      class="btn-secondary"
-                      type="button"
-                      :disabled="!authCanExperimentWrite"
-                      :title="buildCapabilityLockedTitle('data', authCanExperimentWrite)"
-                      @click="exportCurrentCompareResultJsonWithAuth"
-                    >
-                      {{ experimentLocale.exportCurrentJson }}
-                    </button>
-                    <button
-                      class="btn-secondary"
-                      type="button"
-                      :disabled="!authCanExperimentWrite"
-                      :title="buildCapabilityLockedTitle('data', authCanExperimentWrite)"
-                      @click="exportCurrentCompareResultCsvWithAuth"
-                    >
-                      {{ experimentLocale.exportCurrentCsv }}
-                    </button>
-                  </div>
+                  <AlgorithmCompareWorkspace :ui="algorithmCompareWorkspaceBindings" />
                 </template>
               </div>
 
@@ -11433,74 +11393,12 @@ onBeforeUnmount(() => {
         </div>
         <button class="btn-ghost" type="button" @mousedown.stop @click="closeFloatingCompare">×</button>
       </div>
-      <p class="panel-hint">{{ currentCompareHint }}</p>
       <div class="algorithm-compare-actions">
         <button class="btn-secondary" type="button" :disabled="pathCompareLoading" @click="compareCurrentRoute">
           {{ pathCompareLoading ? '...' : algorithmCompareLocale.run }}
         </button>
       </div>
-      <div v-if="pathCompareError" class="template-status error">{{ pathCompareError }}</div>
-      <div v-else-if="pathCompareResult" class="algorithm-compare-grid">
-        <article
-          v-for="entry in compareResultEntries"
-          :key="entry[0]"
-          class="algorithm-compare-card"
-          :class="{
-            active: algorithm === entry[0],
-            recommended: recommendedCompareAlgorithm === entry[0]
-          }"
-        >
-          <div class="algorithm-compare-card-head">
-            <strong>{{ algorithmText(entry[0]) }}</strong>
-            <button class="btn-ghost" type="button" @click="applyComparedAlgorithm(entry[0])">
-              {{ compareResultBadgeText(entry[0]) }}
-            </button>
-          </div>
-          <div class="task-line">
-            {{ formatCompareResultStatus(entry[1]) }}
-          </div>
-          <div class="task-line">
-            {{ algorithmCompareLocale.total }}:
-            {{ entry[1].total_length ?? '--' }}
-          </div>
-          <div class="task-line">
-            {{ algorithmCompareLocale.stages }}:
-            {{ formatCompareStageLengths(entry[1]) || '--' }}
-          </div>
-          <div v-if="entry[1].failed_stage_index !== null" class="task-line task-reason">
-            {{ algorithmCompareLocale.failedStage }}: {{ Number(entry[1].failed_stage_index) + 1 }}
-          </div>
-        </article>
-      </div>
-      <div v-if="pathCompareResult" class="json-actions">
-        <button
-          class="btn-primary"
-          type="button"
-          :disabled="!authCanExperimentWrite"
-          :title="buildCapabilityLockedTitle('data', authCanExperimentWrite)"
-          @click="saveCurrentExperimentRecordWithAuth"
-        >
-          {{ experimentLocale.saveCurrent }}
-        </button>
-        <button
-          class="btn-secondary"
-          type="button"
-          :disabled="!authCanExperimentWrite"
-          :title="buildCapabilityLockedTitle('data', authCanExperimentWrite)"
-          @click="exportCurrentCompareResultJsonWithAuth"
-        >
-          {{ experimentLocale.exportCurrentJson }}
-        </button>
-        <button
-          class="btn-secondary"
-          type="button"
-          :disabled="!authCanExperimentWrite"
-          :title="buildCapabilityLockedTitle('data', authCanExperimentWrite)"
-          @click="exportCurrentCompareResultCsvWithAuth"
-        >
-          {{ experimentLocale.exportCurrentCsv }}
-        </button>
-      </div>
+      <AlgorithmCompareWorkspace :ui="algorithmCompareWorkspaceBindings" />
     </div>
     <div
       v-if="floatingToastVisible && floatingToastMessage"
