@@ -3387,6 +3387,119 @@ const comfyRenderPromptStyleLabelMap = computed(() =>
     return acc
   }, {})
 )
+function parseComfySourceJsonSafe(rawText) {
+  const trimmed = String(rawText || '').trim()
+  if (!trimmed) return null
+  try {
+    const parsed = JSON.parse(trimmed)
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+function buildComfyBuiltinRecommendationDecision(sourceType, inputPayload) {
+  const normalizedSourceType = String(sourceType || 'custom_json').trim() || 'custom_json'
+  const payload = inputPayload && typeof inputPayload === 'object' && !Array.isArray(inputPayload) ? inputPayload : {}
+
+  if (normalizedSourceType === 'map_profile') {
+    const gridCols = Number(payload.grid_cols || 0)
+    const gridRows = Number(payload.grid_rows || 0)
+    const blockedCount = Array.isArray(payload.blocked_cells)
+      ? payload.blocked_cells.length
+      : Number(payload.blocked_count || 0)
+    const mapArea = gridCols * gridRows
+
+    if (mapArea >= 120 || blockedCount >= 18) {
+      return {
+        key: 'showcase_realistic',
+        reasonKey: 'map_profile_large_layout'
+      }
+    }
+    return {
+      key: 'preview_report',
+      reasonKey: 'map_profile_compact_layout'
+    }
+  }
+
+  if (normalizedSourceType === 'point_template_export') {
+    const pointCount = Array.isArray(payload.points) ? payload.points.length : 0
+    const templateCount = Array.isArray(payload.templates) ? payload.templates.length : 0
+    if (templateCount >= 4 || pointCount >= 12) {
+      return {
+        key: 'preview_report',
+        reasonKey: 'point_template_dense_planning'
+      }
+    }
+    return {
+      key: 'showcase_realistic',
+      reasonKey: 'point_template_light_planning'
+    }
+  }
+
+  if (normalizedSourceType === 'experiment_records') {
+    const recordCount = Array.isArray(payload.records) ? payload.records.length : 0
+    if (recordCount >= 3) {
+      return {
+        key: 'showcase_infographic',
+        reasonKey: 'experiment_multi_record'
+      }
+    }
+    return {
+      key: 'preview_report',
+      reasonKey: 'experiment_single_record'
+    }
+  }
+
+  if (normalizedSourceType === 'map_profile_diff') {
+    const relocatedCount = Array.isArray(payload.relocated_agvs)
+      ? payload.relocated_agvs.length
+      : Number(payload.relocated_agv_count || 0)
+    const trimmedCount = Array.isArray(payload.trimmed_blocked_cells)
+      ? payload.trimmed_blocked_cells.length
+      : Number(payload.trimmed_blocked_count || 0)
+    const totalChanges = relocatedCount + trimmedCount
+    if (totalChanges >= 4) {
+      return {
+        key: 'showcase_infographic',
+        reasonKey: 'map_diff_many_changes'
+      }
+    }
+    return {
+      key: 'preview_report',
+      reasonKey: 'map_diff_few_changes'
+    }
+  }
+
+  const payloadKeys = Object.keys(payload)
+  const lowerKeys = payloadKeys.map(key => key.toLowerCase())
+  if (lowerKeys.some(key => ['records', 'metrics', 'compare', 'summary'].includes(key))) {
+    return {
+      key: 'showcase_infographic',
+      reasonKey: 'custom_metrics'
+    }
+  }
+  if (lowerKeys.some(key => ['grid_cols', 'grid_rows', 'blocked_cells', 'layout', 'map'].includes(key))) {
+    return {
+      key: 'showcase_realistic',
+      reasonKey: 'custom_layout'
+    }
+  }
+  if (lowerKeys.some(key => ['points', 'templates', 'stages', 'waypoints'].includes(key))) {
+    return {
+      key: 'preview_report',
+      reasonKey: 'custom_planning'
+    }
+  }
+  return {
+    key: 'showcase_realistic',
+    reasonKey: 'custom_generic'
+  }
+}
+
+const comfyRenderSourcePayloadPreview = computed(() =>
+  parseComfySourceJsonSafe(comfyRenderInputJsonText.value)
+)
 const comfyRenderBuiltinTemplates = computed(() => {
   const sourceLabels = comfyRenderSourceLabelMap.value
   const presetLabels = comfyRenderWorkflowPresetLabelMap.value
@@ -3441,16 +3554,20 @@ const comfyRenderBuiltinTemplates = computed(() => {
     )
   ]
 })
+const comfyRenderRecommendedBuiltinDecision = computed(() =>
+  buildComfyBuiltinRecommendationDecision(
+    comfyRenderSourceType.value,
+    comfyRenderSourcePayloadPreview.value
+  )
+)
 const comfyRenderRecommendedBuiltinTemplate = computed(() => {
-  const preferredKeyBySource = {
-    map_profile: 'showcase_realistic',
-    point_template_export: 'preview_report',
-    experiment_records: 'showcase_infographic',
-    map_profile_diff: 'preview_report',
-    custom_json: 'showcase_realistic'
-  }
-  const targetKey = preferredKeyBySource[String(comfyRenderSourceType.value || 'custom_json')] || 'showcase_realistic'
+  const targetKey = comfyRenderRecommendedBuiltinDecision.value?.key || 'showcase_realistic'
   return comfyRenderBuiltinTemplates.value.find(item => item.key === targetKey) || comfyRenderBuiltinTemplates.value[0] || null
+})
+const comfyRenderRecommendedBuiltinReasonText = computed(() => {
+  const reasonKey = comfyRenderRecommendedBuiltinDecision.value?.reasonKey
+  if (!reasonKey) return ''
+  return t(`ai_render_recommend_reason_${reasonKey}`)
 })
 const comfyRenderSelectedBuiltinTemplate = computed(() =>
   comfyRenderBuiltinTemplates.value.find(item => item.key === comfyRenderBuiltinTemplateKey.value) ||
@@ -9069,6 +9186,12 @@ onBeforeUnmount(() => {
                   <div class="ai-template-shell ai-template-shell-highlight">
                     <div class="enterprise-settings-subtitle ai-template-subtitle">{{ t('ai_render_builtin_templates') }}</div>
                     <div class="task-line ai-template-inline-hint">{{ t('ai_render_builtin_templates_hint') }}</div>
+                    <div v-if="comfyRenderRecommendedBuiltinTemplate && comfyRenderRecommendedBuiltinReasonText" class="task-line ai-template-inline-hint">
+                      {{ formatInlineMessage(t('ai_render_recommended_template_reason_line'), {
+                        template: comfyRenderRecommendedBuiltinTemplate.label,
+                        reason: comfyRenderRecommendedBuiltinReasonText
+                      }) }}
+                    </div>
                     <div class="ai-template-selector-row">
                       <label class="ai-template-selector-field">
                         <span class="ai-template-selector-label">{{ t('ai_render_builtin_template_select') }}</span>
@@ -12073,6 +12196,12 @@ onBeforeUnmount(() => {
                   <div class="ai-template-shell ai-template-shell-highlight">
                     <div class="enterprise-settings-subtitle ai-template-subtitle">{{ t('ai_render_builtin_templates') }}</div>
                     <div class="task-line ai-template-inline-hint">{{ t('ai_render_builtin_templates_hint') }}</div>
+                    <div v-if="comfyRenderRecommendedBuiltinTemplate && comfyRenderRecommendedBuiltinReasonText" class="task-line ai-template-inline-hint">
+                      {{ formatInlineMessage(t('ai_render_recommended_template_reason_line'), {
+                        template: comfyRenderRecommendedBuiltinTemplate.label,
+                        reason: comfyRenderRecommendedBuiltinReasonText
+                      }) }}
+                    </div>
                     <div class="ai-template-selector-row">
                       <label class="ai-template-selector-field">
                         <span class="ai-template-selector-label">{{ t('ai_render_builtin_template_select') }}</span>
