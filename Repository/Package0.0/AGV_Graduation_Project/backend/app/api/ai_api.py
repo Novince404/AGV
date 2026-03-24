@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Query, Request
 
-from app.schemas.ai import ComfyRenderRequest
+from app.schemas.ai import ComfyRenderRequest, ComfyWorkflowTemplateUpsertRequest
 from app.services import auth_service
 from app.services import comfyui_service
 
@@ -53,3 +53,33 @@ def list_comfy_render_assets(request: Request):
 def list_comfy_checkpoints(request: Request):
     auth_service.require_actor_capability(request, "ai.render")
     return comfyui_service.list_available_checkpoints()
+
+
+@router.get("/templates")
+def list_comfy_workflow_templates(request: Request):
+    actor = auth_service.require_actor_capability(request, "ai.render")
+    return comfyui_service.list_shared_workflow_templates(actor)
+
+
+@router.post("/templates")
+def upsert_comfy_workflow_template(request: Request, req: ComfyWorkflowTemplateUpsertRequest):
+    actor = auth_service.require_actor_capability(request, "ai.render")
+    return comfyui_service.upsert_shared_workflow_template(
+        actor,
+        template_id=req.id,
+        name=req.name,
+        source_type=req.source_type,
+        source_ref=req.source_ref,
+        checkpoint_name=req.checkpoint_name,
+        workflow_preset=req.workflow_preset,
+        prompt_style=req.prompt_style,
+        prompt_text=req.prompt_text,
+        input_json_text=req.input_json_text,
+        workflow_json_text=req.workflow_json_text,
+    )
+
+
+@router.delete("/templates/{template_id}")
+def delete_comfy_workflow_template(request: Request, template_id: str):
+    actor = auth_service.require_actor_capability(request, "ai.render")
+    return comfyui_service.delete_shared_workflow_template(template_id, actor)

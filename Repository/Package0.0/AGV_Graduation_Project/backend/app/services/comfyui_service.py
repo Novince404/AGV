@@ -9,12 +9,19 @@ from uuid import uuid4
 
 from app.core.settings import get_settings
 from app.models.comfy_job import ComfyRenderJob
+from app.models.comfy_template import ComfyWorkflowTemplate
 from app.repositories.comfy_job_repository import (
     delete_comfy_render_job,
     get_comfy_render_job_by_id,
     get_next_comfy_render_job_id,
     list_comfy_render_jobs,
     upsert_comfy_render_job,
+)
+from app.repositories.comfy_template_repository import (
+    delete_comfy_workflow_template,
+    get_comfy_workflow_template_by_id,
+    list_comfy_workflow_templates,
+    upsert_comfy_workflow_template,
 )
 from app.services.operation_audit_service import record_operation_audit
 from app.utils.api_error import raise_api_error
@@ -362,4 +369,206 @@ def delete_render_job(job_id: int, actor: dict) -> dict:
         "job_id": int(job_id),
         "deleted_record_only": True,
         "message": "ComfyUI render job record deleted.",
+    }
+
+
+def _template_scope_for_actor(actor: dict) -> tuple[str, str | None]:
+    role = str(actor.get("role") or "")
+    organization_id = str(actor.get("organization_id") or "").strip() or None
+    actor_id = str(actor.get("id") or actor.get("username") or "").strip() or None
+    if role == "platform_admin":
+        return "platform", None
+    if organization_id:
+        return "organization", organization_id
+    return "personal", actor_id
+
+
+def _can_manage_template(actor: dict, template: ComfyWorkflowTemplate) -> bool:
+    role = str(actor.get("role") or "")
+    actor_id = str(actor.get("id") or actor.get("username") or "").strip() or None
+    actor_org = str(actor.get("organization_id") or "").strip() or None
+    if role == "platform_admin":
+        return True
+    if template.scope == "organization" and actor_org and actor_org == str(template.organization_id or ""):
+        return role == "enterprise_admin" or actor_id == str(template.created_by_id or "")
+    if template.scope == "personal" and actor_id:
+        return actor_id == str(template.created_by_id or "")
+    return False
+
+
+def _visible_templates_for_actor(actor: dict) -> list[ComfyWorkflowTemplate]:
+    role = str(actor.get("role") or "")
+    actor_id = str(actor.get("id") or actor.get("username") or "").strip() or None
+    actor_org = str(actor.get("organization_id") or "").strip() or None
+    templates = list_comfy_workflow_templates()
+    if role == "platform_admin":
+        return templates
+    if actor_org:
+        return [
+            item
+            for item in templates
+            if item.scope == "organization" and str(item.organization_id or "") == actor_org
+        ]
+    if actor_id:
+        return [
+            item
+            for item in templates
+            if item.scope == "personal" and str(item.created_by_id or "") == actor_id
+        ]
+    return []
+
+
+def _unique_template_name(base_name: str, actor: dict, exclude_id: str | None = None) -> str:
+    normalized_base = str(base_name or "").strip() or "Comfy Workflow Template"
+    scope, scope_ref = _template_scope_for_actor(actor)
+    exclude_value = str(exclude_id or "").strip()
+    existing_names = {
+        item.name
+        for item in _visible_templates_for_actor(actor)
+        if item.scope == scope
+        and str(item.organization_id or "") == str(scope_ref or "")
+        and str(item.id) != exclude_value
+    }
+    if normalized_base not in existing_names:
+        return normalized_base
+    counter = 2
+    while f"{normalized_base} ({counter})" in existing_names:
+        counter += 1
+    return f"{normalized_base} ({counter})"
+
+
+def _serialize_workflow_template(template: ComfyWorkflowTemplate, actor: dict | None = None) -> dict:
+    scope_labels = {
+        "organization": "organization",
+        "platform": "platform",
+        "personal": "personal",
+    }
+    return {
+        "id": template.id,
+        "name": template.name,
+        "scope": template.scope,
+        "scope_label": scope_labels.get(template.scope, template.scope),
+        "organization_id": template.organization_id,
+        "created_by_id": template.created_by_id,
+        "created_by": template.created_by,
+        "source_type": template.source_type,
+        "source_ref": template.source_ref,
+        "checkpoint_name": template.checkpoint_name,
+        "workflow_preset": template.workflow_preset,
+        "prompt_style": template.prompt_style,
+        "prompt_text": template.prompt_text,
+        "input_json_text": template.input_json_text,
+        "workflow_json_text": template.workflow_json_text,
+        "created_at": template.created_at,
+        "updated_at": template.updated_at,
+        "tags": list(template.tags or []),
+        "editable": _can_manage_template(actor, template) if actor else False,
+    }
+
+
+def list_shared_workflow_templates(actor: dict) -> dict:
+    items = sorted(
+        _visible_templates_for_actor(actor),
+        key=lambda item: (item.updated_at, item.created_at, item.name.lower()),
+        reverse=True,
+    )
+    return {
+        "items": [_serialize_workflow_template(item, actor) for item in items],
+        "count": len(items),
+    }
+
+
+def upsert_shared_workflow_template(
+    actor: dict,
+    *,
+    template_id: str | None,
+    name: str,
+    source_type: str,
+    source_ref: str | None,
+    checkpoint_name: str | None,
+    workflow_preset: str,
+    prompt_style: str,
+    prompt_text: str,
+    input_json_text: str,
+    workflow_json_text: str,
+) -> dict:
+    normalized_name = str(name or "").strip()
+    if not normalized_name:
+        raise_api_error(400, "comfyui_template_name_required")
+
+    normalized_template_id = str(template_id or "").strip() or None
+    existing = get_comfy_workflow_template_by_id(normalized_template_id) if normalized_template_id else None
+    if existing is not None and not _can_manage_template(actor, existing):
+        raise_api_error(403, "auth_permission_denied")
+
+    scope, scope_ref = _template_scope_for_actor(actor)
+    created_at = existing.created_at if existing is not None else now_iso()
+    normalized_id = normalized_template_id or f"comfy_tpl_{uuid4().hex[:16]}"
+    normalized_record = ComfyWorkflowTemplate(
+        id=normalized_id,
+        name=_unique_template_name(normalized_name, actor, exclude_id=normalized_id if existing else None),
+        scope=existing.scope if existing is not None else scope,
+        organization_id=existing.organization_id if existing is not None else scope_ref,
+        created_by_id=existing.created_by_id if existing is not None else str(actor.get("id") or actor.get("username") or ""),
+        created_by=existing.created_by if existing is not None else str(actor.get("display_name") or actor.get("username") or "unknown"),
+        source_type=str(source_type or "custom_json"),
+        source_ref=str(source_ref or "").strip() or None,
+        checkpoint_name=str(checkpoint_name or "").strip() or None,
+        workflow_preset=str(workflow_preset or "preview"),
+        prompt_style=str(prompt_style or "report"),
+        prompt_text=str(prompt_text or "").strip(),
+        input_json_text=str(input_json_text or "").strip(),
+        workflow_json_text=str(workflow_json_text or "").strip(),
+        created_at=created_at,
+        updated_at=now_iso(),
+        tags=[str(source_type or "custom_json"), str(workflow_preset or "preview"), str(prompt_style or "report")],
+    )
+    saved = upsert_comfy_workflow_template(normalized_record)
+    record_operation_audit(
+        "comfy_workflow_template",
+        saved.id,
+        "update" if existing is not None else "create",
+        actor,
+        {
+            "name": saved.name,
+            "scope": saved.scope,
+            "organization_id": saved.organization_id,
+            "source_type": saved.source_type,
+            "workflow_preset": saved.workflow_preset,
+            "prompt_style": saved.prompt_style,
+        },
+    )
+    return {
+        "template": _serialize_workflow_template(saved, actor),
+        "message": "Comfy workflow template saved.",
+    }
+
+
+def delete_shared_workflow_template(template_id: str, actor: dict) -> dict:
+    template = get_comfy_workflow_template_by_id(str(template_id or "").strip())
+    if template is None:
+        raise_api_error(404, "comfyui_template_not_found")
+    if not _can_manage_template(actor, template):
+        raise_api_error(403, "auth_permission_denied")
+
+    deleted = delete_comfy_workflow_template(template.id)
+    if not deleted:
+        raise_api_error(404, "comfyui_template_not_found")
+
+    record_operation_audit(
+        "comfy_workflow_template",
+        template.id,
+        "delete",
+        actor,
+        {
+            "name": template.name,
+            "scope": template.scope,
+            "organization_id": template.organization_id,
+            "source_type": template.source_type,
+        },
+    )
+    return {
+        "ok": True,
+        "template_id": template.id,
+        "message": "Comfy workflow template deleted.",
     }

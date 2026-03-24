@@ -377,6 +377,10 @@ const comfyRenderPreviewJobId = ref(null)
 const comfyRenderTemplateName = ref('')
 const comfyRenderSelectedTemplateId = ref('')
 const comfyRenderSavedTemplates = ref([])
+const comfyRenderSharedTemplates = ref([])
+const comfyRenderSelectedSharedTemplateId = ref('')
+const comfyRenderSharedTemplatesLoading = ref(false)
+const comfyRenderSharedTemplateSaving = ref(false)
 const comfyRenderTemplateFileInputRef = ref(null)
 const deletingComfyJobId = ref(null)
 
@@ -3003,6 +3007,7 @@ async function openEnterpriseSettingsDialog(targetTab = '') {
     void fetchComfyCheckpoints()
     if (enterpriseSettingsActiveTab.value === 'ai') {
       void fetchComfyRenderJobs({ force: true })
+      void fetchComfySharedTemplates({ force: true })
     }
   }
   if (authCanViewAudit.value) {
@@ -3021,6 +3026,7 @@ function switchEnterpriseSettingsTab(nextTab) {
   if (nextTab === 'ai' && authCanAiRender.value) {
     void fetchComfyCheckpoints()
     void fetchComfyRenderJobs({ force: true })
+    void fetchComfySharedTemplates({ force: true })
   }
   if (nextTab === 'audit' && authCanViewAudit.value) {
     requestOperationAuditRefresh({ force: true })
@@ -3484,6 +3490,22 @@ const comfyRenderSelectedTemplate = computed(() =>
   comfyRenderSavedTemplates.value.find(item => String(item.id) === String(comfyRenderSelectedTemplateId.value || '')) || null
 )
 const comfyRenderHasCustomTemplates = computed(() => comfyRenderSavedTemplates.value.length > 0)
+const comfyRenderSelectedSharedTemplate = computed(() =>
+  comfyRenderSharedTemplates.value.find(item => String(item.id) === String(comfyRenderSelectedSharedTemplateId.value || '')) || null
+)
+const comfyRenderHasSharedTemplates = computed(() => comfyRenderSharedTemplates.value.length > 0)
+
+function buildAiRenderSharedTemplatesHintText() {
+  if (authCurrentRole.value === 'platform_admin') {
+    return t('ai_render_shared_templates_hint_platform')
+  }
+  if (authCurrentOrganizationName.value) {
+    return formatInlineMessage(t('ai_render_shared_templates_hint_org'), {
+      organization: authCurrentOrganizationName.value
+    })
+  }
+  return t('ai_render_shared_templates_hint')
+}
 
 function setComfyRenderStatus(message = '', type = 'info') {
   comfyRenderStatus.value = String(message || '')
@@ -3528,6 +3550,18 @@ function normalizeComfyTemplateRecord(record) {
   }
 }
 
+function normalizeComfySharedTemplateRecord(record) {
+  const normalized = normalizeComfyTemplateRecord(record)
+  if (!normalized) return null
+  return {
+    ...normalized,
+    createdBy: String(record.created_by || record.createdBy || '').trim(),
+    scope: String(record.scope || '').trim() || 'organization',
+    scopeLabel: String(record.scope_label || record.scopeLabel || '').trim() || 'organization',
+    editable: Boolean(record.editable)
+  }
+}
+
 function loadComfyWorkflowTemplates() {
   try {
     const raw = window.localStorage.getItem(COMFY_WORKFLOW_TEMPLATE_STORAGE_KEY)
@@ -3552,6 +3586,15 @@ function saveComfyWorkflowTemplates() {
   } catch (error) {
     console.error('Save comfy workflow templates error:', error)
   }
+}
+
+function upsertSharedComfyTemplateRecord(record) {
+  const normalized = normalizeComfySharedTemplateRecord(record)
+  if (!normalized) return null
+  const nextTemplates = comfyRenderSharedTemplates.value.filter(item => String(item.id) !== normalized.id)
+  nextTemplates.unshift(normalized)
+  comfyRenderSharedTemplates.value = nextTemplates.sort((a, b) => compareTime(b.updatedAt, a.updatedAt))
+  return normalized
 }
 
 function uniqueComfyTemplateName(baseName, excludeId = '') {
@@ -3585,6 +3628,17 @@ function applyComfyTemplateRecord(record) {
   comfyRenderInputJsonText.value = normalized.inputJsonText
   comfyRenderWorkflowJsonText.value = normalized.workflowJsonText
   return true
+}
+
+function applySelectedSharedTemplate() {
+  if (!comfyRenderSelectedSharedTemplate.value) {
+    setComfyRenderStatus(t('ai_render_shared_template_select_required'), 'error')
+    return
+  }
+  if (applyComfyTemplateRecord(comfyRenderSelectedSharedTemplate.value)) {
+    comfyRenderTemplateName.value = comfyRenderSelectedSharedTemplate.value.name
+    setComfyRenderStatus(t('ai_render_shared_template_applied'), 'success')
+  }
 }
 
 async function rebuildCurrentComfyWorkflowDraft({
@@ -3790,6 +3844,110 @@ function deleteSelectedComfyTemplate() {
   comfyRenderSelectedTemplateId.value = ''
   comfyRenderTemplateName.value = ''
   setComfyRenderStatus(t('ai_render_template_deleted'), 'success')
+}
+
+async function fetchComfySharedTemplates({ force = false } = {}) {
+  if (!authAuthenticated.value || !authCanAiRender.value) {
+    comfyRenderSharedTemplates.value = []
+    comfyRenderSelectedSharedTemplateId.value = ''
+    return
+  }
+  if (comfyRenderSharedTemplatesLoading.value) return
+  if (!force && comfyRenderSharedTemplates.value.length > 0) return
+  comfyRenderSharedTemplatesLoading.value = true
+  try {
+    const response = await fetch(`${API_BASE}/ai/comfyui/templates`, {
+      headers: buildAuthorizedHeaders()
+    })
+    const data = await response.json()
+    if (!response.ok) {
+      throw createApiError(data, 'Shared Comfy workflow template request failed')
+    }
+    comfyRenderSharedTemplates.value = Array.isArray(data?.items)
+      ? data.items.map(item => normalizeComfySharedTemplateRecord(item)).filter(Boolean)
+      : []
+    if (
+      comfyRenderSelectedSharedTemplateId.value &&
+      !comfyRenderSharedTemplates.value.some(item => String(item.id) === String(comfyRenderSelectedSharedTemplateId.value))
+    ) {
+      comfyRenderSelectedSharedTemplateId.value = ''
+    }
+  } catch (error) {
+    console.error('Fetch shared comfy workflow templates error:', error)
+    if (force) {
+      setComfyRenderStatus(error?.message || t('ai_render_shared_templates_load_failed'), 'error')
+    }
+  } finally {
+    comfyRenderSharedTemplatesLoading.value = false
+  }
+}
+
+async function saveCurrentComfySharedTemplate() {
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'ai.render', buildCapabilityDeniedMessage('ai'))) return
+  comfyRenderSharedTemplateSaving.value = true
+  try {
+    const existingTemplate = comfyRenderSelectedSharedTemplate.value
+    const response = await fetch(`${API_BASE}/ai/comfyui/templates`, {
+      method: 'POST',
+      headers: buildAuthorizedJsonHeaders(),
+      body: JSON.stringify({
+        id: existingTemplate?.editable ? existingTemplate.id : null,
+        name:
+          String(comfyRenderTemplateName.value || '').trim() ||
+          existingTemplate?.name ||
+          t('ai_render_template_default_name'),
+        ...buildCurrentComfyTemplatePayload()
+      })
+    })
+    const data = await response.json()
+    if (!response.ok) {
+      throw createApiError(data, 'Shared Comfy workflow template save failed')
+    }
+    const saved = upsertSharedComfyTemplateRecord(data?.template)
+    if (!saved) {
+      throw new Error(t('ai_render_shared_template_save_failed'))
+    }
+    comfyRenderSelectedSharedTemplateId.value = saved.id
+    comfyRenderTemplateName.value = saved.name
+    setComfyRenderStatus(t('ai_render_shared_template_saved'), 'success')
+  } catch (error) {
+    console.error('Save shared comfy workflow template error:', error)
+    setComfyRenderStatus(error?.message || t('ai_render_shared_template_save_failed'), 'error')
+  } finally {
+    comfyRenderSharedTemplateSaving.value = false
+  }
+}
+
+async function deleteSelectedSharedTemplate() {
+  if (!comfyRenderSelectedSharedTemplate.value) {
+    setComfyRenderStatus(t('ai_render_shared_template_select_required'), 'error')
+    return
+  }
+  if (!comfyRenderSelectedSharedTemplate.value.editable) {
+    setComfyRenderStatus(t('auth_permission_denied_default'), 'error')
+    return
+  }
+  if (!window.confirm(t('ai_render_shared_template_delete_confirm'))) return
+  try {
+    const response = await fetch(
+      `${API_BASE}/ai/comfyui/templates/${encodeURIComponent(comfyRenderSelectedSharedTemplate.value.id)}`,
+      {
+        method: 'DELETE',
+        headers: buildAuthorizedHeaders()
+      }
+    )
+    const data = await response.json()
+    if (!response.ok) {
+      throw createApiError(data, 'Shared Comfy workflow template delete failed')
+    }
+    const deletingId = String(comfyRenderSelectedSharedTemplate.value.id)
+    comfyRenderSharedTemplates.value = comfyRenderSharedTemplates.value.filter(item => String(item.id) !== deletingId)
+    comfyRenderSelectedSharedTemplateId.value = ''
+    setComfyRenderStatus(t('ai_render_shared_template_deleted'), 'success')
+  } catch (error) {
+    console.error('Delete shared comfy workflow template error:', error)
+    setComfyRenderStatus(error?.message || t('ai_render_shared_template_delete_failed'), 'error')
+  }
 }
 
 function triggerComfyTemplateImport() {
@@ -7722,6 +7880,7 @@ watch(
     if (authCanAiRender.value && panelSections.value.ai) {
       void fetchComfyCheckpoints()
       void fetchComfyRenderJobs({ force: true })
+      void fetchComfySharedTemplates({ force: true })
     }
     if (authCanViewAudit.value && panelSections.value.operations) {
       requestOperationAuditRefresh({ force: true })
@@ -7736,10 +7895,13 @@ watch([authAuthenticated, authCanAiRender], ([authenticated, canRender]) => {
     comfyRenderLastFetchedAt.value = ''
     comfyRenderAvailableCheckpoints.value = []
     comfyRenderCheckpointName.value = ''
+    comfyRenderSharedTemplates.value = []
+    comfyRenderSelectedSharedTemplateId.value = ''
     return
   }
   void fetchComfyCheckpoints({ force: true })
   void fetchComfyRenderJobs({ force: true })
+  void fetchComfySharedTemplates({ force: true })
 })
 
 watch([authCurrentRole, authIsEnterpriseRole], ([role, isEnterprise]) => {
@@ -9044,6 +9206,45 @@ onBeforeUnmount(() => {
                     </button>
                     <button class="btn-ghost" type="button" :disabled="comfyRenderSubmitting || !comfyRenderHasCustomTemplates" @click="deleteSelectedComfyTemplate">
                       {{ t('ai_render_delete_template') }}
+                    </button>
+                  </div>
+                </div>
+                <div class="ai-template-shell">
+                  <div class="enterprise-settings-subtitle ai-template-subtitle">{{ t('ai_render_shared_templates_title') }}</div>
+                  <div class="task-line ai-template-inline-hint">{{ buildAiRenderSharedTemplatesHintText() }}</div>
+                  <div class="form-grid ai-form-grid">
+                    <label class="span-2">
+                      <span>{{ t('ai_render_shared_templates_select') }}</span>
+                      <select v-model="comfyRenderSelectedSharedTemplateId">
+                        <option value="">{{ t('ai_render_shared_template_none') }}</option>
+                        <option v-for="item in comfyRenderSharedTemplates" :key="`enterprise-shared-template-${item.id}`" :value="item.id">
+                          {{ item.name }} · {{ item.createdBy || 'system' }}
+                        </option>
+                      </select>
+                    </label>
+                  </div>
+                  <div v-if="comfyRenderSelectedSharedTemplate" class="task-line panel-hint">
+                    {{ formatInlineMessage(t('ai_render_shared_template_meta'), {
+                      scope: t(`ai_render_shared_scope_${comfyRenderSelectedSharedTemplate.scopeLabel || comfyRenderSelectedSharedTemplate.scope || 'organization'}`),
+                      createdBy: comfyRenderSelectedSharedTemplate.createdBy || 'system',
+                      updatedAt: formatDateTimeInline(comfyRenderSelectedSharedTemplate.updatedAt)
+                    }) }}
+                  </div>
+                  <div v-else-if="!comfyRenderSharedTemplatesLoading && !comfyRenderHasSharedTemplates" class="empty-note">
+                    {{ t('ai_render_shared_templates_empty') }}
+                  </div>
+                  <div class="ai-action-grid compact">
+                    <button class="btn-secondary" type="button" :disabled="comfyRenderSubmitting || comfyRenderSharedTemplateSaving" @click="saveCurrentComfySharedTemplate">
+                      {{ t('ai_render_save_shared_template') }}
+                    </button>
+                    <button class="btn-secondary" type="button" :disabled="comfyRenderSubmitting || !comfyRenderHasSharedTemplates" @click="applySelectedSharedTemplate">
+                      {{ t('ai_render_apply_shared_template') }}
+                    </button>
+                    <button class="btn-secondary" type="button" :disabled="comfyRenderSharedTemplatesLoading" @click="fetchComfySharedTemplates({ force: true })">
+                      {{ comfyRenderSharedTemplatesLoading ? `${t('ai_render_refresh')}...` : t('ai_render_shared_templates_refresh') }}
+                    </button>
+                    <button class="btn-ghost" type="button" :disabled="comfyRenderSubmitting || !comfyRenderSelectedSharedTemplate?.editable" @click="deleteSelectedSharedTemplate">
+                      {{ t('ai_render_delete_shared_template') }}
                     </button>
                   </div>
                 </div>
@@ -12016,6 +12217,45 @@ onBeforeUnmount(() => {
                       </button>
                       <button class="btn-ghost" type="button" :disabled="comfyRenderSubmitting || !comfyRenderHasCustomTemplates" @click="deleteSelectedComfyTemplate">
                         {{ t('ai_render_delete_template') }}
+                      </button>
+                    </div>
+                  </div>
+                  <div class="ai-template-shell">
+                    <div class="enterprise-settings-subtitle ai-template-subtitle">{{ t('ai_render_shared_templates_title') }}</div>
+                    <div class="task-line ai-template-inline-hint">{{ buildAiRenderSharedTemplatesHintText() }}</div>
+                    <div class="form-grid ai-form-grid">
+                      <label class="span-2">
+                        <span>{{ t('ai_render_shared_templates_select') }}</span>
+                        <select v-model="comfyRenderSelectedSharedTemplateId">
+                          <option value="">{{ t('ai_render_shared_template_none') }}</option>
+                          <option v-for="item in comfyRenderSharedTemplates" :key="`panel-shared-template-${item.id}`" :value="item.id">
+                            {{ item.name }} · {{ item.createdBy || 'system' }}
+                          </option>
+                        </select>
+                      </label>
+                    </div>
+                    <div v-if="comfyRenderSelectedSharedTemplate" class="task-line panel-hint">
+                      {{ formatInlineMessage(t('ai_render_shared_template_meta'), {
+                        scope: t(`ai_render_shared_scope_${comfyRenderSelectedSharedTemplate.scopeLabel || comfyRenderSelectedSharedTemplate.scope || 'organization'}`),
+                        createdBy: comfyRenderSelectedSharedTemplate.createdBy || 'system',
+                        updatedAt: formatDateTimeInline(comfyRenderSelectedSharedTemplate.updatedAt)
+                      }) }}
+                    </div>
+                    <div v-else-if="!comfyRenderSharedTemplatesLoading && !comfyRenderHasSharedTemplates" class="empty-note">
+                      {{ t('ai_render_shared_templates_empty') }}
+                    </div>
+                    <div class="ai-action-grid compact">
+                      <button class="btn-secondary" type="button" :disabled="comfyRenderSubmitting || comfyRenderSharedTemplateSaving" @click="saveCurrentComfySharedTemplate">
+                        {{ t('ai_render_save_shared_template') }}
+                      </button>
+                      <button class="btn-secondary" type="button" :disabled="comfyRenderSubmitting || !comfyRenderHasSharedTemplates" @click="applySelectedSharedTemplate">
+                        {{ t('ai_render_apply_shared_template') }}
+                      </button>
+                      <button class="btn-secondary" type="button" :disabled="comfyRenderSharedTemplatesLoading" @click="fetchComfySharedTemplates({ force: true })">
+                        {{ comfyRenderSharedTemplatesLoading ? `${t('ai_render_refresh')}...` : t('ai_render_shared_templates_refresh') }}
+                      </button>
+                      <button class="btn-ghost" type="button" :disabled="comfyRenderSubmitting || !comfyRenderSelectedSharedTemplate?.editable" @click="deleteSelectedSharedTemplate">
+                        {{ t('ai_render_delete_shared_template') }}
                       </button>
                     </div>
                   </div>

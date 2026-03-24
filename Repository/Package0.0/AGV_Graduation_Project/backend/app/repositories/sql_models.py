@@ -251,6 +251,28 @@ class ComfyRenderJobEntity(Base):
     prompt_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
 
 
+class ComfyWorkflowTemplateEntity(Base):
+    __tablename__ = "comfy_workflow_template"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    name: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    scope: Mapped[str] = mapped_column(String(16), nullable=False, default="organization", index=True)
+    organization_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    created_by_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    created_by: Mapped[str] = mapped_column(String(128), nullable=False)
+    source_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    source_ref: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    checkpoint_name: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    workflow_preset: Mapped[str] = mapped_column(String(32), nullable=False)
+    prompt_style: Mapped[str] = mapped_column(String(32), nullable=False)
+    prompt_text: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    input_json_text: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    workflow_json_text: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    created_at: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    updated_at: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    tags: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+
+
 class OperationAuditEntity(Base):
     __tablename__ = "operation_audit"
 
