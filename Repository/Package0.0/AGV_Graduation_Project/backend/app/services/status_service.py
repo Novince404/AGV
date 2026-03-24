@@ -24,6 +24,7 @@ from app.repositories.map_preset_repository import (
 from app.repositories.template_repository import list_task_templates
 from app.repositories.ui_settings_repository import get_ui_settings as get_ui_settings_store
 from app.repositories.ui_settings_repository import save_ui_settings as save_ui_settings_store
+from app.services.operation_audit_service import build_first_audit_map, build_latest_audit_map, record_operation_audit
 from app.utils.api_error import raise_api_error
 from app.utils.status_map import AGV_STATUS_COLOR, TASK_STATUS_COLOR
 from app.utils.warehouse_map import (
@@ -60,6 +61,8 @@ DEFAULT_UI_SETTINGS = {
         "points": False,
         "json": False,
         "experiments": False,
+        "ai": False,
+        "operations": False,
     },
 }
 
@@ -232,7 +235,7 @@ def _relocate_out_of_bounds_agvs_for_force_apply(
 
 def _build_custom_profile_payload(profile: MapProfile) -> dict:
     cells = {(int(cell.x), int(cell.y)) for cell in profile.blocked_cells}
-    return build_map_profile_payload(
+    payload = build_map_profile_payload(
         key=profile.key,
         name=profile.custom_name,
         description=profile.description,
@@ -244,6 +247,7 @@ def _build_custom_profile_payload(profile: MapProfile) -> dict:
     ) | {
         "blocked_count": len(cells),
     }
+    return _attach_map_profile_audit(payload)
 
 
 def _resolve_current_profile_payload(
@@ -274,6 +278,25 @@ def _resolve_current_profile_payload(
             return profile_payload
 
     return get_current_map_profile_payload(grid_cols, grid_rows)
+
+
+def _attach_map_profile_audit(payload: dict) -> dict:
+    profile_key = str(payload.get("key") or "")
+    if not profile_key:
+        return payload
+    created = build_first_audit_map("map_profile", [profile_key], create_actions={"save", "import"}).get(profile_key)
+    latest = build_latest_audit_map("map_profile", [profile_key]).get(profile_key)
+    enriched = dict(payload)
+    if created is not None:
+        enriched["created_by"] = created.operator_display_name
+        enriched["created_by_role"] = created.operator_role
+        enriched["created_by_at"] = created.performed_at
+    if latest is not None:
+        enriched["last_operator"] = latest.operator_display_name
+        enriched["last_operator_role"] = latest.operator_role
+        enriched["last_operator_at"] = latest.performed_at
+        enriched["last_operator_action"] = latest.action
+    return enriched
 
 
 def get_agv_status_map():
@@ -317,6 +340,8 @@ def _normalize_ui_settings(payload) -> dict:
             "points": bool(sections.get("points", DEFAULT_UI_SETTINGS["panel_sections"]["points"])),
             "json": bool(sections.get("json", DEFAULT_UI_SETTINGS["panel_sections"]["json"])),
             "experiments": bool(sections.get("experiments", DEFAULT_UI_SETTINGS["panel_sections"]["experiments"])),
+            "ai": bool(sections.get("ai", DEFAULT_UI_SETTINGS["panel_sections"]["ai"])),
+            "operations": bool(sections.get("operations", DEFAULT_UI_SETTINGS["panel_sections"]["operations"])),
         },
     }
 
@@ -395,8 +420,8 @@ def get_map_profiles():
 
     custom_profiles = [_build_custom_profile_payload(profile) for profile in list_map_profiles()]
     return {
-        "current_profile": _resolve_current_profile_payload(grid_cols, grid_rows, blocked_cells),
-        "profiles": get_map_profiles_payload() + custom_profiles,
+        "current_profile": _attach_map_profile_audit(_resolve_current_profile_payload(grid_cols, grid_rows, blocked_cells)),
+        "profiles": [_attach_map_profile_audit(profile) for profile in get_map_profiles_payload()] + custom_profiles,
         "can_resize_now": can_resize_now,
         "resize_lock_reason": resize_lock_reason,
         "active_task_count": len(active_tasks),
@@ -408,7 +433,7 @@ def get_map_profile_detail(profile_key: str):
     custom_profile = get_map_profile_by_key(profile_key)
     if custom_profile is not None:
         cells = {(int(cell.x), int(cell.y)) for cell in custom_profile.blocked_cells}
-        return build_map_profile_payload(
+        return _attach_map_profile_audit(build_map_profile_payload(
             key=custom_profile.key,
             name=custom_profile.custom_name,
             description=custom_profile.description,
@@ -420,14 +445,14 @@ def get_map_profile_detail(profile_key: str):
         ) | {
             "blocked_count": len(cells),
             "blocked_cells": [{"x": x, "y": y} for x, y in sorted(cells)],
-        }
+        })
 
     profile_definition = get_map_profile_definition(profile_key)
     if profile_definition is None:
         raise_api_error(404, "profile_not_found")
 
     cells = {(int(x), int(y)) for x, y in profile_definition["cells"]}
-    return build_map_profile_payload(
+    return _attach_map_profile_audit(build_map_profile_payload(
         key=profile_definition["key"],
         name=profile_definition["name"],
         description=profile_definition["description"],
@@ -439,7 +464,7 @@ def get_map_profile_detail(profile_key: str):
     ) | {
         "blocked_count": len(cells),
         "blocked_cells": [{"x": x, "y": y} for x, y in sorted(cells)],
-    }
+    })
 
 
 def get_map_resize_precheck(requested_grid_cols: int, requested_grid_rows: int):
@@ -548,7 +573,7 @@ def get_map_resize_precheck(requested_grid_cols: int, requested_grid_rows: int):
     }
 
 
-def resize_map_layout(requested_grid_cols: int, requested_grid_rows: int):
+def resize_map_layout(requested_grid_cols: int, requested_grid_rows: int, actor: dict | None = None):
     precheck = get_map_resize_precheck(requested_grid_cols, requested_grid_rows)
     if not precheck["can_apply"]:
         raise_api_error(
@@ -566,6 +591,19 @@ def resize_map_layout(requested_grid_cols: int, requested_grid_rows: int):
     current_grid_cols, current_grid_rows = get_current_grid_size()
     current_cells = get_blocked_cells(current_grid_cols, current_grid_rows)
     updated = set_blocked_cells(current_cells, requested_grid_cols, requested_grid_rows)
+    record_operation_audit(
+        "map_layout",
+        "global",
+        "resize",
+        actor,
+        {
+            "before_grid_cols": current_grid_cols,
+            "before_grid_rows": current_grid_rows,
+            "grid_cols": int(requested_grid_cols),
+            "grid_rows": int(requested_grid_rows),
+            "blocked_count": len(updated),
+        },
+    )
     return {
         "message": "Map size updated",
         "grid_cols": int(requested_grid_cols),
@@ -576,7 +614,7 @@ def resize_map_layout(requested_grid_cols: int, requested_grid_rows: int):
     }
 
 
-def apply_map_profile(profile_key: str, force: bool = False):
+def apply_map_profile(profile_key: str, force: bool = False, actor: dict | None = None):
     profile = get_map_profile_definition(profile_key)
     if profile is None:
         custom_profile = get_map_profile_by_key(profile_key)
@@ -615,6 +653,18 @@ def apply_map_profile(profile_key: str, force: bool = False):
             )
             filtered, skipped = _filter_occupied_cells(in_bounds_profile_cells)
             updated = set_blocked_cells(filtered, target_cols, target_rows)
+            record_operation_audit(
+                "map_profile",
+                profile_key,
+                "force_apply",
+                actor,
+                {
+                    "grid_cols": target_cols,
+                    "grid_rows": target_rows,
+                    "relocated_agv_count": len(relocated_agvs),
+                    "trimmed_blocked_cells_count": len(trimmed_blocked_cells),
+                },
+            )
             return {
                 "message": "Map profile force applied",
                 "profile_key": profile_key,
@@ -623,7 +673,7 @@ def apply_map_profile(profile_key: str, force: bool = False):
                 "blocked_cells": [{"x": x, "y": y} for x, y in sorted(updated)],
                 "skipped_occupied_cells": [{"x": x, "y": y} for x, y in skipped],
                 "skipped_occupied_count": len(skipped),
-                "current_profile": _resolve_current_profile_payload(target_cols, target_rows, updated),
+                "current_profile": _attach_map_profile_audit(_resolve_current_profile_payload(target_cols, target_rows, updated)),
                 "can_apply": True,
                 "forced": True,
                 "force_apply_allowed": True,
@@ -656,6 +706,17 @@ def apply_map_profile(profile_key: str, force: bool = False):
         profile_cells = get_map_profile_cells(profile_key)
     filtered, skipped = _filter_occupied_cells(profile_cells)
     updated = set_blocked_cells(filtered, target_cols, target_rows)
+    record_operation_audit(
+        "map_profile",
+        profile_key,
+        "apply",
+        actor,
+        {
+            "grid_cols": target_cols,
+            "grid_rows": target_rows,
+            "skipped_occupied_count": len(skipped),
+        },
+    )
     return {
         "message": "Map profile applied",
         "profile_key": profile_key,
@@ -664,12 +725,12 @@ def apply_map_profile(profile_key: str, force: bool = False):
         "blocked_cells": [{"x": x, "y": y} for x, y in sorted(updated)],
         "skipped_occupied_cells": [{"x": x, "y": y} for x, y in skipped],
         "skipped_occupied_count": len(skipped),
-        "current_profile": _resolve_current_profile_payload(target_cols, target_rows, updated),
+        "current_profile": _attach_map_profile_audit(_resolve_current_profile_payload(target_cols, target_rows, updated)),
         "can_apply": True,
     }
 
 
-def save_map_profile(payload):
+def save_map_profile(payload, actor: dict | None = None):
     grid_cols = int(payload.grid_cols)
     grid_rows = int(payload.grid_rows)
     requested_name = payload.name.strip()
@@ -688,6 +749,19 @@ def save_map_profile(payload):
         custom=True,
     )
     upsert_map_profile(profile)
+    action = "import" if str(getattr(payload, "import_source", "") or "").strip() else "save"
+    record_operation_audit(
+        "map_profile",
+        profile.key,
+        action,
+        actor,
+        {
+            "requested_name": requested_name,
+            "resolved_name": resolved_name,
+            "grid_cols": grid_cols,
+            "grid_rows": grid_rows,
+        },
+    )
     return {
         "message": "Map profile saved",
         "profile": _build_custom_profile_payload(profile),
@@ -697,7 +771,7 @@ def save_map_profile(payload):
     }
 
 
-def delete_map_profile(profile_key: str):
+def delete_map_profile(profile_key: str, actor: dict | None = None):
     if get_map_profile_definition(profile_key) is not None:
         raise_api_error(400, "builtin_profile_cannot_be_deleted")
 
@@ -705,6 +779,7 @@ def delete_map_profile(profile_key: str):
     if profile is None:
         raise_api_error(404, "map_profile_not_found")
 
+    record_operation_audit("map_profile", profile_key, "delete", actor, {"name": profile.custom_name})
     remove_map_profile(profile_key)
     return {
         "message": "Map profile deleted",
@@ -712,10 +787,22 @@ def delete_map_profile(profile_key: str):
     }
 
 
-def update_map_layout(blocked_cells: list, grid_cols: int, grid_rows: int):
+def update_map_layout(blocked_cells: list, grid_cols: int, grid_rows: int, actor: dict | None = None):
     requested = {(cell.x, cell.y) for cell in blocked_cells}
     filtered, skipped = _filter_occupied_cells(requested)
     updated = set_blocked_cells(filtered, grid_cols, grid_rows)
+    record_operation_audit(
+        "map_layout",
+        "global",
+        "save",
+        actor,
+        {
+            "grid_cols": int(grid_cols),
+            "grid_rows": int(grid_rows),
+            "blocked_count": len(updated),
+            "skipped_occupied_count": len(skipped),
+        },
+    )
     return {
         "message": "Map layout updated",
         "grid_cols": grid_cols,
@@ -726,7 +813,7 @@ def update_map_layout(blocked_cells: list, grid_cols: int, grid_rows: int):
     }
 
 
-def apply_map_layout_preset(preset_key: str):
+def apply_map_layout_preset(preset_key: str, actor: dict | None = None):
     grid_cols, grid_rows = get_current_grid_size()
     try:
         preset_cells = get_map_preset_cells(preset_key, grid_cols, grid_rows)
@@ -738,6 +825,18 @@ def apply_map_layout_preset(preset_key: str):
 
     filtered, skipped = _filter_occupied_cells(preset_cells)
     updated = set_blocked_cells(filtered, grid_cols, grid_rows)
+    record_operation_audit(
+        "map_preset",
+        preset_key,
+        "apply",
+        actor,
+        {
+            "grid_cols": grid_cols,
+            "grid_rows": grid_rows,
+            "blocked_count": len(updated),
+            "skipped_occupied_count": len(skipped),
+        },
+    )
     return {
         "message": "Map preset applied",
         "grid_cols": grid_cols,
@@ -749,7 +848,7 @@ def apply_map_layout_preset(preset_key: str):
     }
 
 
-def save_map_layout_preset(payload):
+def save_map_layout_preset(payload, actor: dict | None = None):
     grid_cols = int(payload.grid_cols)
     grid_rows = int(payload.grid_rows)
     custom_name = payload.name.strip()
@@ -766,6 +865,19 @@ def save_map_layout_preset(payload):
         custom=True,
     )
     upsert_map_preset(preset)
+    record_operation_audit(
+        "map_preset",
+        preset.key,
+        "save",
+        actor,
+        {
+            "name": custom_name,
+            "grid_cols": grid_cols,
+            "grid_rows": grid_rows,
+            "blocked_count": len(filtered),
+            "skipped_occupied_count": len(skipped),
+        },
+    )
     return {
         "message": "Map preset saved",
         "preset": build_map_preset_payload(
@@ -781,7 +893,7 @@ def save_map_layout_preset(payload):
     }
 
 
-def delete_map_layout_preset(preset_key: str):
+def delete_map_layout_preset(preset_key: str, actor: dict | None = None):
     if preset_key in DEFAULT_MAP_PRESETS:
         raise_api_error(400, "builtin_preset_cannot_be_deleted")
 
@@ -789,6 +901,7 @@ def delete_map_layout_preset(preset_key: str):
     if preset is None:
         raise_api_error(404, "preset_not_found")
 
+    record_operation_audit("map_preset", preset_key, "delete", actor, {"name": preset.custom_name})
     remove_map_preset(preset_key)
     return {
         "message": "Map preset deleted",
@@ -796,11 +909,23 @@ def delete_map_layout_preset(preset_key: str):
     }
 
 
-def reset_map_layout():
+def reset_map_layout(actor: dict | None = None):
     grid_cols, grid_rows = get_current_grid_size()
     default_cells = get_default_blocked_cells(grid_cols, grid_rows)
     filtered, skipped = _filter_occupied_cells(default_cells)
     updated = set_blocked_cells(filtered, grid_cols, grid_rows)
+    record_operation_audit(
+        "map_layout",
+        "global",
+        "reset",
+        actor,
+        {
+            "grid_cols": grid_cols,
+            "grid_rows": grid_rows,
+            "blocked_count": len(updated),
+            "skipped_occupied_count": len(skipped),
+        },
+    )
     return {
         "message": "Map layout reset",
         "grid_cols": grid_cols,

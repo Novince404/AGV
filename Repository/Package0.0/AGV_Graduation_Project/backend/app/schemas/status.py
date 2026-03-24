@@ -35,6 +35,7 @@ class MapProfileCreateRequest(BaseModel):
     blocked_cells: list[BlockedCellPayload]
     grid_cols: int = DEFAULT_GRID_COLS
     grid_rows: int = DEFAULT_GRID_ROWS
+    import_source: str | None = None
 
 
 class UiPanelSectionsPayload(BaseModel):
@@ -46,6 +47,8 @@ class UiPanelSectionsPayload(BaseModel):
     points: bool = False
     json_panel: bool = Field(default=False, alias="json")
     experiments: bool = False
+    ai: bool = False
+    operations: bool = False
 
 
 class UiSettingsUpdateRequest(BaseModel):

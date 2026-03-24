@@ -37,7 +37,10 @@ export function useUiSettingsBackend(options) {
       points: typeof value.points === 'boolean' ? value.points : panelSections.value.points,
       json: typeof value.json === 'boolean' ? value.json : panelSections.value.json,
       experiments:
-        typeof value.experiments === 'boolean' ? value.experiments : panelSections.value.experiments
+        typeof value.experiments === 'boolean' ? value.experiments : panelSections.value.experiments,
+      ai: typeof value.ai === 'boolean' ? value.ai : panelSections.value.ai,
+      operations:
+        typeof value.operations === 'boolean' ? value.operations : panelSections.value.operations
     }
   }
 

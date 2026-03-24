@@ -5,6 +5,8 @@ from typing import Any
 
 from app.repositories.agv_repository import get_agv_by_id, get_first_idle_agv, list_idle_agvs
 from app.repositories.task_repository import get_task_by_id, list_tasks
+from app.services.operation_audit_service import record_operation_audit
+from app.services.task_service import serialize_task_response
 from app.utils.agv_movement import move_agv
 from app.utils.api_error import raise_api_error
 from app.utils.path_planner import plan_path
@@ -426,6 +428,7 @@ def _schedule_task(
     grid_rows: int,
     schedule_mode_override: str | None = None,
     resume_from_current: bool = False,
+    actor: dict | None = None,
 ):
     algorithm = _normalize_algorithm_name(algorithm)
     schedule_mode = (
@@ -537,6 +540,18 @@ def _schedule_task(
 
     task.notify_change()
     agv.notify_change()
+    record_operation_audit(
+        "task",
+        task.id,
+        "schedule",
+        actor,
+        metadata={
+            "algorithm": task_algorithm,
+            "mode": schedule_mode,
+            "agv_id": agv.id,
+            "stage": f"{task.current_stage_index + 1}/{task.total_stages}",
+        },
+    )
 
     move_agv(agv.id, task.id, task_algorithm, grid_cols, grid_rows)
 
@@ -556,22 +571,7 @@ def _schedule_task(
     return {
         "message": "Task scheduled",
         "algorithm": task_algorithm,
-        "task": {
-            "id": task.id,
-            "status": task.status,
-            "dispatch_mode": task.dispatch_mode,
-            "start_x": stage.start_x,
-            "start_y": stage.start_y,
-            "end_x": stage.end_x,
-            "end_y": stage.end_y,
-            "overall_start_x": task.overall_start_x,
-            "overall_start_y": task.overall_start_y,
-            "overall_end_x": task.overall_end_x,
-            "overall_end_y": task.overall_end_y,
-            "priority": task.priority,
-            "current_stage_index": task.current_stage_index,
-            "total_stages": task.total_stages,
-        },
+        "task": serialize_task_response(task),
         "agv": {
             "id": agv.id,
             "status": agv.status,
@@ -597,6 +597,7 @@ def schedule_task_with_path(
     algorithm: str,
     grid_cols: int,
     grid_rows: int,
+    actor: dict | None = None,
 ):
     return _schedule_task(
         task_id,
@@ -605,6 +606,7 @@ def schedule_task_with_path(
         grid_cols,
         grid_rows,
         schedule_mode_override=schedule_mode,
+        actor=actor,
     )
 
 
@@ -630,7 +632,7 @@ def compare_path(
     }
 
 
-def retry_blocked_task(task_id: int, algorithm: str, grid_cols: int, grid_rows: int):
+def retry_blocked_task(task_id: int, algorithm: str, grid_cols: int, grid_rows: int, actor: dict | None = None):
     normalized_algorithm = _normalize_algorithm_name(algorithm)
     if normalized_algorithm != "astar":
         raise_api_error(400, "blocked_retry_requires_astar")
@@ -667,7 +669,7 @@ def retry_blocked_task(task_id: int, algorithm: str, grid_cols: int, grid_rows: 
                 },
                 "blocked_cells": get_blocked_cell_payload(grid_cols, grid_rows),
             }
-        result = _schedule_task(task_id, preferred_agv_id, normalized_algorithm, grid_cols, grid_rows)
+        result = _schedule_task(task_id, preferred_agv_id, normalized_algorithm, grid_cols, grid_rows, actor=actor)
         result["queued"] = False
         return result
 
@@ -697,12 +699,19 @@ def retry_blocked_task(task_id: int, algorithm: str, grid_cols: int, grid_rows: 
         grid_cols,
         grid_rows,
         schedule_mode_override="auto",
+        actor=actor,
     )
     result["queued"] = False
     return result
 
 
-def retry_blocked_task_from_current(task_id: int, algorithm: str, grid_cols: int, grid_rows: int):
+def retry_blocked_task_from_current(
+    task_id: int,
+    algorithm: str,
+    grid_cols: int,
+    grid_rows: int,
+    actor: dict | None = None,
+):
     normalized_algorithm = _normalize_algorithm_name(algorithm)
 
     task = get_task_by_id(task_id)
@@ -753,6 +762,7 @@ def retry_blocked_task_from_current(task_id: int, algorithm: str, grid_cols: int
         grid_rows,
         schedule_mode_override=original_mode,
         resume_from_current=True,
+        actor=actor,
     )
     result["queued"] = False
     result["resume_from_current"] = True
@@ -765,6 +775,7 @@ def recover_blocked_task(
     algorithm: str | None,
     grid_cols: int,
     grid_rows: int,
+    actor: dict | None = None,
 ):
     task = get_task_by_id(task_id)
     if not task:
@@ -809,7 +820,7 @@ def recover_blocked_task(
                 "blocked_cells": get_blocked_cell_payload(grid_cols, grid_rows),
             }
 
-        result = _schedule_task(task_id, bound_agv_id, resolved_algorithm, grid_cols, grid_rows)
+        result = _schedule_task(task_id, bound_agv_id, resolved_algorithm, grid_cols, grid_rows, actor=actor)
         result["queued"] = False
         result["recover_mode"] = recover_mode
         return result
@@ -844,6 +855,7 @@ def recover_blocked_task(
         grid_cols,
         grid_rows,
         schedule_mode_override="auto",
+        actor=actor,
     )
     result["queued"] = False
     result["recover_mode"] = recover_mode

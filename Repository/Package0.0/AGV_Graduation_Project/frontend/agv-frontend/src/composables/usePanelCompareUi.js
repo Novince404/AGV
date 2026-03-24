@@ -9,6 +9,8 @@ export function usePanelCompareUi(options) {
     pointsSectionRef,
     jsonSectionRef,
     experimentsSectionRef,
+    aiSectionRef,
+    operationsSectionRef,
     focusedPanelSection,
     comparePanelExpanded,
     comparePanelRef,
@@ -32,7 +34,9 @@ export function usePanelCompareUi(options) {
       templates: templatesSectionRef.value,
       points: pointsSectionRef.value,
       json: jsonSectionRef.value,
-      experiments: experimentsSectionRef.value
+      experiments: experimentsSectionRef.value,
+      ai: aiSectionRef.value,
+      operations: operationsSectionRef.value
     }
     return sectionMap[sectionKey] ?? null
   }

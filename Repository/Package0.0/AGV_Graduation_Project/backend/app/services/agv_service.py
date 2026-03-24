@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from app.repositories.agv_repository import agv_list, get_agv_by_id, list_agvs
 from app.repositories.task_repository import list_tasks
+from app.services.operation_audit_service import record_operation_audit
 from app.utils.api_error import raise_api_error
 from app.utils.fault_state import (
     create_fault_event,
@@ -43,7 +44,12 @@ def get_agvs():
     return list_agvs()
 
 
-def emergency_stop_agv(agv_id: int, message: str | None = None, reported_by: str = "system"):
+def emergency_stop_agv(
+    agv_id: int,
+    message: str | None = None,
+    reported_by: str = "system",
+    actor: dict | None = None,
+):
     agv = _find_agv(agv_id)
     if agv.status == "emergency_stop":
         return {"message": "AGV already emergency stopped", "agv": agv, "task": None, "event": None}
@@ -54,7 +60,7 @@ def emergency_stop_agv(agv_id: int, message: str | None = None, reported_by: str
         fault_type="emergency_stop",
         severity="critical",
         message=message,
-        reported_by=reported_by,
+        reported_by=str(actor.get("display_name") or actor.get("username") or reported_by) if actor else reported_by,
         event_type="emergency_stop",
         task_id=task.id if task else agv.task_id,
     )
@@ -67,6 +73,17 @@ def emergency_stop_agv(agv_id: int, message: str | None = None, reported_by: str
         task.preferred_agv_id = agv.id
         mark_task_blocked(task, "recover_required_emergency_stop", task.dispatch_algorithm)
 
+    record_operation_audit(
+        "agv",
+        agv.id,
+        "emergency_stop",
+        actor,
+        {
+            "task_id": task.id if task else None,
+            "fault_event_id": event.id,
+        },
+    )
+
     return {
         "message": "AGV emergency stopped",
         "agv": agv,
@@ -75,7 +92,7 @@ def emergency_stop_agv(agv_id: int, message: str | None = None, reported_by: str
     }
 
 
-def resume_agv(agv_id: int):
+def resume_agv(agv_id: int, actor: dict | None = None):
     agv = _find_agv(agv_id)
     if agv.status != "emergency_stop":
         raise_api_error(400, "agv_not_emergency_stopped")
@@ -88,6 +105,15 @@ def resume_agv(agv_id: int):
     agv.status = "idle"
     agv.task_id = None
     agv.active_fault_event_id = None
+    record_operation_audit(
+        "agv",
+        agv.id,
+        "resume",
+        actor,
+        {
+            "resolved_event_id": getattr(resolved_event, "id", None),
+        },
+    )
     return {
         "message": "AGV resumed",
         "agv": agv,
@@ -95,7 +121,7 @@ def resume_agv(agv_id: int):
     }
 
 
-def move_agv_to_maintenance(agv_id: int):
+def move_agv_to_maintenance(agv_id: int, actor: dict | None = None):
     agv = _find_agv(agv_id)
     if agv.status == "maintenance":
         return {"message": "AGV already in maintenance", "agv": agv}
@@ -103,10 +129,11 @@ def move_agv_to_maintenance(agv_id: int):
     _assert_agv_can_enter_maintenance(agv)
     agv.status = "maintenance"
     agv.task_id = None
+    record_operation_audit("agv", agv.id, "to_maintenance", actor)
     return {"message": "AGV moved to maintenance", "agv": agv}
 
 
-def return_agv_to_service(agv_id: int):
+def return_agv_to_service(agv_id: int, actor: dict | None = None):
     agv = _find_agv(agv_id)
     if agv.status != "maintenance":
         raise_api_error(400, "agv_not_in_maintenance")
@@ -119,4 +146,5 @@ def return_agv_to_service(agv_id: int):
     agv.status = "idle"
     agv.task_id = None
     agv.active_fault_event_id = None
+    record_operation_audit("agv", agv.id, "return_to_service", actor)
     return {"message": "AGV returned to service", "agv": agv}

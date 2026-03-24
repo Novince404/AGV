@@ -56,6 +56,10 @@ class AppSettings:
     database_auto_create: bool
     database_connect_timeout_sec: int
     database_pool_pre_ping: bool
+    auth_session_ttl_sec: int
+    comfyui_enabled: bool
+    comfyui_base_url: str
+    comfyui_timeout_sec: int
     serve_frontend_dist: bool
     frontend_dist_dir: str
 
@@ -107,6 +111,28 @@ def get_settings() -> AppSettings:
         os.getenv("AGV_DATABASE_POOL_PRE_PING", file_env.get("AGV_DATABASE_POOL_PRE_PING")),
         True,
     )
+    auth_session_ttl_sec = max(
+        _parse_int(
+            os.getenv("AGV_AUTH_SESSION_TTL_SEC", file_env.get("AGV_AUTH_SESSION_TTL_SEC")),
+            60 * 60 * 24 * 7,
+        ),
+        300,
+    )
+    comfyui_enabled = _parse_bool(
+        os.getenv("AGV_COMFYUI_ENABLED", file_env.get("AGV_COMFYUI_ENABLED")),
+        True,
+    )
+    comfyui_base_url = os.getenv(
+        "AGV_COMFYUI_BASE_URL",
+        file_env.get("AGV_COMFYUI_BASE_URL", "http://127.0.0.1:8188"),
+    ).strip()
+    comfyui_timeout_sec = max(
+        _parse_int(
+            os.getenv("AGV_COMFYUI_TIMEOUT_SEC", file_env.get("AGV_COMFYUI_TIMEOUT_SEC")),
+            20,
+        ),
+        3,
+    )
     serve_frontend_dist = _parse_bool(
         os.getenv("AGV_SERVE_FRONTEND_DIST", file_env.get("AGV_SERVE_FRONTEND_DIST")),
         False,
@@ -127,6 +153,10 @@ def get_settings() -> AppSettings:
         database_auto_create=database_auto_create,
         database_connect_timeout_sec=database_connect_timeout_sec,
         database_pool_pre_ping=database_pool_pre_ping,
+        auth_session_ttl_sec=auth_session_ttl_sec,
+        comfyui_enabled=comfyui_enabled,
+        comfyui_base_url=comfyui_base_url,
+        comfyui_timeout_sec=comfyui_timeout_sec,
         serve_frontend_dist=serve_frontend_dist,
         frontend_dist_dir=frontend_dist_dir,
     )

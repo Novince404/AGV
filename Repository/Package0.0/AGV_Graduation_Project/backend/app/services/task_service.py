@@ -18,6 +18,12 @@ from app.repositories.task_repository import (
 from app.utils.api_error import raise_api_error
 from app.utils.task_chain import build_stage_models, sync_task_stage_fields
 from app.utils.warehouse_map import DEFAULT_GRID_COLS, DEFAULT_GRID_ROWS, get_blocked_cells, get_current_grid_size
+from app.services.operation_audit_service import (
+    build_first_audit_map,
+    build_latest_audit_map,
+    record_operation_audit,
+    summarize_audit_entry,
+)
 
 
 #
@@ -117,6 +123,51 @@ def serialize_task_for_json(task: Task):
     return payload
 
 
+def _model_dump(model) -> dict:
+    if hasattr(model, "model_dump"):
+        return model.model_dump()
+    return model.dict()
+
+
+def _serialize_task_with_audit(task: Task, created_entry=None, latest_entry=None):
+    payload = _model_dump(task)
+    if created_entry is not None:
+        payload["created_by"] = created_entry.operator_display_name
+        payload["created_by_role"] = created_entry.operator_role
+        payload["created_by_at"] = created_entry.performed_at
+    if latest_entry is not None:
+        payload["last_operator"] = latest_entry.operator_display_name
+        payload["last_operator_role"] = latest_entry.operator_role
+        payload["last_operator_at"] = latest_entry.performed_at
+        payload["last_operator_action"] = latest_entry.action
+    return payload
+
+
+def _attach_task_audit(task: Task):
+    task_id = str(task.id)
+    created_map = build_first_audit_map("task", [task_id])
+    latest_map = build_latest_audit_map("task", [task_id])
+    return _serialize_task_with_audit(task, created_map.get(task_id), latest_map.get(task_id))
+
+
+def _attach_task_audits(tasks: list[Task]):
+    task_ids = [str(task.id) for task in tasks]
+    created_map = build_first_audit_map("task", task_ids)
+    latest_map = build_latest_audit_map("task", task_ids)
+    return [
+        _serialize_task_with_audit(
+            task,
+            created_map.get(str(task.id)),
+            latest_map.get(str(task.id)),
+        )
+        for task in tasks
+    ]
+
+
+def serialize_task_response(task: Task):
+    return _attach_task_audit(task)
+
+
 def _find_related_agv(task: Task):
     if task.agv_id is not None:
         agv = get_agv_by_id(task.agv_id)
@@ -146,10 +197,10 @@ def _is_orphaned_task(task: Task) -> bool:
 
 
 def get_tasks():
-    return list_tasks()
+    return _attach_task_audits(list_tasks())
 
 
-def create_task(payload: Any):
+def create_task(payload: Any, actor: dict | None = None):
     next_id = get_next_task_id()
     grid_cols, grid_rows = _resolve_payload_grid_size(payload)
     stages = _build_task_stages(payload, grid_cols, grid_rows)
@@ -180,10 +231,11 @@ def create_task(payload: Any):
     )
     sync_task_stage_fields(task)
     add_task(task)
-    return {"message": "Task created", "task": task}
+    audit = record_operation_audit("task", task.id, "create", actor)
+    return {"message": "Task created", "task": _serialize_task_with_audit(task, audit, audit)}
 
 
-def finish_task(task_id: int):
+def finish_task(task_id: int, actor: dict | None = None):
     task = get_task_by_id(task_id)
     if not task:
         raise_api_error(404, "task_not_found")
@@ -198,10 +250,12 @@ def finish_task(task_id: int):
     task.finished_at = now_iso()
     agv.status = "idle"
     agv.task_id = None
-    return {"message": "Task finished", "task": task, "agv": agv}
+    latest = record_operation_audit("task", task.id, "finish", actor)
+    created = build_first_audit_map("task", [str(task.id)]).get(str(task.id))
+    return {"message": "Task finished", "task": _serialize_task_with_audit(task, created, latest), "agv": agv}
 
 
-def import_tasks(items: list[Any]):
+def import_tasks(items: list[Any], actor: dict | None = None):
     existing_ids = get_existing_task_ids()
     next_id = max(existing_ids, default=0) + 1
     created_ids = []
@@ -243,6 +297,7 @@ def import_tasks(items: list[Any]):
         )
         sync_task_stage_fields(task)
         add_task(task)
+        record_operation_audit("task", task.id, "import", actor)
         created_ids.append(task_id)
 
     return {"message": "Tasks imported", "count": len(created_ids), "task_ids": created_ids}
@@ -260,7 +315,7 @@ def export_tasks(status: str | None = None):
     }
 
 
-def delete_task(task_id: int):
+def delete_task(task_id: int, actor: dict | None = None):
     task = get_task_by_id(task_id)
     if not task:
         raise_api_error(404, "task_not_found")
@@ -271,15 +326,21 @@ def delete_task(task_id: int):
         task.status = "cancelled"
         task.agv_id = None
     _cleanup_related_agv(task)
+    record_operation_audit("task", task.id, "delete", actor)
     remove_task(task)
-    return {"message": "Task deleted", "task_id": task_id}
+    return {
+        "message": "Task deleted",
+        "task_id": task_id,
+        "operator": summarize_audit_entry(build_latest_audit_map("task", [str(task_id)]).get(str(task_id))),
+    }
 
 
-def delete_finished_tasks():
+def delete_finished_tasks(actor: dict | None = None):
     finished_tasks = [task for task in list_tasks() if task.status == "finished"]
     removed_ids = []
     for task in finished_tasks:
         _cleanup_related_agv(task)
+        record_operation_audit("task", task.id, "delete_finished", actor)
         remove_task(task)
         removed_ids.append(task.id)
 
@@ -290,10 +351,11 @@ def delete_finished_tasks():
     }
 
 
-def delete_orphaned_tasks():
+def delete_orphaned_tasks(actor: dict | None = None):
     orphaned_tasks = [task for task in list_tasks() if _is_orphaned_task(task)]
     removed_ids = []
     for task in orphaned_tasks:
+        record_operation_audit("task", task.id, "delete_orphaned", actor)
         remove_task(task)
         removed_ids.append(task.id)
 

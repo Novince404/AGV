@@ -1,6 +1,6 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 
-from app.services import agv_service
+from app.services import agv_service, auth_service
 from app.schemas.agv import EmergencyStopRequest
 
 
@@ -17,20 +17,29 @@ def get_agvs():
 
 
 @router.post("/{agv_id}/emergency-stop")
-def emergency_stop_agv(agv_id: int, req: EmergencyStopRequest):
-    return agv_service.emergency_stop_agv(agv_id, req.message, req.reported_by)
+def emergency_stop_agv(agv_id: int, req: EmergencyStopRequest, request: Request):
+    actor = auth_service.require_actor_capability(request, "fault.write")
+    return agv_service.emergency_stop_agv(
+        agv_id,
+        req.message,
+        actor.get("display_name") or req.reported_by,
+        actor=actor,
+    )
 
 
 @router.post("/{agv_id}/resume")
-def resume_agv(agv_id: int):
-    return agv_service.resume_agv(agv_id)
+def resume_agv(agv_id: int, request: Request):
+    actor = auth_service.require_actor_capability(request, "fault.write")
+    return agv_service.resume_agv(agv_id, actor=actor)
 
 
 @router.post("/{agv_id}/to-maintenance")
-def move_agv_to_maintenance(agv_id: int):
-    return agv_service.move_agv_to_maintenance(agv_id)
+def move_agv_to_maintenance(agv_id: int, request: Request):
+    actor = auth_service.require_actor_capability(request, "fault.write")
+    return agv_service.move_agv_to_maintenance(agv_id, actor=actor)
 
 
 @router.post("/{agv_id}/return-to-service")
-def return_agv_to_service(agv_id: int):
-    return agv_service.return_agv_to_service(agv_id)
+def return_agv_to_service(agv_id: int, request: Request):
+    actor = auth_service.require_actor_capability(request, "fault.write")
+    return agv_service.return_agv_to_service(agv_id, actor=actor)

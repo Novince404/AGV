@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- Added the module-5 auth mainline foundation with seeded `personal / enterprise / admin` demo accounts plus backend `POST /auth/login`, `POST /auth/logout`, and `GET /auth/me` endpoints.
+- Added auth session models, repositories, schemas, security helpers, and frontend `useAuthSession.js` so login state can be restored from local storage and shown in the top toolbar.
+- Added `PROJECT_IMPLEMENTATION_PLAN_v3.md` and `PROJECT_IMPLEMENTATION_PLAN_v3.docx` to lock the new three-end split, platform-admin approval, `ComfyUI` bridge, and enterprise roadmap.
+- Added platform-admin enterprise approval flow with `POST /auth/register-enterprise`, `GET /auth/enterprise-applications`, detail lookup, approve, and reject endpoints.
+- Added enterprise-application storage models/repositories for both memory and SQL backends so phase-1 approvals can be exercised without waiting for the enterprise re-architecture stage.
+
+### Improved
+- Improved the top toolbar with a compact identity badge, sign-in panel, demo-account quick fill, and localized auth messages across Chinese, English, and Japanese.
+- Improved auth resilience under mixed database setups by falling back to the in-memory auth store when the SQL auth store is unavailable, so the login mainline can still be exercised during this phase.
+- Improved the auth role model by normalizing legacy `enterprise` -> `enterprise_admin` and `admin` -> `platform_admin`, while extending `/auth/me` with `account_status`, `organization_id`, and `organization_name`.
+- Improved the central auth dialog with enterprise registration entry, richer role labels, account-status feedback, and platform-approval capability display.
+- Improved the frontend with a dedicated platform-admin enterprise-approval modal that stays separate from enterprise settings and preserves the existing map/dashboard layout.
+
 ## v2.0.0 - 2026-03-19
 
 ### Added

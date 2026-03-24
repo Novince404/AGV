@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 
 from app.schemas.status import (
     MapLayoutUpdateRequest,
@@ -7,7 +7,7 @@ from app.schemas.status import (
     MapResizeRequest,
     UiSettingsUpdateRequest,
 )
-from app.services import status_service
+from app.services import auth_service, status_service
 
 
 router = APIRouter(prefix="/status", tags=["Status"])
@@ -59,45 +59,56 @@ def get_map_resize_precheck(grid_cols: int, grid_rows: int):
 
 
 @router.post("/map/resize")
-def resize_map_layout(req: MapResizeRequest):
-    return status_service.resize_map_layout(req.grid_cols, req.grid_rows)
+def resize_map_layout(req: MapResizeRequest, request: Request):
+    actor = auth_service.require_actor_capability(request, "map.write")
+    return status_service.resize_map_layout(req.grid_cols, req.grid_rows, actor=actor)
 
 
 @router.post("/map/profile/{profile_key}")
-def apply_map_profile(profile_key: str, force: bool = False):
-    return status_service.apply_map_profile(profile_key, force=force)
+def apply_map_profile(profile_key: str, request: Request, force: bool = False):
+    actor = auth_service.require_actor_capability(request, "map.write")
+    if force:
+        auth_service.require_actor_capability(request, "map.force_apply")
+    return status_service.apply_map_profile(profile_key, force=force, actor=actor)
 
 
 @router.post("/map/profile")
-def save_map_profile(req: MapProfileCreateRequest):
-    return status_service.save_map_profile(req)
+def save_map_profile(req: MapProfileCreateRequest, request: Request):
+    actor = auth_service.require_actor_capability(request, "map.write")
+    return status_service.save_map_profile(req, actor)
 
 
 @router.delete("/map/profile/{profile_key}")
-def delete_map_profile(profile_key: str):
-    return status_service.delete_map_profile(profile_key)
+def delete_map_profile(profile_key: str, request: Request):
+    actor = auth_service.require_actor_capability(request, "map.write")
+    return status_service.delete_map_profile(profile_key, actor)
 
 
 @router.put("/map")
-def update_map_layout(req: MapLayoutUpdateRequest):
-    return status_service.update_map_layout(req.blocked_cells, req.grid_cols, req.grid_rows)
+def update_map_layout(req: MapLayoutUpdateRequest, request: Request):
+    actor = auth_service.require_actor_capability(request, "map.write")
+    return status_service.update_map_layout(req.blocked_cells, req.grid_cols, req.grid_rows, actor=actor)
 
 
 @router.post("/map/preset/{preset_key}")
-def apply_map_layout_preset(preset_key: str):
-    return status_service.apply_map_layout_preset(preset_key)
+def apply_map_layout_preset(preset_key: str, request: Request):
+    actor = auth_service.require_actor_capability(request, "map.write")
+    return status_service.apply_map_layout_preset(preset_key, actor=actor)
 
 
 @router.post("/map/preset")
-def save_map_layout_preset(req: MapPresetCreateRequest):
-    return status_service.save_map_layout_preset(req)
+def save_map_layout_preset(req: MapPresetCreateRequest, request: Request):
+    actor = auth_service.require_actor_capability(request, "map.write")
+    return status_service.save_map_layout_preset(req, actor=actor)
 
 
 @router.delete("/map/preset/{preset_key}")
-def delete_map_layout_preset(preset_key: str):
-    return status_service.delete_map_layout_preset(preset_key)
+def delete_map_layout_preset(preset_key: str, request: Request):
+    actor = auth_service.require_actor_capability(request, "map.write")
+    return status_service.delete_map_layout_preset(preset_key, actor=actor)
 
 
 @router.post("/map/reset")
-def reset_map_layout():
-    return status_service.reset_map_layout()
+def reset_map_layout(request: Request):
+    actor = auth_service.require_authenticated_actor(request)
+    return status_service.reset_map_layout(actor=actor)

@@ -7,6 +7,7 @@ import { useDispatchScheduler } from './composables/useDispatchScheduler'
 import { useLocalPersistence } from './composables/useLocalPersistence'
 import { usePointTemplateBackend } from './composables/usePointTemplateBackend'
 import { useUiSettingsBackend } from './composables/useUiSettingsBackend'
+import { useAuthSession } from './composables/useAuthSession'
 import { useTemplatePointActions } from './composables/useTemplatePointActions'
 import { usePanelCompareUi } from './composables/usePanelCompareUi'
 import { useDataExportActions } from './composables/useDataExportActions'
@@ -30,6 +31,14 @@ import {
 import { buildDefaultQueueGroupState, compareTime, sortTasks } from './utils/taskQueue'
 import { rowsToCsv } from './utils/csv'
 import { downloadJsonFile } from './utils/fileDownload'
+import {
+  buildDefaultComfyPromptText,
+  buildDefaultComfyWorkflowTemplate,
+  COMFY_PROMPT_STYLE_DEFAULT,
+  COMFY_WORKFLOW_PRESET_DEFAULT,
+  getComfyPromptStyleConfig,
+  getComfyWorkflowPresetConfig
+} from './utils/comfyWorkflowTemplates'
 import { blockedCellKey, clampValue, pointStyle, toArrowSegments, toSvgPoints } from './utils/mapGeometry'
 import {
   resolveTaskDisplayEndMarker,
@@ -76,6 +85,8 @@ const PANEL_SECTION_STORAGE_KEY = 'agv_panel_sections'
 const PANEL_SUMMARY_MODE_STORAGE_KEY = 'agv_panel_summary_mode'
 const TASK_QUEUE_VIEW_STORAGE_KEY = 'agv_task_queue_view'
 const EXPERIMENT_RECORDS_STORAGE_KEY = 'agv_experiment_records'
+const COMFY_WORKFLOW_TEMPLATE_STORAGE_KEY = 'agv_comfy_workflow_templates'
+const ENTERPRISE_SETTINGS_TAB_STORAGE_KEY = 'agv_enterprise_settings_tabs'
 const MINIMAP_WIDTH = 168
 const MIN_ZOOM = 0.75
 const MAX_ZOOM = 3
@@ -239,7 +250,9 @@ const panelSections = ref({
   templates: false,
   points: false,
   json: false,
-  experiments: false
+  experiments: false,
+  ai: false,
+  operations: false
 })
 const queueGroupsCollapsed = ref(buildDefaultQueueGroupState())
 const taskQueueViewFilter = ref('all')
@@ -277,6 +290,8 @@ const templatesSectionRef = ref(null)
 const pointsSectionRef = ref(null)
 const jsonSectionRef = ref(null)
 const experimentsSectionRef = ref(null)
+const aiSectionRef = ref(null)
+const operationsSectionRef = ref(null)
 const panelWidth = ref(380)
 const showPanelBackToTop = ref(false)
 const windowWidth = ref(typeof window !== 'undefined' ? window.innerWidth : 1280)
@@ -332,6 +347,38 @@ const showFloatingCompare = ref(false)
 const compareFloatingOpacity = ref(0.92)
 const compareFloatingX = ref(0)
 const compareFloatingY = ref(140)
+const operationAudits = ref([])
+const operationAuditLoading = ref(false)
+const operationAuditResourceFilter = ref('all')
+const operationAuditActionFilter = ref('all')
+const operationAuditLastFetchedAt = ref('')
+const comfyRenderSourceType = ref('map_profile')
+const comfyRenderSourceRef = ref('')
+const comfyRenderCheckpointName = ref('')
+const comfyRenderWorkflowPreset = ref(COMFY_WORKFLOW_PRESET_DEFAULT)
+const comfyRenderPromptStyle = ref(COMFY_PROMPT_STYLE_DEFAULT)
+const comfyRenderBuiltinTemplateKey = ref('')
+const comfyRenderBuiltinTemplatesOverviewVisible = ref(false)
+const comfyRenderAvailableCheckpoints = ref([])
+const comfyRenderCheckpointsLoading = ref(false)
+const comfyRenderPromptText = ref('')
+const comfyRenderInputJsonText = ref('')
+const comfyRenderWorkflowJsonText = ref('')
+const comfyRenderStatus = ref('')
+const comfyRenderStatusType = ref('info')
+const comfyRenderJobs = ref([])
+const comfyRenderLoading = ref(false)
+const comfyRenderSubmitting = ref(false)
+const comfyRenderLastFetchedAt = ref('')
+const comfyRenderPreviewVisible = ref(false)
+const comfyRenderPreviewUrl = ref('')
+const comfyRenderPreviewTitle = ref('')
+const comfyRenderPreviewJobId = ref(null)
+const comfyRenderTemplateName = ref('')
+const comfyRenderSelectedTemplateId = ref('')
+const comfyRenderSavedTemplates = ref([])
+const comfyRenderTemplateFileInputRef = ref(null)
+const deletingComfyJobId = ref(null)
 
 let timer = null
 let clickTimer = null
@@ -363,6 +410,7 @@ let mapPreviewFocusTimer = null
 let mapResizeSectionHighlightTimer = null
 let mapResizeItemHighlightTimer = null
 let mapPreviewFocusSequence = 0
+let operationAuditRefreshPending = false
 
 const { t, localeTexts, localizeDispatchReason, localizeApiErrorDetail, createApiError } = useLocaleText(locale)
 const {
@@ -380,6 +428,739 @@ const {
   experimentLocale,
   algorithmCompareLocale
 } = useUiLocales({ locale, t })
+
+function formatInlineMessage(template, replacements = {}) {
+  return Object.entries(replacements).reduce(
+    (message, [key, value]) => message.replaceAll(`{${key}}`, String(value ?? '')),
+    String(template ?? '')
+  )
+}
+
+const {
+  authPanelOpen,
+  authLoading,
+  authInitialized,
+  authUsername,
+  authPassword,
+  demoAccounts: authDemoAccounts,
+  isAuthenticated: authAuthenticated,
+  currentUser: authCurrentUser,
+  currentRole: authCurrentRole,
+  currentDisplayName: authCurrentDisplayName,
+  currentAccountStatus: authCurrentAccountStatus,
+  currentOrganizationName: authCurrentOrganizationName,
+  currentCapabilities: authCurrentCapabilities,
+  currentCapabilityGroups: authCurrentCapabilityGroups,
+  buildAuthHeaders,
+  fetchAuthMe,
+  login: loginWithAuthSession,
+  logout: logoutFromAuthSession,
+  fillDemoAccount
+} = useAuthSession({
+  API_BASE,
+  createApiError
+})
+
+const authGuestAccepted = ref(false)
+const authDialogView = ref('login')
+const authEnterpriseRegisterLoading = ref(false)
+const authEnterpriseRegisterForm = ref({
+  company_name: '',
+  contact_name: '',
+  contact_email: '',
+  username: '',
+  password: ''
+})
+const enterpriseApprovalDialogOpen = ref(false)
+const enterpriseApprovalLoading = ref(false)
+const enterpriseApprovalReviewLoading = ref(false)
+const enterpriseApprovalStatusFilter = ref('pending')
+const enterpriseApprovalSummary = ref({ all: 0, pending: 0, approved: 0, rejected: 0 })
+const enterpriseApplications = ref([])
+const selectedEnterpriseApplicationId = ref(null)
+const enterpriseApprovalReviewNote = ref('')
+const enterpriseSettingsDialogOpen = ref(false)
+const enterpriseSettingsActiveTab = ref('overview')
+const authRoleLabel = computed(() => t(`auth_role_${authCurrentRole.value}`))
+const authRoleBadgeClass = computed(() => `role-${authCurrentRole.value}`)
+const dashboardUnlocked = computed(() => authAuthenticated.value || authGuestAccepted.value)
+const authModeText = computed(() =>
+  authAuthenticated.value ? t(`auth_mode_${authCurrentRole.value}`) : t('auth_mode_guest')
+)
+const authEntryHintText = computed(() => {
+  if (!authAuthenticated.value) return t('auth_entry_hint_guest')
+  return t(`auth_entry_hint_${authCurrentRole.value}`)
+})
+const authAccountStatusLabel = computed(() => t(`auth_account_status_${authCurrentAccountStatus.value}`))
+const authTitleButtonTitle = computed(() =>
+  authAuthenticated.value
+    ? `${t('auth_current_identity')}: ${authCurrentDisplayName.value} (${authRoleLabel.value})`
+    : t('auth_open_dialog')
+)
+const authModalTitle = computed(() =>
+  dashboardUnlocked.value ? t('auth_title') : t('auth_gate_title')
+)
+const authPanelModeText = computed(() =>
+  dashboardUnlocked.value ? t('auth_switch_hint') : t('auth_gate_hint')
+)
+const authPrimaryAccounts = computed(() => {
+  const preferredRoles = ['personal', 'enterprise_operator', 'enterprise_logistics', 'enterprise_admin', 'platform_admin']
+  return preferredRoles
+    .map(role => authDemoAccounts.find(account => account.role === role))
+    .filter(Boolean)
+})
+const authCapabilitySet = computed(() => new Set((authCurrentCapabilities.value ?? []).map(item => String(item))))
+const authCanDispatchWrite = computed(() => authCapabilitySet.value.has('dispatch.write'))
+const authCanFaultWrite = computed(() => authCapabilitySet.value.has('fault.write'))
+const authCanMapWrite = computed(() => authCapabilitySet.value.has('map.write'))
+const authCanTemplateWrite = computed(() => authCapabilitySet.value.has('template.write'))
+const authCanPointWrite = computed(() => authCapabilitySet.value.has('point.write'))
+const authCanJsonWrite = computed(() => authCapabilitySet.value.has('json.write'))
+const authCanExperimentWrite = computed(() => authCapabilitySet.value.has('experiment.write'))
+const authCanViewAudit = computed(() => authCapabilitySet.value.has('audit.view'))
+const authCanAiRender = computed(() => authCapabilitySet.value.has('ai.render'))
+const authCanForceApplyMap = computed(() => authCapabilitySet.value.has('map.force_apply'))
+const authCanEnterpriseApprove = computed(() => authCapabilitySet.value.has('enterprise.approve'))
+const authIsEnterpriseRole = computed(() =>
+  ['enterprise_operator', 'enterprise_logistics', 'enterprise_admin'].includes(authCurrentRole.value)
+)
+const selectedEnterpriseApplication = computed(() =>
+  enterpriseApplications.value.find(item => Number(item.id) === Number(selectedEnterpriseApplicationId.value)) || null
+)
+const authCapabilityCards = computed(() => [
+  {
+    key: 'dispatch',
+    label: t('auth_capability_dispatch_label'),
+    hint: t('auth_capability_dispatch_hint'),
+    enabled: Boolean(authCurrentCapabilityGroups.value?.dispatch)
+  },
+  {
+    key: 'fault',
+    label: t('auth_capability_fault_label'),
+    hint: t('auth_capability_fault_hint'),
+    enabled: Boolean(authCurrentCapabilityGroups.value?.fault)
+  },
+  {
+    key: 'map',
+    label: t('auth_capability_map_label'),
+    hint: t('auth_capability_map_hint'),
+    enabled: Boolean(authCurrentCapabilityGroups.value?.map)
+  },
+  {
+    key: 'data',
+    label: t('auth_capability_data_label'),
+    hint: t('auth_capability_data_hint'),
+    enabled: Boolean(authCurrentCapabilityGroups.value?.data)
+  },
+  {
+    key: 'audit',
+    label: t('auth_capability_audit_label'),
+    hint: t('auth_capability_audit_hint'),
+    enabled: Boolean(authCurrentCapabilityGroups.value?.audit)
+  },
+  {
+    key: 'ai',
+    label: t('auth_capability_ai_label'),
+    hint: t('auth_capability_ai_hint'),
+    enabled: Boolean(authCurrentCapabilityGroups.value?.ai)
+  },
+  {
+    key: 'platform',
+    label: t('auth_capability_platform_label'),
+    hint: t('auth_capability_platform_hint'),
+    enabled: Boolean(authCurrentCapabilityGroups.value?.platform)
+  }
+])
+function enterpriseTabAccessMode(tabKey) {
+  switch (String(tabKey || '')) {
+    case 'overview':
+      return 'workspace'
+    case 'map_profiles':
+      return authCanMapWrite.value ? 'manage' : 'readonly'
+    case 'point_templates':
+      return (authCanPointWrite.value || authCanTemplateWrite.value) ? 'manage' : 'readonly'
+    case 'runtime':
+      if (authCanDispatchWrite.value || authCanFaultWrite.value) return 'manage'
+      if (authCanExperimentWrite.value) return 'review'
+      return 'readonly'
+    case 'ai':
+      return authCanAiRender.value ? 'manage' : 'readonly'
+    case 'audit':
+      return authCanViewAudit.value ? 'review' : 'readonly'
+    default:
+      return 'readonly'
+  }
+}
+
+function enterpriseTabAccessLabel(accessMode) {
+  return t(`enterprise_settings_tab_badge_${String(accessMode || 'readonly')}`)
+}
+
+function enterpriseTabAccessHint(tabKey, accessMode = enterpriseTabAccessMode(tabKey)) {
+  if (String(accessMode || '') === 'workspace') return t('enterprise_settings_tab_access_workspace_hint')
+  if (String(accessMode || '') === 'manage') return t('enterprise_settings_tab_access_manage_hint')
+  if (String(accessMode || '') === 'review') return t('enterprise_settings_tab_access_review_hint')
+  return t('enterprise_settings_tab_access_readonly_hint')
+}
+
+const enterpriseSettingsTabDefinitions = computed(() => {
+  const tabLabel = key => t(`enterprise_settings_tab_${key}`)
+  const buildTab = (key, primary) => {
+    const accessMode = enterpriseTabAccessMode(key)
+    return {
+      key,
+      label: tabLabel(key),
+      primary,
+      accessMode,
+      hint: enterpriseTabAccessHint(key, accessMode)
+    }
+  }
+  if (authCurrentRole.value === 'enterprise_operator') {
+    return [
+      buildTab('overview', true),
+      buildTab('runtime', true),
+      buildTab('ai', false)
+    ]
+  }
+  if (authCurrentRole.value === 'enterprise_logistics') {
+    return [
+      buildTab('overview', false),
+      buildTab('map_profiles', true),
+      buildTab('point_templates', true),
+      buildTab('runtime', true),
+      buildTab('ai', false)
+    ]
+  }
+  return [
+    buildTab('overview', false),
+    buildTab('map_profiles', false),
+    buildTab('point_templates', false),
+    buildTab('runtime', false),
+    buildTab('ai', true),
+    buildTab('audit', true)
+  ]
+})
+const enterpriseSettingsTabKeys = computed(() => enterpriseSettingsTabDefinitions.value.map(item => item.key))
+const enterpriseSettingsTabLabel = computed(() => {
+  const matched = enterpriseSettingsTabDefinitions.value.find(item => item.key === enterpriseSettingsActiveTab.value)
+  return matched?.label || t('enterprise_settings_title')
+})
+const enterpriseOverviewCards = computed(() => [
+  {
+    key: 'role',
+    label: t('enterprise_settings_summary_role'),
+    value: authRoleLabel.value
+  },
+  {
+    key: 'organization',
+    label: t('enterprise_settings_summary_org'),
+    value: authCurrentOrganizationName.value || '—'
+  },
+  {
+    key: 'status',
+    label: t('enterprise_settings_summary_status'),
+    value: authAccountStatusLabel.value
+  },
+  {
+    key: 'backend',
+    label: settingsLocale.value.mapInfoBackend,
+    value: uiSettingsBackendMode.value || '—'
+  }
+])
+const enterpriseRoleFocus = computed(() => {
+  if (authCurrentRole.value === 'enterprise_operator') {
+    return {
+      title: t('enterprise_settings_focus_operator_title'),
+      hint: t('enterprise_settings_focus_operator_hint')
+    }
+  }
+  if (authCurrentRole.value === 'enterprise_logistics') {
+    return {
+      title: t('enterprise_settings_focus_logistics_title'),
+      hint: t('enterprise_settings_focus_logistics_hint')
+    }
+  }
+  return {
+    title: t('enterprise_settings_focus_admin_title'),
+    hint: t('enterprise_settings_focus_admin_hint')
+  }
+})
+function enterpriseRoleWorkspaceSectionKeys(role = authCurrentRole.value) {
+  if (role === 'enterprise_operator') return ['control', 'queue']
+  if (role === 'enterprise_logistics') return ['templates', 'points', 'experiments']
+  if (role === 'enterprise_admin') return ['operations', 'ai', 'control', 'queue']
+  return ['control', 'queue']
+}
+
+function enterprisePanelPreset(role = authCurrentRole.value) {
+  if (role === 'enterprise_operator') {
+    return {
+      control: true,
+      queue: true,
+      templates: false,
+      points: false,
+      json: false,
+      experiments: false,
+      ai: false,
+      operations: false
+    }
+  }
+  if (role === 'enterprise_logistics') {
+    return {
+      control: false,
+      queue: false,
+      templates: true,
+      points: true,
+      json: true,
+      experiments: true,
+      ai: false,
+      operations: false
+    }
+  }
+  if (role === 'enterprise_admin') {
+    return {
+      control: true,
+      queue: true,
+      templates: true,
+      points: true,
+      json: false,
+      experiments: true,
+      ai: true,
+      operations: true
+    }
+  }
+  return null
+}
+
+const enterpriseWorkspaceSectionLabels = computed(() =>
+  enterpriseRoleWorkspaceSectionKeys().map(key => panelLocale.value.sections[key]).filter(Boolean)
+)
+const enterprisePrimaryTabKeys = computed(() =>
+  enterpriseSettingsTabDefinitions.value.filter(item => item.primary).map(item => item.key)
+)
+const enterpriseActiveTabDefinition = computed(() =>
+  enterpriseSettingsTabDefinitions.value.find(item => item.key === enterpriseSettingsActiveTab.value) || null
+)
+const enterpriseRoleScopeText = computed(() => {
+  if (authCurrentRole.value === 'enterprise_operator') return t('enterprise_settings_scope_operator')
+  if (authCurrentRole.value === 'enterprise_logistics') return t('enterprise_settings_scope_logistics')
+  return t('enterprise_settings_scope_admin')
+})
+const enterpriseCapabilityCards = computed(() =>
+  authCapabilityCards.value.filter(item => item.key !== 'platform')
+)
+const enterpriseEnabledCapabilityCards = computed(() =>
+  enterpriseCapabilityCards.value.filter(item => item.enabled)
+)
+const enterpriseReadonlyCapabilityCards = computed(() =>
+  enterpriseCapabilityCards.value.filter(item => !item.enabled)
+)
+const enterprisePointTemplateFocus = computed(() => {
+  if (authCurrentRole.value === 'enterprise_operator') {
+    return {
+      title: t('enterprise_settings_point_templates_focus_operator_title'),
+      hint: t('enterprise_settings_point_templates_focus_operator_hint'),
+      actions: [
+        { key: 'queue', label: t('enterprise_settings_open_queue') },
+        { key: 'templates', label: t('enterprise_settings_open_templates') }
+      ]
+    }
+  }
+  if (authCurrentRole.value === 'enterprise_logistics') {
+    return {
+      title: t('enterprise_settings_point_templates_focus_logistics_title'),
+      hint: t('enterprise_settings_point_templates_focus_logistics_hint'),
+      actions: [
+        { key: 'points', label: t('enterprise_settings_open_points') },
+        { key: 'templates', label: t('enterprise_settings_open_templates') }
+      ]
+    }
+  }
+  return {
+    title: t('enterprise_settings_point_templates_focus_admin_title'),
+    hint: t('enterprise_settings_point_templates_focus_admin_hint'),
+    actions: [
+      { key: 'templates', label: t('enterprise_settings_open_templates') },
+      { key: 'operations', label: t('enterprise_settings_open_audit') }
+    ]
+  }
+})
+const enterpriseRuntimeFocus = computed(() => {
+  if (authCurrentRole.value === 'enterprise_operator') {
+    return {
+      title: t('enterprise_settings_runtime_focus_operator_title'),
+      hint: t('enterprise_settings_runtime_focus_operator_hint'),
+      actions: [
+        { key: 'control', label: t('enterprise_settings_open_dispatch') },
+        { key: 'queue', label: t('enterprise_settings_open_queue') }
+      ]
+    }
+  }
+  if (authCurrentRole.value === 'enterprise_logistics') {
+    return {
+      title: t('enterprise_settings_runtime_focus_logistics_title'),
+      hint: t('enterprise_settings_runtime_focus_logistics_hint'),
+      actions: [
+        { key: 'experiments', label: t('enterprise_settings_open_experiments') },
+        { key: 'points', label: t('enterprise_settings_open_points') }
+      ]
+    }
+  }
+  return {
+    title: t('enterprise_settings_runtime_focus_admin_title'),
+    hint: t('enterprise_settings_runtime_focus_admin_hint'),
+    actions: [
+      { key: 'operations', label: t('enterprise_settings_open_audit') },
+      { key: 'ai', label: t('enterprise_settings_open_ai') }
+    ]
+  }
+})
+function buildEnterpriseActionScopeItems(actionDefinitions = []) {
+  return {
+    enabled: actionDefinitions.filter(item => item.enabled),
+    readonly: actionDefinitions.filter(item => !item.enabled)
+  }
+}
+
+const enterprisePointTemplateActionScope = computed(() =>
+  buildEnterpriseActionScopeItems([
+    {
+      key: 'points',
+      label: t('enterprise_settings_action_manage_points'),
+      enabled: authCanPointWrite.value
+    },
+    {
+      key: 'templates',
+      label: t('enterprise_settings_action_manage_templates'),
+      enabled: authCanTemplateWrite.value
+    },
+    {
+      key: 'json',
+      label: t('enterprise_settings_action_export_json'),
+      enabled: authCanJsonWrite.value
+    }
+  ])
+)
+
+const enterpriseRuntimeActionScope = computed(() =>
+  buildEnterpriseActionScopeItems([
+    {
+      key: 'dispatch',
+      label: t('enterprise_settings_action_run_dispatch'),
+      enabled: authCanDispatchWrite.value
+    },
+    {
+      key: 'fault',
+      label: t('enterprise_settings_action_handle_faults'),
+      enabled: authCanFaultWrite.value
+    },
+    {
+      key: 'experiment',
+      label: t('enterprise_settings_action_run_experiments'),
+      enabled: authCanExperimentWrite.value
+    }
+  ])
+)
+
+const enterpriseAiActionScope = computed(() =>
+  buildEnterpriseActionScopeItems([
+    {
+      key: 'render',
+      label: t('enterprise_settings_action_render_ai'),
+      enabled: authCanAiRender.value
+    },
+    {
+      key: 'preview',
+      label: t('enterprise_settings_action_preview_ai'),
+      enabled: authCanAiRender.value
+    },
+    {
+      key: 'delete',
+      label: t('enterprise_settings_action_delete_ai_records'),
+      enabled: authCanAiRender.value
+    }
+  ])
+)
+
+const enterpriseActiveTabIsPrimary = computed(() =>
+  enterprisePrimaryTabKeys.value.includes(enterpriseSettingsActiveTab.value)
+)
+const enterpriseActiveTabModeLabel = computed(() =>
+  t(enterpriseActiveTabIsPrimary.value ? 'enterprise_settings_tab_mode_primary' : 'enterprise_settings_tab_mode_secondary')
+)
+const enterpriseActiveTabModeHint = computed(() =>
+  enterpriseActiveTabIsPrimary.value ? enterpriseRoleScopeText.value : t('enterprise_settings_tab_mode_secondary_hint')
+)
+const enterpriseActiveTabAccessLabel = computed(() =>
+  enterpriseTabAccessLabel(enterpriseActiveTabDefinition.value?.accessMode || 'readonly')
+)
+const enterpriseActiveTabAccessHint = computed(() =>
+  enterpriseTabAccessHint(
+    enterpriseSettingsActiveTab.value,
+    enterpriseActiveTabDefinition.value?.accessMode || 'readonly'
+  )
+)
+const enterpriseActiveTasks = computed(() =>
+  tasks.value.filter(task => !['finished', 'cancelled'].includes(String(task?.status || ''))).length
+)
+const enterpriseOpenFaults = computed(() =>
+  faultEvents.value.filter(event => String(event?.status || '') === 'open').length
+)
+const enterpriseBusyAgvs = computed(() =>
+  agvs.value.filter(agv => !['idle', 'maintenance'].includes(String(agv?.status || ''))).length
+)
+const enterpriseRecentTasks = computed(() => {
+  const activeTasks = tasks.value.filter(task => !['finished', 'cancelled'].includes(String(task?.status || '')))
+  return sortTasks(activeTasks).slice(0, 4)
+})
+const enterpriseRecentFaults = computed(() =>
+  faultEvents.value
+    .filter(event => String(event?.status || '') === 'open')
+    .slice(0, 4)
+)
+const enterpriseRecentCustomPoints = computed(() => customPoints.value.slice(0, 4))
+const enterpriseRecentCustomTemplates = computed(() => customTaskTemplates.value.slice(0, 4))
+const enterpriseRecentAiJobs = computed(() => comfyRenderJobs.value.slice(0, 4))
+const enterpriseRecentAuditEntries = computed(() => operationAudits.value.slice(0, 5))
+const enterpriseFilteredAuditEntries = computed(() => filteredOperationAudits.value.slice(0, 8))
+const showAuthGate = computed(() => !authInitialized.value || !dashboardUnlocked.value)
+const showAuthDialog = computed(() => showAuthGate.value || authPanelOpen.value)
+
+function buildAuthLoginSuccessMessage(state) {
+  const name = state?.user?.display_name || state?.user?.username || t('auth_role_guest')
+  const role = String(state?.user?.role || state?.role || authCurrentRole.value || 'guest').trim() || 'guest'
+  const base = formatInlineMessage(t('auth_login_success'), { name })
+  const hint = t(`auth_entry_hint_${role}`)
+  return hint ? `${base} ${hint}` : base
+}
+
+function authDemoAccountLabel(account) {
+  return `${t(`auth_role_${account?.role || 'guest'}`)} · ${account?.username || ''}`
+}
+
+function formatOperatorLine(labelKey, name, role, at) {
+  if (!name) return ''
+  const parts = [String(name)]
+  if (role) {
+    parts.push(t(`auth_role_${role}`))
+  }
+  if (at) {
+    parts.push(String(at))
+  }
+  return `${t(labelKey)}: ${parts.join(' · ')}`
+}
+
+function formatTaskCreatedBy(task) {
+  return formatOperatorLine('task_created_by', task?.created_by, task?.created_by_role, task?.created_by_at)
+}
+
+function formatTaskLastOperator(task) {
+  return formatOperatorLine('task_last_operator', task?.last_operator, task?.last_operator_role, task?.last_operator_at)
+}
+
+function formatFaultReportedBy(eventItem) {
+  return formatOperatorLine('fault_reported_by', eventItem?.reported_by, eventItem?.reported_by_role, null)
+}
+
+function formatFaultResolvedBy(eventItem) {
+  return formatOperatorLine('fault_resolved_by', eventItem?.resolved_by, eventItem?.resolved_by_role, null)
+}
+
+function formatMapProfileCreatedBy(profile) {
+  return formatOperatorLine(
+    'map_profile_created_by',
+    profile?.created_by,
+    profile?.created_by_role,
+    profile?.created_by_at
+  )
+}
+
+function formatMapProfileLastOperator(profile) {
+  return formatOperatorLine(
+    'map_profile_last_operator',
+    profile?.last_operator,
+    profile?.last_operator_role,
+    profile?.last_operator_at
+  )
+}
+
+function operationResourceLabel(resourceType) {
+  switch (String(resourceType || '').toLowerCase()) {
+    case 'task':
+      return t('operations_resource_task')
+    case 'fault':
+      return t('operations_resource_fault')
+    case 'map_profile':
+      return t('operations_resource_map_profile')
+    case 'map_layout':
+      return t('operations_resource_map_layout')
+    case 'map_preset':
+      return t('operations_resource_map_preset')
+    case 'comfy_render_job':
+      return t('operations_resource_ai_render')
+    case 'agv':
+      return t('operations_resource_agv')
+    default:
+      return t('operations_resource_all')
+  }
+}
+
+function operationActionLabel(action) {
+  switch (String(action || '').toLowerCase()) {
+    case 'create':
+      return t('operations_action_create')
+    case 'import':
+      return t('operations_action_import')
+    case 'save':
+      return t('operations_action_save')
+    case 'delete':
+      return t('operations_action_delete')
+    case 'delete_finished':
+      return t('operations_action_delete_finished')
+    case 'delete_orphaned':
+      return t('operations_action_delete_orphaned')
+    case 'finish':
+      return t('operations_action_finish')
+    case 'schedule':
+      return t('operations_action_schedule')
+    case 'report':
+      return t('operations_action_report')
+    case 'resolve':
+      return t('operations_action_resolve')
+    case 'apply':
+      return t('operations_action_apply')
+    case 'force_apply':
+      return t('operations_action_force_apply')
+    case 'resize':
+      return t('operations_action_resize')
+    case 'reset':
+      return t('operations_action_reset')
+    case 'emergency_stop':
+      return t('operations_action_emergency_stop')
+    case 'resume':
+      return t('operations_action_resume')
+    case 'to_maintenance':
+      return t('operations_action_to_maintenance')
+    case 'return_to_service':
+      return t('operations_action_return_to_service')
+    case 'fault_interrupt':
+      return t('operations_action_fault_interrupt')
+    case 'render':
+      return t('operations_action_render')
+    default:
+      return String(action || '')
+  }
+}
+
+function formatOperationAuditTitle(entry) {
+  return `${operationActionLabel(entry?.action)} · ${operationResourceLabel(entry?.resource_type)}`
+}
+
+function formatOperationAuditOperator(entry) {
+  const name = entry?.operator_display_name || entry?.operator_username || t('auth_role_guest')
+  const role = entry?.operator_role ? t(`auth_role_${entry.operator_role}`) : t('auth_role_guest')
+  return `${name} · ${role}`
+}
+
+function formatOperationAuditResourceRef(entry) {
+  const resourceType = operationResourceLabel(entry?.resource_type)
+  const resourceId = entry?.resource_id ? `#${entry.resource_id}` : ''
+  return resourceId ? `${resourceType} ${resourceId}` : resourceType
+}
+
+function formatOperationAuditMetadata(entry) {
+  const metadata = entry?.metadata
+  if (!metadata || typeof metadata !== 'object') return ''
+
+  const parts = []
+  if (metadata.algorithm) {
+    parts.push(`${t('algorithm')}: ${algorithmText(metadata.algorithm)}`)
+  }
+  if (metadata.mode) {
+    parts.push(`${panelLocale.value.currentMode}: ${metadata.mode === 'manual' ? t('dispatch_manual') : t('dispatch_auto')}`)
+  }
+  if (metadata.agv_id) {
+    parts.push(`AGV #${metadata.agv_id}`)
+  }
+  if (metadata.fault_type) {
+    parts.push(`${faultLocale.value.faultType}: ${faultTypeText(metadata.fault_type)}`)
+  }
+  if (metadata.grid_cols && metadata.grid_rows) {
+    parts.push(`${t('operations_meta_size')}: ${metadata.grid_cols} x ${metadata.grid_rows}`)
+  }
+  if (metadata.requested_name && metadata.resolved_name && metadata.requested_name !== metadata.resolved_name) {
+    parts.push(formatInlineMessage(t('operations_meta_renamed'), metadata))
+  }
+  if (metadata.relocated_agv_count) {
+    parts.push(formatInlineMessage(t('operations_meta_relocated_agvs'), { count: metadata.relocated_agv_count }))
+  }
+  if (metadata.trimmed_blocked_cells_count) {
+    parts.push(formatInlineMessage(t('operations_meta_trimmed_blocked'), { count: metadata.trimmed_blocked_cells_count }))
+  }
+  if (metadata.blocked_count !== undefined) {
+    parts.push(formatInlineMessage(t('operations_meta_blocked_count'), { count: metadata.blocked_count }))
+  }
+  if (metadata.skipped_occupied_count) {
+    parts.push(formatInlineMessage(t('operations_meta_skipped_occupied'), { count: metadata.skipped_occupied_count }))
+  }
+  if (metadata.stage) {
+    parts.push(`${t('task_stages')}: ${metadata.stage}`)
+  }
+
+  if (parts.length > 0) return parts.join(' · ')
+
+  return Object.entries(metadata)
+    .slice(0, 3)
+    .map(([key, value]) => `${key}: ${String(value)}`)
+    .join(' · ')
+}
+
+const operationAuditResourceOptions = computed(() => [
+  { value: 'all', label: t('operations_resource_all') },
+  { value: 'task', label: t('operations_resource_task') },
+  { value: 'fault', label: t('operations_resource_fault') },
+  { value: 'map_profile', label: t('operations_resource_map_profile') },
+  { value: 'map_layout', label: t('operations_resource_map_layout') },
+  { value: 'map_preset', label: t('operations_resource_map_preset') },
+  { value: 'comfy_render_job', label: t('operations_resource_ai_render') },
+  { value: 'agv', label: t('operations_resource_agv') }
+])
+
+const operationAuditActionOptions = computed(() => [
+  { value: 'all', label: t('operations_action_all') },
+  { value: 'create', label: t('operations_action_create') },
+  { value: 'import', label: t('operations_action_import') },
+  { value: 'save', label: t('operations_action_save') },
+  { value: 'delete', label: t('operations_action_delete') },
+  { value: 'delete_finished', label: t('operations_action_delete_finished') },
+  { value: 'delete_orphaned', label: t('operations_action_delete_orphaned') },
+  { value: 'finish', label: t('operations_action_finish') },
+  { value: 'schedule', label: t('operations_action_schedule') },
+  { value: 'report', label: t('operations_action_report') },
+  { value: 'resolve', label: t('operations_action_resolve') },
+  { value: 'apply', label: t('operations_action_apply') },
+  { value: 'force_apply', label: t('operations_action_force_apply') },
+  { value: 'resize', label: t('operations_action_resize') },
+  { value: 'reset', label: t('operations_action_reset') },
+  { value: 'emergency_stop', label: t('operations_action_emergency_stop') },
+  { value: 'resume', label: t('operations_action_resume') },
+  { value: 'to_maintenance', label: t('operations_action_to_maintenance') },
+  { value: 'return_to_service', label: t('operations_action_return_to_service') },
+  { value: 'fault_interrupt', label: t('operations_action_fault_interrupt') },
+  { value: 'render', label: t('operations_action_render') }
+])
+
+const filteredOperationAudits = computed(() =>
+  operationAudits.value.filter(entry => {
+    if (operationAuditResourceFilter.value !== 'all' && entry.resource_type !== operationAuditResourceFilter.value) {
+      return false
+    }
+    if (operationAuditActionFilter.value !== 'all' && entry.action !== operationAuditActionFilter.value) {
+      return false
+    }
+    return true
+  })
+)
 
 const selectedAgv = computed(() => {
   if (!selectedAgvId.value) return null
@@ -1405,6 +2186,51 @@ const matchedExperimentRecordIds = computed(() => {
     )
     .map(record => record.id)
 })
+const matchedOperationAuditIds = computed(() => {
+  const keyword = normalizedPanelSearch.value
+  if (!keyword) return []
+
+  return operationAudits.value
+    .filter(entry =>
+      matchesSearchFields(
+        [
+          entry.id,
+          entry.resource_type,
+          entry.resource_id,
+          entry.action,
+          operationResourceLabel(entry.resource_type),
+          operationActionLabel(entry.action),
+          formatOperationAuditOperator(entry),
+          formatOperationAuditResourceRef(entry),
+          formatOperationAuditMetadata(entry),
+          entry.performed_at,
+        ],
+        keyword
+      )
+    )
+    .map(entry => entry.id)
+})
+const matchedComfyJobIds = computed(() => {
+  const keyword = normalizedPanelSearch.value
+  if (!keyword) return []
+
+  return comfyRenderJobs.value
+    .filter(job =>
+      matchesSearchFields(
+        [
+          job.id,
+          job.source_type,
+          job.source_ref,
+          job.created_by,
+          job.created_at,
+          job.status,
+          job.error_message,
+        ],
+        keyword
+      )
+    )
+    .map(job => job.id)
+})
 const panelSearchResults = computed(() => {
   const keyword = normalizedPanelSearch.value
   if (!keyword) return []
@@ -1466,6 +2292,22 @@ const panelSearchResults = computed(() => {
         matchedExperimentRecordIds.value.length > 0 ||
         matchesSearchFields([panelLocale.value.sections.experiments, experimentLocale.value.title], keyword),
       count: matchedExperimentRecordIds.value.length
+    },
+    {
+      key: 'ai',
+      label: panelLocale.value.sections.ai,
+      matched:
+        matchedComfyJobIds.value.length > 0 ||
+        matchesSearchFields([panelLocale.value.sections.ai, t('ai_render_title')], keyword),
+      count: matchedComfyJobIds.value.length
+    },
+    {
+      key: 'operations',
+      label: panelLocale.value.sections.operations,
+      matched:
+        matchedOperationAuditIds.value.length > 0 ||
+        matchesSearchFields([panelLocale.value.sections.operations, t('operations_title')], keyword),
+      count: matchedOperationAuditIds.value.length
     }
   ]
 
@@ -1571,6 +2413,13 @@ function formatExperimentSavedAt(value) {
   if (!value) return '--'
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString()
+}
+
+function formatDateTimeInline(value) {
+  if (!value) return '--'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return String(value)
   return date.toLocaleString()
 }
 
@@ -1930,6 +2779,1318 @@ function showFloatingToast(message, type = 'info', durationMs = 3200) {
   }, durationMs)
 }
 
+async function handleAuthLogin() {
+  try {
+    const state = await loginWithAuthSession()
+    const nextRole = String(state?.user?.role || state?.role || '').trim()
+    authGuestAccepted.value = Boolean(state?.authenticated)
+    authPanelOpen.value = false
+    authDialogView.value = 'login'
+    if (nextRole.startsWith('enterprise_')) {
+      applyEnterprisePanelPreset(nextRole, { silent: true })
+    }
+    await fetchOperationAudits({ force: true })
+    showFloatingToast(buildAuthLoginSuccessMessage(state), 'success')
+  } catch (error) {
+    showFloatingToast(error?.message || t('auth_login_failed'), 'error')
+  }
+}
+
+async function handleAuthLogout() {
+  try {
+    await logoutFromAuthSession()
+    authGuestAccepted.value = false
+    authPanelOpen.value = false
+    authDialogView.value = 'login'
+    enterpriseApprovalDialogOpen.value = false
+    operationAudits.value = []
+    operationAuditLastFetchedAt.value = ''
+    enterpriseApplications.value = []
+    selectedEnterpriseApplicationId.value = null
+    showFloatingToast(t('auth_logout_success'), 'success')
+  } catch (error) {
+    showFloatingToast(error?.message || t('auth_logout_failed'), 'error')
+  }
+}
+
+function handleAuthDemoFill(account) {
+  authDialogView.value = 'login'
+  fillDemoAccount(account)
+}
+
+async function handleAuthQuickLogin(account) {
+  fillDemoAccount(account)
+  try {
+    const state = await loginWithAuthSession(account?.username, account?.password)
+    const nextRole = String(state?.user?.role || state?.role || '').trim()
+    authGuestAccepted.value = Boolean(state?.authenticated)
+    authPanelOpen.value = false
+    authDialogView.value = 'login'
+    if (nextRole.startsWith('enterprise_')) {
+      applyEnterprisePanelPreset(nextRole, { silent: true })
+    }
+    await fetchOperationAudits({ force: true })
+    showFloatingToast(buildAuthLoginSuccessMessage(state), 'success')
+  } catch (error) {
+    showFloatingToast(error?.message || t('auth_login_failed'), 'error')
+  }
+}
+
+function enterGuestMode() {
+  authGuestAccepted.value = true
+  authPanelOpen.value = false
+  authDialogView.value = 'login'
+  operationAudits.value = []
+  operationAuditLastFetchedAt.value = ''
+  showFloatingToast(`${t('auth_guest_entered')} ${t('auth_entry_hint_guest')}`, 'info')
+}
+
+function resetEnterpriseRegisterForm() {
+  authEnterpriseRegisterForm.value = {
+    company_name: '',
+    contact_name: '',
+    contact_email: '',
+    username: '',
+    password: ''
+  }
+}
+
+function switchAuthDialogView(view) {
+  authDialogView.value = view === 'enterprise-register' ? 'enterprise-register' : 'login'
+}
+
+async function handleEnterpriseRegister() {
+  const payload = {
+    company_name: String(authEnterpriseRegisterForm.value.company_name || '').trim(),
+    contact_name: String(authEnterpriseRegisterForm.value.contact_name || '').trim(),
+    contact_email: String(authEnterpriseRegisterForm.value.contact_email || '').trim(),
+    username: String(authEnterpriseRegisterForm.value.username || '').trim(),
+    password: String(authEnterpriseRegisterForm.value.password || '')
+  }
+  authEnterpriseRegisterLoading.value = true
+  try {
+    const response = await fetch(`${API_BASE}/auth/register-enterprise`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload)
+    })
+    const data = await response.json().catch(() => null)
+    if (!response.ok) {
+      throw createApiError(data, 'Enterprise registration failed')
+    }
+    authUsername.value = payload.username
+    authPassword.value = payload.password
+    switchAuthDialogView('login')
+    showFloatingToast(
+      formatInlineMessage(t('auth_enterprise_register_success'), {
+        company: payload.company_name
+      }),
+      'success'
+    )
+    resetEnterpriseRegisterForm()
+  } catch (error) {
+    showFloatingToast(error?.message || t('auth_enterprise_register_failed'), 'error')
+  } finally {
+    authEnterpriseRegisterLoading.value = false
+  }
+}
+
+async function fetchEnterpriseApplications({ forceSelectFirst = false } = {}) {
+  if (!authCanEnterpriseApprove.value) return
+  enterpriseApprovalLoading.value = true
+  try {
+    const response = await fetch(
+      `${API_BASE}/auth/enterprise-applications?status=${encodeURIComponent(enterpriseApprovalStatusFilter.value || 'all')}`,
+      {
+        headers: buildAuthHeaders()
+      }
+    )
+    const data = await response.json().catch(() => null)
+    if (!response.ok) {
+      throw createApiError(data, 'Enterprise applications request failed')
+    }
+    enterpriseApplications.value = Array.isArray(data?.items) ? data.items : []
+    enterpriseApprovalSummary.value = data?.summary ?? { all: 0, pending: 0, approved: 0, rejected: 0 }
+    if (forceSelectFirst || !selectedEnterpriseApplication.value) {
+      selectedEnterpriseApplicationId.value = enterpriseApplications.value[0]?.id ?? null
+    } else if (!enterpriseApplications.value.some(item => Number(item.id) === Number(selectedEnterpriseApplicationId.value))) {
+      selectedEnterpriseApplicationId.value = enterpriseApplications.value[0]?.id ?? null
+    }
+  } catch (error) {
+    showFloatingToast(error?.message || t('enterprise_approval_load_failed'), 'error')
+  } finally {
+    enterpriseApprovalLoading.value = false
+  }
+}
+
+async function openEnterpriseApprovalDialog() {
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'enterprise.approve', buildCapabilityDeniedMessage('platform'))) return
+  enterpriseApprovalDialogOpen.value = true
+  enterpriseApprovalReviewNote.value = ''
+  await fetchEnterpriseApplications({ forceSelectFirst: true })
+}
+
+function closeEnterpriseApprovalDialog() {
+  enterpriseApprovalDialogOpen.value = false
+  enterpriseApprovalReviewNote.value = ''
+}
+
+function preferredEnterpriseSettingsTab(role = authCurrentRole.value) {
+  if (role === 'enterprise_operator') return 'runtime'
+  if (role === 'enterprise_logistics') return 'map_profiles'
+  if (role === 'enterprise_admin') return 'audit'
+  return 'overview'
+}
+
+function loadEnterpriseSettingsTabPreference(role = authCurrentRole.value) {
+  try {
+    const raw = window.localStorage.getItem(ENTERPRISE_SETTINGS_TAB_STORAGE_KEY)
+    if (!raw) return ''
+    const parsed = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object') return ''
+    const saved = String(parsed[String(role || '')] || '').trim()
+    return enterpriseSettingsTabKeys.value.includes(saved) ? saved : ''
+  } catch (error) {
+    console.error('Load enterprise settings tab preference error:', error)
+    return ''
+  }
+}
+
+function saveEnterpriseSettingsTabPreference(role = authCurrentRole.value, tab = enterpriseSettingsActiveTab.value) {
+  try {
+    const normalizedRole = String(role || '').trim()
+    const normalizedTab = String(tab || '').trim()
+    if (!normalizedRole || !enterpriseSettingsTabKeys.value.includes(normalizedTab)) return
+    const raw = window.localStorage.getItem(ENTERPRISE_SETTINGS_TAB_STORAGE_KEY)
+    const parsed = raw ? JSON.parse(raw) : {}
+    const next = parsed && typeof parsed === 'object' ? { ...parsed } : {}
+    next[normalizedRole] = normalizedTab
+    window.localStorage.setItem(ENTERPRISE_SETTINGS_TAB_STORAGE_KEY, JSON.stringify(next))
+  } catch (error) {
+    console.error('Save enterprise settings tab preference error:', error)
+  }
+}
+
+function applyEnterprisePanelPreset(role = authCurrentRole.value, { silent = false } = {}) {
+  const preset = enterprisePanelPreset(role)
+  if (!preset) return false
+  panelSections.value = {
+    ...panelSections.value,
+    ...preset
+  }
+  if (!silent) {
+    showFloatingToast(t('enterprise_settings_apply_workspace_success'), 'success')
+  }
+  return true
+}
+
+async function openEnterpriseSettingsDialog(targetTab = '') {
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'dashboard.view', t('enterprise_settings_requires_enterprise'))) return
+  if (!authIsEnterpriseRole.value) {
+    showFloatingToast(t('enterprise_settings_requires_enterprise'), 'error')
+    return
+  }
+  const availableKeys = enterpriseSettingsTabKeys.value
+  const rememberedTab = loadEnterpriseSettingsTabPreference()
+  const preferredTab = String(targetTab || '').trim() || rememberedTab || preferredEnterpriseSettingsTab()
+  enterpriseSettingsActiveTab.value = availableKeys.includes(preferredTab)
+    ? preferredTab
+    : (availableKeys[0] || 'overview')
+  enterpriseSettingsDialogOpen.value = true
+  if (authCanAiRender.value) {
+    void fetchComfyCheckpoints()
+    if (enterpriseSettingsActiveTab.value === 'ai') {
+      void fetchComfyRenderJobs({ force: true })
+    }
+  }
+  if (authCanViewAudit.value) {
+    requestOperationAuditRefresh({ force: true })
+  }
+}
+
+function closeEnterpriseSettingsDialog() {
+  enterpriseSettingsDialogOpen.value = false
+}
+
+function switchEnterpriseSettingsTab(nextTab) {
+  if (!enterpriseSettingsTabKeys.value.includes(nextTab)) return
+  enterpriseSettingsActiveTab.value = nextTab
+  saveEnterpriseSettingsTabPreference(authCurrentRole.value, nextTab)
+  if (nextTab === 'ai' && authCanAiRender.value) {
+    void fetchComfyCheckpoints()
+    void fetchComfyRenderJobs({ force: true })
+  }
+  if (nextTab === 'audit' && authCanViewAudit.value) {
+    requestOperationAuditRefresh({ force: true })
+  }
+}
+
+async function jumpFromEnterpriseSettings(sectionKey) {
+  closeEnterpriseSettingsDialog()
+  await nextTick()
+  await jumpToPanelSearchResult(sectionKey)
+}
+
+async function reviewEnterpriseApplication(decision) {
+  const applicationId = Number(selectedEnterpriseApplicationId.value || 0)
+  if (!applicationId) return
+  enterpriseApprovalReviewLoading.value = true
+  try {
+    const response = await fetch(
+      `${API_BASE}/auth/enterprise-applications/${applicationId}/${decision === 'reject' ? 'reject' : 'approve'}`,
+      {
+        method: 'POST',
+        headers: buildAuthHeaders({
+          'Content-Type': 'application/json'
+        }),
+        body: JSON.stringify({
+          review_note: String(enterpriseApprovalReviewNote.value || '').trim() || null
+        })
+      }
+    )
+    const data = await response.json().catch(() => null)
+    if (!response.ok) {
+      throw createApiError(data, 'Enterprise application review failed')
+    }
+    enterpriseApprovalReviewNote.value = ''
+    await fetchEnterpriseApplications({ forceSelectFirst: false })
+    showFloatingToast(
+      decision === 'reject' ? t('enterprise_approval_reject_success') : t('enterprise_approval_approve_success'),
+      'success'
+    )
+  } catch (error) {
+    showFloatingToast(error?.message || t('enterprise_approval_review_failed'), 'error')
+  } finally {
+    enterpriseApprovalReviewLoading.value = false
+  }
+}
+
+function ensureAuthenticatedOperation(
+  message = t('auth_action_requires_login'),
+  requiredCapability = '',
+  deniedMessage = t('auth_permission_denied')
+) {
+  if (!authAuthenticated.value) {
+    authPanelOpen.value = true
+    showFloatingToast(message, 'warning')
+    return false
+  }
+  if (requiredCapability && !authCapabilitySet.value.has(String(requiredCapability))) {
+    authPanelOpen.value = true
+    showFloatingToast(deniedMessage, 'warning')
+    return false
+  }
+  return true
+}
+
+function buildAuthCapabilityStateText(enabled) {
+  return enabled ? t('auth_capability_enabled') : t('auth_capability_disabled')
+}
+
+function capabilityLabel(groupKey) {
+  switch (groupKey) {
+    case 'dispatch':
+      return t('auth_capability_dispatch_label')
+    case 'fault':
+      return t('auth_capability_fault_label')
+    case 'map':
+      return t('auth_capability_map_label')
+    case 'data':
+      return t('auth_capability_data_label')
+    case 'audit':
+      return t('auth_capability_audit_label')
+    case 'ai':
+      return t('auth_capability_ai_label')
+    case 'platform':
+      return t('auth_capability_platform_label')
+    default:
+      return t('auth_current_identity')
+  }
+}
+
+function buildCapabilityDeniedMessage(groupKey) {
+  return formatInlineMessage(t('auth_capability_group_locked'), {
+    group: capabilityLabel(groupKey)
+  })
+}
+
+function buildCapabilityLockedTitle(groupKey, enabled) {
+  if (enabled) return ''
+  if (!authAuthenticated.value) return t('auth_action_requires_login')
+  return buildCapabilityDeniedMessage(groupKey)
+}
+
+function canApplyMapProfileWithCapability(profile) {
+  return canForceApplyMapProfile(profile) ? authCanForceApplyMap.value : authCanMapWrite.value
+}
+
+function buildMapProfileApplyTitle(profile) {
+  if (isCurrentMapProfile(profile)) return ''
+  if (canForceApplyMapProfile(profile)) {
+    if (!authAuthenticated.value) return t('auth_action_requires_login')
+    return authCanForceApplyMap.value ? '' : t('auth_map_force_apply_denied')
+  }
+  return buildCapabilityLockedTitle('map', authCanMapWrite.value)
+}
+
+function buildOperationsHintText() {
+  if (authCanViewAudit.value) return t('operations_hint')
+  const enterpriseReadonlyHint = buildEnterprisePanelReadonlyHint('audit')
+  if (enterpriseReadonlyHint) return enterpriseReadonlyHint
+  if (authAuthenticated.value) return t('operations_permission_hint')
+  return t('operations_login_hint')
+}
+
+function buildAiRenderHintText() {
+  if (authCanAiRender.value) return t('ai_render_hint')
+  if (authAuthenticated.value) return t('ai_render_permission_hint')
+  return t('ai_render_requires_login')
+}
+
+function buildOperationsEntryActionText() {
+  return authAuthenticated.value ? t('auth_switch_account') : t('auth_sign_in')
+}
+
+function buildCapabilityReadonlyHint(groupKey) {
+  return formatInlineMessage(
+    authAuthenticated.value ? t('auth_capability_readonly_hint') : t('auth_capability_requires_login_readonly'),
+    { group: capabilityLabel(groupKey) }
+  )
+}
+
+function buildEnterprisePanelReadonlyHint(groupKey) {
+  if (!authAuthenticated.value || !authIsEnterpriseRole.value) return ''
+  const role = authCurrentRole.value
+  if (role === 'enterprise_operator') {
+    if (groupKey === 'map') return t('enterprise_main_panel_hint_map_operator')
+    if (groupKey === 'data') return t('enterprise_main_panel_hint_data_operator')
+    if (groupKey === 'audit') return t('enterprise_main_panel_hint_audit_operator')
+  }
+  if (role === 'enterprise_logistics') {
+    if (groupKey === 'dispatch') return t('enterprise_main_panel_hint_dispatch_logistics')
+    if (groupKey === 'fault') return t('enterprise_main_panel_hint_fault_logistics')
+    if (groupKey === 'audit') return t('enterprise_main_panel_hint_audit_logistics')
+  }
+  return ''
+}
+
+function openAuthDialog() {
+  authDialogView.value = 'login'
+  authPanelOpen.value = true
+}
+
+function saveCurrentTaskTemplateWithAuth() {
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'template.write', buildCapabilityDeniedMessage('data'))) return
+  saveCurrentTaskAsTemplate()
+}
+
+function saveCurrentTaskChainTemplateWithAuth() {
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'template.write', buildCapabilityDeniedMessage('data'))) return
+  saveCurrentTaskChainAsTemplate()
+}
+
+function importTaskTemplatesFromJsonWithAuth() {
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'template.write', buildCapabilityDeniedMessage('data'))) return
+  importTaskTemplatesFromJson()
+}
+
+function triggerTemplateFileImportWithAuth() {
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'template.write', buildCapabilityDeniedMessage('data'))) return
+  triggerTemplateFileImport()
+}
+
+function exportTaskTemplatesToJsonWithAuth() {
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'template.write', buildCapabilityDeniedMessage('data'))) return
+  exportTaskTemplatesToJson()
+}
+
+function downloadTemplateJsonFileWithAuth() {
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'template.write', buildCapabilityDeniedMessage('data'))) return
+  downloadTemplateJsonFile()
+}
+
+function clearTemplateJsonTextWithAuth() {
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'template.write', buildCapabilityDeniedMessage('data'))) return
+  clearTemplateJsonText()
+}
+
+function addCustomPointWithAuth() {
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'point.write', buildCapabilityDeniedMessage('data'))) return
+  addCustomPoint()
+}
+
+function deleteCustomPointWithAuth(point) {
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'point.write', buildCapabilityDeniedMessage('data'))) return
+  deleteCustomPoint(point)
+}
+
+function saveCurrentExperimentRecordWithAuth() {
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'experiment.write', buildCapabilityDeniedMessage('data'))) return
+  saveCurrentExperimentRecord()
+}
+
+function exportCurrentCompareResultJsonWithAuth() {
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'experiment.write', buildCapabilityDeniedMessage('data'))) return
+  exportCurrentCompareResultJson()
+}
+
+function exportCurrentCompareResultCsvWithAuth() {
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'experiment.write', buildCapabilityDeniedMessage('data'))) return
+  exportCurrentCompareResultCsv()
+}
+
+function exportAllExperimentRecordsJsonWithAuth() {
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'experiment.write', buildCapabilityDeniedMessage('data'))) return
+  exportAllExperimentRecordsJson()
+}
+
+function exportAllExperimentRecordsCsvWithAuth() {
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'experiment.write', buildCapabilityDeniedMessage('data'))) return
+  exportAllExperimentRecordsCsv()
+}
+
+function clearExperimentRecordsWithAuth() {
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'experiment.write', buildCapabilityDeniedMessage('data'))) return
+  clearExperimentRecords()
+}
+
+function deleteExperimentRecordWithAuth(recordId) {
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'experiment.write', buildCapabilityDeniedMessage('data'))) return
+  deleteExperimentRecord(recordId)
+}
+
+function createTaskFromTemplateWithAuth(template) {
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'dispatch.write', buildCapabilityDeniedMessage('dispatch'))) return
+  createTaskFromTemplate(template)
+}
+
+function deleteTaskTemplateWithAuth(template) {
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'template.write', buildCapabilityDeniedMessage('data'))) return
+  deleteTaskTemplate(template)
+}
+
+function exportTasksToJsonWithAuth() {
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'json.write', buildCapabilityDeniedMessage('data'))) return
+  exportTasksToJson()
+}
+
+function clearJsonTextWithAuth() {
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'json.write', buildCapabilityDeniedMessage('data'))) return
+  clearJsonText()
+}
+
+function toggleObstacleEditModeWithAuth() {
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'map.write', buildCapabilityDeniedMessage('map'))) return
+  toggleObstacleEditMode()
+}
+
+function triggerObstacleLayoutImportWithAuth() {
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'map.write', buildCapabilityDeniedMessage('map'))) return
+  triggerObstacleLayoutImport()
+}
+
+function buildAuthorizedHeaders(headers = {}) {
+  return buildAuthHeaders(headers)
+}
+
+function buildAuthorizedJsonHeaders(headers = {}) {
+  return buildAuthorizedHeaders({
+    'Content-Type': 'application/json',
+    ...headers
+  })
+}
+
+async function fetchOperationAudits({ force = false } = {}) {
+  if (!authAuthenticated.value || !authCanViewAudit.value) {
+    operationAudits.value = []
+    operationAuditLastFetchedAt.value = ''
+    return
+  }
+  if (operationAuditLoading.value) return
+  if (!force && !panelSections.value.operations) return
+
+  operationAuditLoading.value = true
+  try {
+    const response = await fetch(`${API_BASE}/auth/operations?limit=80`, {
+      headers: buildAuthorizedHeaders()
+    })
+    const data = await response.json()
+    if (!response.ok) {
+      throw createApiError(data, 'Operation audit request failed')
+    }
+    operationAudits.value = Array.isArray(data?.items) ? data.items : []
+    operationAuditLastFetchedAt.value = new Date().toISOString()
+  } catch (error) {
+    console.error('Fetch operation audits error:', error)
+    if (force) {
+      showFloatingToast(error?.message || t('operations_load_failed'), 'error')
+    }
+  } finally {
+    operationAuditLoading.value = false
+  }
+}
+
+function requestOperationAuditRefresh({ force = false } = {}) {
+  if (!authAuthenticated.value || !authCanViewAudit.value) {
+    operationAudits.value = []
+    return
+  }
+  if (!force && !panelSections.value.operations) return
+  if (operationAuditRefreshPending) return
+  operationAuditRefreshPending = true
+  queueMicrotask(() => {
+    operationAuditRefreshPending = false
+    void fetchOperationAudits({ force })
+  })
+}
+
+const comfyRenderSourceOptions = computed(() => [
+  { value: 'map_profile', label: t('ai_render_source_map_profile') },
+  { value: 'point_template_export', label: t('ai_render_source_point_template') },
+  { value: 'experiment_records', label: t('ai_render_source_experiment_records') },
+  { value: 'map_profile_diff', label: t('ai_render_source_map_profile_diff') },
+  { value: 'custom_json', label: t('ai_render_source_custom_json') }
+])
+const comfyRenderWorkflowPresetOptions = computed(() => [
+  { value: 'preview', label: t('ai_render_preset_preview') },
+  { value: 'showcase', label: t('ai_render_preset_showcase') },
+  { value: 'sdxl_showcase', label: t('ai_render_preset_sdxl_showcase') }
+])
+const comfyRenderPromptStyleOptions = computed(() => [
+  { value: 'report', label: t('ai_render_style_report') },
+  { value: 'industrial_realistic', label: t('ai_render_style_industrial_realistic') },
+  { value: 'infographic', label: t('ai_render_style_infographic') }
+])
+const comfyRenderSourceLabelMap = computed(() =>
+  comfyRenderSourceOptions.value.reduce((acc, option) => {
+    acc[option.value] = option.label
+    return acc
+  }, {})
+)
+const comfyRenderWorkflowPresetLabelMap = computed(() =>
+  comfyRenderWorkflowPresetOptions.value.reduce((acc, option) => {
+    acc[option.value] = option.label
+    return acc
+  }, {})
+)
+const comfyRenderPromptStyleLabelMap = computed(() =>
+  comfyRenderPromptStyleOptions.value.reduce((acc, option) => {
+    acc[option.value] = option.label
+    return acc
+  }, {})
+)
+const comfyRenderBuiltinTemplates = computed(() => {
+  const sourceLabels = comfyRenderSourceLabelMap.value
+  const presetLabels = comfyRenderWorkflowPresetLabelMap.value
+  const styleLabels = comfyRenderPromptStyleLabelMap.value
+  const recommendedSourcesByTemplate = {
+    preview_report: ['point_template_export', 'map_profile_diff'],
+    showcase_realistic: ['map_profile', 'custom_json'],
+    showcase_infographic: ['experiment_records'],
+    sdxl_hero: ['map_profile']
+  }
+  const buildTemplate = (key, label, hint, workflowPreset, promptStyle) => {
+    const recommendedSourceKeys = recommendedSourcesByTemplate[key] || []
+    return {
+      key,
+      label,
+      hint,
+      workflowPreset,
+      workflowPresetLabel: presetLabels[workflowPreset] || workflowPreset,
+      promptStyle,
+      promptStyleLabel: styleLabels[promptStyle] || promptStyle,
+      recommendedSources: recommendedSourceKeys.map(sourceKey => sourceLabels[sourceKey]).filter(Boolean)
+    }
+  }
+  return [
+    buildTemplate(
+      'preview_report',
+      t('ai_render_builtin_preview_report'),
+      t('ai_render_builtin_preview_report_hint'),
+      'preview',
+      'report'
+    ),
+    buildTemplate(
+      'showcase_realistic',
+      t('ai_render_builtin_showcase_realistic'),
+      t('ai_render_builtin_showcase_realistic_hint'),
+      'showcase',
+      'industrial_realistic'
+    ),
+    buildTemplate(
+      'showcase_infographic',
+      t('ai_render_builtin_showcase_infographic'),
+      t('ai_render_builtin_showcase_infographic_hint'),
+      'showcase',
+      'infographic'
+    ),
+    buildTemplate(
+      'sdxl_hero',
+      t('ai_render_builtin_sdxl_hero'),
+      t('ai_render_builtin_sdxl_hero_hint'),
+      'sdxl_showcase',
+      'industrial_realistic'
+    )
+  ]
+})
+const comfyRenderRecommendedBuiltinTemplate = computed(() => {
+  const preferredKeyBySource = {
+    map_profile: 'showcase_realistic',
+    point_template_export: 'preview_report',
+    experiment_records: 'showcase_infographic',
+    map_profile_diff: 'preview_report',
+    custom_json: 'showcase_realistic'
+  }
+  const targetKey = preferredKeyBySource[String(comfyRenderSourceType.value || 'custom_json')] || 'showcase_realistic'
+  return comfyRenderBuiltinTemplates.value.find(item => item.key === targetKey) || comfyRenderBuiltinTemplates.value[0] || null
+})
+const comfyRenderSelectedBuiltinTemplate = computed(() =>
+  comfyRenderBuiltinTemplates.value.find(item => item.key === comfyRenderBuiltinTemplateKey.value) ||
+  comfyRenderRecommendedBuiltinTemplate.value ||
+  comfyRenderBuiltinTemplates.value[0] ||
+  null
+)
+const comfyRenderSelectedBuiltinTemplateMatchesRecommendation = computed(() =>
+  Boolean(
+    comfyRenderSelectedBuiltinTemplate.value?.key &&
+    comfyRenderSelectedBuiltinTemplate.value?.key === comfyRenderRecommendedBuiltinTemplate.value?.key
+  )
+)
+const comfyRenderWorkflowPresetConfig = computed(() =>
+  getComfyWorkflowPresetConfig(comfyRenderWorkflowPreset.value)
+)
+const comfyRenderPromptStyleConfig = computed(() =>
+  getComfyPromptStyleConfig(comfyRenderPromptStyle.value)
+)
+const comfyRenderWorkflowPresetSummary = computed(() =>
+  formatInlineMessage(t('ai_render_workflow_preset_summary'), {
+    size: `${comfyRenderWorkflowPresetConfig.value.width} x ${comfyRenderWorkflowPresetConfig.value.height}`,
+    steps: comfyRenderWorkflowPresetConfig.value.steps
+  })
+)
+const comfyRenderPromptStyleSummary = computed(() =>
+  formatInlineMessage(t('ai_render_style_summary'), {
+    tone: (comfyRenderPromptStyleConfig.value.promptFragments || []).slice(0, 2).join(', ')
+  })
+)
+const comfyRenderRecommendedCheckpointSummary = computed(() =>
+  formatInlineMessage(t('ai_render_checkpoint_recommendation'), {
+    checkpoint: preferredComfyCheckpointName(comfyRenderAvailableCheckpoints.value, comfyRenderWorkflowPreset.value)
+  })
+)
+const comfyRenderSelectedTemplate = computed(() =>
+  comfyRenderSavedTemplates.value.find(item => String(item.id) === String(comfyRenderSelectedTemplateId.value || '')) || null
+)
+const comfyRenderHasCustomTemplates = computed(() => comfyRenderSavedTemplates.value.length > 0)
+
+function setComfyRenderStatus(message = '', type = 'info') {
+  comfyRenderStatus.value = String(message || '')
+  comfyRenderStatusType.value = type
+}
+
+function stringifyPrettyJson(value) {
+  return JSON.stringify(value ?? {}, null, 2)
+}
+
+function buildCurrentComfyTemplatePayload() {
+  return {
+    sourceType: String(comfyRenderSourceType.value || 'custom_json'),
+    sourceRef: String(comfyRenderSourceRef.value || '').trim(),
+    checkpointName: String(comfyRenderCheckpointName.value || '').trim(),
+    workflowPreset: String(comfyRenderWorkflowPreset.value || COMFY_WORKFLOW_PRESET_DEFAULT),
+    promptStyle: String(comfyRenderPromptStyle.value || COMFY_PROMPT_STYLE_DEFAULT),
+    promptText: String(comfyRenderPromptText.value || '').trim(),
+    inputJsonText: String(comfyRenderInputJsonText.value || '').trim(),
+    workflowJsonText: String(comfyRenderWorkflowJsonText.value || '').trim()
+  }
+}
+
+function normalizeComfyTemplateRecord(record) {
+  if (!record || typeof record !== 'object') return null
+  const id = String(record.id || '').trim() || `comfy_template_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+  const name = String(record.name || '').trim()
+  if (!name) return null
+  return {
+    id,
+    name,
+    sourceType: String(record.sourceType || 'custom_json'),
+    sourceRef: String(record.sourceRef || '').trim(),
+    checkpointName: String(record.checkpointName || '').trim(),
+    workflowPreset: String(record.workflowPreset || COMFY_WORKFLOW_PRESET_DEFAULT),
+    promptStyle: String(record.promptStyle || COMFY_PROMPT_STYLE_DEFAULT),
+    promptText: String(record.promptText || '').trim(),
+    inputJsonText: String(record.inputJsonText || '').trim(),
+    workflowJsonText: String(record.workflowJsonText || '').trim(),
+    createdAt: String(record.createdAt || new Date().toISOString()),
+    updatedAt: String(record.updatedAt || new Date().toISOString())
+  }
+}
+
+function loadComfyWorkflowTemplates() {
+  try {
+    const raw = window.localStorage.getItem(COMFY_WORKFLOW_TEMPLATE_STORAGE_KEY)
+    if (!raw) return
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return
+    comfyRenderSavedTemplates.value = parsed
+      .map(item => normalizeComfyTemplateRecord(item))
+      .filter(Boolean)
+      .sort((a, b) => compareTime(b.updatedAt, a.updatedAt))
+  } catch (error) {
+    console.error('Load comfy workflow templates error:', error)
+  }
+}
+
+function saveComfyWorkflowTemplates() {
+  try {
+    window.localStorage.setItem(
+      COMFY_WORKFLOW_TEMPLATE_STORAGE_KEY,
+      JSON.stringify(comfyRenderSavedTemplates.value)
+    )
+  } catch (error) {
+    console.error('Save comfy workflow templates error:', error)
+  }
+}
+
+function uniqueComfyTemplateName(baseName, excludeId = '') {
+  const normalizedBase = String(baseName || '').trim() || t('ai_render_template_default_name')
+  const existing = comfyRenderSavedTemplates.value.filter(
+    item => String(item.id) !== String(excludeId || '')
+  )
+  if (!existing.some(item => item.name === normalizedBase)) {
+    return normalizedBase
+  }
+  let counter = 2
+  while (existing.some(item => item.name === `${normalizedBase} (${counter})`)) {
+    counter += 1
+  }
+  return `${normalizedBase} (${counter})`
+}
+
+function applyComfyTemplateRecord(record) {
+  const normalized = normalizeComfyTemplateRecord(record)
+  if (!normalized) return false
+  comfyRenderSelectedTemplateId.value = normalized.id
+  comfyRenderTemplateName.value = normalized.name
+  comfyRenderSourceType.value = normalized.sourceType
+  comfyRenderSourceRef.value = normalized.sourceRef
+  comfyRenderWorkflowPreset.value = normalized.workflowPreset
+  comfyRenderPromptStyle.value = normalized.promptStyle
+  comfyRenderCheckpointName.value =
+    normalized.checkpointName ||
+    preferredComfyCheckpointName(comfyRenderAvailableCheckpoints.value, normalized.workflowPreset)
+  comfyRenderPromptText.value = normalized.promptText
+  comfyRenderInputJsonText.value = normalized.inputJsonText
+  comfyRenderWorkflowJsonText.value = normalized.workflowJsonText
+  return true
+}
+
+async function rebuildCurrentComfyWorkflowDraft({
+  workflowPreset = comfyRenderWorkflowPreset.value,
+  promptStyle = comfyRenderPromptStyle.value,
+  checkpointName = comfyRenderCheckpointName.value,
+  replacePrompt = true
+} = {}) {
+  await fetchComfyCheckpoints()
+  if (comfyRenderSourceType.value === 'map_profile' && !String(comfyRenderSourceRef.value || '').trim()) {
+    comfyRenderSourceRef.value = String(currentMapProfile.value?.key || '').trim()
+  }
+  const nextPrompt = buildDefaultComfyPromptText({
+    sourceType: comfyRenderSourceType.value,
+    sourceRef: comfyRenderSourceRef.value,
+    presetKey: workflowPreset,
+    styleKey: promptStyle
+  })
+  if (replacePrompt || !String(comfyRenderPromptText.value || '').trim()) {
+    comfyRenderPromptText.value = nextPrompt
+  }
+  const resolvedCheckpoint =
+    String(checkpointName || '').trim() ||
+    preferredComfyCheckpointName(comfyRenderAvailableCheckpoints.value, workflowPreset)
+  comfyRenderCheckpointName.value = resolvedCheckpoint
+  comfyRenderWorkflowJsonText.value = stringifyPrettyJson(
+    buildDefaultComfyWorkflowTemplate({
+      checkpointName: resolvedCheckpoint,
+      promptText: comfyRenderPromptText.value,
+      sourceType: comfyRenderSourceType.value,
+      sourceRef: comfyRenderSourceRef.value,
+      presetKey: workflowPreset,
+      styleKey: promptStyle
+    })
+  )
+}
+
+function preferredComfyCheckpointName(
+  names = comfyRenderAvailableCheckpoints.value,
+  presetKey = comfyRenderWorkflowPreset.value
+) {
+  const normalized = Array.isArray(names)
+    ? names.map(item => String(item || '').trim()).filter(Boolean)
+    : []
+  const preferredOrder =
+    String(presetKey || '').trim().toLowerCase() === 'sdxl_showcase'
+      ? [
+          'juggernautxl.2j0I.safetensors',
+          'DreamShaper_8_pruned.safetensors',
+          'majicmixRealistic_v7.safetensors'
+        ]
+      : [
+          'DreamShaper_8_pruned.safetensors',
+          'majicmixRealistic_v7.safetensors',
+          'juggernautxl.2j0I.safetensors'
+        ]
+  if (!normalized.length) return preferredOrder[0]
+  return (
+    preferredOrder.find(name => normalized.includes(name)) ||
+    normalized[0]
+  )
+}
+
+watch(comfyRenderWorkflowPreset, (nextPreset, previousPreset) => {
+  const available = comfyRenderAvailableCheckpoints.value
+  const current = String(comfyRenderCheckpointName.value || '').trim()
+  const previousPreferred = preferredComfyCheckpointName(available, previousPreset)
+  const nextPreferred = preferredComfyCheckpointName(available, nextPreset)
+  if (!current || !available.includes(current) || current === previousPreferred) {
+    comfyRenderCheckpointName.value = nextPreferred
+  }
+})
+
+watch(
+  comfyRenderRecommendedBuiltinTemplate,
+  nextTemplate => {
+    if (!nextTemplate) return
+    const currentKey = String(comfyRenderBuiltinTemplateKey.value || '').trim()
+    const exists = comfyRenderBuiltinTemplates.value.some(item => item.key === currentKey)
+    if (!exists) {
+      comfyRenderBuiltinTemplateKey.value = nextTemplate.key
+    }
+  },
+  { immediate: true }
+)
+
+function buildComfyRenderInputSummary(sourceType, sourceRef, inputPayload) {
+  const summary = {
+    source_type: String(sourceType || 'custom_json'),
+    top_level_keys:
+      inputPayload && typeof inputPayload === 'object' && !Array.isArray(inputPayload)
+        ? Object.keys(inputPayload).sort()
+        : []
+  }
+  if (sourceRef) {
+    summary.source_ref = String(sourceRef)
+  }
+  if (sourceType === 'point_template_export') {
+    summary.point_count = Array.isArray(inputPayload?.points) ? inputPayload.points.length : 0
+    summary.template_count = Array.isArray(inputPayload?.templates) ? inputPayload.templates.length : 0
+  }
+  if (sourceType === 'experiment_records') {
+    summary.record_count = Array.isArray(inputPayload?.records) ? inputPayload.records.length : 0
+  }
+  if (sourceType === 'map_profile_diff') {
+    summary.relocated_agv_count = Number(inputPayload?.relocated_agv_count || 0)
+    summary.trimmed_blocked_cells_count = Number(inputPayload?.trimmed_blocked_cells_count || 0)
+  }
+  return summary
+}
+
+function formatComfyRenderStatus(status) {
+  return t(`ai_render_status_${String(status || 'submitted').toLowerCase()}`)
+}
+
+function formatComfyRenderSource(job) {
+  const typeLabel =
+    comfyRenderSourceOptions.value.find(option => option.value === job?.source_type)?.label ||
+    String(job?.source_type || '')
+  const sourceRef = String(job?.source_ref || '').trim()
+  return sourceRef ? `${typeLabel} · ${sourceRef}` : typeLabel
+}
+
+function formatComfyRenderAssetActionLabel(job, assetIndex) {
+  const assetCount = Array.isArray(job?.asset_urls) ? job.asset_urls.length : 0
+  if (assetCount <= 1) return t('ai_render_result_preview')
+  return `${t('ai_render_result_preview')} ${Number(assetIndex) + 1}`
+}
+
+function openComfyRenderAssetPreview(job, assetUrl, assetIndex = 0) {
+  comfyRenderPreviewUrl.value = String(assetUrl || '').trim()
+  comfyRenderPreviewTitle.value = `${formatComfyRenderSource(job)} · ${t('ai_render_result_preview')} ${Number(assetIndex) + 1}`
+  comfyRenderPreviewJobId.value = Number(job?.id || 0) || null
+  comfyRenderPreviewVisible.value = Boolean(comfyRenderPreviewUrl.value)
+}
+
+function closeComfyRenderAssetPreview() {
+  comfyRenderPreviewVisible.value = false
+  comfyRenderPreviewUrl.value = ''
+  comfyRenderPreviewTitle.value = ''
+  comfyRenderPreviewJobId.value = null
+}
+
+function saveCurrentComfyTemplate() {
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'ai.render', buildCapabilityDeniedMessage('ai'))) return
+  const requestedName = String(comfyRenderTemplateName.value || '').trim()
+  const existingId = String(comfyRenderSelectedTemplateId.value || '').trim()
+  const existingTemplate = comfyRenderSavedTemplates.value.find(item => String(item.id) === existingId)
+  const normalizedPayload = normalizeComfyTemplateRecord({
+    id: existingId || undefined,
+    name: uniqueComfyTemplateName(
+      requestedName || existingTemplate?.name || t('ai_render_template_default_name'),
+      existingId
+    ),
+    ...buildCurrentComfyTemplatePayload(),
+    createdAt: existingTemplate?.createdAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  })
+  if (!normalizedPayload) {
+    setComfyRenderStatus(t('ai_render_template_save_failed'), 'error')
+    return
+  }
+  const nextTemplates = comfyRenderSavedTemplates.value.filter(item => String(item.id) !== normalizedPayload.id)
+  nextTemplates.unshift(normalizedPayload)
+  comfyRenderSavedTemplates.value = nextTemplates.sort((a, b) => compareTime(b.updatedAt, a.updatedAt))
+  saveComfyWorkflowTemplates()
+  comfyRenderSelectedTemplateId.value = normalizedPayload.id
+  comfyRenderTemplateName.value = normalizedPayload.name
+  setComfyRenderStatus(t('ai_render_template_saved'), 'success')
+}
+
+function applySelectedComfyTemplate() {
+  if (!comfyRenderSelectedTemplate.value) {
+    setComfyRenderStatus(t('ai_render_template_select_required'), 'error')
+    return
+  }
+  if (applyComfyTemplateRecord(comfyRenderSelectedTemplate.value)) {
+    setComfyRenderStatus(t('ai_render_template_applied'), 'success')
+  }
+}
+
+function exportSelectedComfyTemplate() {
+  if (!comfyRenderSelectedTemplate.value) {
+    setComfyRenderStatus(t('ai_render_template_select_required'), 'error')
+    return
+  }
+  downloadJsonFile(
+    `agv-comfy-template-${String(comfyRenderSelectedTemplate.value.name).replace(/[^a-zA-Z0-9]+/g, '_') || 'template'}.json`,
+    JSON.stringify(comfyRenderSelectedTemplate.value, null, 2)
+  )
+  setComfyRenderStatus(t('ai_render_template_exported'), 'success')
+}
+
+function deleteSelectedComfyTemplate() {
+  if (!comfyRenderSelectedTemplate.value) {
+    setComfyRenderStatus(t('ai_render_template_select_required'), 'error')
+    return
+  }
+  if (!window.confirm(t('ai_render_template_delete_confirm'))) return
+  const deletingId = String(comfyRenderSelectedTemplate.value.id)
+  comfyRenderSavedTemplates.value = comfyRenderSavedTemplates.value.filter(item => String(item.id) !== deletingId)
+  saveComfyWorkflowTemplates()
+  comfyRenderSelectedTemplateId.value = ''
+  comfyRenderTemplateName.value = ''
+  setComfyRenderStatus(t('ai_render_template_deleted'), 'success')
+}
+
+function triggerComfyTemplateImport() {
+  comfyRenderTemplateFileInputRef.value?.click()
+}
+
+async function onComfyTemplateFileChange(event) {
+  const file = event.target.files?.[0]
+  event.target.value = ''
+  if (!file) return
+  try {
+    const text = await file.text()
+    const parsed = JSON.parse(text)
+    const normalized = normalizeComfyTemplateRecord({
+      ...parsed,
+      id: undefined,
+      name: uniqueComfyTemplateName(parsed?.name || file.name.replace(/\.[^.]+$/, ''))
+    })
+    if (!normalized) {
+      throw new Error(t('ai_render_template_import_failed'))
+    }
+    comfyRenderSavedTemplates.value = [normalized, ...comfyRenderSavedTemplates.value].sort((a, b) =>
+      compareTime(b.updatedAt, a.updatedAt)
+    )
+    saveComfyWorkflowTemplates()
+    applyComfyTemplateRecord(normalized)
+    setComfyRenderStatus(t('ai_render_template_imported'), 'success')
+  } catch (error) {
+    console.error('Import comfy workflow template error:', error)
+    setComfyRenderStatus(error?.message || t('ai_render_template_import_failed'), 'error')
+  }
+}
+
+function parseJsonObjectOrThrow(rawText, fallbackValue, errorMessage) {
+  const trimmed = String(rawText || '').trim()
+  if (!trimmed) {
+    return fallbackValue
+  }
+  try {
+    const parsed = JSON.parse(trimmed)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error(errorMessage)
+    }
+    return parsed
+  } catch {
+    throw new Error(errorMessage)
+  }
+}
+
+async function buildComfySourcePayload() {
+  const sourceType = comfyRenderSourceType.value
+  if (sourceType === 'map_profile') {
+    const targetProfileKey = String(comfyRenderSourceRef.value || currentMapProfile.value?.key || '').trim()
+    if (!targetProfileKey) {
+      throw new Error(t('ai_render_source_ref_required'))
+    }
+    const response = await fetch(`${API_BASE}/status/map/profile/${encodeURIComponent(targetProfileKey)}`)
+    const data = await response.json().catch(() => null)
+    if (!response.ok) {
+      throw createApiError(data, 'Map profile request failed')
+    }
+    return {
+      sourceRef: targetProfileKey,
+      inputPayload: data ?? {}
+    }
+  }
+
+  if (sourceType === 'point_template_export') {
+    return {
+      sourceRef: null,
+      inputPayload: {
+        points: pointLibrary.value,
+        templates: taskTemplates.value
+      }
+    }
+  }
+
+  if (sourceType === 'experiment_records') {
+    return {
+      sourceRef: null,
+      inputPayload: {
+        records: experimentRecords.value
+      }
+    }
+  }
+
+  if (sourceType === 'map_profile_diff') {
+    if (!mapProfileActionSummary.value) {
+      throw new Error(t('ai_render_source_diff_unavailable'))
+    }
+    return {
+      sourceRef: String(mapProfileActionSummary.value?.profile_key || mapProfileActionSummary.value?.profileKey || '').trim() || null,
+      inputPayload: mapProfileActionSummary.value
+    }
+  }
+
+  return {
+    sourceRef: String(comfyRenderSourceRef.value || '').trim() || null,
+    inputPayload: parseJsonObjectOrThrow(
+      comfyRenderInputJsonText.value,
+      {},
+      t('ai_render_parse_input_failed')
+    )
+  }
+}
+
+async function loadComfySourcePayload() {
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'ai.render', buildCapabilityDeniedMessage('ai'))) return
+  try {
+    const built = await buildComfySourcePayload()
+    comfyRenderSourceRef.value = built.sourceRef || ''
+    comfyRenderInputJsonText.value = stringifyPrettyJson(built.inputPayload)
+    setComfyRenderStatus(t('ai_render_source_loaded'), 'success')
+  } catch (error) {
+    setComfyRenderStatus(error?.message || t('ai_render_load_source_failed'), 'error')
+  }
+}
+
+async function fetchComfyCheckpoints({ force = false } = {}) {
+  if (!authAuthenticated.value || !authCanAiRender.value) {
+    comfyRenderAvailableCheckpoints.value = []
+    comfyRenderCheckpointName.value = ''
+    return
+  }
+  if (comfyRenderCheckpointsLoading.value) return
+  if (!force && comfyRenderAvailableCheckpoints.value.length > 0) return
+
+  comfyRenderCheckpointsLoading.value = true
+  try {
+    const response = await fetch(`${API_BASE}/ai/comfyui/checkpoints`, {
+      headers: buildAuthorizedHeaders()
+    })
+    const data = await response.json().catch(() => null)
+    if (!response.ok) {
+      throw createApiError(data, 'Comfy checkpoint request failed')
+    }
+    const items = Array.isArray(data?.items) ? data.items.map(item => String(item || '').trim()).filter(Boolean) : []
+    comfyRenderAvailableCheckpoints.value = items
+    const preferred = String(data?.preferred || preferredComfyCheckpointName(items)).trim()
+    if (!String(comfyRenderCheckpointName.value || '').trim() || !items.includes(String(comfyRenderCheckpointName.value || '').trim())) {
+      comfyRenderCheckpointName.value = preferred
+    }
+  } catch (error) {
+    console.error('Fetch ComfyUI checkpoints error:', error)
+    comfyRenderAvailableCheckpoints.value = []
+    if (!String(comfyRenderCheckpointName.value || '').trim()) {
+      comfyRenderCheckpointName.value = preferredComfyCheckpointName([])
+    }
+  } finally {
+    comfyRenderCheckpointsLoading.value = false
+  }
+}
+
+async function loadDefaultComfyWorkflow() {
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'ai.render', buildCapabilityDeniedMessage('ai'))) return
+  try {
+    await rebuildCurrentComfyWorkflowDraft()
+    setComfyRenderStatus(t('ai_render_default_workflow_loaded'), 'success')
+  } catch (error) {
+    setComfyRenderStatus(error?.message || t('ai_render_submit_failed'), 'error')
+  }
+}
+
+async function applyBuiltinComfyTemplate(templateKey) {
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'ai.render', buildCapabilityDeniedMessage('ai'))) return
+  const matched = comfyRenderBuiltinTemplates.value.find(item => item.key === templateKey)
+  if (!matched) {
+    setComfyRenderStatus(t('ai_render_template_select_required'), 'error')
+    return
+  }
+  try {
+    comfyRenderWorkflowPreset.value = matched.workflowPreset
+    comfyRenderPromptStyle.value = matched.promptStyle
+    comfyRenderTemplateName.value = matched.label
+    comfyRenderSelectedTemplateId.value = ''
+    await rebuildCurrentComfyWorkflowDraft({
+      workflowPreset: matched.workflowPreset,
+      promptStyle: matched.promptStyle,
+      checkpointName: preferredComfyCheckpointName(comfyRenderAvailableCheckpoints.value, matched.workflowPreset)
+    })
+    comfyRenderBuiltinTemplatesOverviewVisible.value = false
+    setComfyRenderStatus(t('ai_render_builtin_applied'), 'success')
+  } catch (error) {
+    setComfyRenderStatus(error?.message || t('ai_render_submit_failed'), 'error')
+  }
+}
+
+async function applySelectedBuiltinComfyTemplate() {
+  if (!comfyRenderSelectedBuiltinTemplate.value) {
+    setComfyRenderStatus(t('ai_render_template_select_required'), 'error')
+    return
+  }
+  await applyBuiltinComfyTemplate(comfyRenderSelectedBuiltinTemplate.value.key)
+}
+
+function openComfyBuiltinTemplateOverview() {
+  comfyRenderBuiltinTemplatesOverviewVisible.value = true
+}
+
+function closeComfyBuiltinTemplateOverview() {
+  comfyRenderBuiltinTemplatesOverviewVisible.value = false
+}
+
+async function fetchComfyRenderJobs({ force = false } = {}) {
+  if (!authAuthenticated.value || !authCanAiRender.value) {
+    comfyRenderJobs.value = []
+    comfyRenderLastFetchedAt.value = ''
+    return
+  }
+  if (comfyRenderLoading.value) return
+  if (!force && !panelSections.value.ai) return
+
+  comfyRenderLoading.value = true
+  try {
+    const response = await fetch(`${API_BASE}/ai/comfyui/jobs?limit=24`, {
+      headers: buildAuthorizedHeaders()
+    })
+    const data = await response.json().catch(() => null)
+    if (!response.ok) {
+      throw createApiError(data, 'Comfy render job request failed')
+    }
+    comfyRenderJobs.value = Array.isArray(data?.items) ? data.items : []
+    comfyRenderLastFetchedAt.value = new Date().toISOString()
+  } catch (error) {
+    console.error('Fetch ComfyUI render jobs error:', error)
+    if (force) {
+      showFloatingToast(error?.message || t('ai_render_load_failed'), 'error')
+    }
+  } finally {
+    comfyRenderLoading.value = false
+  }
+}
+
+async function submitComfyRenderJob() {
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'ai.render', buildCapabilityDeniedMessage('ai'))) return
+  if (comfyRenderSubmitting.value) return
+
+  comfyRenderSubmitting.value = true
+  try {
+    const { sourceRef, inputPayload } = await buildComfySourcePayload()
+    const workflowPayload = parseJsonObjectOrThrow(
+      comfyRenderWorkflowJsonText.value,
+      {},
+      t('ai_render_parse_workflow_failed')
+    )
+    const response = await fetch(`${API_BASE}/ai/comfyui/render`, {
+      method: 'POST',
+      headers: buildAuthorizedJsonHeaders(),
+      body: JSON.stringify({
+        source_type: comfyRenderSourceType.value,
+        source_ref: sourceRef,
+        input_payload: inputPayload,
+        input_summary: buildComfyRenderInputSummary(comfyRenderSourceType.value, sourceRef, inputPayload),
+        prompt_text: String(comfyRenderPromptText.value || '').trim() || null,
+        workflow_payload: workflowPayload
+      })
+    })
+    const data = await response.json().catch(() => null)
+    if (!response.ok) {
+      throw createApiError(data, 'Comfy render submit failed')
+    }
+    setComfyRenderStatus(t('ai_render_submit_success'), 'success')
+    showFloatingToast(t('ai_render_submit_success'), 'success')
+    await fetchComfyRenderJobs({ force: true })
+  } catch (error) {
+    setComfyRenderStatus(error?.message || t('ai_render_submit_failed'), 'error')
+    showFloatingToast(error?.message || t('ai_render_submit_failed'), 'error')
+  } finally {
+    comfyRenderSubmitting.value = false
+  }
+}
+
+async function deleteComfyRenderJob(jobId) {
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'ai.render', buildCapabilityDeniedMessage('ai'))) return
+  if (!jobId || deletingComfyJobId.value === jobId) return
+  if (!window.confirm(t('ai_render_delete_confirm'))) return
+
+  deletingComfyJobId.value = jobId
+  try {
+    const response = await fetch(`${API_BASE}/ai/comfyui/jobs/${jobId}`, {
+      method: 'DELETE',
+      headers: buildAuthorizedHeaders()
+    })
+    const data = await response.json().catch(() => null)
+    if (!response.ok) {
+      throw createApiError(data, 'Comfy render delete failed')
+    }
+    if (Number(jobId) && Number(jobId) === Number(comfyRenderPreviewJobId.value || 0)) {
+      closeComfyRenderAssetPreview()
+    }
+    setComfyRenderStatus(t('ai_render_delete_success'), 'success')
+    showFloatingToast(t('ai_render_delete_success'), 'success')
+    await fetchComfyRenderJobs({ force: true })
+  } catch (error) {
+    setComfyRenderStatus(error?.message || t('ai_render_delete_failed'), 'error')
+    showFloatingToast(error?.message || t('ai_render_delete_failed'), 'error')
+  } finally {
+    deletingComfyJobId.value = null
+  }
+}
+
 function pulseFaultSelectedCard() {
   faultSelectedAgvPulse.value = true
   if (faultSelectedAgvPulseTimer) {
@@ -2097,7 +4258,10 @@ function setAllPanelSections(expanded) {
     queue: expanded,
     templates: expanded,
     points: expanded,
-    json: expanded
+    json: expanded,
+    experiments: expanded,
+    ai: expanded,
+    operations: expanded
   }
 }
 
@@ -2661,6 +4825,7 @@ async function confirmAndSchedule(x, y, agvId = null) {
 
 async function createTaskAndSchedule(agvId) {
   if (!startPoint.value || !endPoint.value) return
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'dispatch.write', buildCapabilityDeniedMessage('dispatch'))) return
   if (!(await ensureBlockedCellsSynced())) {
     window.alert(obstacleSaveRequiredText())
     return
@@ -2672,7 +4837,7 @@ async function createTaskAndSchedule(agvId) {
     autoScheduleGuard.value = true
     const createRes = await fetch(`${API_BASE}/task/create`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: buildAuthorizedJsonHeaders(),
       body: JSON.stringify({
         start_x: startPoint.value.x,
         start_y: startPoint.value.y,
@@ -2698,7 +4863,7 @@ async function createTaskAndSchedule(agvId) {
 
     const scheduleRes = await fetch(`${API_BASE}/schedule/with_path`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: buildAuthorizedJsonHeaders(),
       body: JSON.stringify({
         task_id: createData.task.id,
         agv_id: isManualFlow ? agvId : null,
@@ -2834,13 +4999,15 @@ function onGlobalMouseUp() {
 
 async function deleteTask(task) {
   if (!isTaskDeletable(task)) return
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'dispatch.write', buildCapabilityDeniedMessage('dispatch'))) return
   const confirmText = isTaskActiveAndBound(task) ? t('confirm_delete_active_task') : t('confirm_delete_task')
   const ok = window.confirm(confirmText)
   if (!ok) return
 
   try {
     const res = await fetch(`${API_BASE}/task/${task.id}`, {
-      method: 'DELETE'
+      method: 'DELETE',
+      headers: buildAuthorizedHeaders()
     })
     const data = await res.json()
     if (!res.ok) {
@@ -2901,13 +5068,15 @@ async function deleteFinishedTasks() {
     showFloatingToast(t('queue_no_finished_tasks'), 'info')
     return
   }
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'dispatch.write', buildCapabilityDeniedMessage('dispatch'))) return
   if (!window.confirm(t('confirm_delete_finished_tasks'))) {
     return
   }
 
   try {
     const res = await fetch(`${API_BASE}/task/finished`, {
-      method: 'DELETE'
+      method: 'DELETE',
+      headers: buildAuthorizedHeaders()
     })
     const data = await res.json()
     if (!res.ok) {
@@ -2929,13 +5098,15 @@ async function deleteOrphanedTasks() {
     showFloatingToast(t('queue_no_orphaned_tasks'), 'info')
     return
   }
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'dispatch.write', buildCapabilityDeniedMessage('dispatch'))) return
   if (!window.confirm(t('confirm_delete_orphaned_tasks'))) {
     return
   }
 
   try {
     const res = await fetch(`${API_BASE}/task/orphaned`, {
-      method: 'DELETE'
+      method: 'DELETE',
+      headers: buildAuthorizedHeaders()
     })
     const data = await res.json()
     if (!res.ok) {
@@ -2954,6 +5125,7 @@ async function deleteOrphanedTasks() {
 
 async function recoverBlockedTask(task, mode) {
   if (!task || task.status !== 'blocked') return
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'dispatch.write', buildCapabilityDeniedMessage('dispatch'))) return
   hideTaskBuilderJumpButton()
   if (!(await ensureBlockedCellsSynced())) {
     window.alert(obstacleSaveRequiredText())
@@ -2971,7 +5143,7 @@ async function recoverBlockedTask(task, mode) {
     const preferredAlgorithm = String(task.dispatch_algorithm || algorithm.value || 'simple').toLowerCase()
     const res = await fetch(`${API_BASE}/schedule/recover_blocked/${task.id}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: buildAuthorizedJsonHeaders(),
       body: JSON.stringify({
         mode,
         algorithm: preferredAlgorithm,
@@ -3027,6 +5199,7 @@ async function recoverBlockedTask(task, mode) {
 
 async function retryBlockedTaskFromCurrent(task, algorithmName = null) {
   if (task.status !== 'blocked') return
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'dispatch.write', buildCapabilityDeniedMessage('dispatch'))) return
   if (!(await ensureBlockedCellsSynced())) {
     window.alert(obstacleSaveRequiredText())
     return
@@ -3036,7 +5209,7 @@ async function retryBlockedTaskFromCurrent(task, algorithmName = null) {
   try {
     const res = await fetch(`${API_BASE}/schedule/retry_blocked_from_current/${task.id}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: buildAuthorizedJsonHeaders(),
       body: JSON.stringify({
         algorithm: selectedAlgorithm,
         grid_cols: gridColsValue(),
@@ -3089,6 +5262,7 @@ async function retryBlockedTaskFromCurrent(task, algorithmName = null) {
 
 async function retryBlockedTaskWithAStar(task) {
   if (task.status !== 'blocked') return
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'dispatch.write', buildCapabilityDeniedMessage('dispatch'))) return
   if (!(await ensureBlockedCellsSynced())) {
     window.alert(obstacleSaveRequiredText())
     return
@@ -3102,7 +5276,7 @@ async function retryBlockedTaskWithAStar(task) {
       : `${API_BASE}/schedule/retry_blocked/${task.id}`
     const res = await fetch(retryEndpoint, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: buildAuthorizedJsonHeaders(),
       body: JSON.stringify({
         algorithm: 'astar',
         grid_cols: gridColsValue(),
@@ -3209,6 +5383,7 @@ async function retryAllBlockedTasksWithAStar(taskGroup) {
 }
 
 async function submitTaskPayload(payload) {
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'dispatch.write', buildCapabilityDeniedMessage('dispatch'))) return false
   if (!(await ensureBlockedCellsSynced())) {
     window.alert(obstacleSaveRequiredText())
     return false
@@ -3292,7 +5467,7 @@ async function submitTaskPayload(payload) {
     }
     const res = await fetch(`${API_BASE}/task/create`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: buildAuthorizedJsonHeaders(),
       body: JSON.stringify({
         ...payload,
         grid_cols: gridColsValue(),
@@ -3318,7 +5493,7 @@ async function submitTaskPayload(payload) {
     if (dispatchMode.value === 'manual' && manualAgv) {
       const scheduleRes = await fetch(`${API_BASE}/schedule/with_path`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: buildAuthorizedJsonHeaders(),
         body: JSON.stringify({
           task_id: data.task.id,
           agv_id: manualAgv.id,
@@ -3569,6 +5744,8 @@ const {
   pointsSectionRef,
   jsonSectionRef,
   experimentsSectionRef,
+  aiSectionRef,
+  operationsSectionRef,
   focusedPanelSection,
   comparePanelExpanded,
   comparePanelRef,
@@ -3617,6 +5794,7 @@ async function addTaskChainFromForm() {
 }
 
 async function createTaskFromTemplate(template) {
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'dispatch.write', buildCapabilityDeniedMessage('dispatch'))) return
   hideTaskBuilderJumpButton()
   const stages = normalizeTemplateStages(template)
   if (stages.length > 1) {
@@ -3639,6 +5817,7 @@ async function createTaskFromTemplate(template) {
 
 async function importTasksFromJson() {
   if (!jsonText.value) return
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'json.write', buildCapabilityDeniedMessage('data'))) return
   jsonStatus.value = ''
 
   let parsed
@@ -3658,7 +5837,7 @@ async function importTasksFromJson() {
   try {
     const res = await fetch(`${API_BASE}/task/import_json`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: buildAuthorizedJsonHeaders(),
       body: JSON.stringify({ tasks: taskItems })
     })
     const data = await res.json()
@@ -4018,7 +6197,7 @@ function canForceApplyPreviewResult() {
 }
 
 function canForceApplyMapProfile(profile) {
-  return Boolean(isMapProfilePreviewed(profile) && canForceApplyPreviewResult())
+  return Boolean(authCanForceApplyMap.value && isMapProfilePreviewed(profile) && canForceApplyPreviewResult())
 }
 
 function mapResizeSectionDomId(sectionKey = 'reasons') {
@@ -4147,6 +6326,7 @@ function focusMapPreviewCell(cell) {
 }
 
 async function saveCurrentMapProfile() {
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'map.write', buildCapabilityDeniedMessage('map'))) return false
   const defaultName =
     (typeof currentMapProfile.value?.name === 'string'
       ? currentMapProfile.value.name
@@ -4169,7 +6349,7 @@ async function saveCurrentMapProfile() {
   try {
     const res = await fetch(`${API_BASE}/status/map/profile`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: buildAuthorizedJsonHeaders(),
       body: JSON.stringify({
         name: profileName,
         blocked_cells: blockedCells.value,
@@ -4273,6 +6453,10 @@ async function onMapProfileFileChange(event) {
   const input = event?.target
   const file = input?.files?.[0]
   if (!file) return
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'map.write', buildCapabilityDeniedMessage('map'))) {
+    if (input) input.value = ''
+    return
+  }
 
   mapProfileImporting.value = true
   try {
@@ -4285,8 +6469,11 @@ async function onMapProfileFileChange(event) {
 
     const res = await fetch(`${API_BASE}/status/map/profile`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(normalized)
+      headers: buildAuthorizedJsonHeaders(),
+      body: JSON.stringify({
+        ...normalized,
+        import_source: 'json'
+      })
     })
     const data = await res.json()
     if (!res.ok) {
@@ -4315,6 +6502,7 @@ async function deleteMapProfile(profile) {
   if (!profile?.key || !profile?.deletable) {
     return false
   }
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'map.write', buildCapabilityDeniedMessage('map'))) return false
   if (!window.confirm(settingsLocale.value.mapProfileDeleteConfirm)) {
     return false
   }
@@ -4322,7 +6510,8 @@ async function deleteMapProfile(profile) {
   mapProfileDeletingKey.value = profile.key
   try {
     const res = await fetch(`${API_BASE}/status/map/profile/${encodeURIComponent(profile.key)}`, {
-      method: 'DELETE'
+      method: 'DELETE',
+      headers: buildAuthorizedHeaders()
     })
     const data = await res.json()
     if (!res.ok) {
@@ -4357,6 +6546,15 @@ async function applyMapProfile(profile) {
 
   const profileName = localizedMapProfileField(profile.name) || profile.key
   const forceApply = canForceApplyMapProfile(profile)
+  if (
+    !ensureAuthenticatedOperation(
+      t('auth_action_requires_login'),
+      forceApply ? 'map.force_apply' : 'map.write',
+      forceApply ? t('auth_map_force_apply_denied') : buildCapabilityDeniedMessage('map')
+    )
+  ) {
+    return false
+  }
   const confirmMessage = forceApply
     ? settingsLocale.value.mapProfileForceApplyConfirm
     : settingsLocale.value.mapProfileApplyConfirm
@@ -4378,7 +6576,8 @@ async function applyMapProfile(profile) {
   try {
     const query = forceApply ? '?force=true' : ''
     const res = await fetch(`${API_BASE}/status/map/profile/${encodeURIComponent(profile.key)}${query}`, {
-      method: 'POST'
+      method: 'POST',
+      headers: buildAuthorizedHeaders()
     })
     const data = await res.json()
     if (!res.ok) {
@@ -4511,6 +6710,7 @@ async function previewMapProfile(profile) {
 }
 
 async function applyMapResize() {
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'map.write', buildCapabilityDeniedMessage('map'))) return false
   if (obstacleLayoutDirty.value) {
     setObstacleLayoutStatus('error', obstacleSaveRequiredText())
     return false
@@ -4538,7 +6738,7 @@ async function applyMapResize() {
   try {
     const res = await fetch(`${API_BASE}/status/map/resize`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: buildAuthorizedJsonHeaders(),
       body: JSON.stringify({
         grid_cols: requestedCols,
         grid_rows: requestedRows,
@@ -4687,6 +6887,7 @@ function stopObstaclePaint() {
 }
 
 async function saveBlockedCells() {
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'map.write', buildCapabilityDeniedMessage('map'))) return false
   if (!ensureObstacleMutationAllowed()) {
     return false
   }
@@ -4695,7 +6896,7 @@ async function saveBlockedCells() {
     const { filtered, skipped } = filterBlockedCellsAgainstOccupied(blockedCells.value)
     const res = await fetch(`${API_BASE}/status/map`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: buildAuthorizedJsonHeaders(),
       body: JSON.stringify({
         blocked_cells: filtered,
         grid_cols: gridColsValue(),
@@ -4731,6 +6932,7 @@ async function saveBlockedCells() {
 }
 
 async function saveCurrentObstaclePreset(defaultName = '') {
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'map.write', buildCapabilityDeniedMessage('map'))) return false
   const presetNameInput = window.prompt(obstaclePresetNamePromptText(), defaultName)
   if (presetNameInput === null) {
     return false
@@ -4747,7 +6949,7 @@ async function saveCurrentObstaclePreset(defaultName = '') {
     const { filtered, skipped } = filterBlockedCellsAgainstOccupied(blockedCells.value)
     const res = await fetch(`${API_BASE}/status/map/preset`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: buildAuthorizedJsonHeaders(),
       body: JSON.stringify({
         name: presetName,
         blocked_cells: filtered,
@@ -4794,6 +6996,7 @@ async function deleteSelectedObstaclePreset() {
     setObstacleLayoutStatus('error', settingsLocale.value.obstaclePresetDeleteOnlyCustom)
     return false
   }
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'map.write', buildCapabilityDeniedMessage('map'))) return false
   if (!window.confirm(obstaclePresetDeleteConfirmText())) {
     return false
   }
@@ -4801,7 +7004,8 @@ async function deleteSelectedObstaclePreset() {
   obstacleMapSaving.value = true
   try {
     const res = await fetch(`${API_BASE}/status/map/preset/${selectedObstaclePreset.value}`, {
-      method: 'DELETE'
+      method: 'DELETE',
+      headers: buildAuthorizedHeaders()
     })
     const data = await res.json()
     if (!res.ok) {
@@ -4826,6 +7030,7 @@ async function deleteSelectedObstaclePreset() {
 }
 
 async function resetBlockedCellsToDefault() {
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'map.write', buildCapabilityDeniedMessage('map'))) return false
   if (!ensureObstacleMutationAllowed()) {
     return false
   }
@@ -4835,7 +7040,8 @@ async function resetBlockedCellsToDefault() {
   obstacleMapSaving.value = true
   try {
     const res = await fetch(`${API_BASE}/status/map/reset`, {
-      method: 'POST'
+      method: 'POST',
+      headers: buildAuthorizedHeaders()
     })
     const data = await res.json()
     if (!res.ok) {
@@ -4985,6 +7191,7 @@ async function fetchMapLayout() {
 }
 
 async function applyObstaclePreset() {
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'map.write', buildCapabilityDeniedMessage('map'))) return false
   if (!ensureObstacleMutationAllowed()) {
     return false
   }
@@ -4999,7 +7206,8 @@ async function applyObstaclePreset() {
   obstacleMapSaving.value = true
   try {
     const res = await fetch(`${API_BASE}/status/map/preset/${selectedObstaclePreset.value}`, {
-      method: 'POST'
+      method: 'POST',
+      headers: buildAuthorizedHeaders()
     })
     const data = await res.json()
     if (!res.ok) {
@@ -5119,6 +7327,18 @@ async function fetchFaultEvents() {
 
 async function refreshCoreState() {
   await Promise.all([fetchAgvs(), fetchTasks(), fetchFaultEvents()])
+  if (authCanAiRender.value && panelSections.value.ai) {
+    const lastFetchedMs = comfyRenderLastFetchedAt.value ? Date.parse(comfyRenderLastFetchedAt.value) : 0
+    if (!Number.isFinite(lastFetchedMs) || Date.now() - lastFetchedMs >= 5000) {
+      void fetchComfyRenderJobs()
+    }
+  }
+  if (authCanViewAudit.value && panelSections.value.operations) {
+    const lastFetchedMs = operationAuditLastFetchedAt.value ? Date.parse(operationAuditLastFetchedAt.value) : 0
+    if (!Number.isFinite(lastFetchedMs) || Date.now() - lastFetchedMs >= 3000) {
+      requestOperationAuditRefresh()
+    }
+  }
   syncDisplayedPathsFromTasks()
 }
 
@@ -5152,11 +7372,12 @@ async function refreshState() {
 
 async function emergencyStopSelectedAgv() {
   if (!selectedBackendAgv.value) return
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'fault.write', buildCapabilityDeniedMessage('fault'))) return
   agvActionLoadingId.value = selectedBackendAgv.value.id
   try {
     const res = await fetch(`${API_BASE}/agv/${selectedBackendAgv.value.id}/emergency-stop`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: buildAuthorizedJsonHeaders(),
       body: JSON.stringify({ reported_by: 'ui' })
     })
     const data = await res.json()
@@ -5175,10 +7396,12 @@ async function emergencyStopSelectedAgv() {
 
 async function resumeSelectedAgv() {
   if (!selectedBackendAgv.value) return
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'fault.write', buildCapabilityDeniedMessage('fault'))) return
   agvActionLoadingId.value = selectedBackendAgv.value.id
   try {
     const res = await fetch(`${API_BASE}/agv/${selectedBackendAgv.value.id}/resume`, {
-      method: 'POST'
+      method: 'POST',
+      headers: buildAuthorizedHeaders()
     })
     const data = await res.json()
     if (!res.ok) {
@@ -5197,10 +7420,12 @@ async function resumeSelectedAgv() {
 
 async function moveSelectedAgvToMaintenance() {
   if (!selectedBackendAgv.value) return
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'fault.write', buildCapabilityDeniedMessage('fault'))) return
   agvActionLoadingId.value = selectedBackendAgv.value.id
   try {
     const res = await fetch(`${API_BASE}/agv/${selectedBackendAgv.value.id}/to-maintenance`, {
-      method: 'POST'
+      method: 'POST',
+      headers: buildAuthorizedHeaders()
     })
     const data = await res.json()
     if (!res.ok) {
@@ -5225,10 +7450,12 @@ async function moveSelectedAgvToMaintenance() {
 
 async function returnAgvToService(agvId) {
   if (!agvId) return
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'fault.write', buildCapabilityDeniedMessage('fault'))) return
   agvActionLoadingId.value = agvId
   try {
     const res = await fetch(`${API_BASE}/agv/${agvId}/return-to-service`, {
-      method: 'POST'
+      method: 'POST',
+      headers: buildAuthorizedHeaders()
     })
     const data = await res.json()
     if (!res.ok) {
@@ -5253,11 +7480,12 @@ async function returnAgvToService(agvId) {
 
 async function submitFaultReport() {
   if (!selectedBackendAgv.value) return
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'fault.write', buildCapabilityDeniedMessage('fault'))) return
   agvActionLoadingId.value = selectedBackendAgv.value.id
   try {
     const res = await fetch(`${API_BASE}/fault/report`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: buildAuthorizedJsonHeaders(),
       body: JSON.stringify({
         agv_id: selectedBackendAgv.value.id,
         fault_type: faultReportForm.value.fault_type,
@@ -5283,10 +7511,12 @@ async function submitFaultReport() {
 }
 
 async function resolveFaultEventItem(eventItem) {
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'fault.write', buildCapabilityDeniedMessage('fault'))) return
   resolvingFaultId.value = eventItem.id
   try {
     const res = await fetch(`${API_BASE}/fault/${eventItem.id}/resolve`, {
-      method: 'POST'
+      method: 'POST',
+      headers: buildAuthorizedHeaders()
     })
     const data = await res.json()
     if (!res.ok) {
@@ -5421,11 +7651,18 @@ watch(
 onMounted(() => {
   loadCustomPoints()
   loadTaskTemplates()
+  loadComfyWorkflowTemplates()
   void hydratePointTemplateBackend()
   loadExperimentRecords()
   loadMapDisplaySettings()
   loadPanelSections()
   void fetchUiSettings()
+  void fetchAuthMe().then(state => {
+    authGuestAccepted.value = Boolean(state?.authenticated)
+    if (state?.authenticated && Array.isArray(state?.capabilities) && state.capabilities.includes('audit.view')) {
+      void fetchOperationAudits({ force: true })
+    }
+  })
   loadPanelSummaryMode()
   loadTaskQueueView()
   syncPanelWidth()
@@ -5482,9 +7719,66 @@ watch(
   panelSections,
   () => {
     savePanelSections()
+    if (authCanAiRender.value && panelSections.value.ai) {
+      void fetchComfyCheckpoints()
+      void fetchComfyRenderJobs({ force: true })
+    }
+    if (authCanViewAudit.value && panelSections.value.operations) {
+      requestOperationAuditRefresh({ force: true })
+    }
   },
   { deep: true }
 )
+
+watch([authAuthenticated, authCanAiRender], ([authenticated, canRender]) => {
+  if (!authenticated || !canRender) {
+    comfyRenderJobs.value = []
+    comfyRenderLastFetchedAt.value = ''
+    comfyRenderAvailableCheckpoints.value = []
+    comfyRenderCheckpointName.value = ''
+    return
+  }
+  void fetchComfyCheckpoints({ force: true })
+  void fetchComfyRenderJobs({ force: true })
+})
+
+watch([authCurrentRole, authIsEnterpriseRole], ([role, isEnterprise]) => {
+  if (!isEnterprise) {
+    enterpriseSettingsDialogOpen.value = false
+    enterpriseSettingsActiveTab.value = 'overview'
+    return
+  }
+  if (!enterpriseSettingsTabKeys.value.includes(enterpriseSettingsActiveTab.value)) {
+    enterpriseSettingsActiveTab.value = loadEnterpriseSettingsTabPreference(role) || preferredEnterpriseSettingsTab(role)
+  }
+})
+
+watch([enterpriseSettingsActiveTab, authCurrentRole, authIsEnterpriseRole], ([tab, role, isEnterprise]) => {
+  if (!isEnterprise) return
+  saveEnterpriseSettingsTabPreference(role, tab)
+})
+
+watch([authAuthenticated, authCanViewAudit], ([authenticated, canViewAudit]) => {
+  if (!authenticated || !canViewAudit) {
+    operationAudits.value = []
+    operationAuditLastFetchedAt.value = ''
+    return
+  }
+  requestOperationAuditRefresh({ force: true })
+})
+
+watch([authAuthenticated, authCanEnterpriseApprove], ([authenticated, canApprove]) => {
+  if (authenticated && canApprove) return
+  enterpriseApprovalDialogOpen.value = false
+  enterpriseApplications.value = []
+  selectedEnterpriseApplicationId.value = null
+  enterpriseApprovalReviewNote.value = ''
+})
+
+watch(enterpriseApprovalStatusFilter, () => {
+  if (!enterpriseApprovalDialogOpen.value || !authCanEnterpriseApprove.value) return
+  fetchEnterpriseApplications({ forceSelectFirst: true })
+})
 
 watch(panelSummaryMode, () => {
   summaryZoomArmed.value = false
@@ -5671,9 +7965,1259 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="page-shell">
+    <div v-if="showAuthDialog" class="auth-dialog-backdrop" :class="{ gate: showAuthGate }">
+      <div class="auth-dialog-card">
+        <div class="auth-dialog-header">
+          <div>
+            <div class="auth-dialog-kicker">{{ t('title') }}</div>
+            <h2 class="auth-dialog-title">{{ authModalTitle }}</h2>
+            <p class="auth-dialog-hint">{{ authPanelModeText }}</p>
+          </div>
+          <button
+            v-if="dashboardUnlocked"
+            class="auth-dialog-close"
+            type="button"
+            @click="authPanelOpen = false"
+          >
+            {{ t('auth_close') }}
+          </button>
+        </div>
+
+        <div class="auth-dialog-current" :class="[authRoleBadgeClass, { guest: !authAuthenticated }]">
+          <div class="auth-dialog-current-label">{{ t('auth_current_identity') }}</div>
+          <strong>{{ authAuthenticated ? authCurrentDisplayName : t('auth_role_guest') }}</strong>
+          <span>{{ authModeText }}</span>
+          <small class="auth-dialog-current-hint">{{ authEntryHintText }}</small>
+          <small>{{ authAuthenticated ? authCurrentUser.username : 'guest' }}</small>
+          <small v-if="authAuthenticated">{{ authAccountStatusLabel }}</small>
+          <small v-if="authAuthenticated && authCurrentOrganizationName">{{ authCurrentOrganizationName }}</small>
+          <button
+            v-if="authAuthenticated"
+            class="auth-dialog-inline-action"
+            type="button"
+            :disabled="authLoading"
+            @click="handleAuthLogout"
+          >
+            {{ t('auth_sign_out') }}
+          </button>
+        </div>
+
+        <div class="auth-capability-panel">
+          <div class="auth-dialog-divider">{{ t('auth_capabilities_title') }}</div>
+          <p class="auth-dialog-hint">
+            {{ authAuthenticated ? t('auth_capabilities_hint') : t('auth_capabilities_guest_hint') }}
+          </p>
+          <div class="auth-capability-grid">
+            <article
+              v-for="item in authCapabilityCards"
+              :key="item.key"
+              class="auth-capability-card"
+              :class="{ enabled: item.enabled, disabled: !item.enabled }"
+            >
+              <div class="auth-capability-label-row">
+                <strong>{{ item.label }}</strong>
+                <span class="auth-capability-state">{{ buildAuthCapabilityStateText(item.enabled) }}</span>
+              </div>
+              <span>{{ item.hint }}</span>
+            </article>
+          </div>
+        </div>
+
+        <div class="auth-dialog-choice-grid">
+          <button class="auth-dialog-choice guest" type="button" @click="enterGuestMode">
+            <strong>{{ t('auth_enter_guest') }}</strong>
+            <span>{{ t('auth_role_guest') }}</span>
+          </button>
+          <button
+            v-for="account in authPrimaryAccounts"
+            :key="account.role"
+            class="auth-dialog-choice"
+            type="button"
+            :disabled="authLoading"
+            @click="handleAuthQuickLogin(account)"
+          >
+            <strong>{{ t(`auth_role_${account.role}`) }}</strong>
+            <span>{{ account.username }}</span>
+          </button>
+        </div>
+
+        <div class="auth-dialog-segmented">
+          <button
+            class="auth-dialog-segment"
+            :class="{ active: authDialogView === 'login' }"
+            type="button"
+            @click="switchAuthDialogView('login')"
+          >
+            {{ t('auth_manual_login') }}
+          </button>
+          <button
+            class="auth-dialog-segment"
+            :class="{ active: authDialogView === 'enterprise-register' }"
+            type="button"
+            @click="switchAuthDialogView('enterprise-register')"
+          >
+            {{ t('auth_enterprise_register') }}
+          </button>
+        </div>
+
+        <template v-if="authDialogView === 'login'">
+          <div class="auth-dialog-divider">{{ t('auth_manual_login') }}</div>
+
+          <div class="auth-dialog-form">
+            <label class="auth-dialog-field">
+              <span>{{ t('auth_username') }}</span>
+              <input
+                v-model.trim="authUsername"
+                :placeholder="t('auth_username_placeholder')"
+                @keydown.enter.prevent="handleAuthLogin"
+              />
+            </label>
+
+            <label class="auth-dialog-field">
+              <span>{{ t('auth_password') }}</span>
+              <input
+                v-model="authPassword"
+                type="password"
+                :placeholder="t('auth_password_placeholder')"
+                @keydown.enter.prevent="handleAuthLogin"
+              />
+            </label>
+
+            <div class="auth-dialog-actions">
+              <button class="auth-dialog-submit" type="button" :disabled="authLoading" @click="handleAuthLogin">
+                {{ authLoading ? t('auth_signing_in') : t('auth_sign_in') }}
+              </button>
+              <div class="auth-dialog-demo-label">{{ t('auth_demo_accounts') }}</div>
+              <div class="auth-dialog-demo-grid">
+                <button
+                  v-for="account in authDemoAccounts"
+                  :key="account.username"
+                  class="auth-dialog-demo-button"
+                  type="button"
+                  @click="handleAuthDemoFill(account)"
+                >
+                  {{ authDemoAccountLabel(account) }}
+                </button>
+              </div>
+            </div>
+          </div>
+        </template>
+
+        <template v-else>
+          <div class="auth-dialog-divider">{{ t('auth_enterprise_register') }}</div>
+          <p class="auth-dialog-hint">{{ t('auth_enterprise_register_hint') }}</p>
+          <div class="auth-dialog-form">
+            <label class="auth-dialog-field">
+              <span>{{ t('enterprise_register_company_name') }}</span>
+              <input v-model.trim="authEnterpriseRegisterForm.company_name" />
+            </label>
+            <label class="auth-dialog-field">
+              <span>{{ t('enterprise_register_contact_name') }}</span>
+              <input v-model.trim="authEnterpriseRegisterForm.contact_name" />
+            </label>
+            <label class="auth-dialog-field">
+              <span>{{ t('enterprise_register_contact_email') }}</span>
+              <input v-model.trim="authEnterpriseRegisterForm.contact_email" />
+            </label>
+            <label class="auth-dialog-field">
+              <span>{{ t('enterprise_register_username') }}</span>
+              <input v-model.trim="authEnterpriseRegisterForm.username" />
+            </label>
+            <label class="auth-dialog-field">
+              <span>{{ t('enterprise_register_password') }}</span>
+              <input
+                v-model="authEnterpriseRegisterForm.password"
+                type="password"
+                @keydown.enter.prevent="handleEnterpriseRegister"
+              />
+            </label>
+
+            <div class="auth-dialog-actions">
+              <button
+                class="auth-dialog-submit"
+                type="button"
+                :disabled="authEnterpriseRegisterLoading"
+                @click="handleEnterpriseRegister"
+              >
+                {{ authEnterpriseRegisterLoading ? t('auth_enterprise_register_submitting') : t('auth_enterprise_register_submit') }}
+              </button>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+
+    <div v-if="enterpriseApprovalDialogOpen" class="auth-dialog-backdrop">
+      <div class="approval-dialog-card">
+        <div class="auth-dialog-header">
+          <div>
+            <div class="auth-dialog-kicker">{{ t('auth_role_platform_admin') }}</div>
+            <h2 class="auth-dialog-title">{{ t('enterprise_approval_title') }}</h2>
+            <p class="auth-dialog-hint">{{ t('enterprise_approval_hint') }}</p>
+          </div>
+          <button class="auth-dialog-close" type="button" @click="closeEnterpriseApprovalDialog">
+            {{ t('auth_close') }}
+          </button>
+        </div>
+
+        <div class="approval-summary-grid">
+          <article class="approval-summary-card">
+            <strong>{{ enterpriseApprovalSummary.pending || 0 }}</strong>
+            <span>{{ t('enterprise_approval_status_pending') }}</span>
+          </article>
+          <article class="approval-summary-card">
+            <strong>{{ enterpriseApprovalSummary.approved || 0 }}</strong>
+            <span>{{ t('enterprise_approval_status_approved') }}</span>
+          </article>
+          <article class="approval-summary-card">
+            <strong>{{ enterpriseApprovalSummary.rejected || 0 }}</strong>
+            <span>{{ t('enterprise_approval_status_rejected') }}</span>
+          </article>
+        </div>
+
+        <div class="approval-toolbar">
+          <label class="auth-dialog-field">
+            <span>{{ t('enterprise_approval_filter_status') }}</span>
+            <select v-model="enterpriseApprovalStatusFilter">
+              <option value="all">{{ t('enterprise_approval_status_all') }}</option>
+              <option value="pending">{{ t('enterprise_approval_status_pending') }}</option>
+              <option value="approved">{{ t('enterprise_approval_status_approved') }}</option>
+              <option value="rejected">{{ t('enterprise_approval_status_rejected') }}</option>
+            </select>
+          </label>
+          <button class="auth-dialog-inline-action" type="button" :disabled="enterpriseApprovalLoading" @click="fetchEnterpriseApplications({ forceSelectFirst: false })">
+            {{ t('enterprise_approval_refresh') }}
+          </button>
+        </div>
+
+        <div class="approval-layout">
+          <div class="approval-list">
+            <div v-if="enterpriseApprovalLoading" class="approval-empty">{{ t('enterprise_approval_loading') }}</div>
+            <button
+              v-for="item in enterpriseApplications"
+              :key="item.id"
+              class="approval-list-item"
+              :class="{ active: Number(selectedEnterpriseApplicationId) === Number(item.id) }"
+              type="button"
+              @click="selectedEnterpriseApplicationId = item.id"
+            >
+              <strong>{{ item.company_name }}</strong>
+              <span>{{ item.contact_name }} · {{ item.username }}</span>
+              <small>{{ t(`enterprise_approval_status_${item.status}`) }}</small>
+            </button>
+            <div v-if="!enterpriseApprovalLoading && enterpriseApplications.length === 0" class="approval-empty">
+              {{ t('enterprise_approval_empty') }}
+            </div>
+          </div>
+
+          <div class="approval-detail" v-if="selectedEnterpriseApplication">
+            <div class="approval-detail-grid">
+              <div><strong>{{ t('enterprise_register_company_name') }}</strong><span>{{ selectedEnterpriseApplication.company_name }}</span></div>
+              <div><strong>{{ t('enterprise_register_contact_name') }}</strong><span>{{ selectedEnterpriseApplication.contact_name }}</span></div>
+              <div><strong>{{ t('enterprise_register_contact_email') }}</strong><span>{{ selectedEnterpriseApplication.contact_email }}</span></div>
+              <div><strong>{{ t('enterprise_register_username') }}</strong><span>{{ selectedEnterpriseApplication.username }}</span></div>
+              <div><strong>{{ t('enterprise_approval_status_label') }}</strong><span>{{ t(`enterprise_approval_status_${selectedEnterpriseApplication.status}`) }}</span></div>
+              <div><strong>{{ t('enterprise_approval_submitted_at') }}</strong><span>{{ selectedEnterpriseApplication.submitted_at }}</span></div>
+              <div v-if="selectedEnterpriseApplication.reviewed_at"><strong>{{ t('enterprise_approval_reviewed_at') }}</strong><span>{{ selectedEnterpriseApplication.reviewed_at }}</span></div>
+              <div v-if="selectedEnterpriseApplication.reviewed_by"><strong>{{ t('enterprise_approval_reviewed_by') }}</strong><span>{{ selectedEnterpriseApplication.reviewed_by }}</span></div>
+            </div>
+
+            <label class="auth-dialog-field">
+              <span>{{ t('enterprise_approval_review_note') }}</span>
+              <textarea v-model.trim="enterpriseApprovalReviewNote" rows="4"></textarea>
+            </label>
+
+            <div class="approval-actions">
+              <button
+                class="button-save"
+                type="button"
+                :disabled="enterpriseApprovalReviewLoading || selectedEnterpriseApplication.status !== 'pending'"
+                @click="reviewEnterpriseApplication('approve')"
+              >
+                {{ t('enterprise_approval_approve') }}
+              </button>
+              <button
+                class="button-danger"
+                type="button"
+                :disabled="enterpriseApprovalReviewLoading || selectedEnterpriseApplication.status !== 'pending'"
+                @click="reviewEnterpriseApplication('reject')"
+              >
+                {{ t('enterprise_approval_reject') }}
+              </button>
+            </div>
+          </div>
+
+          <div v-else class="approval-empty approval-detail-empty">
+            {{ t('enterprise_approval_select_hint') }}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="enterpriseSettingsDialogOpen" class="auth-dialog-backdrop" @click.self="closeEnterpriseSettingsDialog">
+      <section class="enterprise-settings-dialog-card" role="dialog" aria-modal="true">
+        <header class="auth-dialog-header">
+          <div>
+            <div class="auth-dialog-kicker">{{ authRoleLabel }}</div>
+            <h2 class="auth-dialog-title">{{ t('enterprise_settings_title') }}</h2>
+            <p class="auth-dialog-hint">{{ t('enterprise_settings_hint') }}</p>
+          </div>
+          <button class="auth-dialog-close" type="button" @click="closeEnterpriseSettingsDialog">
+            ×
+          </button>
+        </header>
+
+        <div class="enterprise-settings-shell">
+          <aside class="enterprise-settings-sidebar">
+            <div class="enterprise-settings-sidebar-title">{{ t('enterprise_settings_navigation') }}</div>
+              <button
+                v-for="tab in enterpriseSettingsTabDefinitions"
+                :key="tab.key"
+                class="enterprise-settings-tab"
+                :class="{ active: enterpriseSettingsActiveTab === tab.key, 'is-primary': tab.primary }"
+                type="button"
+                @click="switchEnterpriseSettingsTab(tab.key)"
+              >
+                <span class="enterprise-settings-tab-copy">{{ tab.label }}</span>
+                <span class="enterprise-settings-tab-hint">{{ tab.hint }}</span>
+                <span class="enterprise-settings-tab-badges">
+                  <span class="enterprise-settings-tab-badge">
+                    {{ tab.primary ? t('enterprise_settings_tab_badge_primary') : t('enterprise_settings_tab_badge_secondary') }}
+                  </span>
+                  <span
+                    class="enterprise-settings-tab-badge enterprise-settings-tab-access-badge"
+                    :class="`is-${tab.accessMode}`"
+                  >
+                    {{ enterpriseTabAccessLabel(tab.accessMode) }}
+                  </span>
+                </span>
+              </button>
+          </aside>
+
+          <div class="enterprise-settings-content">
+            <div class="enterprise-settings-section-title">{{ enterpriseSettingsTabLabel }}</div>
+            <div class="enterprise-settings-section-meta">
+              <span class="point-badge enterprise-settings-chip">
+                {{ enterpriseActiveTabModeLabel }}
+              </span>
+              <span class="point-badge enterprise-settings-chip enterprise-settings-chip-muted">
+                {{ enterpriseActiveTabAccessLabel }}
+              </span>
+            </div>
+            <p class="panel-hint enterprise-settings-section-hint">{{ enterpriseActiveTabAccessHint }}</p>
+
+            <template v-if="enterpriseSettingsActiveTab === 'overview'">
+              <p class="panel-hint">{{ t('enterprise_settings_overview_hint') }}</p>
+              <div class="enterprise-settings-focus-card">
+                <strong>{{ enterpriseRoleFocus.title }}</strong>
+                <p>{{ enterpriseRoleFocus.hint }}</p>
+              </div>
+              <div class="enterprise-settings-role-note">
+                <strong>{{ t('enterprise_settings_workspace_title') }}</strong>
+                <p>{{ enterpriseRoleScopeText }}</p>
+                <div class="enterprise-settings-chip-list">
+                  <span
+                    v-for="label in enterpriseWorkspaceSectionLabels"
+                    :key="`enterprise-workspace-${label}`"
+                    class="point-badge enterprise-settings-chip"
+                  >
+                    {{ label }}
+                  </span>
+                </div>
+              </div>
+              <div class="enterprise-settings-role-note">
+                <strong>{{ t('enterprise_settings_capabilities_title') }}</strong>
+                <p>{{ t('enterprise_settings_capabilities_hint') }}</p>
+                <div class="enterprise-settings-chip-list">
+                  <span
+                    v-for="item in enterpriseEnabledCapabilityCards"
+                    :key="`enterprise-capability-enabled-${item.key}`"
+                    class="point-badge enterprise-settings-chip"
+                  >
+                    {{ item.label }}
+                  </span>
+                </div>
+                <div v-if="enterpriseReadonlyCapabilityCards.length" class="task-line">
+                  {{ t('enterprise_settings_capabilities_readonly_title') }}
+                </div>
+                <div v-if="enterpriseReadonlyCapabilityCards.length" class="enterprise-settings-chip-list">
+                  <span
+                    v-for="item in enterpriseReadonlyCapabilityCards"
+                    :key="`enterprise-capability-readonly-${item.key}`"
+                    class="point-badge enterprise-settings-chip enterprise-settings-chip-muted"
+                  >
+                    {{ item.label }}
+                  </span>
+                </div>
+              </div>
+              <div class="map-settings-info-grid enterprise-settings-grid">
+                <div v-for="card in enterpriseOverviewCards" :key="card.key" class="map-settings-info-card">
+                  <div class="map-settings-info-label">{{ card.label }}</div>
+                  <div class="map-settings-info-value">{{ card.value }}</div>
+                </div>
+                <div class="map-settings-info-card">
+                  <div class="map-settings-info-label">{{ t('enterprise_settings_summary_map_profile') }}</div>
+                  <div class="map-settings-info-value">{{ currentMapProfileLabel }}</div>
+                </div>
+                <div class="map-settings-info-card">
+                  <div class="map-settings-info-label">{{ t('enterprise_settings_summary_dispatch_mode') }}</div>
+                  <div class="map-settings-info-value">{{ currentDispatchModeLabel }}</div>
+                </div>
+                <div class="map-settings-info-card">
+                  <div class="map-settings-info-label">{{ t('enterprise_settings_summary_active_tasks') }}</div>
+                  <div class="map-settings-info-value">{{ enterpriseActiveTasks }}</div>
+                </div>
+                <div class="map-settings-info-card">
+                  <div class="map-settings-info-label">{{ t('enterprise_settings_summary_open_faults') }}</div>
+                  <div class="map-settings-info-value">{{ enterpriseOpenFaults }}</div>
+                </div>
+                <div class="map-settings-info-card">
+                  <div class="map-settings-info-label">{{ t('enterprise_settings_summary_busy_agvs') }}</div>
+                  <div class="map-settings-info-value">{{ enterpriseBusyAgvs }}</div>
+                </div>
+              </div>
+              <div class="enterprise-settings-subsection">
+                <div class="enterprise-settings-subtitle">{{ t('enterprise_settings_recent_tasks_title') }}</div>
+                <div v-if="enterpriseRecentTasks.length === 0" class="empty-note">{{ t('enterprise_settings_recent_tasks_empty') }}</div>
+                <div v-else class="enterprise-settings-list">
+                  <article v-for="task in enterpriseRecentTasks" :key="`enterprise-task-${task.id}`" class="enterprise-settings-list-item">
+                    <div class="enterprise-settings-list-main">
+                      <strong>#{{ task.id }} · {{ taskStatusText(task.status) }}</strong>
+                      <span>{{ formatTaskCompactSummary(task) }}</span>
+                    </div>
+                    <div class="task-line">{{ formatTaskTime(task) || formatDateTimeInline(task.created_at) }}</div>
+                  </article>
+                </div>
+              </div>
+              <div class="enterprise-settings-subgrid">
+                <div class="enterprise-settings-subsection">
+                  <div class="enterprise-settings-subtitle">{{ t('enterprise_settings_recent_faults_title') }}</div>
+                  <div v-if="enterpriseRecentFaults.length === 0" class="empty-note">{{ t('enterprise_settings_recent_faults_empty') }}</div>
+                  <div v-else class="enterprise-settings-list">
+                    <article v-for="eventItem in enterpriseRecentFaults" :key="`enterprise-fault-${eventItem.id}`" class="enterprise-settings-list-item">
+                      <div class="enterprise-settings-list-main">
+                        <strong>{{ faultTypeText(eventItem.fault_type) }}</strong>
+                        <span>{{ faultSeverityText(eventItem.severity) }}</span>
+                      </div>
+                      <div class="task-line">{{ formatDateTimeInline(eventItem.created_at) }}</div>
+                    </article>
+                  </div>
+                </div>
+                <div v-if="authCanViewAudit" class="enterprise-settings-subsection">
+                  <div class="enterprise-settings-subtitle">{{ t('enterprise_settings_recent_audit_title') }}</div>
+                  <div v-if="enterpriseRecentAuditEntries.length === 0" class="empty-note">{{ t('enterprise_settings_recent_audit_empty') }}</div>
+                  <div v-else class="enterprise-settings-list">
+                    <article v-for="entry in enterpriseRecentAuditEntries" :key="`enterprise-audit-${entry.id}`" class="enterprise-settings-list-item">
+                      <div class="enterprise-settings-list-main">
+                        <strong>{{ formatOperationAuditTitle(entry) }}</strong>
+                        <span>{{ formatOperationAuditOperator(entry) }}</span>
+                      </div>
+                      <div class="task-line">{{ formatDateTimeInline(entry.created_at) }}</div>
+                    </article>
+                  </div>
+                </div>
+              </div>
+              <div class="enterprise-settings-actions">
+                <button class="btn-secondary" type="button" @click="applyEnterprisePanelPreset()">
+                  {{ t('enterprise_settings_apply_workspace_preset') }}
+                </button>
+                <button class="btn-secondary" type="button" @click="jumpFromEnterpriseSettings('control')">
+                  {{ t('enterprise_settings_open_dispatch') }}
+                </button>
+                <button class="btn-secondary" type="button" @click="jumpFromEnterpriseSettings('queue')">
+                  {{ t('enterprise_settings_open_queue') }}
+                </button>
+              </div>
+            </template>
+
+            <template v-else-if="enterpriseSettingsActiveTab === 'map_profiles'">
+              <p class="panel-hint">{{ t('enterprise_settings_map_profiles_hint') }}</p>
+              <div class="enterprise-settings-role-note">
+                <strong>{{ enterpriseActiveTabModeLabel }}</strong>
+                <p>{{ enterpriseActiveTabModeHint }}</p>
+              </div>
+              <div class="map-settings-info-grid enterprise-settings-grid">
+                <div class="map-settings-info-card">
+                  <div class="map-settings-info-label">{{ settingsLocale.mapInfoProfile }}</div>
+                  <div class="map-settings-info-value">{{ currentMapProfileLabel }}</div>
+                </div>
+                <div class="map-settings-info-card">
+                  <div class="map-settings-info-label">{{ settingsLocale.mapInfoSize }}</div>
+                  <div class="map-settings-info-value">{{ mapSizeLabel }}</div>
+                </div>
+                <div class="map-settings-info-card">
+                  <div class="map-settings-info-label">{{ settingsLocale.mapInfoBlocked }}</div>
+                  <div class="map-settings-info-value">{{ blockedCellCount }}</div>
+                </div>
+                <div class="map-settings-info-card">
+                  <div class="map-settings-info-label">{{ t('enterprise_settings_summary_profile_count') }}</div>
+                  <div class="map-settings-info-value">{{ mapProfiles.length }}</div>
+                </div>
+              </div>
+              <div
+                v-if="mapProfileActionSummary"
+                class="map-profile-summary-card"
+                :class="{
+                  'is-blocked': mapProfileActionSummary.type === 'blocked',
+                  'is-forced': mapProfileActionSummary.type === 'forced'
+                }"
+              >
+                <div class="map-profile-summary-title">{{ mapProfileActionSummaryTitle() }}</div>
+                <div class="map-profile-summary-text">
+                  {{ mapProfileActionSummary.profileName }}
+                </div>
+                <div
+                  v-if="mapProfileActionSummary.type === 'blocked' && mapProfileActionSummary.forceApplyAllowed"
+                  class="map-profile-summary-text"
+                >
+                  {{ settingsLocale.mapProfileSummaryForceHint }}
+                </div>
+                <ul
+                  v-if="mapProfileActionSummary.type === 'blocked' && Array.isArray(mapProfileActionSummary.blockers)"
+                  class="map-size-preview-list compact"
+                >
+                  <li
+                    v-for="reasonKey in mapProfileActionSummary.blockers"
+                    :key="`enterprise-summary-${reasonKey}`"
+                  >
+                    <button
+                      type="button"
+                      class="map-size-preview-reason-action"
+                      @click.stop="focusMapResizeReasonKey(reasonKey)"
+                    >
+                      {{ buildMapResizeReasonItem(reasonKey).text }}
+                    </button>
+                  </li>
+                </ul>
+                <div
+                  v-if="mapProfileActionSummary.type === 'forced'"
+                  class="map-profile-summary-metrics"
+                >
+                  <div class="map-profile-summary-metric">
+                    {{ settingsLocale.mapProfileSummaryPreviousProfile.replace('{name}', mapProfileActionSummary.previousProfileName || '—') }}
+                  </div>
+                  <div class="map-profile-summary-metric">
+                    {{ settingsLocale.mapProfileSummaryNextProfile.replace('{name}', mapProfileActionSummary.profileName || '—') }}
+                  </div>
+                  <div class="map-profile-summary-metric">
+                    {{ settingsLocale.mapProfileSummarySizeBefore.replace('{size}', mapProfileActionSummary.previousSizeLabel || '—') }}
+                  </div>
+                  <div class="map-profile-summary-metric">
+                    {{ settingsLocale.mapProfileSummarySizeAfter.replace('{size}', mapProfileActionSummary.nextSizeLabel || '—') }}
+                  </div>
+                  <div class="map-profile-summary-metric">
+                    {{ settingsLocale.mapProfileSummaryBlockedBefore.replace('{count}', String(mapProfileActionSummary.previousBlockedCount ?? 0)) }}
+                  </div>
+                  <div class="map-profile-summary-metric">
+                    {{ settingsLocale.mapProfileSummaryBlockedAfter.replace('{count}', String(mapProfileActionSummary.nextBlockedCount ?? 0)) }}
+                  </div>
+                  <div class="map-profile-summary-metric">
+                    {{ settingsLocale.mapProfileSummaryRelocated.replace('{count}', String(mapProfileActionSummary.relocatedAgvs?.length ?? 0)) }}
+                  </div>
+                  <div class="map-profile-summary-metric">
+                    {{ settingsLocale.mapProfileSummaryTrimmed.replace('{count}', String(mapProfileActionSummary.trimmedBlockedCount ?? 0)) }}
+                  </div>
+                </div>
+                <div
+                  v-if="mapProfileActionSummary.type === 'forced'"
+                  class="map-profile-summary-actions"
+                >
+                  <button
+                    type="button"
+                    class="btn-ghost"
+                    @click="exportMapProfileActionSummary"
+                  >
+                    {{ settingsLocale.mapProfileSummaryExport }}
+                  </button>
+                </div>
+              </div>
+              <div class="enterprise-settings-subsection">
+                <div class="enterprise-settings-subtitle">{{ t('enterprise_settings_profile_list_title') }}</div>
+                <div v-if="mapProfiles.length === 0" class="empty-note">{{ t('enterprise_settings_profile_list_empty') }}</div>
+                <div v-else class="map-profile-grid enterprise-settings-map-profile-grid">
+                  <div
+                    v-for="profile in mapProfiles"
+                    :key="`enterprise-profile-${profile.key}`"
+                    class="map-profile-card"
+                    :class="{ 'is-current': isCurrentMapProfile(profile) }"
+                  >
+                    <div class="map-profile-head">
+                      <div class="map-profile-name">{{ localizedMapProfileField(profile.name) }}</div>
+                      <span v-if="isCurrentMapProfile(profile)" class="map-profile-badge">
+                        {{ settingsLocale.mapProfileCurrent }}
+                      </span>
+                    </div>
+                    <div class="map-profile-meta">
+                      {{ profile.grid_cols }} x {{ profile.grid_rows }}
+                    </div>
+                    <div class="map-profile-desc">
+                      {{ localizedMapProfileField(profile.description) }}
+                    </div>
+                    <div v-if="formatMapProfileCreatedBy(profile)" class="map-profile-operator">
+                      {{ formatMapProfileCreatedBy(profile) }}
+                    </div>
+                    <div v-if="formatMapProfileLastOperator(profile)" class="map-profile-operator">
+                      {{ formatMapProfileLastOperator(profile) }}
+                    </div>
+                    <div
+                      v-if="mapProfilePreviewStatusText(profile)"
+                      class="map-profile-preview-status"
+                      :class="{
+                        'is-ready': mapProfilePreviewStatus(profile) === 'ready',
+                        'is-blocked': mapProfilePreviewStatus(profile) === 'blocked',
+                        'is-current': mapProfilePreviewStatus(profile) === 'current'
+                      }"
+                    >
+                      {{ mapProfilePreviewStatusText(profile) }}
+                    </div>
+                    <div
+                      v-if="mapProfilePreviewReasonItems(profile).length > 0"
+                      class="map-profile-preview-reasons"
+                    >
+                      <div class="map-profile-preview-reason-title">
+                        {{ settingsLocale.mapProfilePreviewReasonTitle }}
+                      </div>
+                      <ul class="map-size-preview-list compact">
+                        <li
+                          v-for="reason in mapProfilePreviewReasonItems(profile)"
+                          :key="`${profile.key}-${reason.key}`"
+                        >
+                          <button
+                            type="button"
+                            class="map-size-preview-reason-action"
+                            @click.stop="focusMapResizeReasonItem(reason)"
+                          >
+                            {{ reason.text }}
+                          </button>
+                        </li>
+                      </ul>
+                    </div>
+                    <div class="map-profile-actions">
+                      <button
+                        :class="canForceApplyMapProfile(profile) ? 'btn-danger' : 'btn-secondary'"
+                        type="button"
+                        :disabled="isCurrentMapProfile(profile) || Boolean(mapProfileApplyingKey) || Boolean(mapProfileDeletingKey) || Boolean(mapProfileExportingKey) || mapProfileImporting || !canApplyMapProfileWithCapability(profile)"
+                        :title="buildMapProfileApplyTitle(profile)"
+                        @click="applyMapProfile(profile)"
+                      >
+                        {{
+                          isCurrentMapProfile(profile)
+                            ? settingsLocale.mapProfileCurrent
+                            : isMapProfileApplying(profile)
+                              ? settingsLocale.mapProfileApplying
+                              : canForceApplyMapProfile(profile)
+                                ? settingsLocale.mapProfileForceApply
+                                : settingsLocale.mapProfileApply
+                        }}
+                      </button>
+                      <button
+                        class="btn-ghost"
+                        type="button"
+                        :disabled="Boolean(mapProfileApplyingKey) || Boolean(mapProfileDeletingKey) || Boolean(mapProfileExportingKey) || mapProfileImporting || isMapProfilePreviewing(profile)"
+                        @click="previewMapProfile(profile)"
+                      >
+                        {{
+                          isMapProfilePreviewing(profile)
+                            ? settingsLocale.mapProfilePreviewing
+                            : settingsLocale.mapProfilePreview
+                        }}
+                      </button>
+                      <button
+                        class="btn-ghost"
+                        type="button"
+                        :disabled="Boolean(mapProfileApplyingKey) || Boolean(mapProfileDeletingKey) || Boolean(mapProfileExportingKey) || mapProfileImporting"
+                        @click="exportMapProfile(profile)"
+                      >
+                        {{
+                          isMapProfileExporting(profile)
+                            ? settingsLocale.mapProfileExporting
+                            : settingsLocale.mapProfileExport
+                        }}
+                      </button>
+                      <button
+                        v-if="profile.deletable"
+                        class="btn-delete"
+                        type="button"
+                        :disabled="!authCanMapWrite || Boolean(mapProfileApplyingKey) || Boolean(mapProfileDeletingKey) || Boolean(mapProfileExportingKey) || mapProfileImporting"
+                        :title="buildCapabilityLockedTitle('map', authCanMapWrite)"
+                        @click="deleteMapProfile(profile)"
+                      >
+                        {{
+                          isMapProfileDeleting(profile)
+                            ? settingsLocale.mapProfileDeleting
+                            : settingsLocale.mapProfileDelete
+                        }}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="enterprise-settings-actions">
+                <button class="btn-secondary" type="button" @click="jumpFromEnterpriseSettings('control')">
+                  {{ t('enterprise_settings_open_map_settings') }}
+                </button>
+              </div>
+            </template>
+
+            <template v-else-if="enterpriseSettingsActiveTab === 'point_templates'">
+              <p class="panel-hint">{{ t('enterprise_settings_point_templates_hint') }}</p>
+              <div class="enterprise-settings-role-note">
+                <strong>{{ enterpriseActiveTabModeLabel }}</strong>
+                <p>{{ enterpriseActiveTabModeHint }}</p>
+              </div>
+              <div class="enterprise-settings-role-note">
+                <strong>{{ t('enterprise_settings_actions_title') }}</strong>
+                <p>{{ t('enterprise_settings_point_templates_action_hint') }}</p>
+                <div class="enterprise-settings-chip-list">
+                  <span
+                    v-for="item in enterprisePointTemplateActionScope.enabled"
+                    :key="`enterprise-point-template-enabled-${item.key}`"
+                    class="point-badge enterprise-settings-chip"
+                  >
+                    {{ item.label }}
+                  </span>
+                </div>
+                <div v-if="enterprisePointTemplateActionScope.readonly.length" class="task-line">
+                  {{ t('enterprise_settings_capabilities_readonly_title') }}
+                </div>
+                <div v-if="enterprisePointTemplateActionScope.readonly.length" class="enterprise-settings-chip-list">
+                  <span
+                    v-for="item in enterprisePointTemplateActionScope.readonly"
+                    :key="`enterprise-point-template-readonly-${item.key}`"
+                    class="point-badge enterprise-settings-chip enterprise-settings-chip-muted"
+                  >
+                    {{ item.label }}
+                  </span>
+                </div>
+              </div>
+              <div class="enterprise-settings-role-note">
+                <strong>{{ enterprisePointTemplateFocus.title }}</strong>
+                <p>{{ enterprisePointTemplateFocus.hint }}</p>
+                <div class="enterprise-settings-chip-list">
+                  <button
+                    v-for="action in enterprisePointTemplateFocus.actions"
+                    :key="`enterprise-point-template-action-${action.key}`"
+                    class="btn-ghost enterprise-settings-action-chip"
+                    type="button"
+                    @click="jumpFromEnterpriseSettings(action.key)"
+                  >
+                    {{ action.label }}
+                  </button>
+                </div>
+              </div>
+              <div class="map-settings-info-grid enterprise-settings-grid">
+                <div class="map-settings-info-card">
+                  <div class="map-settings-info-label">{{ t('enterprise_settings_summary_points_total') }}</div>
+                  <div class="map-settings-info-value">{{ pointLibrary.length }}</div>
+                </div>
+                <div class="map-settings-info-card">
+                  <div class="map-settings-info-label">{{ t('enterprise_settings_summary_points_custom') }}</div>
+                  <div class="map-settings-info-value">{{ customPoints.length }}</div>
+                </div>
+                <div class="map-settings-info-card">
+                  <div class="map-settings-info-label">{{ t('enterprise_settings_summary_templates_total') }}</div>
+                  <div class="map-settings-info-value">{{ taskTemplates.length }}</div>
+                </div>
+                <div class="map-settings-info-card">
+                  <div class="map-settings-info-label">{{ t('enterprise_settings_summary_templates_custom') }}</div>
+                  <div class="map-settings-info-value">{{ customTaskTemplates.length }}</div>
+                </div>
+              </div>
+              <div class="enterprise-settings-subgrid">
+                <div class="enterprise-settings-subsection">
+                  <div class="enterprise-settings-subtitle">{{ t('enterprise_settings_points_list_title') }}</div>
+                  <div v-if="enterpriseRecentCustomPoints.length === 0" class="empty-note">{{ t('enterprise_settings_points_list_empty') }}</div>
+                  <div v-else class="enterprise-settings-list">
+                    <article v-for="point in enterpriseRecentCustomPoints" :key="`enterprise-point-${point.id}`" class="enterprise-settings-list-item">
+                      <div class="enterprise-settings-list-main">
+                        <strong>{{ point.name }}</strong>
+                        <span>{{ point.x }}, {{ point.y }}</span>
+                      </div>
+                      <div class="task-line">{{ point.zone || '—' }}</div>
+                    </article>
+                  </div>
+                </div>
+                <div class="enterprise-settings-subsection">
+                  <div class="enterprise-settings-subtitle">{{ t('enterprise_settings_templates_list_title') }}</div>
+                  <div v-if="enterpriseRecentCustomTemplates.length === 0" class="empty-note">{{ t('enterprise_settings_templates_list_empty') }}</div>
+                  <div v-else class="enterprise-settings-list">
+                    <article v-for="template in enterpriseRecentCustomTemplates" :key="`enterprise-template-${template.id}`" class="enterprise-settings-list-item">
+                      <div class="enterprise-settings-list-main">
+                        <strong>{{ template.name }}</strong>
+                        <span>{{ formatInlineMessage(t('enterprise_settings_templates_stage_count'), { count: template.stages?.length || 0 }) }}</span>
+                      </div>
+                      <div class="task-line">{{ template.description || '—' }}</div>
+                    </article>
+                  </div>
+                </div>
+              </div>
+              <div class="enterprise-settings-actions">
+                <button class="btn-secondary" type="button" @click="jumpFromEnterpriseSettings('points')">
+                  {{ t('enterprise_settings_open_points') }}
+                </button>
+                <button class="btn-secondary" type="button" @click="jumpFromEnterpriseSettings('templates')">
+                  {{ t('enterprise_settings_open_templates') }}
+                </button>
+              </div>
+            </template>
+
+            <template v-else-if="enterpriseSettingsActiveTab === 'runtime'">
+              <p class="panel-hint">{{ t('enterprise_settings_runtime_hint') }}</p>
+              <div class="enterprise-settings-role-note">
+                <strong>{{ enterpriseActiveTabModeLabel }}</strong>
+                <p>{{ enterpriseActiveTabModeHint }}</p>
+              </div>
+              <div class="enterprise-settings-role-note">
+                <strong>{{ t('enterprise_settings_actions_title') }}</strong>
+                <p>{{ t('enterprise_settings_runtime_action_hint') }}</p>
+                <div class="enterprise-settings-chip-list">
+                  <span
+                    v-for="item in enterpriseRuntimeActionScope.enabled"
+                    :key="`enterprise-runtime-enabled-${item.key}`"
+                    class="point-badge enterprise-settings-chip"
+                  >
+                    {{ item.label }}
+                  </span>
+                </div>
+                <div v-if="enterpriseRuntimeActionScope.readonly.length" class="task-line">
+                  {{ t('enterprise_settings_capabilities_readonly_title') }}
+                </div>
+                <div v-if="enterpriseRuntimeActionScope.readonly.length" class="enterprise-settings-chip-list">
+                  <span
+                    v-for="item in enterpriseRuntimeActionScope.readonly"
+                    :key="`enterprise-runtime-readonly-${item.key}`"
+                    class="point-badge enterprise-settings-chip enterprise-settings-chip-muted"
+                  >
+                    {{ item.label }}
+                  </span>
+                </div>
+              </div>
+              <div class="enterprise-settings-role-note">
+                <strong>{{ enterpriseRuntimeFocus.title }}</strong>
+                <p>{{ enterpriseRuntimeFocus.hint }}</p>
+                <div class="enterprise-settings-chip-list">
+                  <button
+                    v-for="action in enterpriseRuntimeFocus.actions"
+                    :key="`enterprise-runtime-action-${action.key}`"
+                    class="btn-ghost enterprise-settings-action-chip"
+                    type="button"
+                    @click="jumpFromEnterpriseSettings(action.key)"
+                  >
+                    {{ action.label }}
+                  </button>
+                </div>
+              </div>
+              <div class="map-settings-info-grid enterprise-settings-grid">
+                <div class="map-settings-info-card">
+                  <div class="map-settings-info-label">{{ t('dispatch') }}</div>
+                  <div class="map-settings-info-value">{{ currentDispatchModeLabel }}</div>
+                </div>
+                <div class="map-settings-info-card">
+                  <div class="map-settings-info-label">{{ t('algorithm') }}</div>
+                  <div class="map-settings-info-value">{{ algorithmText(algorithm) }}</div>
+                </div>
+                <div class="map-settings-info-card">
+                  <div class="map-settings-info-label">{{ t('priority') }}</div>
+                  <div class="map-settings-info-value">{{ taskPriority }}</div>
+                </div>
+                <div class="map-settings-info-card">
+                  <div class="map-settings-info-label">{{ settingsLocale.compareDisplay }}</div>
+                  <div class="map-settings-info-value">{{ compareDisplayMode === 'floating' ? settingsLocale.compareDisplayFloating : settingsLocale.compareDisplayPanel }}</div>
+                </div>
+              </div>
+              <div class="enterprise-settings-subsection">
+                <div class="enterprise-settings-subtitle">{{ t('enterprise_settings_runtime_notes_title') }}</div>
+                <div class="enterprise-settings-list">
+                  <article class="enterprise-settings-list-item">
+                    <div class="enterprise-settings-list-main">
+                      <strong>{{ t('enterprise_settings_runtime_note_tasks') }}</strong>
+                      <span>{{ enterpriseActiveTasks }}</span>
+                    </div>
+                    <div class="task-line">{{ t('enterprise_settings_runtime_note_tasks_hint') }}</div>
+                  </article>
+                  <article class="enterprise-settings-list-item">
+                    <div class="enterprise-settings-list-main">
+                      <strong>{{ t('enterprise_settings_runtime_note_faults') }}</strong>
+                      <span>{{ enterpriseOpenFaults }}</span>
+                    </div>
+                    <div class="task-line">{{ t('enterprise_settings_runtime_note_faults_hint') }}</div>
+                  </article>
+                </div>
+              </div>
+              <div class="enterprise-settings-actions">
+                <button class="btn-secondary" type="button" @click="jumpFromEnterpriseSettings('control')">
+                  {{ t('enterprise_settings_open_dispatch') }}
+                </button>
+                <button class="btn-secondary" type="button" @click="jumpFromEnterpriseSettings('experiments')">
+                  {{ t('enterprise_settings_open_experiments') }}
+                </button>
+              </div>
+            </template>
+
+            <template v-else-if="enterpriseSettingsActiveTab === 'ai'">
+              <p class="panel-hint">{{ t('enterprise_settings_ai_hint') }}</p>
+              <div class="enterprise-settings-role-note">
+                <strong>{{ enterpriseActiveTabModeLabel }}</strong>
+                <p>{{ enterpriseActiveTabModeHint }}</p>
+              </div>
+              <div class="enterprise-settings-role-note">
+                <strong>{{ t('enterprise_settings_actions_title') }}</strong>
+                <p>{{ t('enterprise_settings_ai_action_hint') }}</p>
+                <div class="enterprise-settings-chip-list">
+                  <span
+                    v-for="item in enterpriseAiActionScope.enabled"
+                    :key="`enterprise-ai-enabled-${item.key}`"
+                    class="point-badge enterprise-settings-chip"
+                  >
+                    {{ item.label }}
+                  </span>
+                </div>
+                <div v-if="enterpriseAiActionScope.readonly.length" class="task-line">
+                  {{ t('enterprise_settings_capabilities_readonly_title') }}
+                </div>
+                <div v-if="enterpriseAiActionScope.readonly.length" class="enterprise-settings-chip-list">
+                  <span
+                    v-for="item in enterpriseAiActionScope.readonly"
+                    :key="`enterprise-ai-readonly-${item.key}`"
+                    class="point-badge enterprise-settings-chip enterprise-settings-chip-muted"
+                  >
+                    {{ item.label }}
+                  </span>
+                </div>
+              </div>
+              <div class="map-settings-info-grid enterprise-settings-grid">
+                <div class="map-settings-info-card">
+                  <div class="map-settings-info-label">{{ t('ai_render_title') }}</div>
+                  <div class="map-settings-info-value">{{ comfyRenderJobs.length }}</div>
+                </div>
+                <div class="map-settings-info-card">
+                  <div class="map-settings-info-label">{{ t('enterprise_settings_summary_checkpoint_count') }}</div>
+                  <div class="map-settings-info-value">{{ comfyRenderAvailableCheckpoints.length || '—' }}</div>
+                </div>
+                <div class="map-settings-info-card">
+                  <div class="map-settings-info-label">{{ t('enterprise_settings_summary_last_ai_job') }}</div>
+                  <div class="map-settings-info-value">{{ comfyRenderJobs[0]?.created_at || '—' }}</div>
+                </div>
+              </div>
+              <div v-if="comfyRenderStatus" :class="['template-status', comfyRenderStatusType]">
+                {{ comfyRenderStatus }}
+              </div>
+                <div class="enterprise-settings-subsection">
+                  <div class="enterprise-settings-subtitle">{{ t('ai_render_title') }}</div>
+                  <div class="ai-template-shell ai-template-shell-highlight">
+                    <div class="enterprise-settings-subtitle ai-template-subtitle">{{ t('ai_render_builtin_templates') }}</div>
+                    <div class="task-line ai-template-inline-hint">{{ t('ai_render_builtin_templates_hint') }}</div>
+                    <div class="ai-template-selector-row">
+                      <label class="ai-template-selector-field">
+                        <span class="ai-template-selector-label">{{ t('ai_render_builtin_template_select') }}</span>
+                        <select v-model="comfyRenderBuiltinTemplateKey">
+                          <option v-for="item in comfyRenderBuiltinTemplates" :key="`enterprise-builtin-select-${item.key}`" :value="item.key">
+                            {{ item.label }}
+                          </option>
+                        </select>
+                      </label>
+                      <button class="btn-ghost ai-template-overview-trigger" type="button" @click="openComfyBuiltinTemplateOverview">
+                        {{ t('ai_render_show_builtin_overview') }}
+                      </button>
+                    </div>
+                  <article v-if="comfyRenderSelectedBuiltinTemplate" class="ai-template-card builtin">
+                    <div class="ai-template-card-head">
+                      <div class="ai-template-card-copy">
+                        <strong>{{ comfyRenderSelectedBuiltinTemplate.label }}</strong>
+                        <div class="task-line">{{ comfyRenderSelectedBuiltinTemplate.hint }}</div>
+                      </div>
+                      <span class="point-badge enterprise-settings-chip">{{ comfyRenderSelectedBuiltinTemplate.workflowPreset }}</span>
+                    </div>
+                    <div class="ai-template-chip-row">
+                      <span
+                        v-if="comfyRenderSelectedBuiltinTemplateMatchesRecommendation"
+                        class="point-badge enterprise-settings-chip"
+                      >
+                        {{ t('ai_render_recommended_template_title') }}
+                      </span>
+                      <span class="point-badge enterprise-settings-chip enterprise-settings-chip-muted">
+                        {{ comfyRenderSelectedBuiltinTemplate.promptStyleLabel }}
+                      </span>
+                      <span
+                        v-for="sourceLabel in comfyRenderSelectedBuiltinTemplate.recommendedSources"
+                        :key="`enterprise-builtin-source-${sourceLabel}`"
+                        class="point-badge enterprise-settings-chip enterprise-settings-chip-muted"
+                      >
+                        {{ sourceLabel }}
+                      </span>
+                    </div>
+                    <button class="btn-secondary full-width" type="button" :disabled="comfyRenderSubmitting" @click="applySelectedBuiltinComfyTemplate">
+                      {{ t('ai_render_apply_builtin') }}
+                    </button>
+                  </article>
+                </div>
+                <div class="ai-form-shell">
+                <div class="form-grid ai-form-grid">
+                  <label>
+                    <span>{{ t('ai_render_source_type') }}</span>
+                    <select v-model="comfyRenderSourceType">
+                      <option v-for="option in comfyRenderSourceOptions" :key="option.value" :value="option.value">
+                        {{ option.label }}
+                      </option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>{{ t('ai_render_source_ref') }}</span>
+                    <input
+                      v-model.trim="comfyRenderSourceRef"
+                      :placeholder="t('ai_render_source_ref_placeholder')"
+                    />
+                  </label>
+                  <label>
+                    <span>{{ t('ai_render_checkpoint_name') }}</span>
+                    <input
+                      v-model.trim="comfyRenderCheckpointName"
+                      list="enterprise-comfy-checkpoint-options"
+                      :placeholder="t('ai_render_checkpoint_name_placeholder')"
+                    />
+                  </label>
+                  <label>
+                    <span>{{ t('ai_render_workflow_preset') }}</span>
+                    <select v-model="comfyRenderWorkflowPreset">
+                      <option v-for="option in comfyRenderWorkflowPresetOptions" :key="option.value" :value="option.value">
+                        {{ option.label }}
+                      </option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>{{ t('ai_render_prompt_style') }}</span>
+                    <select v-model="comfyRenderPromptStyle">
+                      <option v-for="option in comfyRenderPromptStyleOptions" :key="option.value" :value="option.value">
+                        {{ option.label }}
+                      </option>
+                    </select>
+                  </label>
+                  <label class="span-2">
+                    <span>{{ t('ai_render_template_name') }}</span>
+                    <input
+                      v-model.trim="comfyRenderTemplateName"
+                      :placeholder="t('ai_render_template_name_placeholder')"
+                    />
+                  </label>
+                  <label class="span-2">
+                    <span>{{ t('ai_render_saved_templates') }}</span>
+                    <select v-model="comfyRenderSelectedTemplateId">
+                      <option value="">{{ t('ai_render_template_none') }}</option>
+                      <option v-for="item in comfyRenderSavedTemplates" :key="item.id" :value="item.id">
+                        {{ item.name }}
+                      </option>
+                    </select>
+                  </label>
+                  <label class="span-2">
+                    <span>{{ t('ai_render_prompt_text') }}</span>
+                    <textarea v-model="comfyRenderPromptText" rows="3" />
+                  </label>
+                </div>
+                <div class="ai-action-grid primary">
+                  <button class="btn-secondary" type="button" :disabled="comfyRenderSubmitting" @click="loadComfySourcePayload">
+                    {{ t('ai_render_load_source') }}
+                  </button>
+                  <button class="btn-secondary" type="button" :disabled="comfyRenderSubmitting" @click="loadDefaultComfyWorkflow">
+                    {{ t('ai_render_fill_default_workflow') }}
+                  </button>
+                  <button class="btn-primary" type="button" :disabled="comfyRenderSubmitting" @click="submitComfyRenderJob">
+                    {{ comfyRenderSubmitting ? t('ai_render_submitting') : t('ai_render_submit') }}
+                  </button>
+                  <button class="btn-ghost" type="button" :disabled="comfyRenderLoading" @click="fetchComfyRenderJobs({ force: true })">
+                    {{ comfyRenderLoading ? `${t('ai_render_refresh')}...` : t('ai_render_refresh') }}
+                  </button>
+                </div>
+                <div class="ai-template-shell">
+                  <div class="enterprise-settings-subtitle ai-template-subtitle">{{ t('ai_render_saved_templates_title') }}</div>
+                  <div class="ai-action-grid compact">
+                    <button class="btn-secondary" type="button" :disabled="comfyRenderSubmitting" @click="saveCurrentComfyTemplate">
+                      {{ t('ai_render_save_template') }}
+                    </button>
+                    <button class="btn-secondary" type="button" :disabled="comfyRenderSubmitting || !comfyRenderHasCustomTemplates" @click="applySelectedComfyTemplate">
+                      {{ t('ai_render_apply_template') }}
+                    </button>
+                    <button class="btn-secondary" type="button" :disabled="comfyRenderSubmitting || !comfyRenderHasCustomTemplates" @click="exportSelectedComfyTemplate">
+                      {{ t('ai_render_export_template') }}
+                    </button>
+                    <button class="btn-secondary" type="button" :disabled="comfyRenderSubmitting" @click="triggerComfyTemplateImport">
+                      {{ t('ai_render_import_template') }}
+                    </button>
+                    <button class="btn-ghost" type="button" :disabled="comfyRenderSubmitting || !comfyRenderHasCustomTemplates" @click="deleteSelectedComfyTemplate">
+                      {{ t('ai_render_delete_template') }}
+                    </button>
+                  </div>
+                </div>
+                <datalist id="enterprise-comfy-checkpoint-options">
+                  <option v-for="checkpointName in comfyRenderAvailableCheckpoints" :key="checkpointName" :value="checkpointName" />
+                </datalist>
+                <div class="ai-status-stack">
+                  <div class="task-line panel-hint">
+                    {{ t('ai_render_default_workflow_hint') }}
+                  </div>
+                  <div class="task-line panel-hint">
+                    {{ comfyRenderWorkflowPresetSummary }}
+                  </div>
+                  <div class="task-line panel-hint">
+                    {{ comfyRenderPromptStyleSummary }}
+                  </div>
+                  <div class="task-line panel-hint">
+                    {{ comfyRenderRecommendedCheckpointSummary }}
+                  </div>
+                </div>
+                </div>
+              </div>
+              <div class="enterprise-settings-subsection">
+                <div class="enterprise-settings-subtitle">{{ t('enterprise_settings_ai_jobs_title') }}</div>
+                <div v-if="comfyRenderLoading && enterpriseRecentAiJobs.length === 0" class="template-status info">
+                  {{ t('ai_render_loading') }}
+                </div>
+                <div v-else-if="enterpriseRecentAiJobs.length === 0" class="empty-note">{{ t('enterprise_settings_ai_jobs_empty') }}</div>
+                <div v-else class="ai-jobs-list">
+                  <article v-for="job in enterpriseRecentAiJobs" :key="`enterprise-ai-${job.id}`" class="ai-job-card">
+                    <div class="ai-job-head">
+                      <div>
+                        <strong>#{{ job.id }} · {{ formatComfyRenderSource(job) }}</strong>
+                        <div class="task-line">{{ formatDateTimeInline(job.created_at) }}</div>
+                      </div>
+                      <span class="point-badge">{{ formatComfyRenderStatus(job.status) }}</span>
+                    </div>
+                    <div v-if="job.error_message" class="task-line template-status error">
+                      {{ job.error_message }}
+                    </div>
+                    <div v-if="job.asset_urls?.length" class="ai-job-assets">
+                      <button
+                        v-for="(assetUrl, assetIndex) in job.asset_urls"
+                        :key="`${job.id}-asset-${assetIndex}`"
+                        class="ai-job-asset-link"
+                        type="button"
+                        @click="openComfyRenderAssetPreview(job, assetUrl, assetIndex)"
+                      >
+                        {{ formatComfyRenderAssetActionLabel(job, assetIndex) }}
+                      </button>
+                    </div>
+                    <div class="ai-job-actions">
+                      <button
+                        class="btn-danger"
+                        type="button"
+                        :disabled="deletingComfyJobId === job.id"
+                        @click="deleteComfyRenderJob(job.id)"
+                      >
+                        {{ deletingComfyJobId === job.id ? `${t('ai_render_delete')}...` : t('ai_render_delete') }}
+                      </button>
+                    </div>
+                  </article>
+                </div>
+              </div>
+              <p class="panel-hint">{{ buildAiRenderHintText() }}</p>
+              <div class="enterprise-settings-actions">
+                <button class="btn-secondary" type="button" @click="jumpFromEnterpriseSettings('ai')">
+                  {{ t('enterprise_settings_open_ai') }}
+                </button>
+              </div>
+            </template>
+
+            <template v-else-if="enterpriseSettingsActiveTab === 'audit'">
+              <p class="panel-hint">{{ t('enterprise_settings_audit_hint') }}</p>
+              <div class="enterprise-settings-role-note">
+                <strong>{{ enterpriseActiveTabModeLabel }}</strong>
+                <p>{{ enterpriseActiveTabModeHint }}</p>
+              </div>
+              <div class="map-settings-info-grid enterprise-settings-grid">
+                <div class="map-settings-info-card">
+                  <div class="map-settings-info-label">{{ t('operations_title') }}</div>
+                  <div class="map-settings-info-value">{{ operationAudits.length }}</div>
+                </div>
+                <div class="map-settings-info-card">
+                  <div class="map-settings-info-label">{{ t('enterprise_settings_summary_last_audit') }}</div>
+                  <div class="map-settings-info-value">{{ operationAuditLastFetchedAt || '—' }}</div>
+                </div>
+              </div>
+              <div class="enterprise-settings-subsection">
+                <div class="enterprise-settings-subtitle">{{ t('operations_title') }}</div>
+                <div class="operations-toolbar enterprise-settings-operations-toolbar">
+                  <div class="operations-filter-grid">
+                    <label>
+                      {{ t('operations_filter_resource') }}
+                      <select v-model="operationAuditResourceFilter">
+                        <option
+                          v-for="option in operationAuditResourceOptions"
+                          :key="`enterprise-audit-resource-${option.value}`"
+                          :value="option.value"
+                        >
+                          {{ option.label }}
+                        </option>
+                      </select>
+                    </label>
+                    <label>
+                      {{ t('operations_filter_action') }}
+                      <select v-model="operationAuditActionFilter">
+                        <option
+                          v-for="option in operationAuditActionOptions"
+                          :key="`enterprise-audit-action-${option.value}`"
+                          :value="option.value"
+                        >
+                          {{ option.label }}
+                        </option>
+                      </select>
+                    </label>
+                  </div>
+                  <div class="operations-toolbar-actions">
+                    <div v-if="operationAuditLastFetchedAt" class="task-line operations-last-fetched">
+                      {{ formatInlineMessage(t('operations_last_updated'), { at: operationAuditLastFetchedAt }) }}
+                    </div>
+                    <button class="btn-secondary" type="button" :disabled="operationAuditLoading" @click="fetchOperationAudits({ force: true })">
+                      {{ operationAuditLoading ? `${t('operations_refresh')}...` : t('operations_refresh') }}
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div class="enterprise-settings-subsection">
+                <div class="enterprise-settings-subtitle">{{ t('enterprise_settings_recent_audit_title') }}</div>
+                <div v-if="operationAuditLoading && enterpriseFilteredAuditEntries.length === 0" class="template-status info">
+                  {{ t('operations_loading') }}
+                </div>
+                <div v-else-if="enterpriseFilteredAuditEntries.length === 0" class="empty-note">{{ t('operations_empty') }}</div>
+                <div v-else class="operations-list enterprise-settings-operations-list">
+                  <article
+                    v-for="entry in enterpriseFilteredAuditEntries"
+                    :key="`enterprise-audit-panel-${entry.id}`"
+                    class="operations-card"
+                    :class="{ 'search-hit': matchedOperationAuditIds.includes(entry.id) }"
+                  >
+                    <div class="operations-card-head">
+                      <div>
+                        <strong>{{ formatOperationAuditTitle(entry) }}</strong>
+                        <div class="task-line">{{ formatOperationAuditResourceRef(entry) }}</div>
+                      </div>
+                      <span class="point-badge">{{ operationActionLabel(entry.action) }}</span>
+                    </div>
+                    <div class="task-line">{{ formatOperationAuditOperator(entry) }}</div>
+                    <div class="task-line task-time">{{ entry.performed_at }}</div>
+                    <div v-if="formatOperationAuditMetadata(entry)" class="task-line operations-summary">
+                      {{ formatOperationAuditMetadata(entry) }}
+                    </div>
+                  </article>
+                </div>
+              </div>
+              <p class="panel-hint">{{ buildOperationsHintText() }}</p>
+              <div class="enterprise-settings-actions">
+                <button class="btn-secondary" type="button" @click="jumpFromEnterpriseSettings('operations')">
+                  {{ t('enterprise_settings_open_audit') }}
+                </button>
+              </div>
+            </template>
+          </div>
+        </div>
+      </section>
+    </div>
+
     <div class="page-top" :style="pageTopStyle">
       <div class="page-top-main">
-    <h1>{{ t('title') }}</h1>
+    <button class="page-title-auth" type="button" :title="authTitleButtonTitle" @click="openAuthDialog">
+      <span class="page-title-auth-main">{{ t('title') }}</span>
+      <span class="page-title-auth-divider">·</span>
+      <span class="page-title-auth-mode">{{ authModeText }}</span>
+    </button>
 
     <div class="toolbar">
       <label class="field">
@@ -5719,6 +9263,22 @@ onBeforeUnmount(() => {
 
       <button ref="compareEntryButtonRef" class="toolbar-compare-entry" type="button" @click="handleCompareEntryClick">
         {{ compareEntryText }}
+      </button>
+      <button
+        v-if="authIsEnterpriseRole"
+        class="toolbar-compare-entry toolbar-admin-entry"
+        type="button"
+        @click="openEnterpriseSettingsDialog()"
+      >
+        {{ t('enterprise_settings_entry') }}
+      </button>
+      <button
+        v-if="authCanEnterpriseApprove"
+        class="toolbar-compare-entry toolbar-admin-entry"
+        type="button"
+        @click="openEnterpriseApprovalDialog"
+      >
+        {{ t('enterprise_approval_entry') }}
       </button>
     </div>
 
@@ -6086,14 +9646,26 @@ onBeforeUnmount(() => {
                   <span>{{ settingsLocale.showMinimap }}</span>
                 </label>
               </div>
+              <div v-if="!authCanMapWrite" class="permission-gate-card compact">
+                <div class="empty-note">
+                  {{ buildCapabilityReadonlyHint('map') }}
+                </div>
+                <div v-if="buildEnterprisePanelReadonlyHint('map')" class="task-line permission-gate-extra">
+                  {{ buildEnterprisePanelReadonlyHint('map') }}
+                </div>
+                <button class="btn-primary" type="button" @click="openAuthDialog">
+                  {{ buildOperationsEntryActionText() }}
+                </button>
+              </div>
               <div class="map-settings-group">
                 <div class="map-settings-subtitle">{{ settingsLocale.obstacleGroup }}</div>
                 <label class="map-setting-row">
                   <input
                     :checked="obstacleEditMode"
                     type="checkbox"
-                    :disabled="obstacleMutationLocked"
-                    @change="toggleObstacleEditMode"
+                    :disabled="!authCanMapWrite || obstacleMutationLocked"
+                    :title="buildCapabilityLockedTitle('map', authCanMapWrite)"
+                    @change="toggleObstacleEditModeWithAuth"
                   />
                   <span>{{ settingsLocale.obstacleEdit }}</span>
                 </label>
@@ -6136,7 +9708,8 @@ onBeforeUnmount(() => {
                   <button
                     class="btn-secondary"
                     type="button"
-                    :disabled="obstacleMapSaving || obstacleMutationLocked || obstaclePresets.length === 0"
+                    :disabled="!authCanMapWrite || obstacleMapSaving || obstacleMutationLocked || obstaclePresets.length === 0"
+                    :title="buildCapabilityLockedTitle('map', authCanMapWrite)"
                     @click="applyObstaclePreset"
                   >
                     {{ settingsLocale.obstaclePresetApply }}
@@ -6144,7 +9717,8 @@ onBeforeUnmount(() => {
                   <button
                     class="btn-secondary"
                     type="button"
-                    :disabled="obstacleMapSaving"
+                    :disabled="!authCanMapWrite || obstacleMapSaving"
+                    :title="buildCapabilityLockedTitle('map', authCanMapWrite)"
                     @click="saveCurrentObstaclePreset"
                   >
                     {{ settingsLocale.obstaclePresetSaveCustom }}
@@ -6152,7 +9726,8 @@ onBeforeUnmount(() => {
                   <button
                     class="btn-ghost"
                     type="button"
-                    :disabled="obstacleMapSaving || !selectedObstaclePresetDeletable"
+                    :disabled="!authCanMapWrite || obstacleMapSaving || !selectedObstaclePresetDeletable"
+                    :title="buildCapabilityLockedTitle('map', authCanMapWrite)"
                     @click="deleteSelectedObstaclePreset"
                   >
                     {{ settingsLocale.obstaclePresetDelete }}
@@ -6160,7 +9735,8 @@ onBeforeUnmount(() => {
                   <button
                     class="btn-secondary"
                     type="button"
-                    :disabled="obstacleMapSaving || obstacleMutationLocked || !obstacleLayoutDirty"
+                    :disabled="!authCanMapWrite || obstacleMapSaving || obstacleMutationLocked || !obstacleLayoutDirty"
+                    :title="buildCapabilityLockedTitle('map', authCanMapWrite)"
                     @click="saveBlockedCells"
                   >
                     {{ settingsLocale.obstacleSave }}
@@ -6171,15 +9747,17 @@ onBeforeUnmount(() => {
                   <button
                     class="btn-ghost"
                     type="button"
-                    :disabled="obstacleMutationLocked"
-                    @click="triggerObstacleLayoutImport"
+                    :disabled="!authCanMapWrite || obstacleMutationLocked"
+                    :title="buildCapabilityLockedTitle('map', authCanMapWrite)"
+                    @click="triggerObstacleLayoutImportWithAuth"
                   >
                     {{ settingsLocale.obstacleImport }}
                   </button>
                   <button
                     class="btn-ghost"
                     type="button"
-                    :disabled="obstacleMapSaving || obstacleMutationLocked"
+                    :disabled="!authCanMapWrite || obstacleMapSaving || obstacleMutationLocked"
+                    :title="buildCapabilityLockedTitle('map', authCanMapWrite)"
                     @click="resetBlockedCellsToDefault"
                   >
                     {{ settingsLocale.obstacleReset }}
@@ -6188,7 +9766,8 @@ onBeforeUnmount(() => {
                     v-if="importedObstacleLayoutPendingPreset"
                     class="btn-secondary"
                     type="button"
-                    :disabled="obstacleMapSaving"
+                    :disabled="!authCanMapWrite || obstacleMapSaving"
+                    :title="buildCapabilityLockedTitle('map', authCanMapWrite)"
                     @click="saveImportedObstacleAsPreset"
                   >
                     {{ obstacleImportSaveAsPresetText() }}
@@ -6385,7 +9964,8 @@ onBeforeUnmount(() => {
                   <button
                     class="btn-secondary"
                     type="button"
-                    :disabled="mapProfileSaving || mapProfileImporting"
+                    :disabled="!authCanMapWrite || mapProfileSaving || mapProfileImporting"
+                    :title="buildCapabilityLockedTitle('map', authCanMapWrite)"
                     @click="saveCurrentMapProfile"
                   >
                     {{ mapProfileSaving ? settingsLocale.mapProfileApplying : settingsLocale.mapProfileSave }}
@@ -6393,7 +9973,8 @@ onBeforeUnmount(() => {
                   <button
                     class="btn-ghost"
                     type="button"
-                    :disabled="mapProfileSaving || mapProfileImporting"
+                    :disabled="!authCanMapWrite || mapProfileSaving || mapProfileImporting"
+                    :title="buildCapabilityLockedTitle('map', authCanMapWrite)"
                     @click="triggerMapProfileImport"
                   >
                     {{ mapProfileImporting ? settingsLocale.mapProfileImporting : settingsLocale.mapProfileImport }}
@@ -6424,6 +10005,12 @@ onBeforeUnmount(() => {
                     </div>
                     <div class="map-profile-desc">
                       {{ localizedMapProfileField(profile.description) }}
+                    </div>
+                    <div v-if="formatMapProfileCreatedBy(profile)" class="map-profile-operator">
+                      {{ formatMapProfileCreatedBy(profile) }}
+                    </div>
+                    <div v-if="formatMapProfileLastOperator(profile)" class="map-profile-operator">
+                      {{ formatMapProfileLastOperator(profile) }}
                     </div>
                     <div
                       v-if="mapProfilePreviewStatusText(profile)"
@@ -6462,7 +10049,8 @@ onBeforeUnmount(() => {
                       <button
                         :class="canForceApplyMapProfile(profile) ? 'btn-danger' : 'btn-secondary'"
                         type="button"
-                        :disabled="isCurrentMapProfile(profile) || Boolean(mapProfileApplyingKey) || Boolean(mapProfileDeletingKey) || Boolean(mapProfileExportingKey) || mapProfileImporting"
+                        :disabled="isCurrentMapProfile(profile) || Boolean(mapProfileApplyingKey) || Boolean(mapProfileDeletingKey) || Boolean(mapProfileExportingKey) || mapProfileImporting || !canApplyMapProfileWithCapability(profile)"
+                        :title="buildMapProfileApplyTitle(profile)"
                         @click="applyMapProfile(profile)"
                       >
                         {{
@@ -6503,7 +10091,8 @@ onBeforeUnmount(() => {
                         v-if="profile.deletable"
                         class="btn-delete"
                         type="button"
-                        :disabled="Boolean(mapProfileApplyingKey) || Boolean(mapProfileDeletingKey) || Boolean(mapProfileExportingKey) || mapProfileImporting"
+                        :disabled="!authCanMapWrite || Boolean(mapProfileApplyingKey) || Boolean(mapProfileDeletingKey) || Boolean(mapProfileExportingKey) || mapProfileImporting"
+                        :title="buildCapabilityLockedTitle('map', authCanMapWrite)"
                         @click="deleteMapProfile(profile)"
                       >
                         {{
@@ -6557,7 +10146,8 @@ onBeforeUnmount(() => {
                   <button
                     class="btn-primary"
                     type="button"
-                    :disabled="mapResizePreviewLoading || !canApplyMapResize"
+                    :disabled="!authCanMapWrite || mapResizePreviewLoading || !canApplyMapResize"
+                    :title="buildCapabilityLockedTitle('map', authCanMapWrite)"
                     @click="applyMapResize"
                   >
                     {{ settingsLocale.resizeApply }}
@@ -6958,9 +10548,9 @@ onBeforeUnmount(() => {
                     <button class="btn-ghost" type="button" @click="toggleComparePanelExpanded">
                       {{ comparePanelExpanded ? panelLocale.collapse : panelLocale.expand }}
                     </button>
-                    <button class="btn-secondary" type="button" :disabled="pathCompareLoading" @click="compareCurrentRoute">
-                      {{ pathCompareLoading ? '...' : algorithmCompareLocale.run }}
-                    </button>
+                  <button class="btn-secondary" type="button" :disabled="pathCompareLoading" @click="compareCurrentRoute">
+                    {{ pathCompareLoading ? '...' : algorithmCompareLocale.run }}
+                  </button>
                     <button
                       v-if="pathCompareResult || pathCompareError"
                       class="btn-ghost"
@@ -7007,13 +10597,31 @@ onBeforeUnmount(() => {
                     </article>
                   </div>
                   <div v-if="pathCompareResult" class="json-actions">
-                    <button class="btn-primary" type="button" @click="saveCurrentExperimentRecord">
+                    <button
+                      class="btn-primary"
+                      type="button"
+                      :disabled="!authCanExperimentWrite"
+                      :title="buildCapabilityLockedTitle('data', authCanExperimentWrite)"
+                      @click="saveCurrentExperimentRecordWithAuth"
+                    >
                       {{ experimentLocale.saveCurrent }}
                     </button>
-                    <button class="btn-secondary" type="button" @click="exportCurrentCompareResultJson">
+                    <button
+                      class="btn-secondary"
+                      type="button"
+                      :disabled="!authCanExperimentWrite"
+                      :title="buildCapabilityLockedTitle('data', authCanExperimentWrite)"
+                      @click="exportCurrentCompareResultJsonWithAuth"
+                    >
                       {{ experimentLocale.exportCurrentJson }}
                     </button>
-                    <button class="btn-secondary" type="button" @click="exportCurrentCompareResultCsv">
+                    <button
+                      class="btn-secondary"
+                      type="button"
+                      :disabled="!authCanExperimentWrite"
+                      :title="buildCapabilityLockedTitle('data', authCanExperimentWrite)"
+                      @click="exportCurrentCompareResultCsvWithAuth"
+                    >
                       {{ experimentLocale.exportCurrentCsv }}
                     </button>
                   </div>
@@ -7053,6 +10661,17 @@ onBeforeUnmount(() => {
                     </button>
                   </div>
                 </div>
+                <div v-if="!authCanFaultWrite" class="permission-gate-card">
+                  <div class="empty-note">
+                    {{ buildCapabilityReadonlyHint('fault') }}
+                  </div>
+                  <div v-if="buildEnterprisePanelReadonlyHint('fault')" class="task-line permission-gate-extra">
+                    {{ buildEnterprisePanelReadonlyHint('fault') }}
+                  </div>
+                  <button class="btn-primary" type="button" @click="openAuthDialog">
+                    {{ buildOperationsEntryActionText() }}
+                  </button>
+                </div>
 
                 <template v-if="selectedBackendAgv">
                   <div
@@ -7083,7 +10702,8 @@ onBeforeUnmount(() => {
                         v-if="selectedBackendAgv.status !== 'emergency_stop'"
                         class="btn-danger fault-action-button"
                         type="button"
-                        :disabled="agvActionLoadingId === selectedBackendAgv.id || selectedBackendAgv.status === 'fault'"
+                        :disabled="!authCanFaultWrite || agvActionLoadingId === selectedBackendAgv.id || selectedBackendAgv.status === 'fault'"
+                        :title="buildCapabilityLockedTitle('fault', authCanFaultWrite)"
                         @click="emergencyStopSelectedAgv"
                       >
                         {{ faultLocale.emergencyStop }}
@@ -7092,7 +10712,8 @@ onBeforeUnmount(() => {
                         v-else
                         class="btn-secondary fault-action-button"
                         type="button"
-                        :disabled="agvActionLoadingId === selectedBackendAgv.id"
+                        :disabled="!authCanFaultWrite || agvActionLoadingId === selectedBackendAgv.id"
+                        :title="buildCapabilityLockedTitle('fault', authCanFaultWrite)"
                         @click="resumeSelectedAgv"
                       >
                         {{ faultLocale.resume }}
@@ -7100,7 +10721,8 @@ onBeforeUnmount(() => {
                       <button
                         class="btn-secondary fault-action-button"
                         type="button"
-                        :disabled="agvActionLoadingId === selectedBackendAgv.id"
+                        :disabled="!authCanFaultWrite || agvActionLoadingId === selectedBackendAgv.id"
+                        :title="buildCapabilityLockedTitle('fault', authCanFaultWrite)"
                         @click="showFaultReportForm = !showFaultReportForm"
                       >
                         {{ faultLocale.reportFault }}
@@ -7108,7 +10730,8 @@ onBeforeUnmount(() => {
                       <button
                         class="btn-secondary fault-action-button"
                         type="button"
-                        :disabled="agvActionLoadingId === selectedBackendAgv.id || ['running', 'relocating'].includes(selectedBackendAgv.status)"
+                        :disabled="!authCanFaultWrite || agvActionLoadingId === selectedBackendAgv.id || ['running', 'relocating'].includes(selectedBackendAgv.status)"
+                        :title="buildCapabilityLockedTitle('fault', authCanFaultWrite)"
                         @click="moveSelectedAgvToMaintenance"
                       >
                         {{ moveToMaintenanceText() }}
@@ -7143,7 +10766,8 @@ onBeforeUnmount(() => {
                         <button
                           class="btn-primary fault-action-button"
                           type="button"
-                          :disabled="agvActionLoadingId === selectedBackendAgv.id"
+                          :disabled="!authCanFaultWrite || agvActionLoadingId === selectedBackendAgv.id"
+                          :title="buildCapabilityLockedTitle('fault', authCanFaultWrite)"
                           @click="submitFaultReport"
                         >
                           {{ faultLocale.reportFaultSubmit }}
@@ -7169,7 +10793,8 @@ onBeforeUnmount(() => {
                       <button
                         class="btn-secondary fault-action-button"
                         type="button"
-                        :disabled="agvActionLoadingId === maintenanceAgv.id"
+                        :disabled="!authCanFaultWrite || agvActionLoadingId === maintenanceAgv.id"
+                        :title="buildCapabilityLockedTitle('fault', authCanFaultWrite)"
                         @click="returnAgvToService(maintenanceAgv.id)"
                       >
                         {{ returnToServiceText() }}
@@ -7205,15 +10830,22 @@ onBeforeUnmount(() => {
                     <div class="task-line task-time">
                       {{ faultLocale.reportedAt }}: {{ eventItem.reported_at }}
                     </div>
+                    <div v-if="formatFaultReportedBy(eventItem)" class="task-line">
+                      {{ formatFaultReportedBy(eventItem) }}
+                    </div>
                     <div v-if="eventItem.resolved_at" class="task-line task-time">
                       {{ faultLocale.resolvedAt }}: {{ eventItem.resolved_at }}
+                    </div>
+                    <div v-if="formatFaultResolvedBy(eventItem)" class="task-line">
+                      {{ formatFaultResolvedBy(eventItem) }}
                     </div>
                     <div class="task-actions">
                       <button
                         v-if="eventItem.status !== 'resolved'"
                         class="btn-secondary task-action-button"
                         type="button"
-                        :disabled="resolvingFaultId === eventItem.id"
+                        :disabled="!authCanFaultWrite || resolvingFaultId === eventItem.id"
+                        :title="buildCapabilityLockedTitle('fault', authCanFaultWrite)"
                         @click="resolveFaultEventItem(eventItem)"
                       >
                         {{ faultLocale.resolve }}
@@ -7235,6 +10867,17 @@ onBeforeUnmount(() => {
                   </button>
                 </div>
                 <p class="panel-hint">{{ currentTaskBuilderHint }}</p>
+                <div v-if="!authCanDispatchWrite" class="permission-gate-card compact">
+                  <div class="empty-note">
+                    {{ buildCapabilityReadonlyHint('dispatch') }}
+                  </div>
+                  <div v-if="buildEnterprisePanelReadonlyHint('dispatch')" class="task-line permission-gate-extra">
+                    {{ buildEnterprisePanelReadonlyHint('dispatch') }}
+                  </div>
+                  <button class="btn-primary" type="button" @click="openAuthDialog">
+                    {{ buildOperationsEntryActionText() }}
+                  </button>
+                </div>
                 <p v-if="manualDispatchOriginText" class="panel-hint">{{ manualDispatchOriginText }}</p>
                 <p v-if="taskBuilderMode === 'chain'" class="panel-hint">{{ taskChainLocale.priorityHint }}</p>
                 <div class="task-builder-meta">
@@ -7282,7 +10925,13 @@ onBeforeUnmount(() => {
                     <label>{{ singleTaskEndLabelY }}</label>
                     <input v-model.number="taskForm.end_y" type="number" min="0" :max="currentGridRows - 1" />
                   </div>
-                  <button class="btn-primary full-width" type="button" :disabled="!manualDispatchReady" @click="addTaskFromForm">
+                  <button
+                    class="btn-primary full-width"
+                    type="button"
+                    :disabled="!authCanDispatchWrite || !manualDispatchReady"
+                    :title="buildCapabilityLockedTitle('dispatch', authCanDispatchWrite)"
+                    @click="addTaskFromForm"
+                  >
                     {{ singleTaskSubmitText }}
                   </button>
                 </template>
@@ -7366,7 +11015,8 @@ onBeforeUnmount(() => {
                   <button
                     class="btn-primary full-width"
                     type="button"
-                    :disabled="taskChainStages.length < 2 || !manualDispatchReady"
+                    :disabled="!authCanDispatchWrite || taskChainStages.length < 2 || !manualDispatchReady"
+                    :title="buildCapabilityLockedTitle('dispatch', authCanDispatchWrite)"
                     @click="addTaskChainFromForm"
                   >
                     {{ chainTaskSubmitText }}
@@ -7399,6 +11049,17 @@ onBeforeUnmount(() => {
             <div v-show="panelSections.queue" class="panel-section-body">
               <div class="queue-panel">
                 <h2>{{ t('tasks') }}</h2>
+                <div v-if="!authCanDispatchWrite" class="permission-gate-card compact">
+                  <div class="empty-note">
+                    {{ buildCapabilityReadonlyHint('dispatch') }}
+                  </div>
+                  <div v-if="buildEnterprisePanelReadonlyHint('dispatch')" class="task-line permission-gate-extra">
+                    {{ buildEnterprisePanelReadonlyHint('dispatch') }}
+                  </div>
+                  <button class="btn-primary" type="button" @click="openAuthDialog">
+                    {{ buildOperationsEntryActionText() }}
+                  </button>
+                </div>
                 <div class="queue-toolbar">
                   <button
                     class="queue-bulk-button"
@@ -7419,7 +11080,8 @@ onBeforeUnmount(() => {
                   <button
                     class="queue-bulk-button danger"
                     type="button"
-                    :disabled="orphanedTaskCount === 0"
+                    :disabled="!authCanDispatchWrite || orphanedTaskCount === 0"
+                    :title="buildCapabilityLockedTitle('dispatch', authCanDispatchWrite)"
                     @click="deleteOrphanedTasks"
                   >
                     {{ t('queue_clear_orphaned') }}
@@ -7446,7 +11108,8 @@ onBeforeUnmount(() => {
                         v-if="group.key === 'blocked'"
                         class="queue-bulk-button"
                         type="button"
-                        :disabled="countRetryableBlockedTasks(group) === 0"
+                        :disabled="!authCanDispatchWrite || countRetryableBlockedTasks(group) === 0"
+                        :title="buildCapabilityLockedTitle('dispatch', authCanDispatchWrite)"
                         @click="retryAllBlockedTasksWithAStar(group)"
                       >
                         {{ t('queue_retry_all_astar') }}
@@ -7479,6 +11142,8 @@ onBeforeUnmount(() => {
                         v-if="group.key === 'finished'"
                         class="queue-bulk-button danger"
                         type="button"
+                        :disabled="!authCanDispatchWrite"
+                        :title="buildCapabilityLockedTitle('dispatch', authCanDispatchWrite)"
                         @click="deleteFinishedTasks"
                       >
                         {{ t('queue_delete_finished') }}
@@ -7523,6 +11188,7 @@ onBeforeUnmount(() => {
                         <div v-if="formatTaskAlgorithm(task)" class="task-line">{{ formatTaskAlgorithm(task) }}</div>
                         <div v-if="formatTaskInitialPoint(task)" class="task-line">{{ formatTaskInitialPoint(task) }}</div>
                         <div class="task-line">{{ formatTaskAgv(task) }}</div>
+                        <div v-if="formatTaskCreatedBy(task)" class="task-line">{{ formatTaskCreatedBy(task) }}</div>
                         <div v-if="isTaskOrphaned(task)" class="task-line task-reason alert">
                           {{ t('task_orphaned_hint') }}
                         </div>
@@ -7533,6 +11199,9 @@ onBeforeUnmount(() => {
                         <div v-if="formatTaskLastAction(task)" class="task-line task-last-action">
                           {{ taskLastActionLabel() }}: {{ formatTaskLastAction(task) }}
                         </div>
+                        <div v-if="formatTaskLastOperator(task)" class="task-line task-last-action">
+                          {{ formatTaskLastOperator(task) }}
+                        </div>
                         <div v-if="formatTaskTime(task)" class="task-line task-time">
                           {{ formatTaskTime(task) }}
                         </div>
@@ -7541,6 +11210,8 @@ onBeforeUnmount(() => {
                             v-if="isTaskDeletable(task)"
                             class="btn-delete task-action-button"
                             type="button"
+                            :disabled="!authCanDispatchWrite"
+                            :title="buildCapabilityLockedTitle('dispatch', authCanDispatchWrite)"
                             @click="deleteTask(task)"
                           >
                             {{ t('delete_task') }}
@@ -7549,7 +11220,8 @@ onBeforeUnmount(() => {
                             v-if="task.status === 'blocked' && !isRecoveryRequiredTask(task) && isCellOccupiedTimeoutTask(task)"
                             class="btn-secondary task-action-button"
                             type="button"
-                            :disabled="isTaskRecoveryBusy(task.id) || !task.preferred_agv_id"
+                            :disabled="!authCanDispatchWrite || isTaskRecoveryBusy(task.id) || !task.preferred_agv_id"
+                            :title="buildCapabilityLockedTitle('dispatch', authCanDispatchWrite)"
                             @click="retryBlockedTaskFromCurrent(task)"
                           >
                             {{ retryFromCurrentButtonText() }}
@@ -7558,7 +11230,8 @@ onBeforeUnmount(() => {
                             v-if="task.status === 'blocked' && !isRecoveryRequiredTask(task)"
                             class="btn-secondary task-action-button"
                             type="button"
-                            :disabled="isTaskRecoveryBusy(task.id)"
+                            :disabled="!authCanDispatchWrite || isTaskRecoveryBusy(task.id)"
+                            :title="buildCapabilityLockedTitle('dispatch', authCanDispatchWrite)"
                             @click="retryBlockedTaskWithAStar(task)"
                           >
                             {{ t('task_retry_astar') }}
@@ -7567,7 +11240,8 @@ onBeforeUnmount(() => {
                             v-if="task.status === 'blocked' && isRecoveryRequiredTask(task)"
                             class="btn-secondary task-action-button"
                             type="button"
-                            :disabled="isTaskRecoveryBusy(task.id) || !task.preferred_agv_id"
+                            :disabled="!authCanDispatchWrite || isTaskRecoveryBusy(task.id) || !task.preferred_agv_id"
+                            :title="buildCapabilityLockedTitle('dispatch', authCanDispatchWrite)"
                             @click="recoverBlockedTask(task, 'bound')"
                           >
                             {{ recoveryActionText('bound', task) }}
@@ -7576,7 +11250,8 @@ onBeforeUnmount(() => {
                             v-if="task.status === 'blocked' && isRecoveryRequiredTask(task)"
                             class="btn-secondary task-action-button"
                             type="button"
-                            :disabled="isTaskRecoveryBusy(task.id)"
+                            :disabled="!authCanDispatchWrite || isTaskRecoveryBusy(task.id)"
+                            :title="buildCapabilityLockedTitle('dispatch', authCanDispatchWrite)"
                             @click="recoverBlockedTask(task, 'reassign')"
                           >
                             {{ recoveryActionText('reassign', task) }}
@@ -7614,6 +11289,17 @@ onBeforeUnmount(() => {
               <div class="task-templates">
                 <h2>{{ t('template_library') }}</h2>
                 <p class="panel-hint">{{ t('template_hint') }}</p>
+                <div v-if="!authCanTemplateWrite" class="permission-gate-card compact">
+                  <div class="empty-note">
+                    {{ buildCapabilityReadonlyHint('data') }}
+                  </div>
+                  <div v-if="buildEnterprisePanelReadonlyHint('data')" class="task-line permission-gate-extra">
+                    {{ buildEnterprisePanelReadonlyHint('data') }}
+                  </div>
+                  <button class="btn-primary" type="button" @click="openAuthDialog">
+                    {{ buildOperationsEntryActionText() }}
+                  </button>
+                </div>
 
                 <div class="template-manage">
                   <h3>{{ t('template_manage') }}</h3>
@@ -7626,10 +11312,22 @@ onBeforeUnmount(() => {
                     />
                   </div>
                   <div class="template-save-actions">
-                    <button class="btn-primary full-width" type="button" @click="saveCurrentTaskAsTemplate">
+                    <button
+                      class="btn-primary full-width"
+                      type="button"
+                      :disabled="!authCanTemplateWrite"
+                      :title="buildCapabilityLockedTitle('data', authCanTemplateWrite)"
+                      @click="saveCurrentTaskTemplateWithAuth"
+                    >
                       {{ t('template_save_current') }}
                     </button>
-                    <button class="btn-secondary full-width" type="button" @click="saveCurrentTaskChainAsTemplate">
+                    <button
+                      class="btn-secondary full-width"
+                      type="button"
+                      :disabled="!authCanTemplateWrite"
+                      :title="buildCapabilityLockedTitle('data', authCanTemplateWrite)"
+                      @click="saveCurrentTaskChainTemplateWithAuth"
+                    >
                       {{ taskChainLocale.saveTemplate }}
                     </button>
                   </div>
@@ -7655,21 +11353,51 @@ onBeforeUnmount(() => {
                     :placeholder="templateJsonLocale.placeholder"
                   ></textarea>
                   <div class="template-json-action-grid">
-                    <button class="btn-secondary" type="button" @click="importTaskTemplatesFromJson">
+                    <button
+                      class="btn-secondary"
+                      type="button"
+                      :disabled="!authCanTemplateWrite"
+                      :title="buildCapabilityLockedTitle('data', authCanTemplateWrite)"
+                      @click="importTaskTemplatesFromJsonWithAuth"
+                    >
                       {{ templateJsonLocale.import }}
                     </button>
-                    <button class="btn-secondary" type="button" @click="triggerTemplateFileImport">
+                    <button
+                      class="btn-secondary"
+                      type="button"
+                      :disabled="!authCanTemplateWrite"
+                      :title="buildCapabilityLockedTitle('data', authCanTemplateWrite)"
+                      @click="triggerTemplateFileImportWithAuth"
+                    >
                       {{ templateJsonLocale.importFile }}
                     </button>
-                    <button class="btn-secondary" type="button" @click="exportTaskTemplatesToJson">
+                    <button
+                      class="btn-secondary"
+                      type="button"
+                      :disabled="!authCanTemplateWrite"
+                      :title="buildCapabilityLockedTitle('data', authCanTemplateWrite)"
+                      @click="exportTaskTemplatesToJsonWithAuth"
+                    >
                       {{ templateJsonLocale.export }}
                     </button>
-                    <button class="btn-secondary" type="button" @click="downloadTemplateJsonFile">
+                    <button
+                      class="btn-secondary"
+                      type="button"
+                      :disabled="!authCanTemplateWrite"
+                      :title="buildCapabilityLockedTitle('data', authCanTemplateWrite)"
+                      @click="downloadTemplateJsonFileWithAuth"
+                    >
                       {{ templateJsonLocale.downloadFile }}
                     </button>
                   </div>
                   <div class="template-json-action-stack">
-                    <button class="btn-ghost" type="button" @click="clearTemplateJsonText">
+                    <button
+                      class="btn-ghost"
+                      type="button"
+                      :disabled="!authCanTemplateWrite"
+                      :title="buildCapabilityLockedTitle('data', authCanTemplateWrite)"
+                      @click="clearTemplateJsonTextWithAuth"
+                    >
                       {{ templateJsonLocale.clear }}
                     </button>
                   </div>
@@ -7707,14 +11435,22 @@ onBeforeUnmount(() => {
                       >
                         {{ t('template_apply') }}
                       </button>
-                      <button class="btn-ghost" type="button" @click="createTaskFromTemplate(template)">
+                      <button
+                        class="btn-ghost"
+                        type="button"
+                        :disabled="!authCanDispatchWrite"
+                        :title="buildCapabilityLockedTitle('dispatch', authCanDispatchWrite)"
+                        @click="createTaskFromTemplateWithAuth(template)"
+                      >
                         {{ t('template_run') }}
                       </button>
                       <button
                         v-if="template.custom"
                         class="btn-delete"
                         type="button"
-                        @click="deleteTaskTemplate(template)"
+                        :disabled="!authCanTemplateWrite"
+                        :title="buildCapabilityLockedTitle('data', authCanTemplateWrite)"
+                        @click="deleteTaskTemplateWithAuth(template)"
                       >
                         {{ t('template_delete') }}
                       </button>
@@ -7749,6 +11485,17 @@ onBeforeUnmount(() => {
               <div class="point-library">
                 <h2>{{ t('point_library') }}</h2>
                 <p class="panel-hint">{{ t('point_fill_hint') }}</p>
+                <div v-if="!authCanPointWrite" class="permission-gate-card compact">
+                  <div class="empty-note">
+                    {{ buildCapabilityReadonlyHint('data') }}
+                  </div>
+                  <div v-if="buildEnterprisePanelReadonlyHint('data')" class="task-line permission-gate-extra">
+                    {{ buildEnterprisePanelReadonlyHint('data') }}
+                  </div>
+                  <button class="btn-primary" type="button" @click="openAuthDialog">
+                    {{ buildOperationsEntryActionText() }}
+                  </button>
+                </div>
 
                 <div class="point-manage">
                   <h3>{{ t('point_manage') }}</h3>
@@ -7771,7 +11518,13 @@ onBeforeUnmount(() => {
                     <label>{{ t('form_start_y') }}</label>
                     <input v-model.number="customPointForm.y" type="number" min="0" :max="currentGridRows - 1" />
                   </div>
-                  <button class="btn-primary full-width" type="button" @click="addCustomPoint">
+                  <button
+                    class="btn-primary full-width"
+                    type="button"
+                    :disabled="!authCanPointWrite"
+                    :title="buildCapabilityLockedTitle('data', authCanPointWrite)"
+                    @click="addCustomPointWithAuth"
+                  >
                     {{ t('point_add') }}
                   </button>
                   <div v-if="pointFormStatus" class="point-status" :class="pointFormStatusType">
@@ -7828,7 +11581,9 @@ onBeforeUnmount(() => {
                         v-if="point.custom"
                         class="btn-delete"
                         type="button"
-                        @click="deleteCustomPoint(point)"
+                        :disabled="!authCanPointWrite"
+                        :title="buildCapabilityLockedTitle('data', authCanPointWrite)"
+                        @click="deleteCustomPointWithAuth(point)"
                       >
                         {{ t('point_delete') }}
                       </button>
@@ -7862,6 +11617,17 @@ onBeforeUnmount(() => {
             <div v-show="panelSections.json" class="panel-section-body">
               <div class="json-tools">
                 <h2>{{ t('json_tools') }}</h2>
+                <div v-if="!authCanJsonWrite" class="permission-gate-card compact">
+                  <div class="empty-note">
+                    {{ buildCapabilityReadonlyHint('data') }}
+                  </div>
+                  <div v-if="buildEnterprisePanelReadonlyHint('data')" class="task-line permission-gate-extra">
+                    {{ buildEnterprisePanelReadonlyHint('data') }}
+                  </div>
+                  <button class="btn-primary" type="button" @click="openAuthDialog">
+                    {{ buildOperationsEntryActionText() }}
+                  </button>
+                </div>
                 <div class="json-example-grid">
                   <button class="btn-secondary" type="button" @click="fillTaskJsonExample('single')">
                     {{ taskJsonLocale.singleExample }}
@@ -7883,13 +11649,31 @@ onBeforeUnmount(() => {
                   :placeholder="t('json_placeholder')"
                 ></textarea>
                 <div class="json-actions">
-                  <button class="btn-secondary" type="button" @click="importTasksFromJson">
+                  <button
+                    class="btn-secondary"
+                    type="button"
+                    :disabled="!authCanJsonWrite"
+                    :title="buildCapabilityLockedTitle('data', authCanJsonWrite)"
+                    @click="importTasksFromJson"
+                  >
                     {{ t('import_json') }}
                   </button>
-                  <button class="btn-secondary" type="button" @click="exportTasksToJson">
+                  <button
+                    class="btn-secondary"
+                    type="button"
+                    :disabled="!authCanJsonWrite"
+                    :title="buildCapabilityLockedTitle('data', authCanJsonWrite)"
+                    @click="exportTasksToJsonWithAuth"
+                  >
                     {{ t('export_json') }}
                   </button>
-                  <button class="btn-ghost" type="button" @click="clearJsonText">
+                  <button
+                    class="btn-ghost"
+                    type="button"
+                    :disabled="!authCanJsonWrite"
+                    :title="buildCapabilityLockedTitle('data', authCanJsonWrite)"
+                    @click="clearJsonTextWithAuth"
+                  >
                     {{ t('clear_json') }}
                   </button>
                 </div>
@@ -7922,28 +11706,75 @@ onBeforeUnmount(() => {
               <div class="experiment-panel">
                 <h2>{{ experimentLocale.title }}</h2>
                 <p class="panel-hint">{{ experimentLocale.hint }}</p>
+                <div v-if="!authCanExperimentWrite" class="permission-gate-card compact">
+                  <div class="empty-note">
+                    {{ buildCapabilityReadonlyHint('data') }}
+                  </div>
+                  <div v-if="buildEnterprisePanelReadonlyHint('data')" class="task-line permission-gate-extra">
+                    {{ buildEnterprisePanelReadonlyHint('data') }}
+                  </div>
+                  <button class="btn-primary" type="button" @click="openAuthDialog">
+                    {{ buildOperationsEntryActionText() }}
+                  </button>
+                </div>
 
                 <div class="experiment-action-stack">
-                  <button class="btn-primary" type="button" @click="saveCurrentExperimentRecord">
+                  <button
+                    class="btn-primary"
+                    type="button"
+                    :disabled="!authCanExperimentWrite"
+                    :title="buildCapabilityLockedTitle('data', authCanExperimentWrite)"
+                    @click="saveCurrentExperimentRecordWithAuth"
+                  >
                     {{ experimentLocale.saveCurrent }}
                   </button>
                   <div class="experiment-action-grid">
-                    <button class="btn-secondary" type="button" @click="exportCurrentCompareResultJson">
+                    <button
+                      class="btn-secondary"
+                      type="button"
+                      :disabled="!authCanExperimentWrite"
+                      :title="buildCapabilityLockedTitle('data', authCanExperimentWrite)"
+                      @click="exportCurrentCompareResultJsonWithAuth"
+                    >
                       {{ experimentLocale.exportCurrentJson }}
                     </button>
-                    <button class="btn-secondary" type="button" @click="exportCurrentCompareResultCsv">
+                    <button
+                      class="btn-secondary"
+                      type="button"
+                      :disabled="!authCanExperimentWrite"
+                      :title="buildCapabilityLockedTitle('data', authCanExperimentWrite)"
+                      @click="exportCurrentCompareResultCsvWithAuth"
+                    >
                       {{ experimentLocale.exportCurrentCsv }}
                     </button>
                   </div>
                   <div class="experiment-action-grid">
-                    <button class="btn-secondary" type="button" @click="exportAllExperimentRecordsJson">
+                    <button
+                      class="btn-secondary"
+                      type="button"
+                      :disabled="!authCanExperimentWrite"
+                      :title="buildCapabilityLockedTitle('data', authCanExperimentWrite)"
+                      @click="exportAllExperimentRecordsJsonWithAuth"
+                    >
                       {{ experimentLocale.exportAllJson }}
                     </button>
-                    <button class="btn-secondary" type="button" @click="exportAllExperimentRecordsCsv">
+                    <button
+                      class="btn-secondary"
+                      type="button"
+                      :disabled="!authCanExperimentWrite"
+                      :title="buildCapabilityLockedTitle('data', authCanExperimentWrite)"
+                      @click="exportAllExperimentRecordsCsvWithAuth"
+                    >
                       {{ experimentLocale.exportAllCsv }}
                     </button>
                   </div>
-                  <button class="btn-ghost" type="button" :disabled="experimentRecordCount === 0" @click="clearExperimentRecords">
+                  <button
+                    class="btn-ghost"
+                    type="button"
+                    :disabled="!authCanExperimentWrite || experimentRecordCount === 0"
+                    :title="buildCapabilityLockedTitle('data', authCanExperimentWrite)"
+                    @click="clearExperimentRecordsWithAuth"
+                  >
                     {{ experimentLocale.clearAll }}
                   </button>
                 </div>
@@ -7992,11 +11823,397 @@ onBeforeUnmount(() => {
                       <button class="btn-secondary task-action-button" type="button" @click="exportExperimentRecord(record, 'csv')">
                         CSV
                       </button>
-                      <button class="btn-delete task-action-button" type="button" @click="deleteExperimentRecord(record.id)">
+                      <button
+                        class="btn-delete task-action-button"
+                        type="button"
+                        :disabled="!authCanExperimentWrite"
+                        :title="buildCapabilityLockedTitle('data', authCanExperimentWrite)"
+                        @click="deleteExperimentRecordWithAuth(record.id)"
+                      >
                         {{ experimentLocale.delete }}
                       </button>
                     </div>
                   </article>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section
+            ref="aiSectionRef"
+            class="panel-section ai-panel-section"
+            :class="{
+              collapsed: !panelSections.ai,
+              'search-hit': matchedPanelSectionKeys.includes('ai'),
+              focused: focusedPanelSection === 'ai'
+            }"
+          >
+            <button
+              class="panel-section-toggle"
+              type="button"
+              :aria-expanded="panelSections.ai"
+              @click="togglePanelSection('ai')"
+            >
+              <span>{{ panelLocale.sections.ai }}</span>
+              <span class="panel-section-toggle-text">
+                {{ panelSections.ai ? panelLocale.collapse : panelLocale.expand }}
+              </span>
+            </button>
+            <div v-show="panelSections.ai" class="panel-section-body ai-panel-section-body">
+              <div class="ai-panel">
+                <h2>{{ t('ai_render_title') }}</h2>
+                <p class="panel-hint">{{ buildAiRenderHintText() }}</p>
+
+                <template v-if="authCanAiRender">
+              <div v-if="comfyRenderStatus" :class="['template-status', comfyRenderStatusType]">
+                {{ comfyRenderStatus }}
+              </div>
+
+                  <div class="ai-template-shell ai-template-shell-highlight">
+                    <div class="enterprise-settings-subtitle ai-template-subtitle">{{ t('ai_render_builtin_templates') }}</div>
+                    <div class="task-line ai-template-inline-hint">{{ t('ai_render_builtin_templates_hint') }}</div>
+                    <div class="ai-template-selector-row">
+                      <label class="ai-template-selector-field">
+                        <span class="ai-template-selector-label">{{ t('ai_render_builtin_template_select') }}</span>
+                        <select v-model="comfyRenderBuiltinTemplateKey">
+                          <option v-for="item in comfyRenderBuiltinTemplates" :key="`panel-builtin-select-${item.key}`" :value="item.key">
+                            {{ item.label }}
+                          </option>
+                        </select>
+                      </label>
+                      <button class="btn-ghost ai-template-overview-trigger" type="button" @click="openComfyBuiltinTemplateOverview">
+                        {{ t('ai_render_show_builtin_overview') }}
+                      </button>
+                    </div>
+                    <article v-if="comfyRenderSelectedBuiltinTemplate" class="ai-template-card builtin">
+                      <div class="ai-template-card-head">
+                        <div class="ai-template-card-copy">
+                          <strong>{{ comfyRenderSelectedBuiltinTemplate.label }}</strong>
+                          <div class="task-line">{{ comfyRenderSelectedBuiltinTemplate.hint }}</div>
+                        </div>
+                        <span class="point-badge enterprise-settings-chip">{{ comfyRenderSelectedBuiltinTemplate.workflowPreset }}</span>
+                      </div>
+                      <div class="ai-template-chip-row">
+                        <span
+                          v-if="comfyRenderSelectedBuiltinTemplateMatchesRecommendation"
+                          class="point-badge enterprise-settings-chip"
+                        >
+                          {{ t('ai_render_recommended_template_title') }}
+                        </span>
+                        <span class="point-badge enterprise-settings-chip enterprise-settings-chip-muted">
+                          {{ comfyRenderSelectedBuiltinTemplate.promptStyleLabel }}
+                        </span>
+                        <span
+                          v-for="sourceLabel in comfyRenderSelectedBuiltinTemplate.recommendedSources"
+                          :key="`panel-builtin-source-${sourceLabel}`"
+                          class="point-badge enterprise-settings-chip enterprise-settings-chip-muted"
+                        >
+                          {{ sourceLabel }}
+                        </span>
+                      </div>
+                      <button class="btn-secondary full-width" type="button" :disabled="comfyRenderSubmitting" @click="applySelectedBuiltinComfyTemplate">
+                        {{ t('ai_render_apply_builtin') }}
+                      </button>
+                    </article>
+                  </div>
+
+                  <div class="ai-form-shell">
+                  <div class="form-grid ai-form-grid">
+                    <label>
+                      <span>{{ t('ai_render_source_type') }}</span>
+                      <select v-model="comfyRenderSourceType">
+                        <option v-for="option in comfyRenderSourceOptions" :key="option.value" :value="option.value">
+                          {{ option.label }}
+                        </option>
+                      </select>
+                    </label>
+                    <label>
+                      <span>{{ t('ai_render_source_ref') }}</span>
+                      <input
+                        v-model.trim="comfyRenderSourceRef"
+                        :placeholder="t('ai_render_source_ref_placeholder')"
+                      />
+                    </label>
+                    <label>
+                      <span>{{ t('ai_render_checkpoint_name') }}</span>
+                      <input
+                        v-model.trim="comfyRenderCheckpointName"
+                        list="comfy-checkpoint-options"
+                        :placeholder="t('ai_render_checkpoint_name_placeholder')"
+                      />
+                    </label>
+                    <label>
+                      <span>{{ t('ai_render_workflow_preset') }}</span>
+                      <select v-model="comfyRenderWorkflowPreset">
+                        <option v-for="option in comfyRenderWorkflowPresetOptions" :key="option.value" :value="option.value">
+                          {{ option.label }}
+                        </option>
+                      </select>
+                    </label>
+                    <label>
+                      <span>{{ t('ai_render_prompt_style') }}</span>
+                      <select v-model="comfyRenderPromptStyle">
+                        <option v-for="option in comfyRenderPromptStyleOptions" :key="option.value" :value="option.value">
+                          {{ option.label }}
+                        </option>
+                      </select>
+                    </label>
+                    <label class="span-2">
+                      <span>{{ t('ai_render_template_name') }}</span>
+                      <input
+                        v-model.trim="comfyRenderTemplateName"
+                        :placeholder="t('ai_render_template_name_placeholder')"
+                      />
+                    </label>
+                    <label class="span-2">
+                      <span>{{ t('ai_render_saved_templates') }}</span>
+                      <select v-model="comfyRenderSelectedTemplateId">
+                        <option value="">{{ t('ai_render_template_none') }}</option>
+                        <option v-for="item in comfyRenderSavedTemplates" :key="item.id" :value="item.id">
+                          {{ item.name }}
+                        </option>
+                      </select>
+                    </label>
+                    <label class="span-2">
+                      <span>{{ t('ai_render_prompt_text') }}</span>
+                      <textarea v-model="comfyRenderPromptText" rows="3" />
+                    </label>
+                    <label class="span-2">
+                      <span>{{ t('ai_render_input_json') }}</span>
+                      <textarea v-model="comfyRenderInputJsonText" rows="7" spellcheck="false" />
+                    </label>
+                    <label class="span-2">
+                      <span>{{ t('ai_render_workflow_json') }}</span>
+                      <textarea v-model="comfyRenderWorkflowJsonText" rows="8" spellcheck="false" />
+                    </label>
+                  </div>
+
+                  <div class="ai-action-grid primary">
+                    <button class="btn-secondary" type="button" :disabled="comfyRenderSubmitting" @click="loadComfySourcePayload">
+                      {{ t('ai_render_load_source') }}
+                    </button>
+                    <button class="btn-secondary" type="button" :disabled="comfyRenderSubmitting" @click="loadDefaultComfyWorkflow">
+                      {{ t('ai_render_fill_default_workflow') }}
+                    </button>
+                    <button class="btn-primary" type="button" :disabled="comfyRenderSubmitting" @click="submitComfyRenderJob">
+                      {{ comfyRenderSubmitting ? t('ai_render_submitting') : t('ai_render_submit') }}
+                    </button>
+                  </div>
+                  <div class="ai-template-shell">
+                    <div class="enterprise-settings-subtitle ai-template-subtitle">{{ t('ai_render_saved_templates_title') }}</div>
+                    <div class="ai-action-grid compact">
+                      <button class="btn-secondary" type="button" :disabled="comfyRenderSubmitting" @click="saveCurrentComfyTemplate">
+                        {{ t('ai_render_save_template') }}
+                      </button>
+                      <button class="btn-secondary" type="button" :disabled="comfyRenderSubmitting || !comfyRenderHasCustomTemplates" @click="applySelectedComfyTemplate">
+                        {{ t('ai_render_apply_template') }}
+                      </button>
+                      <button class="btn-secondary" type="button" :disabled="comfyRenderSubmitting || !comfyRenderHasCustomTemplates" @click="exportSelectedComfyTemplate">
+                        {{ t('ai_render_export_template') }}
+                      </button>
+                      <button class="btn-secondary" type="button" :disabled="comfyRenderSubmitting" @click="triggerComfyTemplateImport">
+                        {{ t('ai_render_import_template') }}
+                      </button>
+                      <button class="btn-ghost" type="button" :disabled="comfyRenderSubmitting || !comfyRenderHasCustomTemplates" @click="deleteSelectedComfyTemplate">
+                        {{ t('ai_render_delete_template') }}
+                      </button>
+                    </div>
+                  </div>
+
+                  <datalist id="comfy-checkpoint-options">
+                    <option v-for="checkpointName in comfyRenderAvailableCheckpoints" :key="checkpointName" :value="checkpointName" />
+                  </datalist>
+
+                  <div class="ai-status-stack">
+                    <div class="task-line panel-hint">
+                      {{ t('ai_render_default_workflow_hint') }}
+                    </div>
+                    <div class="task-line panel-hint">
+                      {{ comfyRenderWorkflowPresetSummary }}
+                    </div>
+                    <div class="task-line panel-hint">
+                      {{ comfyRenderPromptStyleSummary }}
+                    </div>
+                    <div class="task-line panel-hint">
+                      {{ comfyRenderRecommendedCheckpointSummary }}
+                    </div>
+                  </div>
+                  </div>
+
+                  <div class="operations-toolbar ai-toolbar">
+                    <div v-if="comfyRenderLastFetchedAt" class="task-line operations-last-fetched">
+                      {{ formatInlineMessage(t('operations_last_updated'), { at: comfyRenderLastFetchedAt }) }}
+                    </div>
+                    <button class="btn-secondary" type="button" :disabled="comfyRenderLoading" @click="fetchComfyRenderJobs({ force: true })">
+                      {{ comfyRenderLoading ? `${t('ai_render_refresh')}...` : t('ai_render_refresh') }}
+                    </button>
+                  </div>
+
+                  <div v-if="comfyRenderLoading && comfyRenderJobs.length === 0" class="template-status info">
+                    {{ t('ai_render_loading') }}
+                  </div>
+
+                  <div v-if="!comfyRenderLoading && comfyRenderJobs.length === 0" class="empty-note">
+                    {{ t('ai_render_empty') }}
+                  </div>
+
+                  <div v-else class="ai-jobs-list">
+                    <article
+                      v-for="job in comfyRenderJobs"
+                      :key="job.id"
+                      class="ai-job-card"
+                      :class="{ 'search-hit': matchedComfyJobIds.includes(job.id) }"
+                    >
+                      <div class="ai-job-head">
+                        <div>
+                          <strong>#{{ job.id }} · {{ formatComfyRenderSource(job) }}</strong>
+                          <div class="task-line">{{ job.created_by }} · {{ job.created_at }}</div>
+                        </div>
+                        <span class="point-badge">{{ formatComfyRenderStatus(job.status) }}</span>
+                      </div>
+                      <div v-if="job.error_message" class="task-line template-status error">
+                        {{ job.error_message }}
+                      </div>
+                      <div v-if="job.asset_urls?.length" class="ai-job-assets">
+                        <button
+                          v-for="(assetUrl, assetIndex) in job.asset_urls"
+                          :key="`${job.id}-asset-${assetIndex}`"
+                          class="ai-job-asset-link"
+                          type="button"
+                          @click="openComfyRenderAssetPreview(job, assetUrl, assetIndex)"
+                        >
+                          {{ formatComfyRenderAssetActionLabel(job, assetIndex) }}
+                        </button>
+                      </div>
+                      <div class="ai-job-actions">
+                        <button
+                          class="btn-danger"
+                          type="button"
+                          :disabled="deletingComfyJobId === job.id"
+                          @click="deleteComfyRenderJob(job.id)"
+                        >
+                          {{ deletingComfyJobId === job.id ? `${t('ai_render_delete')}...` : t('ai_render_delete') }}
+                        </button>
+                      </div>
+                    </article>
+                  </div>
+                </template>
+
+                <div v-else class="operations-login-card">
+                  <div class="empty-note">
+                    {{ buildAiRenderHintText() }}
+                  </div>
+                  <button class="btn-primary" type="button" @click="openAuthDialog">
+                    {{ buildOperationsEntryActionText() }}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section
+            ref="operationsSectionRef"
+            class="panel-section"
+            :class="{
+              collapsed: !panelSections.operations,
+              'search-hit': matchedPanelSectionKeys.includes('operations'),
+              focused: focusedPanelSection === 'operations'
+            }"
+          >
+            <button
+              class="panel-section-toggle"
+              type="button"
+              :aria-expanded="panelSections.operations"
+              @click="togglePanelSection('operations')"
+            >
+              <span>{{ panelLocale.sections.operations }}</span>
+              <span class="panel-section-toggle-text">
+                {{ panelSections.operations ? panelLocale.collapse : panelLocale.expand }}
+              </span>
+            </button>
+            <div v-show="panelSections.operations" class="panel-section-body">
+              <div class="operations-panel">
+                <h2>{{ t('operations_title') }}</h2>
+                <p class="panel-hint">
+                  {{ buildOperationsHintText() }}
+                </p>
+
+                <template v-if="authCanViewAudit">
+                  <div class="operations-toolbar">
+                    <div class="operations-filter-grid">
+                      <label>
+                        {{ t('operations_filter_resource') }}
+                        <select v-model="operationAuditResourceFilter">
+                          <option
+                            v-for="option in operationAuditResourceOptions"
+                            :key="`resource-${option.value}`"
+                            :value="option.value"
+                          >
+                            {{ option.label }}
+                          </option>
+                        </select>
+                      </label>
+                      <label>
+                        {{ t('operations_filter_action') }}
+                        <select v-model="operationAuditActionFilter">
+                          <option
+                            v-for="option in operationAuditActionOptions"
+                            :key="`action-${option.value}`"
+                            :value="option.value"
+                          >
+                            {{ option.label }}
+                          </option>
+                        </select>
+                      </label>
+                    </div>
+                    <div class="operations-toolbar-actions">
+                      <div v-if="operationAuditLastFetchedAt" class="task-line operations-last-fetched">
+                        {{ formatInlineMessage(t('operations_last_updated'), { at: operationAuditLastFetchedAt }) }}
+                      </div>
+                      <button class="btn-secondary" type="button" :disabled="operationAuditLoading" @click="fetchOperationAudits({ force: true })">
+                        {{ operationAuditLoading ? `${t('operations_refresh')}...` : t('operations_refresh') }}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div v-if="operationAuditLoading && operationAudits.length === 0" class="template-status info">
+                    {{ t('operations_loading') }}
+                  </div>
+
+                  <div v-if="filteredOperationAudits.length === 0" class="empty-note">
+                    {{ t('operations_empty') }}
+                  </div>
+
+                  <div v-else class="operations-list">
+                    <article
+                      v-for="entry in filteredOperationAudits"
+                      :key="entry.id"
+                      class="operations-card"
+                      :class="{ 'search-hit': matchedOperationAuditIds.includes(entry.id) }"
+                    >
+                      <div class="operations-card-head">
+                        <div>
+                          <strong>{{ formatOperationAuditTitle(entry) }}</strong>
+                          <div class="task-line">{{ formatOperationAuditResourceRef(entry) }}</div>
+                        </div>
+                        <span class="point-badge">{{ operationActionLabel(entry.action) }}</span>
+                      </div>
+                      <div class="task-line">{{ formatOperationAuditOperator(entry) }}</div>
+                      <div class="task-line task-time">{{ entry.performed_at }}</div>
+                      <div v-if="formatOperationAuditMetadata(entry)" class="task-line operations-summary">
+                        {{ formatOperationAuditMetadata(entry) }}
+                      </div>
+                    </article>
+                  </div>
+                </template>
+
+                <div v-else class="operations-login-card">
+                  <div class="empty-note">
+                    {{ buildOperationsHintText() }}
+                  </div>
+                  <button class="btn-primary" type="button" @click="openAuthDialog">
+                    {{ buildOperationsEntryActionText() }}
+                  </button>
                 </div>
               </div>
             </div>
@@ -8028,6 +12245,101 @@ onBeforeUnmount(() => {
           ↑
         </button>
       </aside>
+    </div>
+
+    <input
+      ref="comfyRenderTemplateFileInputRef"
+      type="file"
+      accept="application/json,.json"
+      class="hidden-file-input"
+      @change="onComfyTemplateFileChange"
+    />
+
+    <div v-if="comfyRenderBuiltinTemplatesOverviewVisible" class="asset-preview-mask" @click.self="closeComfyBuiltinTemplateOverview">
+      <section class="asset-preview-modal ai-template-overview-modal" role="dialog" aria-modal="true">
+        <header class="asset-preview-header">
+          <div>
+            <div class="auth-dialog-kicker">{{ t('ai_render_builtin_templates') }}</div>
+            <h2 class="auth-dialog-title">{{ t('ai_render_show_builtin_overview') }}</h2>
+          </div>
+          <div class="asset-preview-actions">
+            <button class="btn-ghost" type="button" @click="closeComfyBuiltinTemplateOverview">
+              {{ t('auth_close') }}
+            </button>
+          </div>
+        </header>
+        <div class="asset-preview-body ai-template-overview-body">
+          <div class="ai-template-grid ai-template-grid-modal">
+            <article
+              v-for="item in comfyRenderBuiltinTemplates"
+              :key="`builtin-overview-dialog-${item.key}`"
+              class="ai-template-card builtin"
+              :class="{
+                featured: item.key === comfyRenderRecommendedBuiltinTemplate?.key,
+                'is-selected': item.key === comfyRenderSelectedBuiltinTemplate?.key
+              }"
+            >
+              <div class="ai-template-card-head">
+                <div class="ai-template-card-copy">
+                  <strong>{{ item.label }}</strong>
+                  <div class="task-line">{{ item.hint }}</div>
+                </div>
+                <span class="point-badge enterprise-settings-chip">{{ item.workflowPreset }}</span>
+              </div>
+              <div class="ai-template-chip-row">
+                <span
+                  v-if="item.key === comfyRenderRecommendedBuiltinTemplate?.key"
+                  class="point-badge enterprise-settings-chip"
+                >
+                  {{ t('ai_render_recommended_template_title') }}
+                </span>
+                <span
+                  v-if="item.key === comfyRenderSelectedBuiltinTemplate?.key"
+                  class="point-badge enterprise-settings-chip enterprise-settings-chip-muted"
+                >
+                  {{ t('ai_render_builtin_current_template') }}
+                </span>
+                <span class="point-badge enterprise-settings-chip enterprise-settings-chip-muted">
+                  {{ item.promptStyleLabel }}
+                </span>
+              </div>
+              <div v-if="item.recommendedSources.length" class="task-line">
+                {{ t('ai_render_builtin_recommended_for') }}{{ item.recommendedSources.join(' / ') }}
+              </div>
+              <button class="btn-secondary full-width" type="button" :disabled="comfyRenderSubmitting" @click="applyBuiltinComfyTemplate(item.key)">
+                {{ t('ai_render_apply_builtin') }}
+              </button>
+            </article>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <div v-if="comfyRenderPreviewVisible" class="asset-preview-mask" @click.self="closeComfyRenderAssetPreview">
+      <section class="asset-preview-modal" role="dialog" aria-modal="true">
+        <header class="asset-preview-header">
+          <div>
+            <div class="auth-dialog-kicker">{{ t('ai_render_title') }}</div>
+            <h2 class="auth-dialog-title">{{ comfyRenderPreviewTitle }}</h2>
+          </div>
+          <div class="asset-preview-actions">
+            <a
+              class="btn-secondary"
+              :href="comfyRenderPreviewUrl"
+              target="_blank"
+              rel="noreferrer"
+            >
+              {{ t('ai_render_result_open_external') }}
+            </a>
+            <button class="btn-ghost" type="button" @click="closeComfyRenderAssetPreview">
+              {{ t('auth_close') }}
+            </button>
+          </div>
+        </header>
+        <div class="asset-preview-body">
+          <img :src="comfyRenderPreviewUrl" :alt="comfyRenderPreviewTitle" class="asset-preview-image" />
+        </div>
+      </section>
     </div>
 
     <div v-if="showGuideCenter" class="guide-modal-mask" @click.self="closeGuideCenter">
@@ -8116,13 +12428,31 @@ onBeforeUnmount(() => {
         </article>
       </div>
       <div v-if="pathCompareResult" class="json-actions">
-        <button class="btn-primary" type="button" @click="saveCurrentExperimentRecord">
+        <button
+          class="btn-primary"
+          type="button"
+          :disabled="!authCanExperimentWrite"
+          :title="buildCapabilityLockedTitle('data', authCanExperimentWrite)"
+          @click="saveCurrentExperimentRecordWithAuth"
+        >
           {{ experimentLocale.saveCurrent }}
         </button>
-        <button class="btn-secondary" type="button" @click="exportCurrentCompareResultJson">
+        <button
+          class="btn-secondary"
+          type="button"
+          :disabled="!authCanExperimentWrite"
+          :title="buildCapabilityLockedTitle('data', authCanExperimentWrite)"
+          @click="exportCurrentCompareResultJsonWithAuth"
+        >
           {{ experimentLocale.exportCurrentJson }}
         </button>
-        <button class="btn-secondary" type="button" @click="exportCurrentCompareResultCsv">
+        <button
+          class="btn-secondary"
+          type="button"
+          :disabled="!authCanExperimentWrite"
+          :title="buildCapabilityLockedTitle('data', authCanExperimentWrite)"
+          @click="exportCurrentCompareResultCsvWithAuth"
+        >
           {{ experimentLocale.exportCurrentCsv }}
         </button>
       </div>

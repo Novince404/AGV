@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 
 from app.schemas.schedule import (
     PathCompareRequest,
@@ -6,19 +6,21 @@ from app.schemas.schedule import (
     RetryBlockedTaskRequest,
     ScheduleWithPathRequest,
 )
-from app.services import schedule_service
+from app.services import auth_service, schedule_service
 
 
 router = APIRouter(prefix="/schedule", tags=["Schedule"])
 
 
 @router.post("/")
-def schedule_task():
+def schedule_task(request: Request):
+    auth_service.require_actor_capability(request, "dispatch.write")
     return schedule_service.schedule_task_default()
 
 
 @router.post("/with_path")
-def schedule_task_with_path(req: ScheduleWithPathRequest):
+def schedule_task_with_path(req: ScheduleWithPathRequest, request: Request):
+    actor = auth_service.require_actor_capability(request, "dispatch.write")
     return schedule_service.schedule_task_with_path(
         req.task_id,
         req.agv_id,
@@ -26,6 +28,7 @@ def schedule_task_with_path(req: ScheduleWithPathRequest):
         req.algorithm,
         req.grid_cols,
         req.grid_rows,
+        actor,
     )
 
 
@@ -43,31 +46,37 @@ def compare_path(req: PathCompareRequest):
 
 
 @router.post("/retry_blocked/{task_id}")
-def retry_blocked_task(task_id: int, req: RetryBlockedTaskRequest):
+def retry_blocked_task(task_id: int, req: RetryBlockedTaskRequest, request: Request):
+    actor = auth_service.require_actor_capability(request, "dispatch.write")
     return schedule_service.retry_blocked_task(
         task_id,
         req.algorithm,
         req.grid_cols,
         req.grid_rows,
+        actor,
     )
 
 
 @router.post("/retry_blocked_from_current/{task_id}")
-def retry_blocked_task_from_current(task_id: int, req: RetryBlockedTaskRequest):
+def retry_blocked_task_from_current(task_id: int, req: RetryBlockedTaskRequest, request: Request):
+    actor = auth_service.require_actor_capability(request, "dispatch.write")
     return schedule_service.retry_blocked_task_from_current(
         task_id,
         req.algorithm,
         req.grid_cols,
         req.grid_rows,
+        actor,
     )
 
 
 @router.post("/recover_blocked/{task_id}")
-def recover_blocked_task(task_id: int, req: RecoverBlockedTaskRequest):
+def recover_blocked_task(task_id: int, req: RecoverBlockedTaskRequest, request: Request):
+    actor = auth_service.require_actor_capability(request, "dispatch.write")
     return schedule_service.recover_blocked_task(
         task_id,
         req.mode,
         req.algorithm,
         req.grid_cols,
         req.grid_rows,
+        actor,
     )

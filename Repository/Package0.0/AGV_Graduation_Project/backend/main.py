@@ -5,6 +5,8 @@ from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.agv_api import router as agv_router
+from app.api.ai_api import router as ai_router
+from app.api.auth_api import router as auth_router
 from app.api.fault_api import router as fault_router
 from app.api.point_api import router as point_router
 from app.api.schedule_api import router as schedule_router
@@ -29,6 +31,8 @@ app.add_middleware(
 )
 
 app.include_router(agv_router)
+app.include_router(ai_router)
+app.include_router(auth_router)
 app.include_router(fault_router)
 app.include_router(point_router)
 app.include_router(task_router)

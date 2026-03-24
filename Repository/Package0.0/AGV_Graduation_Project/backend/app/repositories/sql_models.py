@@ -192,6 +192,80 @@ class UiSettingsEntity(Base):
     panel_sections: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
 
 
+class AuthUserEntity(Base):
+    __tablename__ = "auth_user"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    username: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
+    display_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    role: Mapped[str] = mapped_column(String(32), nullable=False)
+    password_hash: Mapped[str] = mapped_column(String(256), nullable=False)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    builtin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    account_status: Mapped[str] = mapped_column(String(32), nullable=False, default="approved")
+    organization_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    organization_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+
+
+class AuthSessionEntity(Base):
+    __tablename__ = "auth_session"
+
+    token: Mapped[str] = mapped_column(String(128), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(64), ForeignKey("auth_user.id"), nullable=False, index=True)
+    created_at: Mapped[int] = mapped_column(Integer, nullable=False)
+    expires_at: Mapped[int] = mapped_column(Integer, nullable=False)
+    last_seen_at: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class EnterpriseApplicationEntity(Base):
+    __tablename__ = "enterprise_application"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    company_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    contact_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    contact_email: Mapped[str] = mapped_column(String(128), nullable=False)
+    username: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
+    user_id: Mapped[str] = mapped_column(String(64), ForeignKey("auth_user.id"), nullable=False, unique=True, index=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending", index=True)
+    submitted_at: Mapped[str] = mapped_column(String(32), nullable=False)
+    reviewed_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    reviewed_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    review_note: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    organization_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+
+class ComfyRenderJobEntity(Base):
+    __tablename__ = "comfy_render_job"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    source_ref: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    input_summary: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    workflow_payload: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    created_by: Mapped[str] = mapped_column(String(128), nullable=False)
+    created_at: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    completed_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    asset_urls: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    error_message: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    prompt_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+
+
+class OperationAuditEntity(Base):
+    __tablename__ = "operation_audit"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    resource_type: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    resource_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    action: Mapped[str] = mapped_column(String(64), nullable=False)
+    operator_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    operator_username: Mapped[str] = mapped_column(String(64), nullable=False, default="guest")
+    operator_display_name: Mapped[str] = mapped_column(String(128), nullable=False, default="Guest")
+    operator_role: Mapped[str] = mapped_column(String(32), nullable=False, default="guest")
+    performed_at: Mapped[str] = mapped_column(String(32), nullable=False)
+    details: Mapped[dict | None] = mapped_column("metadata", JSON, nullable=True)
+
+
 class PointLibraryEntity(Base):
     __tablename__ = "point_library"
 

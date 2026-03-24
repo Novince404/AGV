@@ -40,7 +40,10 @@ export function useLocalPersistence(options) {
         points: typeof parsed.points === 'boolean' ? parsed.points : panelSections.value.points,
         json: typeof parsed.json === 'boolean' ? parsed.json : panelSections.value.json,
         experiments:
-          typeof parsed.experiments === 'boolean' ? parsed.experiments : panelSections.value.experiments
+          typeof parsed.experiments === 'boolean' ? parsed.experiments : panelSections.value.experiments,
+        ai: typeof parsed.ai === 'boolean' ? parsed.ai : panelSections.value.ai,
+        operations:
+          typeof parsed.operations === 'boolean' ? parsed.operations : panelSections.value.operations
       }
     } catch (error) {
       console.error('Load panel sections error:', error)
