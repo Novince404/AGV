@@ -1,6 +1,6 @@
 ﻿<script setup>
 import './assets/agv-map.css'
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { LOCALE_TEXTS } from './locales'
 import { DEFAULT_POINT_LIBRARY, DEFAULT_TASK_TEMPLATES } from './config/defaultData'
 import { useDispatchScheduler } from './composables/useDispatchScheduler'
@@ -60,6 +60,8 @@ import {
   normalizeTemplateStages as normalizeTemplateStagesRaw
 } from './utils/templateHelpers'
 import { buildCustomPoint, normalizeStoredCustomPoints } from './utils/pointHelpers'
+
+const ComfyAiWorkspace = defineAsyncComponent(() => import('./components/ComfyAiWorkspace.vue'))
 
 const GRID_COLS = 10
 const GRID_ROWS = 8
@@ -381,7 +383,6 @@ const comfyRenderSharedTemplates = ref([])
 const comfyRenderSelectedSharedTemplateId = ref('')
 const comfyRenderSharedTemplatesLoading = ref(false)
 const comfyRenderSharedTemplateSaving = ref(false)
-const comfyRenderTemplateFileInputRef = ref(null)
 const deletingComfyJobId = ref(null)
 
 let timer = null
@@ -3885,6 +3886,31 @@ function formatComfyRenderAssetActionLabel(job, assetIndex) {
   return `${t('ai_render_result_preview')} ${Number(assetIndex) + 1}`
 }
 
+function formatPanelComfyRenderJobMeta(job) {
+  return `${job?.created_by || 'system'} · ${job?.created_at || '—'}`
+}
+
+function formatEnterpriseComfyRenderJobMeta(job) {
+  return formatDateTimeInline(job?.created_at) || '—'
+}
+
+const comfyRenderLastFetchedText = computed(() =>
+  comfyRenderLastFetchedAt.value
+    ? formatInlineMessage(t('operations_last_updated'), { at: comfyRenderLastFetchedAt.value })
+    : ''
+)
+
+const comfyRenderSelectedSharedTemplateMetaText = computed(() => {
+  if (!comfyRenderSelectedSharedTemplate.value) return ''
+  return formatInlineMessage(t('ai_render_shared_template_meta'), {
+    scope: t(
+      `ai_render_shared_scope_${comfyRenderSelectedSharedTemplate.value.scopeLabel || comfyRenderSelectedSharedTemplate.value.scope || 'organization'}`
+    ),
+    createdBy: comfyRenderSelectedSharedTemplate.value.createdBy || 'system',
+    updatedAt: formatDateTimeInline(comfyRenderSelectedSharedTemplate.value.updatedAt)
+  })
+})
+
 function openComfyRenderAssetPreview(job, assetUrl, assetIndex = 0) {
   comfyRenderPreviewUrl.value = String(assetUrl || '').trim()
   comfyRenderPreviewTitle.value = `${formatComfyRenderSource(job)} · ${t('ai_render_result_preview')} ${Number(assetIndex) + 1}`
@@ -4065,10 +4091,6 @@ async function deleteSelectedSharedTemplate() {
     console.error('Delete shared comfy workflow template error:', error)
     setComfyRenderStatus(error?.message || t('ai_render_shared_template_delete_failed'), 'error')
   }
-}
-
-function triggerComfyTemplateImport() {
-  comfyRenderTemplateFileInputRef.value?.click()
 }
 
 async function onComfyTemplateFileChange(event) {
@@ -9178,260 +9200,78 @@ onBeforeUnmount(() => {
                   <div class="map-settings-info-value">{{ comfyRenderJobs[0]?.created_at || '—' }}</div>
                 </div>
               </div>
-              <div v-if="comfyRenderStatus" :class="['template-status', comfyRenderStatusType]">
-                {{ comfyRenderStatus }}
-              </div>
-                <div class="enterprise-settings-subsection">
-                  <div class="enterprise-settings-subtitle">{{ t('ai_render_title') }}</div>
-                  <div class="ai-template-shell ai-template-shell-highlight">
-                    <div class="enterprise-settings-subtitle ai-template-subtitle">{{ t('ai_render_builtin_templates') }}</div>
-                    <div class="task-line ai-template-inline-hint">{{ t('ai_render_builtin_templates_hint') }}</div>
-                    <div v-if="comfyRenderRecommendedBuiltinTemplate && comfyRenderRecommendedBuiltinReasonText" class="task-line ai-template-inline-hint">
-                      {{ formatInlineMessage(t('ai_render_recommended_template_reason_line'), {
-                        template: comfyRenderRecommendedBuiltinTemplate.label,
-                        reason: comfyRenderRecommendedBuiltinReasonText
-                      }) }}
-                    </div>
-                    <div class="ai-template-selector-row">
-                      <label class="ai-template-selector-field">
-                        <span class="ai-template-selector-label">{{ t('ai_render_builtin_template_select') }}</span>
-                        <select v-model="comfyRenderBuiltinTemplateKey">
-                          <option v-for="item in comfyRenderBuiltinTemplates" :key="`enterprise-builtin-select-${item.key}`" :value="item.key">
-                            {{ item.label }}
-                          </option>
-                        </select>
-                      </label>
-                      <button class="btn-ghost ai-template-overview-trigger" type="button" @click="openComfyBuiltinTemplateOverview">
-                        {{ t('ai_render_show_builtin_overview') }}
-                      </button>
-                    </div>
-                  <article v-if="comfyRenderSelectedBuiltinTemplate" class="ai-template-card builtin">
-                    <div class="ai-template-card-head">
-                      <div class="ai-template-card-copy">
-                        <strong>{{ comfyRenderSelectedBuiltinTemplate.label }}</strong>
-                        <div class="task-line">{{ comfyRenderSelectedBuiltinTemplate.hint }}</div>
-                      </div>
-                      <span class="point-badge enterprise-settings-chip">{{ comfyRenderSelectedBuiltinTemplate.workflowPreset }}</span>
-                    </div>
-                    <div class="ai-template-chip-row">
-                      <span
-                        v-if="comfyRenderSelectedBuiltinTemplateMatchesRecommendation"
-                        class="point-badge enterprise-settings-chip"
-                      >
-                        {{ t('ai_render_recommended_template_title') }}
-                      </span>
-                      <span class="point-badge enterprise-settings-chip enterprise-settings-chip-muted">
-                        {{ comfyRenderSelectedBuiltinTemplate.promptStyleLabel }}
-                      </span>
-                      <span
-                        v-for="sourceLabel in comfyRenderSelectedBuiltinTemplate.recommendedSources"
-                        :key="`enterprise-builtin-source-${sourceLabel}`"
-                        class="point-badge enterprise-settings-chip enterprise-settings-chip-muted"
-                      >
-                        {{ sourceLabel }}
-                      </span>
-                    </div>
-                    <button class="btn-secondary full-width" type="button" :disabled="comfyRenderSubmitting" @click="applySelectedBuiltinComfyTemplate">
-                      {{ t('ai_render_apply_builtin') }}
-                    </button>
-                  </article>
-                </div>
-                <div class="ai-form-shell">
-                <div class="form-grid ai-form-grid">
-                  <label>
-                    <span>{{ t('ai_render_source_type') }}</span>
-                    <select v-model="comfyRenderSourceType">
-                      <option v-for="option in comfyRenderSourceOptions" :key="option.value" :value="option.value">
-                        {{ option.label }}
-                      </option>
-                    </select>
-                  </label>
-                  <label>
-                    <span>{{ t('ai_render_source_ref') }}</span>
-                    <input
-                      v-model.trim="comfyRenderSourceRef"
-                      :placeholder="t('ai_render_source_ref_placeholder')"
-                    />
-                  </label>
-                  <label>
-                    <span>{{ t('ai_render_checkpoint_name') }}</span>
-                    <input
-                      v-model.trim="comfyRenderCheckpointName"
-                      list="enterprise-comfy-checkpoint-options"
-                      :placeholder="t('ai_render_checkpoint_name_placeholder')"
-                    />
-                  </label>
-                  <label>
-                    <span>{{ t('ai_render_workflow_preset') }}</span>
-                    <select v-model="comfyRenderWorkflowPreset">
-                      <option v-for="option in comfyRenderWorkflowPresetOptions" :key="option.value" :value="option.value">
-                        {{ option.label }}
-                      </option>
-                    </select>
-                  </label>
-                  <label>
-                    <span>{{ t('ai_render_prompt_style') }}</span>
-                    <select v-model="comfyRenderPromptStyle">
-                      <option v-for="option in comfyRenderPromptStyleOptions" :key="option.value" :value="option.value">
-                        {{ option.label }}
-                      </option>
-                    </select>
-                  </label>
-                  <label class="span-2">
-                    <span>{{ t('ai_render_template_name') }}</span>
-                    <input
-                      v-model.trim="comfyRenderTemplateName"
-                      :placeholder="t('ai_render_template_name_placeholder')"
-                    />
-                  </label>
-                  <label class="span-2">
-                    <span>{{ t('ai_render_saved_templates') }}</span>
-                    <select v-model="comfyRenderSelectedTemplateId">
-                      <option value="">{{ t('ai_render_template_none') }}</option>
-                      <option v-for="item in comfyRenderSavedTemplates" :key="item.id" :value="item.id">
-                        {{ item.name }}
-                      </option>
-                    </select>
-                  </label>
-                  <label class="span-2">
-                    <span>{{ t('ai_render_prompt_text') }}</span>
-                    <textarea v-model="comfyRenderPromptText" rows="3" />
-                  </label>
-                </div>
-                <div class="ai-action-grid primary">
-                  <button class="btn-secondary" type="button" :disabled="comfyRenderSubmitting" @click="loadComfySourcePayload">
-                    {{ t('ai_render_load_source') }}
-                  </button>
-                  <button class="btn-secondary" type="button" :disabled="comfyRenderSubmitting" @click="loadDefaultComfyWorkflow">
-                    {{ t('ai_render_fill_default_workflow') }}
-                  </button>
-                  <button class="btn-primary" type="button" :disabled="comfyRenderSubmitting" @click="submitComfyRenderJob">
-                    {{ comfyRenderSubmitting ? t('ai_render_submitting') : t('ai_render_submit') }}
-                  </button>
-                  <button class="btn-ghost" type="button" :disabled="comfyRenderLoading" @click="fetchComfyRenderJobs({ force: true })">
-                    {{ comfyRenderLoading ? `${t('ai_render_refresh')}...` : t('ai_render_refresh') }}
-                  </button>
-                </div>
-                <div class="ai-template-shell">
-                  <div class="enterprise-settings-subtitle ai-template-subtitle">{{ t('ai_render_saved_templates_title') }}</div>
-                  <div class="ai-action-grid compact">
-                    <button class="btn-secondary" type="button" :disabled="comfyRenderSubmitting" @click="saveCurrentComfyTemplate">
-                      {{ t('ai_render_save_template') }}
-                    </button>
-                    <button class="btn-secondary" type="button" :disabled="comfyRenderSubmitting || !comfyRenderHasCustomTemplates" @click="applySelectedComfyTemplate">
-                      {{ t('ai_render_apply_template') }}
-                    </button>
-                    <button class="btn-secondary" type="button" :disabled="comfyRenderSubmitting || !comfyRenderHasCustomTemplates" @click="exportSelectedComfyTemplate">
-                      {{ t('ai_render_export_template') }}
-                    </button>
-                    <button class="btn-secondary" type="button" :disabled="comfyRenderSubmitting" @click="triggerComfyTemplateImport">
-                      {{ t('ai_render_import_template') }}
-                    </button>
-                    <button class="btn-ghost" type="button" :disabled="comfyRenderSubmitting || !comfyRenderHasCustomTemplates" @click="deleteSelectedComfyTemplate">
-                      {{ t('ai_render_delete_template') }}
-                    </button>
-                  </div>
-                </div>
-                <div class="ai-template-shell">
-                  <div class="enterprise-settings-subtitle ai-template-subtitle">{{ t('ai_render_shared_templates_title') }}</div>
-                  <div class="task-line ai-template-inline-hint">{{ buildAiRenderSharedTemplatesHintText() }}</div>
-                  <div class="form-grid ai-form-grid">
-                    <label class="span-2">
-                      <span>{{ t('ai_render_shared_templates_select') }}</span>
-                      <select v-model="comfyRenderSelectedSharedTemplateId">
-                        <option value="">{{ t('ai_render_shared_template_none') }}</option>
-                        <option v-for="item in comfyRenderSharedTemplates" :key="`enterprise-shared-template-${item.id}`" :value="item.id">
-                          {{ item.name }} · {{ item.createdBy || 'system' }}
-                        </option>
-                      </select>
-                    </label>
-                  </div>
-                  <div v-if="comfyRenderSelectedSharedTemplate" class="task-line panel-hint">
-                    {{ formatInlineMessage(t('ai_render_shared_template_meta'), {
-                      scope: t(`ai_render_shared_scope_${comfyRenderSelectedSharedTemplate.scopeLabel || comfyRenderSelectedSharedTemplate.scope || 'organization'}`),
-                      createdBy: comfyRenderSelectedSharedTemplate.createdBy || 'system',
-                      updatedAt: formatDateTimeInline(comfyRenderSelectedSharedTemplate.updatedAt)
-                    }) }}
-                  </div>
-                  <div v-else-if="!comfyRenderSharedTemplatesLoading && !comfyRenderHasSharedTemplates" class="empty-note">
-                    {{ t('ai_render_shared_templates_empty') }}
-                  </div>
-                  <div class="ai-action-grid compact">
-                    <button class="btn-secondary" type="button" :disabled="comfyRenderSubmitting || comfyRenderSharedTemplateSaving" @click="saveCurrentComfySharedTemplate">
-                      {{ t('ai_render_save_shared_template') }}
-                    </button>
-                    <button class="btn-secondary" type="button" :disabled="comfyRenderSubmitting || !comfyRenderHasSharedTemplates" @click="applySelectedSharedTemplate">
-                      {{ t('ai_render_apply_shared_template') }}
-                    </button>
-                    <button class="btn-secondary" type="button" :disabled="comfyRenderSharedTemplatesLoading" @click="fetchComfySharedTemplates({ force: true })">
-                      {{ comfyRenderSharedTemplatesLoading ? `${t('ai_render_refresh')}...` : t('ai_render_shared_templates_refresh') }}
-                    </button>
-                    <button class="btn-ghost" type="button" :disabled="comfyRenderSubmitting || !comfyRenderSelectedSharedTemplate?.editable" @click="deleteSelectedSharedTemplate">
-                      {{ t('ai_render_delete_shared_template') }}
-                    </button>
-                  </div>
-                </div>
-                <datalist id="enterprise-comfy-checkpoint-options">
-                  <option v-for="checkpointName in comfyRenderAvailableCheckpoints" :key="checkpointName" :value="checkpointName" />
-                </datalist>
-                <div class="ai-status-stack">
-                  <div class="task-line panel-hint">
-                    {{ t('ai_render_default_workflow_hint') }}
-                  </div>
-                  <div class="task-line panel-hint">
-                    {{ comfyRenderWorkflowPresetSummary }}
-                  </div>
-                  <div class="task-line panel-hint">
-                    {{ comfyRenderPromptStyleSummary }}
-                  </div>
-                  <div class="task-line panel-hint">
-                    {{ comfyRenderRecommendedCheckpointSummary }}
-                  </div>
-                </div>
-                </div>
-              </div>
-              <div class="enterprise-settings-subsection">
-                <div class="enterprise-settings-subtitle">{{ t('enterprise_settings_ai_jobs_title') }}</div>
-                <div v-if="comfyRenderLoading && enterpriseRecentAiJobs.length === 0" class="template-status info">
-                  {{ t('ai_render_loading') }}
-                </div>
-                <div v-else-if="enterpriseRecentAiJobs.length === 0" class="empty-note">{{ t('enterprise_settings_ai_jobs_empty') }}</div>
-                <div v-else class="ai-jobs-list">
-                  <article v-for="job in enterpriseRecentAiJobs" :key="`enterprise-ai-${job.id}`" class="ai-job-card">
-                    <div class="ai-job-head">
-                      <div>
-                        <strong>#{{ job.id }} · {{ formatComfyRenderSource(job) }}</strong>
-                        <div class="task-line">{{ formatDateTimeInline(job.created_at) }}</div>
-                      </div>
-                      <span class="point-badge">{{ formatComfyRenderStatus(job.status) }}</span>
-                    </div>
-                    <div v-if="job.error_message" class="task-line template-status error">
-                      {{ job.error_message }}
-                    </div>
-                    <div v-if="job.asset_urls?.length" class="ai-job-assets">
-                      <button
-                        v-for="(assetUrl, assetIndex) in job.asset_urls"
-                        :key="`${job.id}-asset-${assetIndex}`"
-                        class="ai-job-asset-link"
-                        type="button"
-                        @click="openComfyRenderAssetPreview(job, assetUrl, assetIndex)"
-                      >
-                        {{ formatComfyRenderAssetActionLabel(job, assetIndex) }}
-                      </button>
-                    </div>
-                    <div class="ai-job-actions">
-                      <button
-                        class="btn-danger"
-                        type="button"
-                        :disabled="deletingComfyJobId === job.id"
-                        @click="deleteComfyRenderJob(job.id)"
-                      >
-                        {{ deletingComfyJobId === job.id ? `${t('ai_render_delete')}...` : t('ai_render_delete') }}
-                      </button>
-                    </div>
-                  </article>
-                </div>
-              </div>
+              <ComfyAiWorkspace
+                v-model:builtin-template-key="comfyRenderBuiltinTemplateKey"
+                v-model:source-type="comfyRenderSourceType"
+                v-model:source-ref="comfyRenderSourceRef"
+                v-model:checkpoint-name="comfyRenderCheckpointName"
+                v-model:workflow-preset="comfyRenderWorkflowPreset"
+                v-model:prompt-style="comfyRenderPromptStyle"
+                v-model:template-name="comfyRenderTemplateName"
+                v-model:selected-template-id="comfyRenderSelectedTemplateId"
+                v-model:prompt-text="comfyRenderPromptText"
+                v-model:input-json-text="comfyRenderInputJsonText"
+                v-model:workflow-json-text="comfyRenderWorkflowJsonText"
+                v-model:selected-shared-template-id="comfyRenderSelectedSharedTemplateId"
+                :t="t"
+                :format-inline-message="formatInlineMessage"
+                :can-render="authCanAiRender"
+                :status-text="comfyRenderStatus"
+                :status-type="comfyRenderStatusType"
+                :builtin-templates="comfyRenderBuiltinTemplates"
+                :selected-builtin-template="comfyRenderSelectedBuiltinTemplate"
+                :selected-builtin-template-matches-recommendation="comfyRenderSelectedBuiltinTemplateMatchesRecommendation"
+                :recommended-builtin-template="comfyRenderRecommendedBuiltinTemplate"
+                :recommended-builtin-reason-text="comfyRenderRecommendedBuiltinReasonText"
+                :source-options="comfyRenderSourceOptions"
+                :workflow-preset-options="comfyRenderWorkflowPresetOptions"
+                :prompt-style-options="comfyRenderPromptStyleOptions"
+                :saved-templates="comfyRenderSavedTemplates"
+                :has-custom-templates="comfyRenderHasCustomTemplates"
+                :shared-templates="comfyRenderSharedTemplates"
+                :selected-shared-template="comfyRenderSelectedSharedTemplate"
+                :has-shared-templates="comfyRenderHasSharedTemplates"
+                :shared-templates-hint-text="buildAiRenderSharedTemplatesHintText()"
+                :shared-template-meta-text="comfyRenderSelectedSharedTemplateMetaText"
+                checkpoint-list-id="enterprise-comfy-checkpoint-options"
+                :available-checkpoints="comfyRenderAvailableCheckpoints"
+                :workflow-preset-summary="comfyRenderWorkflowPresetSummary"
+                :prompt-style-summary="comfyRenderPromptStyleSummary"
+                :recommended-checkpoint-summary="comfyRenderRecommendedCheckpointSummary"
+                :submitting="comfyRenderSubmitting"
+                :loading-jobs="comfyRenderLoading"
+                :shared-template-saving="comfyRenderSharedTemplateSaving"
+                :shared-templates-loading="comfyRenderSharedTemplatesLoading"
+                :jobs="enterpriseRecentAiJobs"
+                :jobs-title="t('enterprise_settings_ai_jobs_title')"
+                :jobs-empty-text="t('enterprise_settings_ai_jobs_empty')"
+                :matched-job-ids="[]"
+                :deleting-job-id="deletingComfyJobId"
+                :last-fetched-text="''"
+                :no-access-action-text="buildOperationsEntryActionText()"
+                :on-open-builtin-overview="openComfyBuiltinTemplateOverview"
+                :on-apply-builtin="applySelectedBuiltinComfyTemplate"
+                :on-load-source="loadComfySourcePayload"
+                :on-fill-default-workflow="loadDefaultComfyWorkflow"
+                :on-submit="submitComfyRenderJob"
+                :on-refresh-jobs="() => fetchComfyRenderJobs({ force: true })"
+                :on-save-template="saveCurrentComfyTemplate"
+                :on-apply-template="applySelectedComfyTemplate"
+                :on-export-template="exportSelectedComfyTemplate"
+                :on-import-template="onComfyTemplateFileChange"
+                :on-delete-template="deleteSelectedComfyTemplate"
+                :on-save-shared-template="saveCurrentComfySharedTemplate"
+                :on-apply-shared-template="applySelectedSharedTemplate"
+                :on-refresh-shared-templates="() => fetchComfySharedTemplates({ force: true })"
+                :on-delete-shared-template="deleteSelectedSharedTemplate"
+                :on-preview-asset="openComfyRenderAssetPreview"
+                :on-delete-job="deleteComfyRenderJob"
+                :on-entry-action="openAuthDialog"
+                :format-source="formatComfyRenderSource"
+                :format-status="formatComfyRenderStatus"
+                :format-asset-action-label="formatComfyRenderAssetActionLabel"
+                :job-meta-text="formatEnterpriseComfyRenderJobMeta"
+              />
               <p class="panel-hint">{{ buildAiRenderHintText() }}</p>
               <div class="enterprise-settings-actions">
                 <button class="btn-secondary" type="button" @click="jumpFromEnterpriseSettings('ai')">
@@ -12184,299 +12024,80 @@ onBeforeUnmount(() => {
               </span>
             </button>
             <div v-show="panelSections.ai" class="panel-section-body ai-panel-section-body">
-              <div class="ai-panel">
-                <h2>{{ t('ai_render_title') }}</h2>
-                <p class="panel-hint">{{ buildAiRenderHintText() }}</p>
-
-                <template v-if="authCanAiRender">
-              <div v-if="comfyRenderStatus" :class="['template-status', comfyRenderStatusType]">
-                {{ comfyRenderStatus }}
-              </div>
-
-                  <div class="ai-template-shell ai-template-shell-highlight">
-                    <div class="enterprise-settings-subtitle ai-template-subtitle">{{ t('ai_render_builtin_templates') }}</div>
-                    <div class="task-line ai-template-inline-hint">{{ t('ai_render_builtin_templates_hint') }}</div>
-                    <div v-if="comfyRenderRecommendedBuiltinTemplate && comfyRenderRecommendedBuiltinReasonText" class="task-line ai-template-inline-hint">
-                      {{ formatInlineMessage(t('ai_render_recommended_template_reason_line'), {
-                        template: comfyRenderRecommendedBuiltinTemplate.label,
-                        reason: comfyRenderRecommendedBuiltinReasonText
-                      }) }}
-                    </div>
-                    <div class="ai-template-selector-row">
-                      <label class="ai-template-selector-field">
-                        <span class="ai-template-selector-label">{{ t('ai_render_builtin_template_select') }}</span>
-                        <select v-model="comfyRenderBuiltinTemplateKey">
-                          <option v-for="item in comfyRenderBuiltinTemplates" :key="`panel-builtin-select-${item.key}`" :value="item.key">
-                            {{ item.label }}
-                          </option>
-                        </select>
-                      </label>
-                      <button class="btn-ghost ai-template-overview-trigger" type="button" @click="openComfyBuiltinTemplateOverview">
-                        {{ t('ai_render_show_builtin_overview') }}
-                      </button>
-                    </div>
-                    <article v-if="comfyRenderSelectedBuiltinTemplate" class="ai-template-card builtin">
-                      <div class="ai-template-card-head">
-                        <div class="ai-template-card-copy">
-                          <strong>{{ comfyRenderSelectedBuiltinTemplate.label }}</strong>
-                          <div class="task-line">{{ comfyRenderSelectedBuiltinTemplate.hint }}</div>
-                        </div>
-                        <span class="point-badge enterprise-settings-chip">{{ comfyRenderSelectedBuiltinTemplate.workflowPreset }}</span>
-                      </div>
-                      <div class="ai-template-chip-row">
-                        <span
-                          v-if="comfyRenderSelectedBuiltinTemplateMatchesRecommendation"
-                          class="point-badge enterprise-settings-chip"
-                        >
-                          {{ t('ai_render_recommended_template_title') }}
-                        </span>
-                        <span class="point-badge enterprise-settings-chip enterprise-settings-chip-muted">
-                          {{ comfyRenderSelectedBuiltinTemplate.promptStyleLabel }}
-                        </span>
-                        <span
-                          v-for="sourceLabel in comfyRenderSelectedBuiltinTemplate.recommendedSources"
-                          :key="`panel-builtin-source-${sourceLabel}`"
-                          class="point-badge enterprise-settings-chip enterprise-settings-chip-muted"
-                        >
-                          {{ sourceLabel }}
-                        </span>
-                      </div>
-                      <button class="btn-secondary full-width" type="button" :disabled="comfyRenderSubmitting" @click="applySelectedBuiltinComfyTemplate">
-                        {{ t('ai_render_apply_builtin') }}
-                      </button>
-                    </article>
-                  </div>
-
-                  <div class="ai-form-shell">
-                  <div class="form-grid ai-form-grid">
-                    <label>
-                      <span>{{ t('ai_render_source_type') }}</span>
-                      <select v-model="comfyRenderSourceType">
-                        <option v-for="option in comfyRenderSourceOptions" :key="option.value" :value="option.value">
-                          {{ option.label }}
-                        </option>
-                      </select>
-                    </label>
-                    <label>
-                      <span>{{ t('ai_render_source_ref') }}</span>
-                      <input
-                        v-model.trim="comfyRenderSourceRef"
-                        :placeholder="t('ai_render_source_ref_placeholder')"
-                      />
-                    </label>
-                    <label>
-                      <span>{{ t('ai_render_checkpoint_name') }}</span>
-                      <input
-                        v-model.trim="comfyRenderCheckpointName"
-                        list="comfy-checkpoint-options"
-                        :placeholder="t('ai_render_checkpoint_name_placeholder')"
-                      />
-                    </label>
-                    <label>
-                      <span>{{ t('ai_render_workflow_preset') }}</span>
-                      <select v-model="comfyRenderWorkflowPreset">
-                        <option v-for="option in comfyRenderWorkflowPresetOptions" :key="option.value" :value="option.value">
-                          {{ option.label }}
-                        </option>
-                      </select>
-                    </label>
-                    <label>
-                      <span>{{ t('ai_render_prompt_style') }}</span>
-                      <select v-model="comfyRenderPromptStyle">
-                        <option v-for="option in comfyRenderPromptStyleOptions" :key="option.value" :value="option.value">
-                          {{ option.label }}
-                        </option>
-                      </select>
-                    </label>
-                    <label class="span-2">
-                      <span>{{ t('ai_render_template_name') }}</span>
-                      <input
-                        v-model.trim="comfyRenderTemplateName"
-                        :placeholder="t('ai_render_template_name_placeholder')"
-                      />
-                    </label>
-                    <label class="span-2">
-                      <span>{{ t('ai_render_saved_templates') }}</span>
-                      <select v-model="comfyRenderSelectedTemplateId">
-                        <option value="">{{ t('ai_render_template_none') }}</option>
-                        <option v-for="item in comfyRenderSavedTemplates" :key="item.id" :value="item.id">
-                          {{ item.name }}
-                        </option>
-                      </select>
-                    </label>
-                    <label class="span-2">
-                      <span>{{ t('ai_render_prompt_text') }}</span>
-                      <textarea v-model="comfyRenderPromptText" rows="3" />
-                    </label>
-                    <label class="span-2">
-                      <span>{{ t('ai_render_input_json') }}</span>
-                      <textarea v-model="comfyRenderInputJsonText" rows="7" spellcheck="false" />
-                    </label>
-                    <label class="span-2">
-                      <span>{{ t('ai_render_workflow_json') }}</span>
-                      <textarea v-model="comfyRenderWorkflowJsonText" rows="8" spellcheck="false" />
-                    </label>
-                  </div>
-
-                  <div class="ai-action-grid primary">
-                    <button class="btn-secondary" type="button" :disabled="comfyRenderSubmitting" @click="loadComfySourcePayload">
-                      {{ t('ai_render_load_source') }}
-                    </button>
-                    <button class="btn-secondary" type="button" :disabled="comfyRenderSubmitting" @click="loadDefaultComfyWorkflow">
-                      {{ t('ai_render_fill_default_workflow') }}
-                    </button>
-                    <button class="btn-primary" type="button" :disabled="comfyRenderSubmitting" @click="submitComfyRenderJob">
-                      {{ comfyRenderSubmitting ? t('ai_render_submitting') : t('ai_render_submit') }}
-                    </button>
-                  </div>
-                  <div class="ai-template-shell">
-                    <div class="enterprise-settings-subtitle ai-template-subtitle">{{ t('ai_render_saved_templates_title') }}</div>
-                    <div class="ai-action-grid compact">
-                      <button class="btn-secondary" type="button" :disabled="comfyRenderSubmitting" @click="saveCurrentComfyTemplate">
-                        {{ t('ai_render_save_template') }}
-                      </button>
-                      <button class="btn-secondary" type="button" :disabled="comfyRenderSubmitting || !comfyRenderHasCustomTemplates" @click="applySelectedComfyTemplate">
-                        {{ t('ai_render_apply_template') }}
-                      </button>
-                      <button class="btn-secondary" type="button" :disabled="comfyRenderSubmitting || !comfyRenderHasCustomTemplates" @click="exportSelectedComfyTemplate">
-                        {{ t('ai_render_export_template') }}
-                      </button>
-                      <button class="btn-secondary" type="button" :disabled="comfyRenderSubmitting" @click="triggerComfyTemplateImport">
-                        {{ t('ai_render_import_template') }}
-                      </button>
-                      <button class="btn-ghost" type="button" :disabled="comfyRenderSubmitting || !comfyRenderHasCustomTemplates" @click="deleteSelectedComfyTemplate">
-                        {{ t('ai_render_delete_template') }}
-                      </button>
-                    </div>
-                  </div>
-                  <div class="ai-template-shell">
-                    <div class="enterprise-settings-subtitle ai-template-subtitle">{{ t('ai_render_shared_templates_title') }}</div>
-                    <div class="task-line ai-template-inline-hint">{{ buildAiRenderSharedTemplatesHintText() }}</div>
-                    <div class="form-grid ai-form-grid">
-                      <label class="span-2">
-                        <span>{{ t('ai_render_shared_templates_select') }}</span>
-                        <select v-model="comfyRenderSelectedSharedTemplateId">
-                          <option value="">{{ t('ai_render_shared_template_none') }}</option>
-                          <option v-for="item in comfyRenderSharedTemplates" :key="`panel-shared-template-${item.id}`" :value="item.id">
-                            {{ item.name }} · {{ item.createdBy || 'system' }}
-                          </option>
-                        </select>
-                      </label>
-                    </div>
-                    <div v-if="comfyRenderSelectedSharedTemplate" class="task-line panel-hint">
-                      {{ formatInlineMessage(t('ai_render_shared_template_meta'), {
-                        scope: t(`ai_render_shared_scope_${comfyRenderSelectedSharedTemplate.scopeLabel || comfyRenderSelectedSharedTemplate.scope || 'organization'}`),
-                        createdBy: comfyRenderSelectedSharedTemplate.createdBy || 'system',
-                        updatedAt: formatDateTimeInline(comfyRenderSelectedSharedTemplate.updatedAt)
-                      }) }}
-                    </div>
-                    <div v-else-if="!comfyRenderSharedTemplatesLoading && !comfyRenderHasSharedTemplates" class="empty-note">
-                      {{ t('ai_render_shared_templates_empty') }}
-                    </div>
-                    <div class="ai-action-grid compact">
-                      <button class="btn-secondary" type="button" :disabled="comfyRenderSubmitting || comfyRenderSharedTemplateSaving" @click="saveCurrentComfySharedTemplate">
-                        {{ t('ai_render_save_shared_template') }}
-                      </button>
-                      <button class="btn-secondary" type="button" :disabled="comfyRenderSubmitting || !comfyRenderHasSharedTemplates" @click="applySelectedSharedTemplate">
-                        {{ t('ai_render_apply_shared_template') }}
-                      </button>
-                      <button class="btn-secondary" type="button" :disabled="comfyRenderSharedTemplatesLoading" @click="fetchComfySharedTemplates({ force: true })">
-                        {{ comfyRenderSharedTemplatesLoading ? `${t('ai_render_refresh')}...` : t('ai_render_shared_templates_refresh') }}
-                      </button>
-                      <button class="btn-ghost" type="button" :disabled="comfyRenderSubmitting || !comfyRenderSelectedSharedTemplate?.editable" @click="deleteSelectedSharedTemplate">
-                        {{ t('ai_render_delete_shared_template') }}
-                      </button>
-                    </div>
-                  </div>
-
-                  <datalist id="comfy-checkpoint-options">
-                    <option v-for="checkpointName in comfyRenderAvailableCheckpoints" :key="checkpointName" :value="checkpointName" />
-                  </datalist>
-
-                  <div class="ai-status-stack">
-                    <div class="task-line panel-hint">
-                      {{ t('ai_render_default_workflow_hint') }}
-                    </div>
-                    <div class="task-line panel-hint">
-                      {{ comfyRenderWorkflowPresetSummary }}
-                    </div>
-                    <div class="task-line panel-hint">
-                      {{ comfyRenderPromptStyleSummary }}
-                    </div>
-                    <div class="task-line panel-hint">
-                      {{ comfyRenderRecommendedCheckpointSummary }}
-                    </div>
-                  </div>
-                  </div>
-
-                  <div class="operations-toolbar ai-toolbar">
-                    <div v-if="comfyRenderLastFetchedAt" class="task-line operations-last-fetched">
-                      {{ formatInlineMessage(t('operations_last_updated'), { at: comfyRenderLastFetchedAt }) }}
-                    </div>
-                    <button class="btn-secondary" type="button" :disabled="comfyRenderLoading" @click="fetchComfyRenderJobs({ force: true })">
-                      {{ comfyRenderLoading ? `${t('ai_render_refresh')}...` : t('ai_render_refresh') }}
-                    </button>
-                  </div>
-
-                  <div v-if="comfyRenderLoading && comfyRenderJobs.length === 0" class="template-status info">
-                    {{ t('ai_render_loading') }}
-                  </div>
-
-                  <div v-if="!comfyRenderLoading && comfyRenderJobs.length === 0" class="empty-note">
-                    {{ t('ai_render_empty') }}
-                  </div>
-
-                  <div v-else class="ai-jobs-list">
-                    <article
-                      v-for="job in comfyRenderJobs"
-                      :key="job.id"
-                      class="ai-job-card"
-                      :class="{ 'search-hit': matchedComfyJobIds.includes(job.id) }"
-                    >
-                      <div class="ai-job-head">
-                        <div>
-                          <strong>#{{ job.id }} · {{ formatComfyRenderSource(job) }}</strong>
-                          <div class="task-line">{{ job.created_by }} · {{ job.created_at }}</div>
-                        </div>
-                        <span class="point-badge">{{ formatComfyRenderStatus(job.status) }}</span>
-                      </div>
-                      <div v-if="job.error_message" class="task-line template-status error">
-                        {{ job.error_message }}
-                      </div>
-                      <div v-if="job.asset_urls?.length" class="ai-job-assets">
-                        <button
-                          v-for="(assetUrl, assetIndex) in job.asset_urls"
-                          :key="`${job.id}-asset-${assetIndex}`"
-                          class="ai-job-asset-link"
-                          type="button"
-                          @click="openComfyRenderAssetPreview(job, assetUrl, assetIndex)"
-                        >
-                          {{ formatComfyRenderAssetActionLabel(job, assetIndex) }}
-                        </button>
-                      </div>
-                      <div class="ai-job-actions">
-                        <button
-                          class="btn-danger"
-                          type="button"
-                          :disabled="deletingComfyJobId === job.id"
-                          @click="deleteComfyRenderJob(job.id)"
-                        >
-                          {{ deletingComfyJobId === job.id ? `${t('ai_render_delete')}...` : t('ai_render_delete') }}
-                        </button>
-                      </div>
-                    </article>
-                  </div>
-                </template>
-
-                <div v-else class="operations-login-card">
-                  <div class="empty-note">
-                    {{ buildAiRenderHintText() }}
-                  </div>
-                  <button class="btn-primary" type="button" @click="openAuthDialog">
-                    {{ buildOperationsEntryActionText() }}
-                  </button>
-                </div>
-              </div>
+              <ComfyAiWorkspace
+                v-model:builtin-template-key="comfyRenderBuiltinTemplateKey"
+                v-model:source-type="comfyRenderSourceType"
+                v-model:source-ref="comfyRenderSourceRef"
+                v-model:checkpoint-name="comfyRenderCheckpointName"
+                v-model:workflow-preset="comfyRenderWorkflowPreset"
+                v-model:prompt-style="comfyRenderPromptStyle"
+                v-model:template-name="comfyRenderTemplateName"
+                v-model:selected-template-id="comfyRenderSelectedTemplateId"
+                v-model:prompt-text="comfyRenderPromptText"
+                v-model:input-json-text="comfyRenderInputJsonText"
+                v-model:workflow-json-text="comfyRenderWorkflowJsonText"
+                v-model:selected-shared-template-id="comfyRenderSelectedSharedTemplateId"
+                :t="t"
+                :format-inline-message="formatInlineMessage"
+                :can-render="authCanAiRender"
+                :heading="t('ai_render_title')"
+                :hint-text="buildAiRenderHintText()"
+                :status-text="comfyRenderStatus"
+                :status-type="comfyRenderStatusType"
+                :builtin-templates="comfyRenderBuiltinTemplates"
+                :selected-builtin-template="comfyRenderSelectedBuiltinTemplate"
+                :selected-builtin-template-matches-recommendation="comfyRenderSelectedBuiltinTemplateMatchesRecommendation"
+                :recommended-builtin-template="comfyRenderRecommendedBuiltinTemplate"
+                :recommended-builtin-reason-text="comfyRenderRecommendedBuiltinReasonText"
+                :source-options="comfyRenderSourceOptions"
+                :workflow-preset-options="comfyRenderWorkflowPresetOptions"
+                :prompt-style-options="comfyRenderPromptStyleOptions"
+                :saved-templates="comfyRenderSavedTemplates"
+                :has-custom-templates="comfyRenderHasCustomTemplates"
+                :shared-templates="comfyRenderSharedTemplates"
+                :selected-shared-template="comfyRenderSelectedSharedTemplate"
+                :has-shared-templates="comfyRenderHasSharedTemplates"
+                :shared-templates-hint-text="buildAiRenderSharedTemplatesHintText()"
+                :shared-template-meta-text="comfyRenderSelectedSharedTemplateMetaText"
+                checkpoint-list-id="comfy-checkpoint-options"
+                :available-checkpoints="comfyRenderAvailableCheckpoints"
+                :workflow-preset-summary="comfyRenderWorkflowPresetSummary"
+                :prompt-style-summary="comfyRenderPromptStyleSummary"
+                :recommended-checkpoint-summary="comfyRenderRecommendedCheckpointSummary"
+                :submitting="comfyRenderSubmitting"
+                :loading-jobs="comfyRenderLoading"
+                :shared-template-saving="comfyRenderSharedTemplateSaving"
+                :shared-templates-loading="comfyRenderSharedTemplatesLoading"
+                :jobs="comfyRenderJobs"
+                :jobs-title="''"
+                :jobs-empty-text="t('ai_render_empty')"
+                :matched-job-ids="matchedComfyJobIds"
+                :deleting-job-id="deletingComfyJobId"
+                :last-fetched-text="comfyRenderLastFetchedText"
+                :no-access-action-text="buildOperationsEntryActionText()"
+                :on-open-builtin-overview="openComfyBuiltinTemplateOverview"
+                :on-apply-builtin="applySelectedBuiltinComfyTemplate"
+                :on-load-source="loadComfySourcePayload"
+                :on-fill-default-workflow="loadDefaultComfyWorkflow"
+                :on-submit="submitComfyRenderJob"
+                :on-refresh-jobs="() => fetchComfyRenderJobs({ force: true })"
+                :on-save-template="saveCurrentComfyTemplate"
+                :on-apply-template="applySelectedComfyTemplate"
+                :on-export-template="exportSelectedComfyTemplate"
+                :on-import-template="onComfyTemplateFileChange"
+                :on-delete-template="deleteSelectedComfyTemplate"
+                :on-save-shared-template="saveCurrentComfySharedTemplate"
+                :on-apply-shared-template="applySelectedSharedTemplate"
+                :on-refresh-shared-templates="() => fetchComfySharedTemplates({ force: true })"
+                :on-delete-shared-template="deleteSelectedSharedTemplate"
+                :on-preview-asset="openComfyRenderAssetPreview"
+                :on-delete-job="deleteComfyRenderJob"
+                :on-entry-action="openAuthDialog"
+                :format-source="formatComfyRenderSource"
+                :format-status="formatComfyRenderStatus"
+                :format-asset-action-label="formatComfyRenderAssetActionLabel"
+                :job-meta-text="formatPanelComfyRenderJobMeta"
+              />
             </div>
           </section>
 
@@ -12615,15 +12236,6 @@ onBeforeUnmount(() => {
         </button>
       </aside>
     </div>
-
-    <input
-      ref="comfyRenderTemplateFileInputRef"
-      type="file"
-      accept="application/json,.json"
-      class="hidden-file-input"
-      @change="onComfyTemplateFileChange"
-    />
-
     <div v-if="comfyRenderBuiltinTemplatesOverviewVisible" class="asset-preview-mask" @click.self="closeComfyBuiltinTemplateOverview">
       <section class="asset-preview-modal ai-template-overview-modal" role="dialog" aria-modal="true">
         <header class="asset-preview-header">
