@@ -64,6 +64,7 @@ import { buildCustomPoint, normalizeStoredCustomPoints } from './utils/pointHelp
 const ComfyAiWorkspace = defineAsyncComponent(() => import('./components/ComfyAiWorkspace.vue'))
 const EnterpriseSettingsDialog = defineAsyncComponent(() => import('./components/EnterpriseSettingsDialog.vue'))
 const EnterpriseApprovalDialog = defineAsyncComponent(() => import('./components/EnterpriseApprovalDialog.vue'))
+const AuthDialog = defineAsyncComponent(() => import('./components/AuthDialog.vue'))
 
 const GRID_COLS = 10
 const GRID_ROWS = 8
@@ -8245,6 +8246,42 @@ watch(
 
 
 
+
+const authDialogBindings = {
+  t,
+  showAuthGate,
+  dashboardUnlocked,
+  authPanelOpen,
+  authModalTitle,
+  authPanelModeText,
+  authRoleBadgeClass,
+  authAuthenticated,
+  authCurrentDisplayName,
+  authModeText,
+  authEntryHintText,
+  authCurrentUser,
+  authAccountStatusLabel,
+  authCurrentOrganizationName,
+  authLoading,
+  authCapabilityCards,
+  authPrimaryAccounts,
+  authDialogView,
+  authUsername,
+  authPassword,
+  authDemoAccounts,
+  authEnterpriseRegisterForm,
+  authEnterpriseRegisterLoading,
+  buildAuthCapabilityStateText,
+  enterGuestMode,
+  handleAuthLogout,
+  handleAuthQuickLogin,
+  switchAuthDialogView,
+  handleAuthLogin,
+  authDemoAccountLabel,
+  handleAuthDemoFill,
+  handleEnterpriseRegister
+}
+
 const enterpriseApprovalDialogBindings = {
   t,
   enterpriseApprovalSummary,
@@ -8454,187 +8491,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="page-shell">
-    <div v-if="showAuthDialog" class="auth-dialog-backdrop" :class="{ gate: showAuthGate }">
-      <div class="auth-dialog-card">
-        <div class="auth-dialog-header">
-          <div>
-            <div class="auth-dialog-kicker">{{ t('title') }}</div>
-            <h2 class="auth-dialog-title">{{ authModalTitle }}</h2>
-            <p class="auth-dialog-hint">{{ authPanelModeText }}</p>
-          </div>
-          <button
-            v-if="dashboardUnlocked"
-            class="auth-dialog-close"
-            type="button"
-            @click="authPanelOpen = false"
-          >
-            {{ t('auth_close') }}
-          </button>
-        </div>
-
-        <div class="auth-dialog-current" :class="[authRoleBadgeClass, { guest: !authAuthenticated }]">
-          <div class="auth-dialog-current-label">{{ t('auth_current_identity') }}</div>
-          <strong>{{ authAuthenticated ? authCurrentDisplayName : t('auth_role_guest') }}</strong>
-          <span>{{ authModeText }}</span>
-          <small class="auth-dialog-current-hint">{{ authEntryHintText }}</small>
-          <small>{{ authAuthenticated ? authCurrentUser.username : 'guest' }}</small>
-          <small v-if="authAuthenticated">{{ authAccountStatusLabel }}</small>
-          <small v-if="authAuthenticated && authCurrentOrganizationName">{{ authCurrentOrganizationName }}</small>
-          <button
-            v-if="authAuthenticated"
-            class="auth-dialog-inline-action"
-            type="button"
-            :disabled="authLoading"
-            @click="handleAuthLogout"
-          >
-            {{ t('auth_sign_out') }}
-          </button>
-        </div>
-
-        <div class="auth-capability-panel">
-          <div class="auth-dialog-divider">{{ t('auth_capabilities_title') }}</div>
-          <p class="auth-dialog-hint">
-            {{ authAuthenticated ? t('auth_capabilities_hint') : t('auth_capabilities_guest_hint') }}
-          </p>
-          <div class="auth-capability-grid">
-            <article
-              v-for="item in authCapabilityCards"
-              :key="item.key"
-              class="auth-capability-card"
-              :class="{ enabled: item.enabled, disabled: !item.enabled }"
-            >
-              <div class="auth-capability-label-row">
-                <strong>{{ item.label }}</strong>
-                <span class="auth-capability-state">{{ buildAuthCapabilityStateText(item.enabled) }}</span>
-              </div>
-              <span>{{ item.hint }}</span>
-            </article>
-          </div>
-        </div>
-
-        <div class="auth-dialog-choice-grid">
-          <button class="auth-dialog-choice guest" type="button" @click="enterGuestMode">
-            <strong>{{ t('auth_enter_guest') }}</strong>
-            <span>{{ t('auth_role_guest') }}</span>
-          </button>
-          <button
-            v-for="account in authPrimaryAccounts"
-            :key="account.role"
-            class="auth-dialog-choice"
-            type="button"
-            :disabled="authLoading"
-            @click="handleAuthQuickLogin(account)"
-          >
-            <strong>{{ t(`auth_role_${account.role}`) }}</strong>
-            <span>{{ account.username }}</span>
-          </button>
-        </div>
-
-        <div class="auth-dialog-segmented">
-          <button
-            class="auth-dialog-segment"
-            :class="{ active: authDialogView === 'login' }"
-            type="button"
-            @click="switchAuthDialogView('login')"
-          >
-            {{ t('auth_manual_login') }}
-          </button>
-          <button
-            class="auth-dialog-segment"
-            :class="{ active: authDialogView === 'enterprise-register' }"
-            type="button"
-            @click="switchAuthDialogView('enterprise-register')"
-          >
-            {{ t('auth_enterprise_register') }}
-          </button>
-        </div>
-
-        <template v-if="authDialogView === 'login'">
-          <div class="auth-dialog-divider">{{ t('auth_manual_login') }}</div>
-
-          <div class="auth-dialog-form">
-            <label class="auth-dialog-field">
-              <span>{{ t('auth_username') }}</span>
-              <input
-                v-model.trim="authUsername"
-                :placeholder="t('auth_username_placeholder')"
-                @keydown.enter.prevent="handleAuthLogin"
-              />
-            </label>
-
-            <label class="auth-dialog-field">
-              <span>{{ t('auth_password') }}</span>
-              <input
-                v-model="authPassword"
-                type="password"
-                :placeholder="t('auth_password_placeholder')"
-                @keydown.enter.prevent="handleAuthLogin"
-              />
-            </label>
-
-            <div class="auth-dialog-actions">
-              <button class="auth-dialog-submit" type="button" :disabled="authLoading" @click="handleAuthLogin">
-                {{ authLoading ? t('auth_signing_in') : t('auth_sign_in') }}
-              </button>
-              <div class="auth-dialog-demo-label">{{ t('auth_demo_accounts') }}</div>
-              <div class="auth-dialog-demo-grid">
-                <button
-                  v-for="account in authDemoAccounts"
-                  :key="account.username"
-                  class="auth-dialog-demo-button"
-                  type="button"
-                  @click="handleAuthDemoFill(account)"
-                >
-                  {{ authDemoAccountLabel(account) }}
-                </button>
-              </div>
-            </div>
-          </div>
-        </template>
-
-        <template v-else>
-          <div class="auth-dialog-divider">{{ t('auth_enterprise_register') }}</div>
-          <p class="auth-dialog-hint">{{ t('auth_enterprise_register_hint') }}</p>
-          <div class="auth-dialog-form">
-            <label class="auth-dialog-field">
-              <span>{{ t('enterprise_register_company_name') }}</span>
-              <input v-model.trim="authEnterpriseRegisterForm.company_name" />
-            </label>
-            <label class="auth-dialog-field">
-              <span>{{ t('enterprise_register_contact_name') }}</span>
-              <input v-model.trim="authEnterpriseRegisterForm.contact_name" />
-            </label>
-            <label class="auth-dialog-field">
-              <span>{{ t('enterprise_register_contact_email') }}</span>
-              <input v-model.trim="authEnterpriseRegisterForm.contact_email" />
-            </label>
-            <label class="auth-dialog-field">
-              <span>{{ t('enterprise_register_username') }}</span>
-              <input v-model.trim="authEnterpriseRegisterForm.username" />
-            </label>
-            <label class="auth-dialog-field">
-              <span>{{ t('enterprise_register_password') }}</span>
-              <input
-                v-model="authEnterpriseRegisterForm.password"
-                type="password"
-                @keydown.enter.prevent="handleEnterpriseRegister"
-              />
-            </label>
-
-            <div class="auth-dialog-actions">
-              <button
-                class="auth-dialog-submit"
-                type="button"
-                :disabled="authEnterpriseRegisterLoading"
-                @click="handleEnterpriseRegister"
-              >
-                {{ authEnterpriseRegisterLoading ? t('auth_enterprise_register_submitting') : t('auth_enterprise_register_submit') }}
-              </button>
-            </div>
-          </div>
-        </template>
-      </div>
-    </div>
+    <AuthDialog v-if="showAuthDialog" :ui="authDialogBindings" />
 
     <EnterpriseApprovalDialog v-if="enterpriseApprovalDialogOpen" :ui="enterpriseApprovalDialogBindings" />
 
