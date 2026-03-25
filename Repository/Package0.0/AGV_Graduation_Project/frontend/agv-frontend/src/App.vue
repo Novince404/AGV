@@ -70,6 +70,7 @@ const AlgorithmCompareWorkspace = defineAsyncComponent(() => import('./component
 const ExperimentRecordsPanel = defineAsyncComponent(() => import('./components/ExperimentRecordsPanel.vue'))
 const TaskTemplatesPanel = defineAsyncComponent(() => import('./components/TaskTemplatesPanel.vue'))
 const PointLibraryPanel = defineAsyncComponent(() => import('./components/PointLibraryPanel.vue'))
+const JsonToolsPanel = defineAsyncComponent(() => import('./components/JsonToolsPanel.vue'))
 
 const GRID_COLS = 10
 const GRID_ROWS = 8
@@ -8414,6 +8415,25 @@ const pointLibraryPanelBindings = {
   deleteCustomPointWithAuth
 }
 
+const jsonToolsPanelBindings = {
+  t,
+  authCanJsonWrite,
+  taskJsonLocale,
+  taskJsonExampleFileLocale,
+  jsonText,
+  jsonStatus,
+  buildCapabilityReadonlyHint,
+  buildEnterprisePanelReadonlyHint,
+  openAuthDialog,
+  buildOperationsEntryActionText,
+  fillTaskJsonExample,
+  downloadTaskJsonExample,
+  buildCapabilityLockedTitle,
+  importTasksFromJson,
+  exportTasksToJsonWithAuth,
+  clearJsonTextWithAuth
+}
+
 const enterpriseApprovalDialogBindings = {
   t,
   enterpriseApprovalSummary,
@@ -10692,70 +10712,7 @@ onBeforeUnmount(() => {
               </span>
             </button>
             <div v-show="panelSections.json" class="panel-section-body">
-              <div class="json-tools">
-                <h2>{{ t('json_tools') }}</h2>
-                <div v-if="!authCanJsonWrite" class="permission-gate-card compact">
-                  <div class="empty-note">
-                    {{ buildCapabilityReadonlyHint('data') }}
-                  </div>
-                  <div v-if="buildEnterprisePanelReadonlyHint('data')" class="task-line permission-gate-extra">
-                    {{ buildEnterprisePanelReadonlyHint('data') }}
-                  </div>
-                  <button class="btn-primary" type="button" @click="openAuthDialog">
-                    {{ buildOperationsEntryActionText() }}
-                  </button>
-                </div>
-                <div class="json-example-grid">
-                  <button class="btn-secondary" type="button" @click="fillTaskJsonExample('single')">
-                    {{ taskJsonLocale.singleExample }}
-                  </button>
-                  <button class="btn-secondary" type="button" @click="fillTaskJsonExample('chain')">
-                    {{ taskJsonLocale.chainExample }}
-                  </button>
-                  <button class="btn-ghost" type="button" @click="downloadTaskJsonExample('single')">
-                    {{ taskJsonExampleFileLocale.singleDownload }}
-                  </button>
-                  <button class="btn-ghost" type="button" @click="downloadTaskJsonExample('chain')">
-                    {{ taskJsonExampleFileLocale.chainDownload }}
-                  </button>
-                </div>
-                <textarea
-                  v-model="jsonText"
-                  class="json-area"
-                  rows="8"
-                  :placeholder="t('json_placeholder')"
-                ></textarea>
-                <div class="json-actions">
-                  <button
-                    class="btn-secondary"
-                    type="button"
-                    :disabled="!authCanJsonWrite"
-                    :title="buildCapabilityLockedTitle('data', authCanJsonWrite)"
-                    @click="importTasksFromJson"
-                  >
-                    {{ t('import_json') }}
-                  </button>
-                  <button
-                    class="btn-secondary"
-                    type="button"
-                    :disabled="!authCanJsonWrite"
-                    :title="buildCapabilityLockedTitle('data', authCanJsonWrite)"
-                    @click="exportTasksToJsonWithAuth"
-                  >
-                    {{ t('export_json') }}
-                  </button>
-                  <button
-                    class="btn-ghost"
-                    type="button"
-                    :disabled="!authCanJsonWrite"
-                    :title="buildCapabilityLockedTitle('data', authCanJsonWrite)"
-                    @click="clearJsonTextWithAuth"
-                  >
-                    {{ t('clear_json') }}
-                  </button>
-                </div>
-                <div v-if="jsonStatus" class="json-status">{{ jsonStatus }}</div>
-              </div>
+              <JsonToolsPanel :ui="jsonToolsPanelBindings" />
             </div>
           </section>
 
