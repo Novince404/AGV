@@ -66,6 +66,45 @@
         </div>
 
         <div
+          v-if="authCanEnterpriseApprove && recentPendingEnterpriseApplications.length"
+          class="auth-status-note tone-platform"
+        >
+          <div class="auth-status-note-head">
+            <div>
+              <strong>{{ t('auth_platform_pending_snapshot_title') }}</strong>
+              <span>{{ t('auth_platform_pending_snapshot_hint') }}</span>
+            </div>
+            <button
+              class="auth-dialog-inline-action"
+              type="button"
+              :disabled="authLoading"
+              @click="openEnterpriseApprovalDialog"
+            >
+              {{ t('enterprise_approval_entry') }}
+            </button>
+          </div>
+          <div class="auth-status-list">
+            <button
+              v-for="item in recentPendingEnterpriseApplications"
+              :key="`auth-pending-${item.id}`"
+              class="auth-status-list-item"
+              type="button"
+              @click="openEnterpriseApprovalDialog"
+            >
+              <strong>{{ item.company_name }}</strong>
+              <span>
+                {{
+                  formatInlineMessage(t('auth_platform_pending_snapshot_item'), {
+                    contact: item.contact_name,
+                    submittedAt: item.submitted_at || '—'
+                  })
+                }}
+              </span>
+            </button>
+          </div>
+        </div>
+
+        <div
           v-if="authIsEnterpriseRole && authEnterpriseApplicationProgressItems.length"
           class="auth-status-note"
         >

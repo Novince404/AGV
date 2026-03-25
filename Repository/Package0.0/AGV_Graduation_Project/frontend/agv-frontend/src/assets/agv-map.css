@@ -390,6 +390,33 @@ h2 {
   gap: 8px;
 }
 
+.auth-status-list {
+  display: grid;
+  gap: 8px;
+}
+
+.auth-status-list-item {
+  display: grid;
+  gap: 3px;
+  padding: 10px 12px;
+  border: 1px solid rgba(216, 208, 197, 0.88);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.78);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.auth-status-list-item strong {
+  color: var(--strong-text);
+}
+
+.auth-status-list-item span {
+  color: var(--muted-text);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .auth-status-note.tone-platform {
   border-color: rgba(183, 28, 28, 0.24);
   background: rgba(255, 247, 247, 0.92);

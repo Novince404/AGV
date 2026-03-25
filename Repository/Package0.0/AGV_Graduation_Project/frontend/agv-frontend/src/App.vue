@@ -742,6 +742,12 @@ const recentReviewedEnterpriseApplications = computed(() =>
     .sort((left, right) => compareTime(right.reviewed_at || right.submitted_at, left.reviewed_at || left.submitted_at))
     .slice(0, 3)
 )
+const recentPendingEnterpriseApplications = computed(() =>
+  [...enterpriseApplications.value]
+    .filter(item => item.status === 'pending')
+    .sort((left, right) => compareTime(right.submitted_at, left.submitted_at))
+    .slice(0, 3)
+)
 const authCapabilityCards = computed(() => [
   {
     key: 'dispatch',
@@ -8755,6 +8761,8 @@ const authDialogBindings = {
   authEnterpriseRegisterForm,
   authEnterpriseRegisterLoading,
   buildAuthCapabilityStateText,
+  authCanEnterpriseApprove,
+  recentPendingEnterpriseApplications,
   enterGuestMode,
   handleAuthLogout,
   handleAuthQuickLogin,
