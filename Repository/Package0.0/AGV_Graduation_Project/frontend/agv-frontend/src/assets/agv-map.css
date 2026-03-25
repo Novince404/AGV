@@ -475,6 +475,58 @@ h2 {
   gap: 12px;
 }
 
+.approval-history-shell {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid #e2d8cb;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.approval-history-head {
+  display: grid;
+  gap: 4px;
+}
+
+.approval-history-head span {
+  color: var(--muted-text);
+  font-size: 13px;
+}
+
+.approval-history-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.approval-history-card {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid #ddd4c8;
+  border-radius: 16px;
+  background: rgba(247, 243, 236, 0.7);
+}
+
+.approval-history-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.approval-history-card span,
+.approval-history-card p {
+  color: var(--muted-text);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.approval-history-card p {
+  margin: 0;
+}
+
 .approval-layout {
   display: grid;
   grid-template-columns: minmax(280px, 320px) minmax(0, 1fr);

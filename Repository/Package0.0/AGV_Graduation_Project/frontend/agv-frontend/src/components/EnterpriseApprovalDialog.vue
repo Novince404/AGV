@@ -42,6 +42,28 @@
           </button>
         </div>
 
+        <div v-if="recentReviewedEnterpriseApplications.length" class="approval-history-shell">
+          <div class="approval-history-head">
+            <strong>{{ t('enterprise_approval_history_title') }}</strong>
+            <span>{{ t('enterprise_approval_history_hint') }}</span>
+          </div>
+          <div class="approval-history-list">
+            <article
+              v-for="item in recentReviewedEnterpriseApplications"
+              :key="`history-${item.id}`"
+              class="approval-history-card"
+            >
+              <div class="approval-history-title-row">
+                <strong>{{ item.company_name }}</strong>
+                <small>{{ t(`enterprise_approval_status_${item.status}`) }}</small>
+              </div>
+              <span>{{ formatInlineMessage(t('enterprise_approval_item_meta'), { contact: item.contact_name, username: item.username }) }}</span>
+              <span>{{ formatInlineMessage(t('enterprise_approval_history_reviewed_meta'), { reviewer: item.reviewed_by || '-', reviewedAt: item.reviewed_at || item.submitted_at || '-' }) }}</span>
+              <p v-if="item.review_note">{{ item.review_note }}</p>
+            </article>
+          </div>
+        </div>
+
         <div class="approval-toolbar">
           <label class="auth-dialog-field">
             <span>{{ t('enterprise_approval_filter_status') }}</span>

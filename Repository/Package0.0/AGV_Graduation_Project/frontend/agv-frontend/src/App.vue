@@ -560,6 +560,12 @@ const filteredEnterpriseApplications = computed(() => {
 const selectedEnterpriseApplication = computed(() =>
   filteredEnterpriseApplications.value.find(item => Number(item.id) === Number(selectedEnterpriseApplicationId.value)) || null
 )
+const recentReviewedEnterpriseApplications = computed(() =>
+  [...enterpriseApplications.value]
+    .filter(item => item.status === 'approved' || item.status === 'rejected')
+    .sort((left, right) => compareTime(right.reviewed_at || right.submitted_at, left.reviewed_at || left.submitted_at))
+    .slice(0, 3)
+)
 const authCapabilityCards = computed(() => [
   {
     key: 'dispatch',
@@ -8951,6 +8957,7 @@ const enterpriseApprovalDialogBindings = {
   enterpriseApprovalSearch,
   enterpriseApprovalLoading,
   filteredEnterpriseApplications,
+  recentReviewedEnterpriseApplications,
   selectedEnterpriseApplicationId,
   selectedEnterpriseApplication,
   enterpriseApprovalReviewNote,
