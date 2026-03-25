@@ -36,6 +36,24 @@
           </button>
         </div>
 
+        <div
+          v-if="authStatusNotice"
+          class="auth-status-note"
+          :class="[`tone-${authStatusNotice.tone}`]"
+        >
+          <strong>{{ authStatusNotice.title }}</strong>
+          <span>{{ authStatusNotice.hint }}</span>
+          <button
+            v-if="authStatusNotice.actionKey === 'enterprise-approval'"
+            class="auth-dialog-inline-action"
+            type="button"
+            :disabled="authLoading"
+            @click="openEnterpriseApprovalDialog"
+          >
+            {{ authStatusNotice.actionLabel }}
+          </button>
+        </div>
+
         <div class="auth-capability-panel">
           <div class="auth-dialog-divider">{{ t('auth_capabilities_title') }}</div>
           <p class="auth-dialog-hint">

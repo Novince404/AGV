@@ -512,6 +512,37 @@ const authEntryHintText = computed(() => {
   return t(`auth_entry_hint_${authCurrentRole.value}`)
 })
 const authAccountStatusLabel = computed(() => t(`auth_account_status_${authCurrentAccountStatus.value}`))
+const authStatusNotice = computed(() => {
+  if (!authAuthenticated.value) return null
+  if (authCurrentRole.value === 'platform_admin') {
+    return {
+      tone: 'platform',
+      title: t('auth_status_notice_platform_admin_title'),
+      hint: t('auth_status_notice_platform_admin_hint'),
+      actionLabel: t('auth_status_notice_platform_admin_action'),
+      actionKey: 'enterprise-approval'
+    }
+  }
+  if (authIsEnterpriseRole.value && authCurrentAccountStatus.value === 'pending') {
+    return {
+      tone: 'pending',
+      title: t('auth_status_notice_pending_title'),
+      hint: t('auth_status_notice_pending_hint'),
+      actionLabel: '',
+      actionKey: ''
+    }
+  }
+  if (authIsEnterpriseRole.value && authCurrentAccountStatus.value === 'rejected') {
+    return {
+      tone: 'rejected',
+      title: t('auth_status_notice_rejected_title'),
+      hint: t('auth_status_notice_rejected_hint'),
+      actionLabel: '',
+      actionKey: ''
+    }
+  }
+  return null
+})
 const authTitleButtonTitle = computed(() =>
   authAuthenticated.value
     ? `${t('auth_current_identity')}: ${authCurrentDisplayName.value} (${authRoleLabel.value})`
@@ -8469,6 +8500,7 @@ const authDialogBindings = {
   authCurrentUser,
   authAccountStatusLabel,
   authCurrentOrganizationName,
+  authStatusNotice,
   authLoading,
   authCapabilityCards,
   authPrimaryAccounts,
@@ -8486,7 +8518,8 @@ const authDialogBindings = {
   handleAuthLogin,
   authDemoAccountLabel,
   handleAuthDemoFill,
-  handleEnterpriseRegister
+  handleEnterpriseRegister,
+  openEnterpriseApprovalDialog
 }
 
 const operationsAuditPanelBindings = {
