@@ -101,11 +101,29 @@
                     <strong>{{ t('enterprise_settings_application_status_title') }}</strong>
                     <p>{{ t('enterprise_settings_application_status_hint') }}</p>
                   </div>
-                  <button class="btn-ghost enterprise-settings-inline-button" type="button" @click="refreshEnterpriseAccountStatus()">
-                    {{ t('enterprise_settings_application_refresh') }}
-                  </button>
+                  <div class="enterprise-settings-inline-actions">
+                    <button
+                      v-if="authCurrentEnterpriseApplication?.username"
+                      class="btn-ghost enterprise-settings-inline-button"
+                      type="button"
+                      @click="copyEnterpriseApplicationUsername(authCurrentEnterpriseApplication)"
+                    >
+                      {{ t('enterprise_application_copy_username') }}
+                    </button>
+                    <button class="btn-ghost enterprise-settings-inline-button" type="button" @click="refreshEnterpriseAccountStatus()">
+                      {{ t('enterprise_settings_application_refresh') }}
+                    </button>
+                  </div>
                 </div>
                 <div class="enterprise-settings-status-grid">
+                  <div class="enterprise-settings-status-item">
+                    <span>{{ t('enterprise_register_company_name') }}</span>
+                    <strong>{{ authCurrentEnterpriseApplication?.company_name || authCurrentOrganizationName || '—' }}</strong>
+                  </div>
+                  <div class="enterprise-settings-status-item">
+                    <span>{{ t('enterprise_register_username') }}</span>
+                    <strong>{{ authCurrentEnterpriseApplication?.username || '—' }}</strong>
+                  </div>
                   <div class="enterprise-settings-status-item">
                     <span>{{ t('enterprise_settings_summary_status') }}</span>
                     <strong>{{ authAccountStatusLabel }}</strong>
@@ -123,12 +141,27 @@
                     <strong>{{ authCurrentEnterpriseApplication?.reviewed_by || '—' }}</strong>
                   </div>
                 </div>
+                <div class="application-progress-grid">
+                  <article
+                    v-for="item in authEnterpriseApplicationProgressItems"
+                    :key="`enterprise-settings-progress-${item.key}`"
+                    class="application-progress-item"
+                    :class="`is-${item.tone}`"
+                  >
+                    <span>{{ item.label }}</span>
+                    <strong>{{ item.value }}</strong>
+                  </article>
+                </div>
                 <div
                   v-if="authCurrentEnterpriseApplication?.review_note"
                   class="enterprise-settings-status-note"
                 >
                   <strong>{{ t('enterprise_settings_application_review_note') }}</strong>
                   <p>{{ authCurrentEnterpriseApplication.review_note }}</p>
+                </div>
+                <div class="enterprise-settings-status-note">
+                  <strong>{{ t('enterprise_settings_application_next_step_title') }}</strong>
+                  <p>{{ enterpriseApplicationNextStepText }}</p>
                 </div>
               </div>
               <div class="map-settings-info-grid enterprise-settings-grid">

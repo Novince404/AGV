@@ -54,6 +54,47 @@
           >
             {{ authStatusNotice.actionLabel }}
           </button>
+          <button
+            v-else-if="authStatusNotice.actionKey === 'refresh-enterprise-status'"
+            class="auth-dialog-inline-action"
+            type="button"
+            :disabled="authLoading"
+            @click="refreshEnterpriseAccountStatus"
+          >
+            {{ authStatusNotice.actionLabel }}
+          </button>
+        </div>
+
+        <div
+          v-if="authIsEnterpriseRole && authEnterpriseApplicationProgressItems.length"
+          class="auth-status-note"
+        >
+          <div class="auth-status-note-head">
+            <div>
+              <strong>{{ t('enterprise_application_progress_title') }}</strong>
+              <span>{{ t('enterprise_settings_application_status_hint') }}</span>
+            </div>
+            <button
+              v-if="authCurrentEnterpriseApplication?.username"
+              class="auth-dialog-inline-action"
+              type="button"
+              :disabled="authLoading"
+              @click="copyEnterpriseApplicationUsername(authCurrentEnterpriseApplication)"
+            >
+              {{ t('enterprise_application_copy_username') }}
+            </button>
+          </div>
+          <div class="application-progress-grid">
+            <article
+              v-for="item in authEnterpriseApplicationProgressItems"
+              :key="`auth-enterprise-progress-${item.key}`"
+              class="application-progress-item"
+              :class="`is-${item.tone}`"
+            >
+              <span>{{ item.label }}</span>
+              <strong>{{ item.value }}</strong>
+            </article>
+          </div>
         </div>
 
         <div class="auth-capability-panel">

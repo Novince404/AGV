@@ -128,6 +128,29 @@
               <div v-if="selectedEnterpriseApplication.reviewed_by"><strong>{{ t('enterprise_approval_reviewed_by') }}</strong><span>{{ selectedEnterpriseApplication.reviewed_by }}</span></div>
             </div>
 
+            <div class="approval-detail-toolbar">
+              <strong>{{ t('enterprise_application_progress_title') }}</strong>
+              <button
+                v-if="selectedEnterpriseApplication.username"
+                class="btn-ghost"
+                type="button"
+                @click="copyEnterpriseApplicationUsername(selectedEnterpriseApplication)"
+              >
+                {{ t('enterprise_application_copy_username') }}
+              </button>
+            </div>
+            <div class="application-progress-grid">
+              <article
+                v-for="item in selectedEnterpriseApplicationProgressItems"
+                :key="`approval-progress-${item.key}`"
+                class="application-progress-item"
+                :class="`is-${item.tone}`"
+              >
+                <span>{{ item.label }}</span>
+                <strong>{{ item.value }}</strong>
+              </article>
+            </div>
+
             <label class="auth-dialog-field">
               <span>{{ t('enterprise_approval_review_note') }}</span>
               <textarea v-model.trim="enterpriseApprovalReviewNote" rows="4"></textarea>

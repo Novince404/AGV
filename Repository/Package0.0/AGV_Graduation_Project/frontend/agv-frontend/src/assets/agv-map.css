@@ -347,6 +347,19 @@ h2 {
   background: rgba(255, 255, 255, 0.88);
 }
 
+.auth-status-note-head {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.auth-status-note-head > div {
+  display: grid;
+  gap: 4px;
+}
+
 .auth-status-note strong {
   color: var(--strong-text);
 }
@@ -666,6 +679,14 @@ h2 {
 
 .approval-actions {
   display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.approval-detail-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: 10px;
   flex-wrap: wrap;
 }
@@ -991,6 +1012,12 @@ h2 {
   justify-self: start;
 }
 
+.enterprise-settings-inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .enterprise-settings-status-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -1023,6 +1050,47 @@ h2 {
 .enterprise-settings-status-note p {
   margin: 0;
   color: var(--strong-text);
+}
+
+.application-progress-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+}
+
+.application-progress-item {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid rgba(216, 208, 197, 0.92);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.88);
+}
+
+.application-progress-item span {
+  color: var(--muted-text);
+  font-size: 12px;
+}
+
+.application-progress-item strong {
+  color: var(--strong-text);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.application-progress-item.is-done {
+  border-color: rgba(46, 125, 50, 0.22);
+  background: rgba(245, 252, 245, 0.92);
+}
+
+.application-progress-item.is-pending {
+  border-color: rgba(255, 179, 0, 0.24);
+  background: rgba(255, 250, 235, 0.92);
+}
+
+.application-progress-item.is-blocked {
+  border-color: rgba(183, 28, 28, 0.24);
+  background: rgba(255, 244, 244, 0.92);
 }
 
 .enterprise-settings-chip-list {

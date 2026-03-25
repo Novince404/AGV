@@ -571,6 +571,52 @@ const authEnterpriseRegisterStatusText = computed(() =>
     ? t('auth_enterprise_register_ready')
     : formatInlineMessage(t('auth_enterprise_register_incomplete'), { count: authEnterpriseRegisterValidation.value.missingCount })
 )
+function buildEnterpriseApplicationProgressItems(application, fallbackStatus = '') {
+  if (!application || typeof application !== 'object') return []
+  const normalizedStatus = String(application.status || fallbackStatus || '').trim().toLowerCase()
+  const reviewStatusLabel = normalizedStatus
+    ? t(`enterprise_approval_status_${normalizedStatus}`)
+    : t('enterprise_application_progress_review_pending')
+  let reviewValue = t('enterprise_application_progress_review_pending')
+  if (application.reviewed_at) {
+    reviewValue = formatInlineMessage(t('enterprise_application_progress_review_complete'), {
+      status: reviewStatusLabel,
+      reviewedAt: application.reviewed_at
+    })
+  } else if (normalizedStatus === 'rejected') {
+    reviewValue = reviewStatusLabel
+  }
+  return [
+    {
+      key: 'submitted',
+      label: t('enterprise_application_progress_submitted'),
+      value: String(application.submitted_at || '').trim() || t('enterprise_application_progress_waiting_submission'),
+      tone: application.submitted_at ? 'done' : 'pending'
+    },
+    {
+      key: 'review',
+      label: t('enterprise_application_progress_review'),
+      value: reviewValue,
+      tone: normalizedStatus === 'rejected'
+        ? 'blocked'
+        : (application.reviewed_at || normalizedStatus === 'approved' ? 'done' : 'pending')
+    },
+    {
+      key: 'access',
+      label: t('enterprise_application_progress_access'),
+      value: normalizedStatus === 'approved'
+        ? t('enterprise_application_progress_access_ready')
+        : normalizedStatus === 'rejected'
+          ? t('enterprise_application_progress_access_blocked')
+          : t('enterprise_application_progress_access_locked'),
+      tone: normalizedStatus === 'approved'
+        ? 'done'
+        : normalizedStatus === 'rejected'
+          ? 'blocked'
+          : 'pending'
+    }
+  ]
+}
 const authStatusNotice = computed(() => {
   if (!authAuthenticated.value) return null
   const application = authCurrentEnterpriseApplication.value
@@ -591,8 +637,8 @@ const authStatusNotice = computed(() => {
       tone: 'pending',
       title: t('auth_status_notice_pending_title'),
       hint: t('auth_status_notice_pending_hint'),
-      actionLabel: '',
-      actionKey: '',
+      actionLabel: t('auth_status_notice_refresh_action'),
+      actionKey: 'refresh-enterprise-status',
       meta: application?.submitted_at
         ? formatInlineMessage(t('auth_status_notice_pending_meta'), { submittedAt: application.submitted_at })
         : ''
@@ -603,8 +649,8 @@ const authStatusNotice = computed(() => {
       tone: 'rejected',
       title: t('auth_status_notice_rejected_title'),
       hint: t('auth_status_notice_rejected_hint'),
-      actionLabel: '',
-      actionKey: '',
+      actionLabel: t('auth_status_notice_refresh_action'),
+      actionKey: 'refresh-enterprise-status',
       meta: application?.reviewed_at
         ? formatInlineMessage(t('auth_status_notice_rejected_meta'), { reviewedAt: application.reviewed_at })
         : '',
@@ -613,6 +659,22 @@ const authStatusNotice = computed(() => {
   }
   return null
 })
+const enterpriseApplicationNextStepText = computed(() => {
+  if (!authIsEnterpriseRole.value) return ''
+  if (authCurrentAccountStatus.value === 'pending') {
+    return t('enterprise_settings_application_next_step_pending')
+  }
+  if (authCurrentAccountStatus.value === 'rejected') {
+    return t('enterprise_settings_application_next_step_rejected')
+  }
+  return t('enterprise_settings_application_next_step_approved')
+})
+const authEnterpriseApplicationProgressItems = computed(() =>
+  buildEnterpriseApplicationProgressItems(authCurrentEnterpriseApplication.value, authCurrentAccountStatus.value)
+)
+const selectedEnterpriseApplicationProgressItems = computed(() =>
+  buildEnterpriseApplicationProgressItems(selectedEnterpriseApplication.value)
+)
 const authTitleButtonTitle = computed(() =>
   authAuthenticated.value
     ? `${t('auth_current_identity')}: ${authCurrentDisplayName.value} (${authRoleLabel.value})`
@@ -3065,6 +3127,52 @@ async function refreshEnterpriseAccountStatus() {
   }
 }
 
+async function copyTextToClipboard(text) {
+  const normalizedText = String(text || '')
+  if (!normalizedText) return false
+  try {
+    if (navigator?.clipboard?.writeText) {
+      await navigator.clipboard.writeText(normalizedText)
+      return true
+    }
+  } catch (error) {
+    console.warn('Clipboard API write failed, fallback to textarea copy.', error)
+  }
+  try {
+    const textarea = document.createElement('textarea')
+    textarea.value = normalizedText
+    textarea.setAttribute('readonly', '')
+    textarea.style.position = 'fixed'
+    textarea.style.opacity = '0'
+    textarea.style.pointerEvents = 'none'
+    document.body.appendChild(textarea)
+    textarea.select()
+    const copied = document.execCommand('copy')
+    document.body.removeChild(textarea)
+    return copied
+  } catch (error) {
+    console.error('Clipboard fallback copy failed:', error)
+    return false
+  }
+}
+
+async function copyEnterpriseApplicationUsername(application = authCurrentEnterpriseApplication.value) {
+  const username = String(application?.username || '').trim()
+  if (!username) return
+  const copied = await copyTextToClipboard(username)
+  if (copied) {
+    showFloatingToast(
+      formatInlineMessage(t('enterprise_application_copy_username_ok'), {
+        company: String(application?.company_name || authCurrentOrganizationName.value || '—'),
+        username
+      }),
+      'success'
+    )
+    return
+  }
+  showFloatingToast(t('enterprise_application_copy_username_failed'), 'error')
+}
+
 async function fetchEnterpriseApplications({ forceSelectFirst = false } = {}) {
   if (!authCanEnterpriseApprove.value) return
   enterpriseApprovalLoading.value = true
@@ -3292,10 +3400,19 @@ async function reviewEnterpriseApplication(decision) {
     if (!response.ok) {
       throw createApiError(data, 'Enterprise application review failed')
     }
+    const reviewedApplication = data?.application ?? null
     enterpriseApprovalReviewNote.value = ''
     await fetchEnterpriseApplications({ forceSelectFirst: false })
     showFloatingToast(
-      decision === 'reject' ? t('enterprise_approval_reject_success') : t('enterprise_approval_approve_success'),
+      decision === 'reject'
+        ? formatInlineMessage(t('enterprise_approval_reject_success_detail'), {
+            company: reviewedApplication?.company_name || '—',
+            username: reviewedApplication?.username || '—'
+          })
+        : formatInlineMessage(t('enterprise_approval_approve_success_detail'), {
+            company: reviewedApplication?.company_name || '—',
+            username: reviewedApplication?.username || '—'
+          }),
       'success'
     )
   } catch (error) {
@@ -8603,6 +8720,8 @@ const authDialogBindings = {
   authAccountStatusLabel,
   authCurrentOrganizationName,
   authCurrentEnterpriseApplication,
+  authIsEnterpriseRole,
+  authEnterpriseApplicationProgressItems,
   authStatusNotice,
   authEnterpriseRegisterValidation,
   authEnterpriseRegisterStatusText,
@@ -8625,6 +8744,8 @@ const authDialogBindings = {
   authDemoAccountLabel,
   handleAuthDemoFill,
   handleEnterpriseRegister,
+  refreshEnterpriseAccountStatus,
+  copyEnterpriseApplicationUsername,
   formatInlineMessage,
   openEnterpriseApprovalDialog
 }
@@ -9100,6 +9221,7 @@ const enterpriseApprovalDialogBindings = {
   recentReviewedEnterpriseApplications,
   selectedEnterpriseApplicationId,
   selectedEnterpriseApplication,
+  selectedEnterpriseApplicationProgressItems,
   enterpriseApprovalReviewNote,
   enterpriseApprovalReviewLoading,
   closeEnterpriseApprovalDialog,
@@ -9108,6 +9230,7 @@ const enterpriseApprovalDialogBindings = {
   exportEnterpriseApplicationsJson,
   exportEnterpriseApplicationsCsv,
   fetchEnterpriseApplications,
+  copyEnterpriseApplicationUsername,
   reviewEnterpriseApplication
 }
 
@@ -9116,6 +9239,7 @@ const enterpriseSettingsDialogBindings = {
   authRoleLabel,
   authAccountStatusLabel,
   authCurrentAccountStatus,
+  authCurrentOrganizationName,
   authCurrentEnterpriseApplication,
   authCanDispatchWrite,
   authCanTemplateWrite,
@@ -9134,6 +9258,8 @@ const enterpriseSettingsDialogBindings = {
   enterpriseEnabledCapabilityCards,
   enterpriseReadonlyCapabilityCards,
   enterpriseOverviewCards,
+  enterpriseApplicationNextStepText,
+  authEnterpriseApplicationProgressItems,
   currentMapProfileLabel,
   currentDispatchModeLabel,
   enterpriseActiveTasks,
@@ -9253,6 +9379,7 @@ const enterpriseSettingsDialogBindings = {
   exportFilteredOperationAuditsJsonWithAuth,
   exportFilteredOperationAuditsCsvWithAuth,
   refreshEnterpriseAccountStatus,
+  copyEnterpriseApplicationUsername,
   applyEnterprisePanelPreset,
   jumpFromEnterpriseSettings,
   mapProfileActionSummaryTitle,
