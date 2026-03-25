@@ -657,6 +657,16 @@ const authStatusNotice = computed(() => {
       detail: String(application?.review_note || '').trim()
     }
   }
+  if (authIsEnterpriseRole.value && authCurrentAccountStatus.value === 'approved') {
+    return {
+      tone: 'approved',
+      title: t('auth_status_notice_approved_title'),
+      hint: t('auth_status_notice_approved_hint'),
+      actionLabel: t('enterprise_settings_entry'),
+      actionKey: 'enterprise-settings',
+      meta: authCurrentOrganizationName.value || ''
+    }
+  }
   return null
 })
 const enterpriseApplicationNextStepText = computed(() => {
@@ -8790,6 +8800,7 @@ const authDialogBindings = {
   copyEnterpriseApplicationUsername,
   formatInlineMessage,
   openEnterpriseApprovalDialog,
+  openEnterpriseSettingsDialog,
   openEnterpriseApprovalDialogForItem
 }
 

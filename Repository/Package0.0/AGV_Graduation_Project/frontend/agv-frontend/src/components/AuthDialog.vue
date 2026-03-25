@@ -63,6 +63,15 @@
           >
             {{ authStatusNotice.actionLabel }}
           </button>
+          <button
+            v-else-if="authStatusNotice.actionKey === 'enterprise-settings'"
+            class="auth-dialog-inline-action"
+            type="button"
+            :disabled="authLoading"
+            @click="openEnterpriseSettingsDialog()"
+          >
+            {{ authStatusNotice.actionLabel }}
+          </button>
         </div>
 
         <div
@@ -96,7 +105,7 @@
                 {{
                   formatInlineMessage(t('auth_platform_pending_snapshot_item'), {
                     contact: item.contact_name,
-                    submittedAt: item.submitted_at || 'â€”'
+                                        submittedAt: item.submitted_at || '¡ª'
                   })
                 }}
               </span>

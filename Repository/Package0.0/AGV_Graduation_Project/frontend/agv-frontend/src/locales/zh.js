@@ -347,6 +347,8 @@
     "auth_status_notice_rejected_title": "当前企业申请已被驳回",
     "auth_status_notice_rejected_hint": "请先核对注册信息，并联系平台管理员确认后续处理，再继续企业侧操作。",
     "auth_status_notice_rejected_meta": "审批时间：{reviewedAt}",
+    "auth_status_notice_approved_title": "企业权限已就绪",
+    "auth_status_notice_approved_hint": "企业控制台已经解锁，可直接打开企业设置并继续当前岗位工作区。",
     "auth_status_notice_refresh_action": "刷新状态",
     "auth_logout_success": "已退出登录。",
     "auth_logout_failed": "退出登录失败。",

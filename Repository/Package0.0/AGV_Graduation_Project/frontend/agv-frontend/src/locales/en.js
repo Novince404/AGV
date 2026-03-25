@@ -347,6 +347,8 @@
     "auth_status_notice_rejected_title": "This enterprise application was rejected",
     "auth_status_notice_rejected_hint": "Review the registration details and contact your platform admin before continuing with enterprise changes.",
     "auth_status_notice_rejected_meta": "Reviewed at: {reviewedAt}",
+    "auth_status_notice_approved_title": "Enterprise access is ready",
+    "auth_status_notice_approved_hint": "Your enterprise console is unlocked. Open enterprise settings to continue from the current role workspace.",
     "auth_status_notice_refresh_action": "Refresh Status",
     "auth_logout_success": "Signed out successfully.",
     "auth_logout_failed": "Sign-out failed.",

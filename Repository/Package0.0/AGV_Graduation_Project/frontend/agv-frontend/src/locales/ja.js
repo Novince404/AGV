@@ -347,6 +347,8 @@
     "auth_status_notice_rejected_title": "この企業申請は却下されました",
     "auth_status_notice_rejected_hint": "登録内容を確認し、企業側の変更を続ける前にプラットフォーム管理者へ相談してください。",
     "auth_status_notice_rejected_meta": "審査日時: {reviewedAt}",
+    "auth_status_notice_approved_title": "企業権限の準備が整いました",
+    "auth_status_notice_approved_hint": "企業コンソールは解放されています。企業設定を開いて、現在の役割向けワークスペースを続けて利用してください。",
     "auth_status_notice_refresh_action": "状態を更新",
     "auth_logout_success": "ログアウトしました。",
     "auth_logout_failed": "ログアウトに失敗しました。",
