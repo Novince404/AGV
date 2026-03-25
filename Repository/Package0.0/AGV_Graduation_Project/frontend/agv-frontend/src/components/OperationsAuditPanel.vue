@@ -37,6 +37,9 @@
           <div v-if="operationAuditLastFetchedAt" class="task-line operations-last-fetched">
             {{ formatInlineMessage(t('operations_last_updated'), { at: operationAuditLastFetchedAt }) }}
           </div>
+          <button class="btn-ghost" type="button" @click="resetOperationAuditFilters">
+            {{ t('operations_reset_filters') }}
+          </button>
           <button class="btn-secondary" type="button" @click="exportFilteredOperationAuditsJsonWithAuth">
             {{ t('operations_export_json') }}
           </button>

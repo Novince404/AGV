@@ -3277,6 +3277,11 @@ function deleteExperimentRecordWithAuth(recordId) {
   deleteExperimentRecord(recordId)
 }
 
+function resetOperationAuditFilters() {
+  operationAuditResourceFilter.value = 'all'
+  operationAuditActionFilter.value = 'all'
+}
+
 function buildOperationAuditExportPayload(entries = filteredOperationAudits.value) {
   return (entries || []).map(entry => ({
     id: entry.id,
@@ -8404,6 +8409,7 @@ const operationsAuditPanelBindings = {
   buildOperationsHintText,
   formatInlineMessage,
   fetchOperationAudits,
+  resetOperationAuditFilters,
   exportFilteredOperationAuditsJsonWithAuth,
   exportFilteredOperationAuditsCsvWithAuth,
   formatOperationAuditTitle,
@@ -8998,6 +9004,7 @@ const enterpriseSettingsDialogBindings = {
   formatOperationAuditOperator,
   formatOperationAuditResourceRef,
   formatOperationAuditMetadata,
+  resetOperationAuditFilters,
   exportFilteredOperationAuditsJsonWithAuth,
   exportFilteredOperationAuditsCsvWithAuth,
   applyEnterprisePanelPreset,

@@ -127,7 +127,7 @@
                 <div v-else class="enterprise-settings-list">
                   <article v-for="task in enterpriseRecentTasks" :key="`enterprise-task-${task.id}`" class="enterprise-settings-list-item">
                     <div class="enterprise-settings-list-main">
-                      <strong>#{{ task.id }} 路 {{ taskStatusText(task.status) }}</strong>
+                      <strong>{{ formatInlineMessage(t('enterprise_settings_recent_task_label'), { id: task.id, status: taskStatusText(task.status) }) }}</strong>
                       <span>{{ formatTaskCompactSummary(task) }}</span>
                     </div>
                     <div class="task-line">{{ formatTaskTime(task) || formatDateTimeInline(task.created_at) }}</div>
@@ -1015,6 +1015,9 @@
                     <div v-if="operationAuditLastFetchedAt" class="task-line operations-last-fetched">
                       {{ formatInlineMessage(t('operations_last_updated'), { at: operationAuditLastFetchedAt }) }}
                     </div>
+                    <button class="btn-ghost" type="button" @click="resetOperationAuditFilters">
+                      {{ t('operations_reset_filters') }}
+                    </button>
                     <button class="btn-secondary" type="button" @click="exportFilteredOperationAuditsJsonWithAuth">
                       {{ t('operations_export_json') }}
                     </button>
