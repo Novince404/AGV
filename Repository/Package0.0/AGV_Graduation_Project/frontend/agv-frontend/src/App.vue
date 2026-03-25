@@ -66,7 +66,6 @@ const EnterpriseSettingsDialog = defineAsyncComponent(() => import('./components
 const EnterpriseApprovalDialog = defineAsyncComponent(() => import('./components/EnterpriseApprovalDialog.vue'))
 const AuthDialog = defineAsyncComponent(() => import('./components/AuthDialog.vue'))
 const OperationsAuditPanel = defineAsyncComponent(() => import('./components/OperationsAuditPanel.vue'))
-const AlgorithmCompareWorkspace = defineAsyncComponent(() => import('./components/AlgorithmCompareWorkspace.vue'))
 const ExperimentRecordsPanel = defineAsyncComponent(() => import('./components/ExperimentRecordsPanel.vue'))
 const TaskTemplatesPanel = defineAsyncComponent(() => import('./components/TaskTemplatesPanel.vue'))
 const PointLibraryPanel = defineAsyncComponent(() => import('./components/PointLibraryPanel.vue'))
@@ -74,6 +73,8 @@ const JsonToolsPanel = defineAsyncComponent(() => import('./components/JsonTools
 const TaskQueuePanel = defineAsyncComponent(() => import('./components/TaskQueuePanel.vue'))
 const FaultOperationsPanel = defineAsyncComponent(() => import('./components/FaultOperationsPanel.vue'))
 const TaskBuilderPanel = defineAsyncComponent(() => import('./components/TaskBuilderPanel.vue'))
+const DispatchControlSummaryPanel = defineAsyncComponent(() => import('./components/DispatchControlSummaryPanel.vue'))
+const FloatingComparePanel = defineAsyncComponent(() => import('./components/FloatingComparePanel.vue'))
 
 const GRID_COLS = 10
 const GRID_ROWS = 8
@@ -8581,6 +8582,46 @@ const taskBuilderPanelBindings = {
   chainTaskSubmitText
 }
 
+const dispatchControlSummaryPanelBindings = {
+  t,
+  panelLocale,
+  currentDispatchModeLabel,
+  toggleDispatchModeFromSummary,
+  toggleAlgorithmMode,
+  algorithmText,
+  algorithm,
+  algorithmHintText,
+  compareDisplayMode,
+  comparePanelRootRef: comparePanelRef,
+  algorithmCompareLocale,
+  taskBuilderMode,
+  taskChainLocale,
+  currentTaskBuilderModeCompactLabel,
+  toggleComparePanelExpanded,
+  comparePanelExpanded,
+  pathCompareLoading,
+  compareCurrentRoute,
+  pathCompareResult,
+  pathCompareError,
+  clearPathCompare,
+  algorithmCompareWorkspaceBindings
+}
+
+const floatingComparePanelBindings = {
+  compareDisplayMode,
+  showFloatingCompare,
+  compareFloatingStyle,
+  algorithmCompareLocale,
+  taskBuilderMode,
+  taskChainLocale,
+  currentTaskBuilderModeCompactLabel,
+  closeFloatingCompare,
+  startFloatingCompareDrag,
+  pathCompareLoading,
+  compareCurrentRoute,
+  algorithmCompareWorkspaceBindings
+}
+
 const enterpriseApprovalDialogBindings = {
   t,
   enterpriseApprovalSummary,
@@ -10105,51 +10146,7 @@ onBeforeUnmount(() => {
               </span>
             </button>
             <div v-show="panelSections.control" class="panel-section-body">
-              <button class="dispatch-summary dispatch-summary-button" type="button" @click="toggleDispatchModeFromSummary">
-                <span class="dispatch-summary-label">{{ panelLocale.currentMode }}</span>
-                <strong>{{ currentDispatchModeLabel }}</strong>
-              </button>
-              <button
-                class="dispatch-summary dispatch-summary-button dispatch-algorithm-note"
-                type="button"
-                @click="toggleAlgorithmMode"
-              >
-                <span class="dispatch-summary-label">{{ t('algorithm') }}</span>
-                <strong>{{ algorithmText(algorithm) }}</strong>
-                <p>{{ algorithmHintText }}</p>
-              </button>
-
-              <div
-                v-if="compareDisplayMode === 'panel'"
-                ref="comparePanelRef"
-                class="dispatch-summary algorithm-compare-panel"
-              >
-                <div class="algorithm-compare-header">
-                  <div>
-                    <span class="dispatch-summary-label">{{ algorithmCompareLocale.title }}</span>
-                    <strong>{{ taskBuilderMode === 'chain' ? taskChainLocale.title : currentTaskBuilderModeCompactLabel }}</strong>
-                  </div>
-                  <div class="algorithm-compare-actions">
-                    <button class="btn-ghost" type="button" @click="toggleComparePanelExpanded">
-                      {{ comparePanelExpanded ? panelLocale.collapse : panelLocale.expand }}
-                    </button>
-                  <button class="btn-secondary" type="button" :disabled="pathCompareLoading" @click="compareCurrentRoute">
-                    {{ pathCompareLoading ? '...' : algorithmCompareLocale.run }}
-                  </button>
-                    <button
-                      v-if="pathCompareResult || pathCompareError"
-                      class="btn-ghost"
-                      type="button"
-                      @click="clearPathCompare"
-                    >
-                      {{ algorithmCompareLocale.clear }}
-                    </button>
-                  </div>
-                </div>
-                <template v-if="comparePanelExpanded">
-                  <AlgorithmCompareWorkspace :ui="algorithmCompareWorkspaceBindings" />
-                </template>
-              </div>
+              <DispatchControlSummaryPanel :ui="dispatchControlSummaryPanelBindings" />
 
               <FaultOperationsPanel :ui="faultOperationsPanelBindings" />
 
@@ -10553,25 +10550,7 @@ onBeforeUnmount(() => {
       </section>
     </div>
 
-    <div
-      v-if="compareDisplayMode === 'floating' && showFloatingCompare"
-      class="floating-compare-panel"
-      :style="compareFloatingStyle"
-    >
-      <div class="floating-compare-head" @mousedown="startFloatingCompareDrag">
-        <div>
-          <span class="dispatch-summary-label">{{ algorithmCompareLocale.title }}</span>
-          <strong>{{ taskBuilderMode === 'chain' ? taskChainLocale.title : currentTaskBuilderModeCompactLabel }}</strong>
-        </div>
-        <button class="btn-ghost" type="button" @mousedown.stop @click="closeFloatingCompare">×</button>
-      </div>
-      <div class="algorithm-compare-actions">
-        <button class="btn-secondary" type="button" :disabled="pathCompareLoading" @click="compareCurrentRoute">
-          {{ pathCompareLoading ? '...' : algorithmCompareLocale.run }}
-        </button>
-      </div>
-      <AlgorithmCompareWorkspace :ui="algorithmCompareWorkspaceBindings" />
-    </div>
+    <FloatingComparePanel :ui="floatingComparePanelBindings" />
     <div
       v-if="floatingToastVisible && floatingToastMessage"
       class="floating-toast"
