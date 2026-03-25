@@ -115,6 +115,18 @@
         <template v-if="authDialogView === 'login'">
           <div class="auth-dialog-divider">{{ t('auth_manual_login') }}</div>
 
+          <div v-if="authEnterpriseRegisterFollowup" class="auth-status-note tone-pending">
+            <strong>{{ t('auth_enterprise_register_followup_title') }}</strong>
+            <span>
+              {{
+                formatInlineMessage(t('auth_enterprise_register_followup_hint'), {
+                  company: authEnterpriseRegisterFollowup.company_name,
+                  username: authEnterpriseRegisterFollowup.username
+                })
+              }}
+            </span>
+          </div>
+
           <div class="auth-dialog-form">
             <label class="auth-dialog-field">
               <span>{{ t('auth_username') }}</span>
@@ -188,11 +200,41 @@
               <button
                 class="auth-dialog-submit"
                 type="button"
-                :disabled="authEnterpriseRegisterLoading"
+                :disabled="authEnterpriseRegisterLoading || !authEnterpriseRegisterValidation.valid"
                 @click="handleEnterpriseRegister"
               >
                 {{ authEnterpriseRegisterLoading ? t('auth_enterprise_register_submitting') : t('auth_enterprise_register_submit') }}
               </button>
+            </div>
+
+            <div class="auth-register-sidecard">
+              <div class="auth-register-sidecard-head">
+                <strong>{{ t('auth_enterprise_register_panel_title') }}</strong>
+                <span class="auth-register-sidecard-state" :class="{ ready: authEnterpriseRegisterValidation.valid }">
+                  {{ authEnterpriseRegisterStatusText }}
+                </span>
+              </div>
+
+              <div class="auth-register-checklist">
+                <article
+                  v-for="item in authEnterpriseRegisterValidation.items"
+                  :key="item.key"
+                  class="auth-register-check-item"
+                  :class="{ ready: item.valid }"
+                >
+                  <strong>{{ item.label }}</strong>
+                  <span>{{ item.valid ? t('auth_enterprise_register_requirement_complete') : item.message }}</span>
+                </article>
+              </div>
+
+              <div class="auth-register-process">
+                <strong>{{ t('auth_enterprise_register_process_title') }}</strong>
+                <ol>
+                  <li>{{ t('auth_enterprise_register_process_step_submit') }}</li>
+                  <li>{{ t('auth_enterprise_register_process_step_review') }}</li>
+                  <li>{{ t('auth_enterprise_register_process_step_unlock') }}</li>
+                </ol>
+              </div>
             </div>
           </div>
         </template>

@@ -483,6 +483,7 @@ const {
 const authGuestAccepted = ref(false)
 const authDialogView = ref('login')
 const authEnterpriseRegisterLoading = ref(false)
+const authEnterpriseRegisterFollowup = ref(null)
 const authEnterpriseRegisterForm = ref({
   company_name: '',
   contact_name: '',
@@ -512,6 +513,63 @@ const authEntryHintText = computed(() => {
   return t(`auth_entry_hint_${authCurrentRole.value}`)
 })
 const authAccountStatusLabel = computed(() => t(`auth_account_status_${authCurrentAccountStatus.value}`))
+const authEnterpriseRegisterValidation = computed(() => {
+  const payload = {
+    company_name: String(authEnterpriseRegisterForm.value.company_name || '').trim(),
+    contact_name: String(authEnterpriseRegisterForm.value.contact_name || '').trim(),
+    contact_email: String(authEnterpriseRegisterForm.value.contact_email || '').trim(),
+    username: String(authEnterpriseRegisterForm.value.username || '').trim(),
+    password: String(authEnterpriseRegisterForm.value.password || '')
+  }
+  const emailLooksValid = /.+@.+\..+/.test(payload.contact_email)
+  const usernameValid = payload.username.length >= 4
+  const passwordValid = payload.password.length >= 8
+  const items = [
+    {
+      key: 'company_name',
+      label: t('enterprise_register_company_name'),
+      valid: Boolean(payload.company_name),
+      message: t('auth_enterprise_register_validation_company')
+    },
+    {
+      key: 'contact_name',
+      label: t('enterprise_register_contact_name'),
+      valid: Boolean(payload.contact_name),
+      message: t('auth_enterprise_register_validation_contact')
+    },
+    {
+      key: 'contact_email',
+      label: t('enterprise_register_contact_email'),
+      valid: emailLooksValid,
+      message: t('auth_enterprise_register_validation_email')
+    },
+    {
+      key: 'username',
+      label: t('enterprise_register_username'),
+      valid: usernameValid,
+      message: t('auth_enterprise_register_validation_username')
+    },
+    {
+      key: 'password',
+      label: t('enterprise_register_password'),
+      valid: passwordValid,
+      message: t('auth_enterprise_register_validation_password')
+    }
+  ]
+  const missing = items.filter(item => !item.valid)
+  return {
+    payload,
+    items,
+    valid: missing.length === 0,
+    missingCount: missing.length,
+    firstMessage: missing[0]?.message || ''
+  }
+})
+const authEnterpriseRegisterStatusText = computed(() =>
+  authEnterpriseRegisterValidation.value.valid
+    ? t('auth_enterprise_register_ready')
+    : formatInlineMessage(t('auth_enterprise_register_incomplete'), { count: authEnterpriseRegisterValidation.value.missingCount })
+)
 const authStatusNotice = computed(() => {
   if (!authAuthenticated.value) return null
   if (authCurrentRole.value === 'platform_admin') {
@@ -2856,6 +2914,7 @@ async function handleAuthLogin() {
     authGuestAccepted.value = Boolean(state?.authenticated)
     authPanelOpen.value = false
     authDialogView.value = 'login'
+    authEnterpriseRegisterFollowup.value = null
     if (nextRole.startsWith('enterprise_')) {
       applyEnterprisePanelPreset(nextRole, { silent: true })
     }
@@ -2873,6 +2932,7 @@ async function handleAuthLogout() {
     authPanelOpen.value = false
     authDialogView.value = 'login'
     enterpriseApprovalDialogOpen.value = false
+    authEnterpriseRegisterFollowup.value = null
     operationAudits.value = []
     operationAuditLastFetchedAt.value = ''
     enterpriseApplications.value = []
@@ -2896,6 +2956,7 @@ async function handleAuthQuickLogin(account) {
     authGuestAccepted.value = Boolean(state?.authenticated)
     authPanelOpen.value = false
     authDialogView.value = 'login'
+    authEnterpriseRegisterFollowup.value = null
     if (nextRole.startsWith('enterprise_')) {
       applyEnterprisePanelPreset(nextRole, { silent: true })
     }
@@ -2930,12 +2991,10 @@ function switchAuthDialogView(view) {
 }
 
 async function handleEnterpriseRegister() {
-  const payload = {
-    company_name: String(authEnterpriseRegisterForm.value.company_name || '').trim(),
-    contact_name: String(authEnterpriseRegisterForm.value.contact_name || '').trim(),
-    contact_email: String(authEnterpriseRegisterForm.value.contact_email || '').trim(),
-    username: String(authEnterpriseRegisterForm.value.username || '').trim(),
-    password: String(authEnterpriseRegisterForm.value.password || '')
+  const payload = authEnterpriseRegisterValidation.value.payload
+  if (!authEnterpriseRegisterValidation.value.valid) {
+    showFloatingToast(authEnterpriseRegisterValidation.value.firstMessage || t('auth_enterprise_register_failed'), 'warning')
+    return
   }
   authEnterpriseRegisterLoading.value = true
   try {
@@ -2952,6 +3011,10 @@ async function handleEnterpriseRegister() {
     }
     authUsername.value = payload.username
     authPassword.value = payload.password
+    authEnterpriseRegisterFollowup.value = {
+      company_name: payload.company_name,
+      username: payload.username
+    }
     switchAuthDialogView('login')
     showFloatingToast(
       formatInlineMessage(t('auth_enterprise_register_success'), {
@@ -8501,6 +8564,9 @@ const authDialogBindings = {
   authAccountStatusLabel,
   authCurrentOrganizationName,
   authStatusNotice,
+  authEnterpriseRegisterValidation,
+  authEnterpriseRegisterStatusText,
+  authEnterpriseRegisterFollowup,
   authLoading,
   authCapabilityCards,
   authPrimaryAccounts,
@@ -8519,6 +8585,7 @@ const authDialogBindings = {
   authDemoAccountLabel,
   handleAuthDemoFill,
   handleEnterpriseRegister,
+  formatInlineMessage,
   openEnterpriseApprovalDialog
 }
 
