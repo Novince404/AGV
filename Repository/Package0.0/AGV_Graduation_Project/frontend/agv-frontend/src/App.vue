@@ -3190,7 +3190,7 @@ async function copyEnterpriseApplicationUsername(application = authCurrentEnterp
   showFloatingToast(t('enterprise_application_copy_username_failed'), 'error')
 }
 
-async function fetchEnterpriseApplications({ forceSelectFirst = false } = {}) {
+async function fetchEnterpriseApplications({ forceSelectFirst = false, preferredSelectedId = null } = {}) {
   if (!authCanEnterpriseApprove.value) return
   enterpriseApprovalLoading.value = true
   try {
@@ -3206,7 +3206,9 @@ async function fetchEnterpriseApplications({ forceSelectFirst = false } = {}) {
     }
     enterpriseApplications.value = Array.isArray(data?.items) ? data.items : []
     enterpriseApprovalSummary.value = data?.summary ?? { all: 0, pending: 0, approved: 0, rejected: 0 }
-    if (forceSelectFirst || !selectedEnterpriseApplication.value) {
+    if (preferredSelectedId != null && enterpriseApplications.value.some(item => Number(item.id) === Number(preferredSelectedId))) {
+      selectedEnterpriseApplicationId.value = Number(preferredSelectedId)
+    } else if (forceSelectFirst || !selectedEnterpriseApplication.value) {
       selectedEnterpriseApplicationId.value = enterpriseApplications.value[0]?.id ?? null
     } else if (!enterpriseApplications.value.some(item => Number(item.id) === Number(selectedEnterpriseApplicationId.value))) {
       selectedEnterpriseApplicationId.value = enterpriseApplications.value[0]?.id ?? null
@@ -3218,12 +3220,24 @@ async function fetchEnterpriseApplications({ forceSelectFirst = false } = {}) {
   }
 }
 
-async function openEnterpriseApprovalDialog() {
+async function openEnterpriseApprovalDialog({ status = 'pending', selectedId = null, resetSearch = true } = {}) {
   if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'enterprise.approve', buildCapabilityDeniedMessage('platform'))) return
   enterpriseApprovalDialogOpen.value = true
-  enterpriseApprovalSearch.value = ''
+  if (resetSearch) {
+    enterpriseApprovalSearch.value = ''
+  }
   enterpriseApprovalReviewNote.value = ''
-  await fetchEnterpriseApplications({ forceSelectFirst: true })
+  enterpriseApprovalStatusFilter.value = String(status || 'pending')
+  await fetchEnterpriseApplications({ forceSelectFirst: selectedId == null, preferredSelectedId: selectedId })
+}
+
+async function openEnterpriseApprovalDialogForItem(applicationId, status = 'pending') {
+  const normalizedId = Number(applicationId || 0)
+  if (!normalizedId) {
+    await openEnterpriseApprovalDialog({ status })
+    return
+  }
+  await openEnterpriseApprovalDialog({ status, selectedId: normalizedId })
 }
 
 function closeEnterpriseApprovalDialog() {
@@ -8775,7 +8789,8 @@ const authDialogBindings = {
   refreshEnterpriseAccountStatus,
   copyEnterpriseApplicationUsername,
   formatInlineMessage,
-  openEnterpriseApprovalDialog
+  openEnterpriseApprovalDialog,
+  openEnterpriseApprovalDialogForItem
 }
 
 const operationsAuditPanelBindings = {
@@ -9260,6 +9275,7 @@ const enterpriseApprovalDialogBindings = {
   exportEnterpriseApplicationsCsv,
   fetchEnterpriseApplications,
   copyEnterpriseApplicationUsername,
+  openEnterpriseApprovalDialogForItem,
   reviewEnterpriseApplication
 }
 

@@ -48,10 +48,12 @@
             <span>{{ t('enterprise_approval_history_hint') }}</span>
           </div>
           <div class="approval-history-list">
-            <article
+            <button
               v-for="item in recentReviewedEnterpriseApplications"
               :key="`history-${item.id}`"
               class="approval-history-card"
+              type="button"
+              @click="openEnterpriseApprovalDialogForItem(item.id, item.status)"
             >
               <div class="approval-history-title-row">
                 <strong>{{ item.company_name }}</strong>
@@ -60,7 +62,7 @@
               <span>{{ formatInlineMessage(t('enterprise_approval_item_meta'), { contact: item.contact_name, username: item.username }) }}</span>
               <span>{{ formatInlineMessage(t('enterprise_approval_history_reviewed_meta'), { reviewer: item.reviewed_by || '-', reviewedAt: item.reviewed_at || item.submitted_at || '-' }) }}</span>
               <p v-if="item.review_note">{{ item.review_note }}</p>
-            </article>
+            </button>
           </div>
         </div>
 

@@ -89,7 +89,7 @@
               :key="`auth-pending-${item.id}`"
               class="auth-status-list-item"
               type="button"
-              @click="openEnterpriseApprovalDialog"
+              @click="openEnterpriseApprovalDialogForItem(item.id, 'pending')"
             >
               <strong>{{ item.company_name }}</strong>
               <span>

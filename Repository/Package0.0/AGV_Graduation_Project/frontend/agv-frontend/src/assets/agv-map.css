@@ -627,6 +627,9 @@ h2 {
   border: 1px solid #ddd4c8;
   border-radius: 16px;
   background: rgba(247, 243, 236, 0.7);
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
 }
 
 .approval-history-title-row {
