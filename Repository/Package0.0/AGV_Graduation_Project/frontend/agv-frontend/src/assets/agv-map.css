@@ -979,6 +979,52 @@ h2 {
   line-height: 1.6;
 }
 
+.enterprise-settings-status-head {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.enterprise-settings-inline-button {
+  justify-self: start;
+}
+
+.enterprise-settings-status-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.enterprise-settings-status-item {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid rgba(219, 210, 198, 0.9);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.88);
+}
+
+.enterprise-settings-status-item span {
+  color: var(--muted-text);
+  font-size: 12px;
+}
+
+.enterprise-settings-status-note {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px dashed rgba(183, 28, 28, 0.2);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.84);
+}
+
+.enterprise-settings-status-note p {
+  margin: 0;
+  color: var(--strong-text);
+}
+
 .enterprise-settings-chip-list {
   display: flex;
   flex-wrap: wrap;

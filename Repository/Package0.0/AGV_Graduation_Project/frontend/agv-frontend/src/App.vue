@@ -3049,6 +3049,22 @@ async function handleEnterpriseRegister() {
   }
 }
 
+async function refreshEnterpriseAccountStatus() {
+  const previousStatus = String(authCurrentAccountStatus.value || 'approved')
+  try {
+    const state = await fetchAuthMe({ silent: false })
+    authGuestAccepted.value = Boolean(state?.authenticated)
+    const nextStatus = String(state?.user?.account_status || previousStatus)
+    if (previousStatus !== nextStatus) {
+      showFloatingToast(t(`auth_account_status_refresh_${nextStatus}`), 'success')
+      return
+    }
+    showFloatingToast(t('auth_account_status_refresh_ok'), 'success')
+  } catch (error) {
+    showFloatingToast(error?.message || t('auth_account_status_refresh_failed'), 'error')
+  }
+}
+
 async function fetchEnterpriseApplications({ forceSelectFirst = false } = {}) {
   if (!authCanEnterpriseApprove.value) return
   enterpriseApprovalLoading.value = true
@@ -9098,6 +9114,9 @@ const enterpriseApprovalDialogBindings = {
 const enterpriseSettingsDialogBindings = {
   t,
   authRoleLabel,
+  authAccountStatusLabel,
+  authCurrentAccountStatus,
+  authCurrentEnterpriseApplication,
   authCanDispatchWrite,
   authCanTemplateWrite,
   authCanPointWrite,
@@ -9233,6 +9252,7 @@ const enterpriseSettingsDialogBindings = {
   resetOperationAuditFilters,
   exportFilteredOperationAuditsJsonWithAuth,
   exportFilteredOperationAuditsCsvWithAuth,
+  refreshEnterpriseAccountStatus,
   applyEnterprisePanelPreset,
   jumpFromEnterpriseSettings,
   mapProfileActionSummaryTitle,

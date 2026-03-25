@@ -95,6 +95,42 @@
                   </span>
                 </div>
               </div>
+              <div class="enterprise-settings-role-note">
+                <div class="enterprise-settings-status-head">
+                  <div>
+                    <strong>{{ t('enterprise_settings_application_status_title') }}</strong>
+                    <p>{{ t('enterprise_settings_application_status_hint') }}</p>
+                  </div>
+                  <button class="btn-ghost enterprise-settings-inline-button" type="button" @click="refreshEnterpriseAccountStatus()">
+                    {{ t('enterprise_settings_application_refresh') }}
+                  </button>
+                </div>
+                <div class="enterprise-settings-status-grid">
+                  <div class="enterprise-settings-status-item">
+                    <span>{{ t('enterprise_settings_summary_status') }}</span>
+                    <strong>{{ authAccountStatusLabel }}</strong>
+                  </div>
+                  <div class="enterprise-settings-status-item">
+                    <span>{{ t('enterprise_settings_application_submitted_at') }}</span>
+                    <strong>{{ authCurrentEnterpriseApplication?.submitted_at || '—' }}</strong>
+                  </div>
+                  <div class="enterprise-settings-status-item">
+                    <span>{{ t('enterprise_settings_application_reviewed_at') }}</span>
+                    <strong>{{ authCurrentEnterpriseApplication?.reviewed_at || '—' }}</strong>
+                  </div>
+                  <div class="enterprise-settings-status-item">
+                    <span>{{ t('enterprise_settings_application_reviewed_by') }}</span>
+                    <strong>{{ authCurrentEnterpriseApplication?.reviewed_by || '—' }}</strong>
+                  </div>
+                </div>
+                <div
+                  v-if="authCurrentEnterpriseApplication?.review_note"
+                  class="enterprise-settings-status-note"
+                >
+                  <strong>{{ t('enterprise_settings_application_review_note') }}</strong>
+                  <p>{{ authCurrentEnterpriseApplication.review_note }}</p>
+                </div>
+              </div>
               <div class="map-settings-info-grid enterprise-settings-grid">
                 <div v-for="card in enterpriseOverviewCards" :key="card.key" class="map-settings-info-card">
                   <div class="map-settings-info-label">{{ card.label }}</div>
