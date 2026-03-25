@@ -105,7 +105,47 @@
                 {{
                   formatInlineMessage(t('auth_platform_pending_snapshot_item'), {
                     contact: item.contact_name,
-                                        submittedAt: item.submitted_at || '¡ª'
+                    submittedAt: item.submitted_at || '-'
+                  })
+                }}
+              </span>
+            </button>
+          </div>
+        </div>
+
+        <div
+          v-if="authCanEnterpriseApprove && recentReviewedEnterpriseApplications.length"
+          class="auth-status-note"
+        >
+          <div class="auth-status-note-head">
+            <div>
+              <strong>{{ t('auth_platform_recent_review_snapshot_title') }}</strong>
+              <span>{{ t('auth_platform_recent_review_snapshot_hint') }}</span>
+            </div>
+            <button
+              class="auth-dialog-inline-action"
+              type="button"
+              :disabled="authLoading"
+              @click="openEnterpriseApprovalDialog({ status: 'all' })"
+            >
+              {{ t('enterprise_approval_entry') }}
+            </button>
+          </div>
+          <div class="auth-status-list">
+            <button
+              v-for="item in recentReviewedEnterpriseApplications"
+              :key="`auth-reviewed-${item.id}`"
+              class="auth-status-list-item"
+              type="button"
+              @click="openEnterpriseApprovalDialogForItem(item.id, item.status)"
+            >
+              <strong>{{ item.company_name }}</strong>
+              <span>
+                {{
+                  formatInlineMessage(t('auth_platform_recent_review_snapshot_item'), {
+                    status: t(`enterprise_approval_status_${item.status}`),
+                    reviewer: item.reviewed_by || '-',
+                    reviewedAt: item.reviewed_at || item.submitted_at || '-'
                   })
                 }}
               </span>
@@ -354,7 +394,6 @@
       </div>
     </div>
 </template>
-
 
 <script>
 import { defineComponent, reactive, watchEffect } from 'vue'

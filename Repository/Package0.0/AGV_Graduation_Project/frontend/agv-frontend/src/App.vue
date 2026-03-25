@@ -8787,6 +8787,7 @@ const authDialogBindings = {
   buildAuthCapabilityStateText,
   authCanEnterpriseApprove,
   recentPendingEnterpriseApplications,
+  recentReviewedEnterpriseApplications,
   enterGuestMode,
   handleAuthLogout,
   handleAuthQuickLogin,
