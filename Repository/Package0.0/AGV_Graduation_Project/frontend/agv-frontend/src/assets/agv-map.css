@@ -160,6 +160,9 @@ h2 {
 }
 
 .toolbar-compare-entry {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   padding: 8px 12px;
   border: 1px solid #d8d0c5;
   border-radius: 999px;
@@ -168,6 +171,29 @@ h2 {
   font-size: 12px;
   font-weight: 700;
   cursor: pointer;
+}
+
+.toolbar-entry-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(21, 101, 192, 0.12);
+  color: #1565c0;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.toolbar-entry-badge.tone-pending {
+  background: rgba(255, 179, 0, 0.16);
+  color: #8d6e00;
+}
+
+.toolbar-entry-badge.tone-rejected {
+  background: rgba(183, 28, 28, 0.12);
+  color: #b71c1c;
 }
 
 .toolbar-guide-entry {

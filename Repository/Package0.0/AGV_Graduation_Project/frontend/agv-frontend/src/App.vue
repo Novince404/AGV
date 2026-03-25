@@ -633,6 +633,13 @@ const authCanEnterpriseApprove = computed(() => authCapabilitySet.value.has('ent
 const authIsEnterpriseRole = computed(() =>
   ['enterprise_operator', 'enterprise_logistics', 'enterprise_admin'].includes(authCurrentRole.value)
 )
+const platformApprovalPendingCount = computed(() => Number(enterpriseApprovalSummary.value.pending || 0))
+const enterpriseToolbarStatusBadgeText = computed(() => {
+  if (!authIsEnterpriseRole.value) return ''
+  if (authCurrentAccountStatus.value === 'pending') return t('auth_account_status_pending_short')
+  if (authCurrentAccountStatus.value === 'rejected') return t('auth_account_status_rejected_short')
+  return ''
+})
 const filteredEnterpriseApplications = computed(() => {
   const keyword = String(enterpriseApprovalSearch.value || '').trim().toLowerCase()
   if (!keyword) return enterpriseApplications.value
@@ -8366,9 +8373,13 @@ watch([authAuthenticated, authCanViewAudit], ([authenticated, canViewAudit]) => 
 })
 
 watch([authAuthenticated, authCanEnterpriseApprove], ([authenticated, canApprove]) => {
-  if (authenticated && canApprove) return
+  if (authenticated && canApprove) {
+    fetchEnterpriseApplications({ forceSelectFirst: false })
+    return
+  }
   enterpriseApprovalDialogOpen.value = false
   enterpriseApplications.value = []
+  enterpriseApprovalSummary.value = { all: 0, pending: 0, approved: 0, rejected: 0 }
   selectedEnterpriseApplicationId.value = null
   enterpriseApprovalReviewNote.value = ''
 })
@@ -9362,7 +9373,14 @@ onBeforeUnmount(() => {
         type="button"
         @click="openEnterpriseSettingsDialog()"
       >
-        {{ t('enterprise_settings_entry') }}
+        <span>{{ t('enterprise_settings_entry') }}</span>
+        <span
+          v-if="enterpriseToolbarStatusBadgeText"
+          class="toolbar-entry-badge"
+          :class="[`tone-${authCurrentAccountStatus}`]"
+        >
+          {{ enterpriseToolbarStatusBadgeText }}
+        </span>
       </button>
       <button
         v-if="authCanEnterpriseApprove"
@@ -9370,7 +9388,10 @@ onBeforeUnmount(() => {
         type="button"
         @click="openEnterpriseApprovalDialog"
       >
-        {{ t('enterprise_approval_entry') }}
+        <span>{{ t('enterprise_approval_entry') }}</span>
+        <span v-if="platformApprovalPendingCount > 0" class="toolbar-entry-badge">
+          {{ formatInlineMessage(t('enterprise_approval_pending_badge'), { count: platformApprovalPendingCount }) }}
+        </span>
       </button>
     </div>
 
