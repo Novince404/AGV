@@ -468,6 +468,7 @@ const {
   currentDisplayName: authCurrentDisplayName,
   currentAccountStatus: authCurrentAccountStatus,
   currentOrganizationName: authCurrentOrganizationName,
+  currentEnterpriseApplication: authCurrentEnterpriseApplication,
   currentCapabilities: authCurrentCapabilities,
   currentCapabilityGroups: authCurrentCapabilityGroups,
   buildAuthHeaders,
@@ -572,13 +573,17 @@ const authEnterpriseRegisterStatusText = computed(() =>
 )
 const authStatusNotice = computed(() => {
   if (!authAuthenticated.value) return null
+  const application = authCurrentEnterpriseApplication.value
   if (authCurrentRole.value === 'platform_admin') {
     return {
       tone: 'platform',
       title: t('auth_status_notice_platform_admin_title'),
       hint: t('auth_status_notice_platform_admin_hint'),
       actionLabel: t('auth_status_notice_platform_admin_action'),
-      actionKey: 'enterprise-approval'
+      actionKey: 'enterprise-approval',
+      meta: platformApprovalPendingCount.value > 0
+        ? formatInlineMessage(t('auth_status_notice_platform_admin_meta'), { count: platformApprovalPendingCount.value })
+        : t('auth_status_notice_platform_admin_meta_empty')
     }
   }
   if (authIsEnterpriseRole.value && authCurrentAccountStatus.value === 'pending') {
@@ -587,7 +592,10 @@ const authStatusNotice = computed(() => {
       title: t('auth_status_notice_pending_title'),
       hint: t('auth_status_notice_pending_hint'),
       actionLabel: '',
-      actionKey: ''
+      actionKey: '',
+      meta: application?.submitted_at
+        ? formatInlineMessage(t('auth_status_notice_pending_meta'), { submittedAt: application.submitted_at })
+        : ''
     }
   }
   if (authIsEnterpriseRole.value && authCurrentAccountStatus.value === 'rejected') {
@@ -596,7 +604,11 @@ const authStatusNotice = computed(() => {
       title: t('auth_status_notice_rejected_title'),
       hint: t('auth_status_notice_rejected_hint'),
       actionLabel: '',
-      actionKey: ''
+      actionKey: '',
+      meta: application?.reviewed_at
+        ? formatInlineMessage(t('auth_status_notice_rejected_meta'), { reviewedAt: application.reviewed_at })
+        : '',
+      detail: String(application?.review_note || '').trim()
     }
   }
   return null
@@ -8574,6 +8586,7 @@ const authDialogBindings = {
   authCurrentUser,
   authAccountStatusLabel,
   authCurrentOrganizationName,
+  authCurrentEnterpriseApplication,
   authStatusNotice,
   authEnterpriseRegisterValidation,
   authEnterpriseRegisterStatusText,

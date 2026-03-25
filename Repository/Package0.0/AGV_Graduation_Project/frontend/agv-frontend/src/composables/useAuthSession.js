@@ -24,6 +24,7 @@ function buildGuestState() {
       account_status: 'guest',
       organization_id: null,
       organization_name: null,
+      enterprise_application: null,
       capabilities: ['dashboard.view'],
       capability_groups: {
         dispatch: false,
@@ -72,6 +73,27 @@ function normalizeAuthPayload(payload) {
       account_status: String(payload.user.account_status ?? 'approved'),
       organization_id: payload.user.organization_id == null ? null : String(payload.user.organization_id),
       organization_name: payload.user.organization_name == null ? null : String(payload.user.organization_name),
+      enterprise_application:
+        payload.user.enterprise_application && typeof payload.user.enterprise_application === 'object'
+          ? {
+              id: Number.isFinite(Number(payload.user.enterprise_application.id))
+                ? Number(payload.user.enterprise_application.id)
+                : null,
+              company_name: String(payload.user.enterprise_application.company_name ?? ''),
+              contact_name: String(payload.user.enterprise_application.contact_name ?? ''),
+              contact_email: String(payload.user.enterprise_application.contact_email ?? ''),
+              username: String(payload.user.enterprise_application.username ?? ''),
+              user_id: String(payload.user.enterprise_application.user_id ?? ''),
+              status: String(payload.user.enterprise_application.status ?? ''),
+              submitted_at: String(payload.user.enterprise_application.submitted_at ?? ''),
+              reviewed_at: String(payload.user.enterprise_application.reviewed_at ?? ''),
+              reviewed_by: String(payload.user.enterprise_application.reviewed_by ?? ''),
+              review_note: String(payload.user.enterprise_application.review_note ?? ''),
+              organization_id: payload.user.enterprise_application.organization_id == null
+                ? null
+                : String(payload.user.enterprise_application.organization_id)
+            }
+          : null,
       capabilities: Array.isArray(payload.user.capabilities)
         ? payload.user.capabilities.map(item => String(item))
         : Array.isArray(payload.capabilities)
@@ -250,6 +272,7 @@ export function useAuthSession(options) {
   )
   const currentAccountStatus = computed(() => currentUser.value?.account_status || 'approved')
   const currentOrganizationName = computed(() => currentUser.value?.organization_name || '')
+  const currentEnterpriseApplication = computed(() => currentUser.value?.enterprise_application || null)
   const currentCapabilities = computed(() => authState.value?.capabilities ?? [])
   const currentCapabilityGroups = computed(() => authState.value?.capability_groups ?? buildGuestState().capability_groups)
 
@@ -268,6 +291,7 @@ export function useAuthSession(options) {
     currentDisplayName,
     currentAccountStatus,
     currentOrganizationName,
+    currentEnterpriseApplication,
     currentCapabilities,
     currentCapabilityGroups,
     buildAuthHeaders,

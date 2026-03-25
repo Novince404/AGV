@@ -54,6 +54,7 @@ def _public_user_payload(user) -> dict:
     normalized_role = normalize_role(user.role)
     account_status = str(getattr(user, "account_status", "approved") or "approved")
     capabilities = sorted(get_role_capabilities(normalized_role, account_status=account_status))
+    enterprise_application = get_enterprise_application_by_user_id(str(getattr(user, "id", "") or ""))
     return {
         "id": user.id,
         "username": user.username,
@@ -64,6 +65,7 @@ def _public_user_payload(user) -> dict:
         "account_status": account_status,
         "organization_id": getattr(user, "organization_id", None),
         "organization_name": getattr(user, "organization_name", None),
+        "enterprise_application": _serialize_enterprise_application(enterprise_application) if enterprise_application else None,
         "capabilities": capabilities,
         "capability_groups": build_capability_groups(normalized_role, account_status=account_status),
     }

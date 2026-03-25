@@ -43,6 +43,8 @@
         >
           <strong>{{ authStatusNotice.title }}</strong>
           <span>{{ authStatusNotice.hint }}</span>
+          <small v-if="authStatusNotice.meta">{{ authStatusNotice.meta }}</small>
+          <p v-if="authStatusNotice.detail" class="auth-status-note-detail">{{ authStatusNotice.detail }}</p>
           <button
             v-if="authStatusNotice.actionKey === 'enterprise-approval'"
             class="auth-dialog-inline-action"

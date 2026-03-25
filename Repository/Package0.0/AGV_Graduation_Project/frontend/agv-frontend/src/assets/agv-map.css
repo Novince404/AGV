@@ -356,6 +356,21 @@ h2 {
   line-height: 1.5;
 }
 
+.auth-status-note small {
+  color: var(--muted-text);
+  font-size: 12px;
+}
+
+.auth-status-note-detail {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px dashed rgba(183, 28, 28, 0.22);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.74);
+  color: var(--strong-text);
+  line-height: 1.5;
+}
+
 .auth-status-note.tone-platform {
   border-color: rgba(183, 28, 28, 0.24);
   background: rgba(255, 247, 247, 0.92);
