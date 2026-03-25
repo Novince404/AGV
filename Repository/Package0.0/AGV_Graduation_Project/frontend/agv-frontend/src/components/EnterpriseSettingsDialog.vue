@@ -470,6 +470,89 @@
               </div>
               <div class="enterprise-settings-subgrid">
                 <div class="enterprise-settings-subsection">
+                  <div class="enterprise-settings-subtitle">{{ t('enterprise_settings_points_quick_manage_title') }}</div>
+                  <p class="panel-hint">{{ t('enterprise_settings_points_quick_manage_hint') }}</p>
+                  <div class="form-grid enterprise-settings-inline-form">
+                    <label>{{ t('point_form_name') }}</label>
+                    <input
+                      v-model.trim="customPointForm.name"
+                      type="text"
+                      :placeholder="t('point_form_name_placeholder')"
+                    />
+                    <label>{{ t('point_form_zone') }}</label>
+                    <input
+                      v-model.trim="customPointForm.zone"
+                      type="text"
+                      :placeholder="t('point_form_zone_placeholder')"
+                    />
+                    <label>{{ t('form_start_x') }}</label>
+                    <input
+                      v-model.number="customPointForm.x"
+                      type="number"
+                      min="0"
+                      :max="currentGridCols - 1"
+                    />
+                    <label>{{ t('form_start_y') }}</label>
+                    <input
+                      v-model.number="customPointForm.y"
+                      type="number"
+                      min="0"
+                      :max="currentGridRows - 1"
+                    />
+                  </div>
+                  <div class="enterprise-settings-inline-actions">
+                    <button
+                      class="btn-primary"
+                      type="button"
+                      :disabled="!authCanPointWrite"
+                      :title="buildCapabilityLockedTitle('data', authCanPointWrite)"
+                      @click="addCustomPointWithAuth"
+                    >
+                      {{ t('point_add') }}
+                    </button>
+                  </div>
+                  <div v-if="pointFormStatus" class="point-status" :class="pointFormStatusType">
+                    {{ pointFormStatus }}
+                  </div>
+                </div>
+                <div class="enterprise-settings-subsection">
+                  <div class="enterprise-settings-subtitle">{{ t('enterprise_settings_templates_quick_manage_title') }}</div>
+                  <p class="panel-hint">{{ t('enterprise_settings_templates_quick_manage_hint') }}</p>
+                  <div class="form-grid enterprise-settings-inline-form">
+                    <label>{{ t('template_name') }}</label>
+                    <input
+                      v-model.trim="taskTemplateForm.name"
+                      type="text"
+                      :placeholder="t('template_name_placeholder')"
+                    />
+                  </div>
+                  <div class="enterprise-settings-inline-actions">
+                    <button
+                      class="btn-primary"
+                      type="button"
+                      :disabled="!authCanTemplateWrite"
+                      :title="buildCapabilityLockedTitle('data', authCanTemplateWrite)"
+                      @click="saveCurrentTaskTemplateWithAuth"
+                    >
+                      {{ t('template_save_current') }}
+                    </button>
+                    <button
+                      class="btn-secondary"
+                      type="button"
+                      :disabled="!authCanTemplateWrite"
+                      :title="buildCapabilityLockedTitle('data', authCanTemplateWrite)"
+                      @click="saveCurrentTaskChainTemplateWithAuth"
+                    >
+                      {{ taskChainLocale.saveTemplate }}
+                    </button>
+                  </div>
+                  <div v-if="taskTemplateStatus" class="template-status" :class="taskTemplateStatusType">
+                    {{ taskTemplateStatus }}
+                  </div>
+                </div>
+              </div>
+              <div class="enterprise-settings-subgrid">
+                <div class="enterprise-settings-subsection">
                   <div class="enterprise-settings-subtitle">{{ t('enterprise_settings_points_list_title') }}</div>
                   <div v-if="enterpriseRecentCustomPoints.length === 0" class="empty-note">{{ t('enterprise_settings_points_list_empty') }}</div>
                   <div v-else class="enterprise-settings-list">
@@ -479,6 +562,23 @@
                         <span>{{ point.x }}, {{ point.y }}</span>
                       </div>
                       <div class="task-line">{{ point.zone || '—' }}</div>
+                      <div class="enterprise-settings-inline-actions enterprise-settings-inline-actions-compact">
+                        <button class="btn-secondary" type="button" @click="applyPointToTaskForm('start', point)">
+                          {{ t('point_apply_start') }}
+                        </button>
+                        <button class="btn-ghost" type="button" @click="applyPointToTaskForm('end', point)">
+                          {{ t('point_apply_end') }}
+                        </button>
+                        <button
+                          class="btn-delete"
+                          type="button"
+                          :disabled="!authCanPointWrite"
+                          :title="buildCapabilityLockedTitle('data', authCanPointWrite)"
+                          @click="deleteCustomPointWithAuth(point)"
+                        >
+                          {{ t('point_delete') }}
+                        </button>
+                      </div>
                     </article>
                   </div>
                 </div>
@@ -492,6 +592,29 @@
                         <span>{{ formatInlineMessage(t('enterprise_settings_templates_stage_count'), { count: template.stages?.length || 0 }) }}</span>
                       </div>
                       <div class="task-line">{{ template.description || '—' }}</div>
+                      <div class="enterprise-settings-inline-actions enterprise-settings-inline-actions-compact">
+                        <button class="btn-secondary" type="button" @click="onTemplateApplyClick(template)">
+                          {{ t('template_apply') }}
+                        </button>
+                        <button
+                          class="btn-ghost"
+                          type="button"
+                          :disabled="!authCanDispatchWrite"
+                          :title="buildCapabilityLockedTitle('dispatch', authCanDispatchWrite)"
+                          @click="createTaskFromTemplateWithAuth(template)"
+                        >
+                          {{ t('template_run') }}
+                        </button>
+                        <button
+                          class="btn-delete"
+                          type="button"
+                          :disabled="!authCanTemplateWrite"
+                          :title="buildCapabilityLockedTitle('data', authCanTemplateWrite)"
+                          @click="deleteTaskTemplateWithAuth(template)"
+                        >
+                          {{ t('template_delete') }}
+                        </button>
+                      </div>
                     </article>
                   </div>
                 </div>
@@ -568,6 +691,125 @@
                 <div class="map-settings-info-card">
                   <div class="map-settings-info-label">{{ settingsLocale.compareDisplay }}</div>
                   <div class="map-settings-info-value">{{ compareDisplayMode === 'floating' ? settingsLocale.compareDisplayFloating : settingsLocale.compareDisplayPanel }}</div>
+                </div>
+              </div>
+              <div class="enterprise-settings-subgrid">
+                <div class="enterprise-settings-subsection">
+                  <div class="enterprise-settings-subtitle">{{ t('enterprise_settings_runtime_controls_title') }}</div>
+                  <p class="panel-hint">{{ t('enterprise_settings_runtime_controls_hint') }}</p>
+
+                  <div class="enterprise-settings-segmented-group">
+                    <strong>{{ t('enterprise_settings_runtime_mode_title') }}</strong>
+                    <div class="enterprise-settings-segmented-options">
+                      <button
+                        class="btn-secondary enterprise-settings-segmented-button"
+                        :class="{ active: dispatchMode === 'auto' }"
+                        type="button"
+                        :disabled="!authCanDispatchWrite"
+                        :title="buildCapabilityLockedTitle('dispatch', authCanDispatchWrite)"
+                        @click="setDispatchModeFromEnterprise('auto')"
+                      >
+                        {{ settingsLocale.modeAuto }}
+                      </button>
+                      <button
+                        class="btn-secondary enterprise-settings-segmented-button"
+                        :class="{ active: dispatchMode === 'manual' }"
+                        type="button"
+                        :disabled="!authCanDispatchWrite"
+                        :title="buildCapabilityLockedTitle('dispatch', authCanDispatchWrite)"
+                        @click="setDispatchModeFromEnterprise('manual')"
+                      >
+                        {{ settingsLocale.modeManual }}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div class="enterprise-settings-segmented-group">
+                    <strong>{{ t('enterprise_settings_runtime_algorithm_title') }}</strong>
+                    <div class="enterprise-settings-segmented-options">
+                      <button
+                        class="btn-secondary enterprise-settings-segmented-button"
+                        :class="{ active: algorithm === 'simple' }"
+                        type="button"
+                        :disabled="!authCanExperimentWrite"
+                        :title="buildCapabilityLockedTitle('data', authCanExperimentWrite)"
+                        @click="setRuntimeAlgorithmFromEnterprise('simple')"
+                      >
+                        {{ algorithmText('simple') }}
+                      </button>
+                      <button
+                        class="btn-secondary enterprise-settings-segmented-button"
+                        :class="{ active: algorithm === 'astar' }"
+                        type="button"
+                        :disabled="!authCanExperimentWrite"
+                        :title="buildCapabilityLockedTitle('data', authCanExperimentWrite)"
+                        @click="setRuntimeAlgorithmFromEnterprise('astar')"
+                      >
+                        {{ algorithmText('astar') }}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div class="enterprise-settings-segmented-group">
+                    <strong>{{ t('enterprise_settings_runtime_display_title') }}</strong>
+                    <div class="enterprise-settings-segmented-options">
+                      <button
+                        class="btn-secondary enterprise-settings-segmented-button"
+                        :class="{ active: compareDisplayMode === 'panel' }"
+                        type="button"
+                        @click="setCompareDisplayModeFromEnterprise('panel')"
+                      >
+                        {{ settingsLocale.compareDisplayPanel }}
+                      </button>
+                      <button
+                        class="btn-secondary enterprise-settings-segmented-button"
+                        :class="{ active: compareDisplayMode === 'floating' }"
+                        type="button"
+                        @click="setCompareDisplayModeFromEnterprise('floating')"
+                      >
+                        {{ settingsLocale.compareDisplayFloating }}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <div class="enterprise-settings-subsection">
+                  <div class="enterprise-settings-subtitle">{{ t('enterprise_settings_runtime_compare_title') }}</div>
+                  <p class="panel-hint">{{ t('enterprise_settings_runtime_compare_hint') }}</p>
+                  <div class="enterprise-settings-inline-actions">
+                    <button class="btn-primary" type="button" @click="compareCurrentRoute">
+                      {{ algorithmCompareLocale.run }}
+                    </button>
+                    <button
+                      class="btn-secondary"
+                      type="button"
+                      :disabled="!authCanExperimentWrite"
+                      :title="buildCapabilityLockedTitle('data', authCanExperimentWrite)"
+                      @click="algorithmCompareWorkspaceBindings.saveCurrentExperimentRecordWithAuth"
+                    >
+                      {{ experimentLocale.saveCurrent }}
+                    </button>
+                    <button
+                      class="btn-secondary"
+                      type="button"
+                      :disabled="!authCanExperimentWrite"
+                      :title="buildCapabilityLockedTitle('data', authCanExperimentWrite)"
+                      @click="algorithmCompareWorkspaceBindings.exportCurrentCompareResultJsonWithAuth"
+                    >
+                      {{ experimentLocale.exportCurrentJson }}
+                    </button>
+                    <button
+                      class="btn-secondary"
+                      type="button"
+                      :disabled="!authCanExperimentWrite"
+                      :title="buildCapabilityLockedTitle('data', authCanExperimentWrite)"
+                      @click="algorithmCompareWorkspaceBindings.exportCurrentCompareResultCsvWithAuth"
+                    >
+                      {{ experimentLocale.exportCurrentCsv }}
+                    </button>
+                  </div>
+                  <div class="enterprise-settings-embedded-panel">
+                    <AlgorithmCompareWorkspace :ui="algorithmCompareWorkspaceBindings" />
+                  </div>
                 </div>
               </div>
               <div class="enterprise-settings-subsection">
@@ -825,11 +1067,13 @@
 import { defineAsyncComponent, defineComponent, reactive, watchEffect } from 'vue'
 
 const ComfyAiWorkspace = defineAsyncComponent(() => import('./ComfyAiWorkspace.vue'))
+const AlgorithmCompareWorkspace = defineAsyncComponent(() => import('./AlgorithmCompareWorkspace.vue'))
 
 export default defineComponent({
   name: 'EnterpriseSettingsDialog',
   components: {
-    ComfyAiWorkspace
+    ComfyAiWorkspace,
+    AlgorithmCompareWorkspace
   },
   props: {
     ui: {

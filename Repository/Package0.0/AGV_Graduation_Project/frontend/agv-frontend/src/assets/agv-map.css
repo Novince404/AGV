@@ -684,6 +684,56 @@ h2 {
   flex-wrap: wrap;
 }
 
+.enterprise-settings-inline-form {
+  grid-template-columns: minmax(78px, 118px) minmax(0, 1fr);
+}
+
+.enterprise-settings-inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.enterprise-settings-inline-actions-compact {
+  margin-top: 4px;
+}
+
+.enterprise-settings-segmented-group {
+  display: grid;
+  gap: 8px;
+}
+
+.enterprise-settings-segmented-group > strong {
+  color: var(--strong-text);
+  font-size: 12px;
+}
+
+.enterprise-settings-segmented-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.enterprise-settings-segmented-button {
+  flex: 1 1 120px;
+}
+
+.enterprise-settings-segmented-button.active {
+  border-color: rgba(173, 102, 25, 0.42);
+  background: rgba(228, 208, 169, 0.26);
+  color: #7e4b18;
+  box-shadow: inset 0 0 0 1px rgba(173, 102, 25, 0.16);
+}
+
+.enterprise-settings-embedded-panel {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid rgba(219, 210, 198, 0.92);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.9);
+}
+
 .enterprise-settings-focus-card,
 .enterprise-settings-subsection {
   display: grid;
@@ -4281,6 +4331,10 @@ h2 {
   .enterprise-settings-shell,
   .approval-layout,
   .enterprise-settings-subgrid {
+    grid-template-columns: 1fr;
+  }
+
+  .enterprise-settings-inline-form {
     grid-template-columns: 1fr;
   }
 

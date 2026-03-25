@@ -4447,6 +4447,42 @@ function toggleDispatchModeFromSummary() {
   dispatchMode.value = dispatchMode.value === 'auto' ? 'manual' : 'auto'
 }
 
+function setDispatchModeFromEnterprise(nextMode) {
+  const normalizedMode = String(nextMode || '').toLowerCase()
+  if (!['auto', 'manual'].includes(normalizedMode)) return
+  if (
+    !ensureAuthenticatedOperation(
+      t('auth_action_requires_login'),
+      'dispatch.write',
+      buildCapabilityDeniedMessage('dispatch')
+    )
+  ) {
+    return
+  }
+  dispatchMode.value = normalizedMode
+}
+
+function setRuntimeAlgorithmFromEnterprise(nextAlgorithm) {
+  const normalizedAlgorithm = String(nextAlgorithm || '').toLowerCase()
+  if (!['simple', 'astar'].includes(normalizedAlgorithm)) return
+  if (
+    !ensureAuthenticatedOperation(
+      t('auth_action_requires_login'),
+      'experiment.write',
+      buildCapabilityDeniedMessage('data')
+    )
+  ) {
+    return
+  }
+  algorithm.value = normalizedAlgorithm
+}
+
+function setCompareDisplayModeFromEnterprise(nextMode) {
+  const normalizedMode = String(nextMode || '').toLowerCase()
+  if (!['panel', 'floating'].includes(normalizedMode)) return
+  compareDisplayMode.value = normalizedMode
+}
+
 function buildTemplateExportPayload() {
   return buildTemplateExportPayloadRaw(customTaskTemplates.value, {
     normalizeStages: normalizeTemplateStages
@@ -8761,6 +8797,10 @@ const enterpriseApprovalDialogBindings = {
 const enterpriseSettingsDialogBindings = {
   t,
   authRoleLabel,
+  authCanDispatchWrite,
+  authCanTemplateWrite,
+  authCanPointWrite,
+  authCanExperimentWrite,
   enterpriseSettingsTabDefinitions,
   enterpriseSettingsActiveTab,
   enterpriseSettingsTabLabel,
@@ -8795,8 +8835,28 @@ const enterpriseSettingsDialogBindings = {
   mapProfileActionSummary,
   pointLibrary,
   customPoints,
+  currentGridCols,
+  currentGridRows,
+  customPointForm,
+  pointFormStatus,
+  pointFormStatusType,
+  addCustomPointWithAuth,
+  applyPointToTaskForm,
+  deleteCustomPointWithAuth,
   taskTemplates,
   customTaskTemplates,
+  taskTemplateForm,
+  taskTemplateStatus,
+  taskTemplateStatusType,
+  taskChainLocale,
+  experimentLocale,
+  algorithmCompareLocale,
+  dispatchMode,
+  saveCurrentTaskTemplateWithAuth,
+  saveCurrentTaskChainTemplateWithAuth,
+  createTaskFromTemplateWithAuth,
+  deleteTaskTemplateWithAuth,
+  onTemplateApplyClick,
   compareDisplayMode,
   algorithm,
   taskPriority,
@@ -8897,6 +8957,11 @@ const enterpriseSettingsDialogBindings = {
   buildCapabilityLockedTitle,
   formatInlineMessage,
   algorithmText,
+  compareCurrentRoute,
+  setDispatchModeFromEnterprise,
+  setRuntimeAlgorithmFromEnterprise,
+  setCompareDisplayModeFromEnterprise,
+  algorithmCompareWorkspaceBindings,
   buildAiRenderSharedTemplatesHintText,
   openComfyBuiltinTemplateOverview,
   applySelectedBuiltinComfyTemplate,
