@@ -675,6 +675,12 @@ const authEnterpriseApplicationProgressItems = computed(() =>
 const selectedEnterpriseApplicationProgressItems = computed(() =>
   buildEnterpriseApplicationProgressItems(selectedEnterpriseApplication.value)
 )
+const selectedEnterpriseApplicationNextStepText = computed(() => {
+  const status = String(selectedEnterpriseApplication.value?.status || '').trim().toLowerCase()
+  if (status === 'approved') return t('enterprise_approval_next_step_approved')
+  if (status === 'rejected') return t('enterprise_approval_next_step_rejected')
+  return t('enterprise_approval_next_step_pending')
+})
 const authTitleButtonTitle = computed(() =>
   authAuthenticated.value
     ? `${t('auth_current_identity')}: ${authCurrentDisplayName.value} (${authRoleLabel.value})`
@@ -3111,6 +3117,11 @@ async function handleEnterpriseRegister() {
   }
 }
 
+async function signInEnterpriseRegisterFollowup() {
+  if (!authEnterpriseRegisterFollowup.value) return
+  await handleAuthLogin()
+}
+
 async function refreshEnterpriseAccountStatus() {
   const previousStatus = String(authCurrentAccountStatus.value || 'approved')
   try {
@@ -3403,6 +3414,14 @@ async function reviewEnterpriseApplication(decision) {
     const reviewedApplication = data?.application ?? null
     enterpriseApprovalReviewNote.value = ''
     await fetchEnterpriseApplications({ forceSelectFirst: false })
+    const remainingFiltered = filteredEnterpriseApplications.value
+    if (remainingFiltered.some(item => Number(item.id) === applicationId)) {
+      selectedEnterpriseApplicationId.value = applicationId
+    } else if (remainingFiltered.length > 0) {
+      selectedEnterpriseApplicationId.value = remainingFiltered[0].id
+    } else {
+      selectedEnterpriseApplicationId.value = null
+    }
     showFloatingToast(
       decision === 'reject'
         ? formatInlineMessage(t('enterprise_approval_reject_success_detail'), {
@@ -8744,6 +8763,7 @@ const authDialogBindings = {
   authDemoAccountLabel,
   handleAuthDemoFill,
   handleEnterpriseRegister,
+  signInEnterpriseRegisterFollowup,
   refreshEnterpriseAccountStatus,
   copyEnterpriseApplicationUsername,
   formatInlineMessage,
@@ -9222,6 +9242,7 @@ const enterpriseApprovalDialogBindings = {
   selectedEnterpriseApplicationId,
   selectedEnterpriseApplication,
   selectedEnterpriseApplicationProgressItems,
+  selectedEnterpriseApplicationNextStepText,
   enterpriseApprovalReviewNote,
   enterpriseApprovalReviewLoading,
   closeEnterpriseApprovalDialog,

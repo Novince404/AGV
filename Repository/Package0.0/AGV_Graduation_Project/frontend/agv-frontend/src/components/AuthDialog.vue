@@ -159,15 +159,37 @@
           <div class="auth-dialog-divider">{{ t('auth_manual_login') }}</div>
 
           <div v-if="authEnterpriseRegisterFollowup" class="auth-status-note tone-pending">
-            <strong>{{ t('auth_enterprise_register_followup_title') }}</strong>
-            <span>
-              {{
-                formatInlineMessage(t('auth_enterprise_register_followup_hint'), {
-                  company: authEnterpriseRegisterFollowup.company_name,
-                  username: authEnterpriseRegisterFollowup.username
-                })
-              }}
-            </span>
+            <div class="auth-status-note-head">
+              <div>
+                <strong>{{ t('auth_enterprise_register_followup_title') }}</strong>
+                <span>
+                  {{
+                    formatInlineMessage(t('auth_enterprise_register_followup_hint'), {
+                      company: authEnterpriseRegisterFollowup.company_name,
+                      username: authEnterpriseRegisterFollowup.username
+                    })
+                  }}
+                </span>
+              </div>
+              <button
+                class="auth-dialog-inline-action"
+                type="button"
+                :disabled="authLoading"
+                @click="copyEnterpriseApplicationUsername(authEnterpriseRegisterFollowup)"
+              >
+                {{ t('enterprise_application_copy_username') }}
+              </button>
+            </div>
+            <div class="auth-status-actions">
+              <button
+                class="auth-dialog-submit"
+                type="button"
+                :disabled="authLoading"
+                @click="signInEnterpriseRegisterFollowup"
+              >
+                {{ authLoading ? t('auth_signing_in') : t('auth_enterprise_register_followup_action') }}
+              </button>
+            </div>
           </div>
 
           <div class="auth-dialog-form">

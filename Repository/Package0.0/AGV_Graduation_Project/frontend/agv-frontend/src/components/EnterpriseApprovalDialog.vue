@@ -150,6 +150,10 @@
                 <strong>{{ item.value }}</strong>
               </article>
             </div>
+            <div class="approval-existing-note">
+              <strong>{{ t('enterprise_approval_next_step_title') }}</strong>
+              <p>{{ selectedEnterpriseApplicationNextStepText }}</p>
+            </div>
 
             <label class="auth-dialog-field">
               <span>{{ t('enterprise_approval_review_note') }}</span>

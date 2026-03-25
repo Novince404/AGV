@@ -384,6 +384,12 @@ h2 {
   line-height: 1.5;
 }
 
+.auth-status-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .auth-status-note.tone-platform {
   border-color: rgba(183, 28, 28, 0.24);
   background: rgba(255, 247, 247, 0.92);
