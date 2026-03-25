@@ -30,7 +30,7 @@ import {
 } from './utils/taskChain'
 import { buildDefaultQueueGroupState, compareTime, sortTasks } from './utils/taskQueue'
 import { rowsToCsv } from './utils/csv'
-import { downloadJsonFile } from './utils/fileDownload'
+import { downloadCsvFile, downloadJsonFile } from './utils/fileDownload'
 import {
   buildDefaultComfyPromptText,
   buildDefaultComfyWorkflowTemplate,
@@ -3275,6 +3275,73 @@ function clearExperimentRecordsWithAuth() {
 function deleteExperimentRecordWithAuth(recordId) {
   if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'experiment.write', buildCapabilityDeniedMessage('data'))) return
   deleteExperimentRecord(recordId)
+}
+
+function buildOperationAuditExportPayload(entries = filteredOperationAudits.value) {
+  return (entries || []).map(entry => ({
+    id: entry.id,
+    resource_type: entry.resource_type ?? '',
+    resource_label: operationResourceLabel(entry.resource_type),
+    resource_id: entry.resource_id ?? '',
+    resource_ref: formatOperationAuditResourceRef(entry),
+    action: entry.action ?? '',
+    action_label: operationActionLabel(entry.action),
+    operator: formatOperationAuditOperator(entry),
+    performed_at: entry.performed_at ?? '',
+    metadata_summary: formatOperationAuditMetadata(entry)
+  }))
+}
+
+function buildOperationAuditExportFilename(prefix = 'agv-operation-audit') {
+  const resourcePart = operationAuditResourceFilter.value && operationAuditResourceFilter.value !== 'all'
+    ? operationAuditResourceFilter.value
+    : 'all'
+  const actionPart = operationAuditActionFilter.value && operationAuditActionFilter.value !== 'all'
+    ? operationAuditActionFilter.value
+    : 'all'
+  return `${prefix}-${resourcePart}-${actionPart}`
+}
+
+function exportFilteredOperationAuditsJson() {
+  const payload = buildOperationAuditExportPayload()
+  if (!payload.length) {
+    showFloatingToast(t('operations_export_empty'), 'info')
+    return
+  }
+  downloadJsonFile(
+    `${buildOperationAuditExportFilename()}.json`,
+    JSON.stringify(
+      {
+        exported_at: new Date().toISOString(),
+        resource_filter: operationAuditResourceFilter.value,
+        action_filter: operationAuditActionFilter.value,
+        items: payload
+      },
+      null,
+      2
+    )
+  )
+  showFloatingToast(t('operations_export_json_ok'), 'success')
+}
+
+function exportFilteredOperationAuditsCsv() {
+  const rows = buildOperationAuditExportPayload()
+  if (!rows.length) {
+    showFloatingToast(t('operations_export_empty'), 'info')
+    return
+  }
+  downloadCsvFile(`${buildOperationAuditExportFilename()}.csv`, rowsToCsv(rows))
+  showFloatingToast(t('operations_export_csv_ok'), 'success')
+}
+
+function exportFilteredOperationAuditsJsonWithAuth() {
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'audit.view', buildCapabilityDeniedMessage('audit'))) return
+  exportFilteredOperationAuditsJson()
+}
+
+function exportFilteredOperationAuditsCsvWithAuth() {
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'audit.view', buildCapabilityDeniedMessage('audit'))) return
+  exportFilteredOperationAuditsCsv()
 }
 
 function createTaskFromTemplateWithAuth(template) {
@@ -8337,6 +8404,8 @@ const operationsAuditPanelBindings = {
   buildOperationsHintText,
   formatInlineMessage,
   fetchOperationAudits,
+  exportFilteredOperationAuditsJsonWithAuth,
+  exportFilteredOperationAuditsCsvWithAuth,
   formatOperationAuditTitle,
   formatOperationAuditResourceRef,
   operationActionLabel,
@@ -8929,6 +8998,8 @@ const enterpriseSettingsDialogBindings = {
   formatOperationAuditOperator,
   formatOperationAuditResourceRef,
   formatOperationAuditMetadata,
+  exportFilteredOperationAuditsJsonWithAuth,
+  exportFilteredOperationAuditsCsvWithAuth,
   applyEnterprisePanelPreset,
   jumpFromEnterpriseSettings,
   mapProfileActionSummaryTitle,

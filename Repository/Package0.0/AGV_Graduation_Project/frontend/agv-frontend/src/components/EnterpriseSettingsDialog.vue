@@ -1015,6 +1015,12 @@
                     <div v-if="operationAuditLastFetchedAt" class="task-line operations-last-fetched">
                       {{ formatInlineMessage(t('operations_last_updated'), { at: operationAuditLastFetchedAt }) }}
                     </div>
+                    <button class="btn-secondary" type="button" @click="exportFilteredOperationAuditsJsonWithAuth">
+                      {{ t('operations_export_json') }}
+                    </button>
+                    <button class="btn-secondary" type="button" @click="exportFilteredOperationAuditsCsvWithAuth">
+                      {{ t('operations_export_csv') }}
+                    </button>
                     <button class="btn-secondary" type="button" :disabled="operationAuditLoading" @click="fetchOperationAudits({ force: true })">
                       {{ operationAuditLoading ? `${t('operations_refresh')}...` : t('operations_refresh') }}
                     </button>
