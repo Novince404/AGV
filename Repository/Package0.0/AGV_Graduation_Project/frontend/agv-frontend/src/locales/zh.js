@@ -479,6 +479,8 @@
     "enterprise_settings_application_next_step_pending": "等待平台管理员审批通过后，再在这里刷新状态，或重新打开登录弹窗解锁企业控制台。",
     "enterprise_settings_application_next_step_rejected": "先阅读上面的审批备注，并联系平台管理员确认原因后，再决定是否重新提交企业申请。",
     "enterprise_settings_application_next_step_approved": "企业控制台已经可用。继续使用当前岗位工作区，并可在这里确认后续状态变化。",
+    "enterprise_settings_application_actions_title": "快捷动作",
+    "enterprise_settings_application_actions_hint": "根据当前审批结果，直接使用下面这组动作继续跟进，或跳到最适合当前岗位的工作区。",
     "enterprise_settings_focus_operator_title": "操作工关注点",
     "enterprise_settings_focus_operator_hint": "优先关注调度执行、任务推进和队列变化，适合把这里当成运行中枢的快速总览。",
     "enterprise_settings_focus_logistics_title": "后勤岗关注点",

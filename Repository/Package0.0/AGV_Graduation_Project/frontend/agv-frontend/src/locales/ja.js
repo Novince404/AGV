@@ -526,6 +526,8 @@
     "enterprise_settings_application_next_step_pending": "プラットフォーム承認を待ってから、ここで状態を更新するか、ログインダイアログを開き直して企業コンソールを解放してください。",
     "enterprise_settings_application_next_step_rejected": "上の審査メモを確認し、別の企業申請を出す前にプラットフォーム管理者へ相談してください。",
     "enterprise_settings_application_next_step_approved": "企業コンソールは利用可能です。現在の役割向けワークスペースを使い続け、この領域で後続の状態変化も確認できます。",
+    "enterprise_settings_application_actions_title": "クイックアクション",
+    "enterprise_settings_application_actions_hint": "現在の審査結果に合わせて、以下の操作から次の一手を進めるか、自分の役割に合ったワークスペースへ移動できます。",
     "enterprise_settings_focus_operator_title": "オペレーターの重点",
     "enterprise_settings_focus_operator_hint": "配車を止めず、タスク実行とキュー状況を追跡しながら、現場の運用を安定して維持することに集中します。",
     "enterprise_settings_focus_logistics_title": "物流担当の重点",

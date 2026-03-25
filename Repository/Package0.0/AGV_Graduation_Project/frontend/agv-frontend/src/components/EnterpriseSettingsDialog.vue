@@ -163,6 +163,24 @@
                   <strong>{{ t('enterprise_settings_application_next_step_title') }}</strong>
                   <p>{{ enterpriseApplicationNextStepText }}</p>
                 </div>
+                <div
+                  v-if="enterpriseApplicationActionItems.length"
+                  class="enterprise-settings-status-note"
+                >
+                  <strong>{{ t('enterprise_settings_application_actions_title') }}</strong>
+                  <p>{{ t('enterprise_settings_application_actions_hint') }}</p>
+                  <div class="enterprise-settings-actions enterprise-settings-status-actions">
+                    <button
+                      v-for="action in enterpriseApplicationActionItems"
+                      :key="`enterprise-application-action-${action.key}`"
+                      :class="action.tone === 'ghost' ? 'btn-ghost' : 'btn-secondary'"
+                      type="button"
+                      @click="runEnterpriseApplicationAction(action.key)"
+                    >
+                      {{ action.label }}
+                    </button>
+                  </div>
+                </div>
               </div>
               <div class="map-settings-info-grid enterprise-settings-grid">
                 <div v-for="card in enterpriseOverviewCards" :key="card.key" class="map-settings-info-card">

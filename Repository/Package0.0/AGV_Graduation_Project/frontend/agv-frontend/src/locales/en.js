@@ -479,6 +479,8 @@
     "enterprise_settings_application_next_step_pending": "Wait for platform approval, then use Refresh Status here or reopen the login dialog to unlock the enterprise console.",
     "enterprise_settings_application_next_step_rejected": "Review the rejection note above and contact the platform admin before submitting another enterprise request.",
     "enterprise_settings_application_next_step_approved": "The enterprise console is available. Continue with your role-focused workspace and use this area to confirm later status updates.",
+    "enterprise_settings_application_actions_title": "Quick Actions",
+    "enterprise_settings_application_actions_hint": "Use the action set below to follow up on the current review result or jump into the most relevant workspace for your role.",
     "enterprise_settings_focus_operator_title": "Operator Focus",
     "enterprise_settings_focus_operator_hint": "Keep dispatch moving, watch task execution, and use the runtime and queue shortcuts to stay on top of live operations.",
     "enterprise_settings_focus_logistics_title": "Logistics Focus",

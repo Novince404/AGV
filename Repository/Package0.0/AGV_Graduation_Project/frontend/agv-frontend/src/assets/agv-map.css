@@ -1088,6 +1088,10 @@ h2 {
   color: var(--strong-text);
 }
 
+.enterprise-settings-status-actions {
+  margin-top: 4px;
+}
+
 .application-progress-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));

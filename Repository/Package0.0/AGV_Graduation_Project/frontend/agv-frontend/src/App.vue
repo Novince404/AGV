@@ -679,6 +679,83 @@ const enterpriseApplicationNextStepText = computed(() => {
   }
   return t('enterprise_settings_application_next_step_approved')
 })
+const enterpriseApplicationActionItems = computed(() => {
+  if (!authIsEnterpriseRole.value) return []
+  const items = []
+  if (authCurrentEnterpriseApplication.value?.username) {
+    items.push({
+      key: 'copy-username',
+      label: t('enterprise_application_copy_username'),
+      tone: 'ghost'
+    })
+  }
+  items.push({
+    key: 'refresh-status',
+    label: t('enterprise_settings_application_refresh'),
+    tone: 'ghost'
+  })
+  if (authCurrentAccountStatus.value !== 'approved') {
+    return items
+  }
+  if (authCurrentRole.value === 'enterprise_operator') {
+    items.push(
+      {
+        key: 'switch-runtime',
+        label: t('enterprise_settings_tab_runtime'),
+        tone: 'secondary'
+      },
+      {
+        key: 'jump-control',
+        label: t('enterprise_settings_open_dispatch'),
+        tone: 'secondary'
+      },
+      {
+        key: 'jump-queue',
+        label: t('enterprise_settings_open_queue'),
+        tone: 'secondary'
+      }
+    )
+    return items
+  }
+  if (authCurrentRole.value === 'enterprise_logistics') {
+    items.push(
+      {
+        key: 'switch-map-profiles',
+        label: t('enterprise_settings_tab_map_profiles'),
+        tone: 'secondary'
+      },
+      {
+        key: 'jump-points',
+        label: t('enterprise_settings_open_points'),
+        tone: 'secondary'
+      },
+      {
+        key: 'jump-templates',
+        label: t('enterprise_settings_open_templates'),
+        tone: 'secondary'
+      }
+    )
+    return items
+  }
+  items.push(
+    {
+      key: 'switch-audit',
+      label: t('enterprise_settings_tab_audit'),
+      tone: 'secondary'
+    },
+    {
+      key: 'jump-audit',
+      label: t('enterprise_settings_open_audit'),
+      tone: 'secondary'
+    },
+    {
+      key: 'jump-ai',
+      label: t('enterprise_settings_open_ai'),
+      tone: 'secondary'
+    }
+  )
+  return items
+})
 const authEnterpriseApplicationProgressItems = computed(() =>
   buildEnterpriseApplicationProgressItems(authCurrentEnterpriseApplication.value, authCurrentAccountStatus.value)
 )
@@ -3418,6 +3495,46 @@ async function jumpFromEnterpriseSettings(sectionKey) {
   closeEnterpriseSettingsDialog()
   await nextTick()
   await jumpToPanelSearchResult(sectionKey)
+}
+
+async function runEnterpriseApplicationAction(actionKey) {
+  switch (String(actionKey || '')) {
+    case 'copy-username':
+      copyEnterpriseApplicationUsername(authCurrentEnterpriseApplication.value)
+      return
+    case 'refresh-status':
+      await refreshEnterpriseAccountStatus()
+      return
+    case 'switch-runtime':
+      switchEnterpriseSettingsTab('runtime')
+      return
+    case 'switch-map-profiles':
+      switchEnterpriseSettingsTab('map_profiles')
+      return
+    case 'switch-audit':
+      switchEnterpriseSettingsTab('audit')
+      return
+    case 'jump-control':
+      await jumpFromEnterpriseSettings('control')
+      return
+    case 'jump-queue':
+      await jumpFromEnterpriseSettings('queue')
+      return
+    case 'jump-points':
+      await jumpFromEnterpriseSettings('points')
+      return
+    case 'jump-templates':
+      await jumpFromEnterpriseSettings('templates')
+      return
+    case 'jump-audit':
+      await jumpFromEnterpriseSettings('operations')
+      return
+    case 'jump-ai':
+      await jumpFromEnterpriseSettings('ai')
+      return
+    default:
+      return
+  }
 }
 
 async function reviewEnterpriseApplication(decision) {
@@ -9316,6 +9433,7 @@ const enterpriseSettingsDialogBindings = {
   enterpriseReadonlyCapabilityCards,
   enterpriseOverviewCards,
   enterpriseApplicationNextStepText,
+  enterpriseApplicationActionItems,
   authEnterpriseApplicationProgressItems,
   currentMapProfileLabel,
   currentDispatchModeLabel,
@@ -9437,6 +9555,7 @@ const enterpriseSettingsDialogBindings = {
   exportFilteredOperationAuditsCsvWithAuth,
   refreshEnterpriseAccountStatus,
   copyEnterpriseApplicationUsername,
+  runEnterpriseApplicationAction,
   applyEnterprisePanelPreset,
   jumpFromEnterpriseSettings,
   mapProfileActionSummaryTitle,
