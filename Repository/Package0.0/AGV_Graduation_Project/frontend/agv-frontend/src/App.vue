@@ -1857,6 +1857,11 @@ const currentDispatchModeLabel = computed(() =>
 const currentDispatchModeHint = computed(() =>
   dispatchMode.value === 'auto' ? panelLocale.value.modeAutoHint : panelLocale.value.modeManualHint
 )
+const dispatchModeAutoLabel = computed(() => panelLocale.value.modeAuto || t('dispatch_auto'))
+const dispatchModeManualLabel = computed(() => panelLocale.value.modeManual || t('dispatch_manual'))
+const compareDisplayTitleLabel = computed(() => t('compareDisplay'))
+const compareDisplayPanelLabel = computed(() => t('compareDisplayPanel'))
+const compareDisplayFloatingLabel = computed(() => t('compareDisplayFloating'))
 const faultLocale = computed(() => localeTexts.value.fault ?? LOCALE_TEXTS.en.fault)
 const panelSummaryLocale = computed(() => localeTexts.value.panelSummary ?? LOCALE_TEXTS.en.panelSummary)
 const settingsLocale = computed(() => localeTexts.value.settings ?? LOCALE_TEXTS.en.settings)
@@ -9437,6 +9442,11 @@ const enterpriseSettingsDialogBindings = {
   authEnterpriseApplicationProgressItems,
   currentMapProfileLabel,
   currentDispatchModeLabel,
+  dispatchModeAutoLabel,
+  dispatchModeManualLabel,
+  compareDisplayTitleLabel,
+  compareDisplayPanelLabel,
+  compareDisplayFloatingLabel,
   enterpriseActiveTasks,
   enterpriseOpenFaults,
   enterpriseBusyAgvs,

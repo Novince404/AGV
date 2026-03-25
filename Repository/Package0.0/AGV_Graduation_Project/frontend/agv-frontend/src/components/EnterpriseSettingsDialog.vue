@@ -776,8 +776,8 @@
                   <div class="map-settings-info-value">{{ taskPriority }}</div>
                 </div>
                 <div class="map-settings-info-card">
-                  <div class="map-settings-info-label">{{ settingsLocale.compareDisplay }}</div>
-                  <div class="map-settings-info-value">{{ compareDisplayMode === 'floating' ? settingsLocale.compareDisplayFloating : settingsLocale.compareDisplayPanel }}</div>
+                  <div class="map-settings-info-label">{{ compareDisplayTitleLabel }}</div>
+                  <div class="map-settings-info-value">{{ compareDisplayMode === 'floating' ? compareDisplayFloatingLabel : compareDisplayPanelLabel }}</div>
                 </div>
               </div>
               <div class="enterprise-settings-subgrid">
@@ -796,7 +796,7 @@
                         :title="buildCapabilityLockedTitle('dispatch', authCanDispatchWrite)"
                         @click="setDispatchModeFromEnterprise('auto')"
                       >
-                        {{ settingsLocale.modeAuto }}
+                        {{ dispatchModeAutoLabel }}
                       </button>
                       <button
                         class="btn-secondary enterprise-settings-segmented-button"
@@ -806,7 +806,7 @@
                         :title="buildCapabilityLockedTitle('dispatch', authCanDispatchWrite)"
                         @click="setDispatchModeFromEnterprise('manual')"
                       >
-                        {{ settingsLocale.modeManual }}
+                        {{ dispatchModeManualLabel }}
                       </button>
                     </div>
                   </div>
@@ -846,7 +846,7 @@
                         type="button"
                         @click="setCompareDisplayModeFromEnterprise('panel')"
                       >
-                        {{ settingsLocale.compareDisplayPanel }}
+                        {{ compareDisplayPanelLabel }}
                       </button>
                       <button
                         class="btn-secondary enterprise-settings-segmented-button"
@@ -854,7 +854,7 @@
                         type="button"
                         @click="setCompareDisplayModeFromEnterprise('floating')"
                       >
-                        {{ settingsLocale.compareDisplayFloating }}
+                        {{ compareDisplayFloatingLabel }}
                       </button>
                     </div>
                   </div>
