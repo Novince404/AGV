@@ -494,6 +494,7 @@ const enterpriseApprovalDialogOpen = ref(false)
 const enterpriseApprovalLoading = ref(false)
 const enterpriseApprovalReviewLoading = ref(false)
 const enterpriseApprovalStatusFilter = ref('pending')
+const enterpriseApprovalSearch = ref('')
 const enterpriseApprovalSummary = ref({ all: 0, pending: 0, approved: 0, rejected: 0 })
 const enterpriseApplications = ref([])
 const selectedEnterpriseApplicationId = ref(null)
@@ -543,8 +544,21 @@ const authCanEnterpriseApprove = computed(() => authCapabilitySet.value.has('ent
 const authIsEnterpriseRole = computed(() =>
   ['enterprise_operator', 'enterprise_logistics', 'enterprise_admin'].includes(authCurrentRole.value)
 )
+const filteredEnterpriseApplications = computed(() => {
+  const keyword = String(enterpriseApprovalSearch.value || '').trim().toLowerCase()
+  if (!keyword) return enterpriseApplications.value
+  return enterpriseApplications.value.filter(item =>
+    [
+      item.company_name,
+      item.contact_name,
+      item.contact_email,
+      item.username,
+      item.status
+    ].some(value => String(value || '').toLowerCase().includes(keyword))
+  )
+})
 const selectedEnterpriseApplication = computed(() =>
-  enterpriseApplications.value.find(item => Number(item.id) === Number(selectedEnterpriseApplicationId.value)) || null
+  filteredEnterpriseApplications.value.find(item => Number(item.id) === Number(selectedEnterpriseApplicationId.value)) || null
 )
 const authCapabilityCards = computed(() => [
   {
@@ -2947,13 +2961,81 @@ async function fetchEnterpriseApplications({ forceSelectFirst = false } = {}) {
 async function openEnterpriseApprovalDialog() {
   if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'enterprise.approve', buildCapabilityDeniedMessage('platform'))) return
   enterpriseApprovalDialogOpen.value = true
+  enterpriseApprovalSearch.value = ''
   enterpriseApprovalReviewNote.value = ''
   await fetchEnterpriseApplications({ forceSelectFirst: true })
 }
 
 function closeEnterpriseApprovalDialog() {
   enterpriseApprovalDialogOpen.value = false
+  enterpriseApprovalSearch.value = ''
   enterpriseApprovalReviewNote.value = ''
+}
+
+function resetEnterpriseApprovalFilters() {
+  enterpriseApprovalStatusFilter.value = 'pending'
+  enterpriseApprovalSearch.value = ''
+}
+
+function setEnterpriseApprovalStatusFilter(nextStatus = 'all') {
+  enterpriseApprovalStatusFilter.value = String(nextStatus || 'all')
+}
+
+function buildEnterpriseApprovalExportFilename(prefix = 'agv-enterprise-applications') {
+  const statusPart = enterpriseApprovalStatusFilter.value && enterpriseApprovalStatusFilter.value !== 'all'
+    ? enterpriseApprovalStatusFilter.value
+    : 'all'
+  const searchPart = String(enterpriseApprovalSearch.value || '').trim()
+    ? 'search'
+    : 'full'
+  return `${prefix}-${statusPart}-${searchPart}`
+}
+
+function buildEnterpriseApprovalExportPayload() {
+  return filteredEnterpriseApplications.value.map(item => ({
+    id: item.id,
+    company_name: item.company_name,
+    contact_name: item.contact_name,
+    contact_email: item.contact_email,
+    username: item.username,
+    status: item.status,
+    submitted_at: item.submitted_at || '',
+    reviewed_at: item.reviewed_at || '',
+    reviewed_by: item.reviewed_by || '',
+    review_note: item.review_note || ''
+  }))
+}
+
+function exportEnterpriseApplicationsJson() {
+  const payload = buildEnterpriseApprovalExportPayload()
+  if (!payload.length) {
+    showFloatingToast(t('enterprise_approval_export_empty'), 'info')
+    return
+  }
+  downloadJsonFile(
+    `${buildEnterpriseApprovalExportFilename()}.json`,
+    JSON.stringify(
+      {
+        exported_at: new Date().toISOString(),
+        status_filter: enterpriseApprovalStatusFilter.value,
+        search: String(enterpriseApprovalSearch.value || '').trim(),
+        items: payload
+      },
+      null,
+      2
+    )
+  )
+  showFloatingToast(t('enterprise_approval_export_json_ok'), 'success')
+}
+
+function exportEnterpriseApplicationsCsv() {
+  const rows = buildEnterpriseApprovalExportPayload()
+  if (!rows.length) {
+    showFloatingToast(t('enterprise_approval_export_empty'), 'info')
+    return
+  }
+  downloadCsvFile(`${buildEnterpriseApprovalExportFilename()}.csv`, rowsToCsv(rows))
+  showFloatingToast(t('enterprise_approval_export_csv_ok'), 'success')
 }
 
 function preferredEnterpriseSettingsTab(role = authCurrentRole.value) {
@@ -8196,6 +8278,13 @@ watch(enterpriseApprovalStatusFilter, () => {
   fetchEnterpriseApplications({ forceSelectFirst: true })
 })
 
+watch([enterpriseApprovalSearch, filteredEnterpriseApplications], () => {
+  if (!enterpriseApprovalDialogOpen.value) return
+  if (!filteredEnterpriseApplications.value.some(item => Number(item.id) === Number(selectedEnterpriseApplicationId.value))) {
+    selectedEnterpriseApplicationId.value = filteredEnterpriseApplications.value[0]?.id ?? null
+  }
+})
+
 watch(panelSummaryMode, () => {
   summaryZoomArmed.value = false
   savePanelSummaryMode()
@@ -8856,15 +8945,21 @@ const guideCenterDialogBindings = {
 
 const enterpriseApprovalDialogBindings = {
   t,
+  formatInlineMessage,
   enterpriseApprovalSummary,
   enterpriseApprovalStatusFilter,
+  enterpriseApprovalSearch,
   enterpriseApprovalLoading,
-  enterpriseApplications,
+  filteredEnterpriseApplications,
   selectedEnterpriseApplicationId,
   selectedEnterpriseApplication,
   enterpriseApprovalReviewNote,
   enterpriseApprovalReviewLoading,
   closeEnterpriseApprovalDialog,
+  resetEnterpriseApprovalFilters,
+  setEnterpriseApprovalStatusFilter,
+  exportEnterpriseApplicationsJson,
+  exportEnterpriseApplicationsCsv,
   fetchEnterpriseApplications,
   reviewEnterpriseApplication
 }

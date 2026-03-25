@@ -1,4 +1,4 @@
-<template>
+﻿<template>
 <div class="auth-dialog-backdrop">
       <div class="approval-dialog-card">
         <div class="auth-dialog-header">
@@ -13,18 +13,33 @@
         </div>
 
         <div class="approval-summary-grid">
-          <article class="approval-summary-card">
+          <button
+            class="approval-summary-card"
+            :class="{ active: enterpriseApprovalStatusFilter === 'pending' }"
+            type="button"
+            @click="setEnterpriseApprovalStatusFilter('pending')"
+          >
             <strong>{{ enterpriseApprovalSummary.pending || 0 }}</strong>
             <span>{{ t('enterprise_approval_status_pending') }}</span>
-          </article>
-          <article class="approval-summary-card">
+          </button>
+          <button
+            class="approval-summary-card"
+            :class="{ active: enterpriseApprovalStatusFilter === 'approved' }"
+            type="button"
+            @click="setEnterpriseApprovalStatusFilter('approved')"
+          >
             <strong>{{ enterpriseApprovalSummary.approved || 0 }}</strong>
             <span>{{ t('enterprise_approval_status_approved') }}</span>
-          </article>
-          <article class="approval-summary-card">
+          </button>
+          <button
+            class="approval-summary-card"
+            :class="{ active: enterpriseApprovalStatusFilter === 'rejected' }"
+            type="button"
+            @click="setEnterpriseApprovalStatusFilter('rejected')"
+          >
             <strong>{{ enterpriseApprovalSummary.rejected || 0 }}</strong>
             <span>{{ t('enterprise_approval_status_rejected') }}</span>
-          </article>
+          </button>
         </div>
 
         <div class="approval-toolbar">
@@ -37,8 +52,25 @@
               <option value="rejected">{{ t('enterprise_approval_status_rejected') }}</option>
             </select>
           </label>
+          <label class="auth-dialog-field">
+            <span>{{ t('enterprise_approval_filter_search') }}</span>
+            <input
+              v-model.trim="enterpriseApprovalSearch"
+              type="text"
+              :placeholder="t('enterprise_approval_filter_search_placeholder')"
+            />
+          </label>
           <button class="auth-dialog-inline-action" type="button" :disabled="enterpriseApprovalLoading" @click="fetchEnterpriseApplications({ forceSelectFirst: false })">
             {{ t('enterprise_approval_refresh') }}
+          </button>
+          <button class="btn-ghost" type="button" @click="resetEnterpriseApprovalFilters">
+            {{ t('enterprise_approval_reset_filters') }}
+          </button>
+          <button class="btn-ghost" type="button" @click="exportEnterpriseApplicationsJson">
+            {{ t('enterprise_approval_export_json') }}
+          </button>
+          <button class="btn-ghost" type="button" @click="exportEnterpriseApplicationsCsv">
+            {{ t('enterprise_approval_export_csv') }}
           </button>
         </div>
 
@@ -46,7 +78,7 @@
           <div class="approval-list">
             <div v-if="enterpriseApprovalLoading" class="approval-empty">{{ t('enterprise_approval_loading') }}</div>
             <button
-              v-for="item in enterpriseApplications"
+              v-for="item in filteredEnterpriseApplications"
               :key="item.id"
               class="approval-list-item"
               :class="{ active: Number(selectedEnterpriseApplicationId) === Number(item.id) }"
@@ -54,10 +86,10 @@
               @click="selectedEnterpriseApplicationId = item.id"
             >
               <strong>{{ item.company_name }}</strong>
-              <span>{{ item.contact_name }} · {{ item.username }}</span>
+              <span>{{ formatInlineMessage(t('enterprise_approval_item_meta'), { contact: item.contact_name, username: item.username }) }}</span>
               <small>{{ t(`enterprise_approval_status_${item.status}`) }}</small>
             </button>
-            <div v-if="!enterpriseApprovalLoading && enterpriseApplications.length === 0" class="approval-empty">
+            <div v-if="!enterpriseApprovalLoading && filteredEnterpriseApplications.length === 0" class="approval-empty">
               {{ t('enterprise_approval_empty') }}
             </div>
           </div>
@@ -78,6 +110,11 @@
               <span>{{ t('enterprise_approval_review_note') }}</span>
               <textarea v-model.trim="enterpriseApprovalReviewNote" rows="4"></textarea>
             </label>
+
+            <div v-if="selectedEnterpriseApplication.review_note" class="approval-existing-note">
+              <strong>{{ t('enterprise_approval_existing_review_note') }}</strong>
+              <p>{{ selectedEnterpriseApplication.review_note }}</p>
+            </div>
 
             <div class="approval-actions">
               <button
@@ -130,3 +167,4 @@ export default defineComponent({
   }
 })
 </script>
+
