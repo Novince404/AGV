@@ -768,6 +768,34 @@ const selectedEnterpriseApplicationNextStepText = computed(() => {
   if (status === 'rejected') return t('enterprise_approval_next_step_rejected')
   return t('enterprise_approval_next_step_pending')
 })
+const selectedEnterpriseApplicationActionItems = computed(() => {
+  const application = selectedEnterpriseApplication.value
+  if (!application) return []
+  const status = String(application.status || '').trim().toLowerCase()
+  const items = []
+  if (application.username) {
+    items.push({
+      key: 'copy-username',
+      label: t('enterprise_application_copy_username'),
+      tone: 'ghost'
+    })
+  }
+  if (application.contact_email) {
+    items.push({
+      key: 'copy-contact-email',
+      label: t('enterprise_application_copy_contact_email'),
+      tone: 'ghost'
+    })
+  }
+  if (status === 'approved' || status === 'rejected') {
+    items.push({
+      key: 'focus-pending',
+      label: t('enterprise_approval_focus_pending'),
+      tone: 'secondary'
+    })
+  }
+  return items
+})
 const authTitleButtonTitle = computed(() =>
   authAuthenticated.value
     ? `${t('auth_current_identity')}: ${authCurrentDisplayName.value} (${authRoleLabel.value})`
@@ -3282,6 +3310,23 @@ async function copyEnterpriseApplicationUsername(application = authCurrentEnterp
   showFloatingToast(t('enterprise_application_copy_username_failed'), 'error')
 }
 
+async function copyEnterpriseApplicationContactEmail(application = selectedEnterpriseApplication.value) {
+  const email = String(application?.contact_email || '').trim()
+  if (!email) return
+  const copied = await copyTextToClipboard(email)
+  if (copied) {
+    showFloatingToast(
+      formatInlineMessage(t('enterprise_application_copy_contact_email_ok'), {
+        company: String(application?.company_name || authCurrentOrganizationName.value || '—'),
+        email
+      }),
+      'success'
+    )
+    return
+  }
+  showFloatingToast(t('enterprise_application_copy_contact_email_failed'), 'error')
+}
+
 async function fetchEnterpriseApplications({ forceSelectFirst = false, preferredSelectedId = null } = {}) {
   if (!authCanEnterpriseApprove.value) return
   enterpriseApprovalLoading.value = true
@@ -3345,6 +3390,12 @@ function resetEnterpriseApprovalFilters() {
 
 function setEnterpriseApprovalStatusFilter(nextStatus = 'all') {
   enterpriseApprovalStatusFilter.value = String(nextStatus || 'all')
+}
+
+async function focusEnterpriseApprovalPendingQueue() {
+  enterpriseApprovalStatusFilter.value = 'pending'
+  enterpriseApprovalSearch.value = ''
+  await fetchEnterpriseApplications({ forceSelectFirst: true })
 }
 
 function buildEnterpriseApprovalExportFilename(prefix = 'agv-enterprise-applications') {
@@ -3536,6 +3587,22 @@ async function runEnterpriseApplicationAction(actionKey) {
       return
     case 'jump-ai':
       await jumpFromEnterpriseSettings('ai')
+      return
+    default:
+      return
+  }
+}
+
+async function runEnterpriseApprovalAction(actionKey) {
+  switch (String(actionKey || '')) {
+    case 'copy-username':
+      await copyEnterpriseApplicationUsername(selectedEnterpriseApplication.value)
+      return
+    case 'copy-contact-email':
+      await copyEnterpriseApplicationContactEmail(selectedEnterpriseApplication.value)
+      return
+    case 'focus-pending':
+      await focusEnterpriseApprovalPendingQueue()
       return
     default:
       return
@@ -9400,6 +9467,7 @@ const enterpriseApprovalDialogBindings = {
   selectedEnterpriseApplication,
   selectedEnterpriseApplicationProgressItems,
   selectedEnterpriseApplicationNextStepText,
+  selectedEnterpriseApplicationActionItems,
   enterpriseApprovalReviewNote,
   enterpriseApprovalReviewLoading,
   closeEnterpriseApprovalDialog,
@@ -9409,6 +9477,8 @@ const enterpriseApprovalDialogBindings = {
   exportEnterpriseApplicationsCsv,
   fetchEnterpriseApplications,
   copyEnterpriseApplicationUsername,
+  copyEnterpriseApplicationContactEmail,
+  runEnterpriseApprovalAction,
   openEnterpriseApprovalDialogForItem,
   reviewEnterpriseApplication
 }

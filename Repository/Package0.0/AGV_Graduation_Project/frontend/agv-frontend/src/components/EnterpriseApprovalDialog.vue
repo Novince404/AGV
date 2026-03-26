@@ -156,6 +156,24 @@
               <strong>{{ t('enterprise_approval_next_step_title') }}</strong>
               <p>{{ selectedEnterpriseApplicationNextStepText }}</p>
             </div>
+            <div
+              v-if="selectedEnterpriseApplicationActionItems.length"
+              class="approval-existing-note"
+            >
+              <strong>{{ t('enterprise_approval_actions_title') }}</strong>
+              <p>{{ t('enterprise_approval_actions_hint') }}</p>
+              <div class="approval-actions approval-followup-actions">
+                <button
+                  v-for="action in selectedEnterpriseApplicationActionItems"
+                  :key="`enterprise-approval-action-${action.key}`"
+                  :class="action.tone === 'ghost' ? 'btn-ghost' : 'btn-secondary'"
+                  type="button"
+                  @click="runEnterpriseApprovalAction(action.key)"
+                >
+                  {{ action.label }}
+                </button>
+              </div>
+            </div>
 
             <label class="auth-dialog-field">
               <span>{{ t('enterprise_approval_review_note') }}</span>

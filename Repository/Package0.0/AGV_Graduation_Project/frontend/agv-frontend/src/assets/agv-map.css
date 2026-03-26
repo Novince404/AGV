@@ -748,6 +748,10 @@ h2 {
   font-size: 12px;
 }
 
+.approval-followup-actions {
+  margin-top: 4px;
+}
+
 .enterprise-settings-dialog-card {
   width: min(980px, calc(100vw - 36px));
   max-height: calc(100vh - 48px);
