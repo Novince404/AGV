@@ -786,6 +786,22 @@ h2 {
   font-size: 12px;
 }
 
+.approval-note-meta {
+  display: grid;
+  gap: 8px;
+  margin-top: -4px;
+}
+
+.approval-note-meta > span {
+  color: var(--muted-text);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.approval-note-meta .approval-actions {
+  align-items: center;
+}
+
 .approval-followup-actions {
   margin-top: 4px;
 }

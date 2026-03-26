@@ -206,6 +206,20 @@
               <span>{{ t('enterprise_approval_review_note') }}</span>
               <textarea v-model.trim="enterpriseApprovalReviewNote" rows="4"></textarea>
             </label>
+            <div class="approval-note-meta">
+              <span>{{ t('enterprise_approval_review_note_hint') }}</span>
+              <div class="approval-actions">
+                <small>{{ formatInlineMessage(t('enterprise_approval_review_note_counter'), { count: enterpriseApprovalReviewNoteLength }) }}</small>
+                <button
+                  class="btn-ghost"
+                  type="button"
+                  :disabled="enterpriseApprovalReviewLoading || enterpriseApprovalReviewNoteLength === 0"
+                  @click="clearEnterpriseApprovalReviewNote"
+                >
+                  {{ t('enterprise_approval_review_note_clear') }}
+                </button>
+              </div>
+            </div>
             <div class="approval-existing-note">
               <strong>{{ t('enterprise_approval_note_templates_title') }}</strong>
               <p>{{ t('enterprise_approval_note_templates_hint') }}</p>
@@ -239,7 +253,8 @@
               <button
                 class="button-danger"
                 type="button"
-                :disabled="enterpriseApprovalReviewLoading || selectedEnterpriseApplication.status !== 'pending'"
+                :disabled="enterpriseApprovalReviewLoading || selectedEnterpriseApplication.status !== 'pending' || !enterpriseApprovalCanReject"
+                :title="!enterpriseApprovalCanReject && selectedEnterpriseApplication.status === 'pending' ? t('enterprise_approval_reject_requires_note') : ''"
                 @click="reviewEnterpriseApplication('reject')"
               >
                 {{ t('enterprise_approval_reject') }}

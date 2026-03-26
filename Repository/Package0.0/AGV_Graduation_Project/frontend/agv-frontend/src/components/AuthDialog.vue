@@ -329,6 +329,20 @@
                 {{ t('enterprise_application_copy_username') }}
               </button>
             </div>
+            <div class="enterprise-settings-status-grid auth-enterprise-status-grid">
+              <div class="enterprise-settings-status-item">
+                <span>{{ t('enterprise_register_company_name') }}</span>
+                <strong>{{ authEnterpriseRegisterFollowup.company_name || '—' }}</strong>
+              </div>
+              <div class="enterprise-settings-status-item">
+                <span>{{ t('enterprise_register_username') }}</span>
+                <strong>{{ authEnterpriseRegisterFollowup.username || '—' }}</strong>
+              </div>
+              <div v-if="authEnterpriseRegisterFollowup.contact_email" class="enterprise-settings-status-item">
+                <span>{{ t('enterprise_register_contact_email') }}</span>
+                <strong>{{ authEnterpriseRegisterFollowup.contact_email }}</strong>
+              </div>
+            </div>
             <div class="auth-status-actions">
               <button
                 v-if="authEnterpriseRegisterFollowup.contact_email"
@@ -393,6 +407,10 @@
         <template v-else>
           <div class="auth-dialog-divider">{{ t('auth_enterprise_register') }}</div>
           <p class="auth-dialog-hint">{{ t('auth_enterprise_register_hint') }}</p>
+          <div v-if="authEnterpriseRegisterDraftHasContent" class="auth-status-note">
+            <strong>{{ t('auth_enterprise_register_draft_title') }}</strong>
+            <span>{{ t('auth_enterprise_register_draft_hint') }}</span>
+          </div>
           <div class="auth-dialog-form">
             <label class="auth-dialog-field">
               <span>{{ t('enterprise_register_company_name') }}</span>

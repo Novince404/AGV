@@ -855,6 +855,15 @@ const enterpriseApprovalReviewNoteTemplates = computed(() => [
     value: t('enterprise_approval_note_template_more_info_value')
   }
 ])
+const enterpriseApprovalReviewNoteTrimmed = computed(() =>
+  String(enterpriseApprovalReviewNote.value || '').trim()
+)
+const enterpriseApprovalReviewNoteLength = computed(() =>
+  enterpriseApprovalReviewNoteTrimmed.value.length
+)
+const enterpriseApprovalCanReject = computed(() =>
+  enterpriseApprovalReviewNoteLength.value > 0
+)
 const authTitleButtonTitle = computed(() =>
   authAuthenticated.value
     ? `${t('auth_current_identity')}: ${authCurrentDisplayName.value} (${authRoleLabel.value})`
@@ -3834,6 +3843,10 @@ function applyEnterpriseApprovalReviewNoteTemplate(templateKey) {
   enterpriseApprovalReviewNote.value = matched.value
 }
 
+function clearEnterpriseApprovalReviewNote() {
+  enterpriseApprovalReviewNote.value = ''
+}
+
 async function runAuthEnterpriseQuickAction(actionKey) {
   switch (String(actionKey || '')) {
     case 'copy-username':
@@ -3856,6 +3869,10 @@ async function runAuthEnterpriseQuickAction(actionKey) {
 async function reviewEnterpriseApplication(decision) {
   const applicationId = Number(selectedEnterpriseApplicationId.value || 0)
   if (!applicationId) return
+  if (decision === 'reject' && !enterpriseApprovalCanReject.value) {
+    showFloatingToast(t('enterprise_approval_reject_requires_note'), 'warning')
+    return
+  }
   enterpriseApprovalReviewLoading.value = true
   try {
     const response = await fetch(
@@ -3866,7 +3883,7 @@ async function reviewEnterpriseApplication(decision) {
           'Content-Type': 'application/json'
         }),
         body: JSON.stringify({
-          review_note: String(enterpriseApprovalReviewNote.value || '').trim() || null
+          review_note: enterpriseApprovalReviewNoteTrimmed.value || null
         })
       }
     )
@@ -9727,6 +9744,8 @@ const enterpriseApprovalDialogBindings = {
   selectedEnterpriseApplicationActionItems,
   enterpriseApprovalReviewNoteTemplates,
   enterpriseApprovalReviewNote,
+  enterpriseApprovalReviewNoteLength,
+  enterpriseApprovalCanReject,
   enterpriseApprovalReviewLoading,
   closeEnterpriseApprovalDialog,
   resetEnterpriseApprovalFilters,
@@ -9737,6 +9756,7 @@ const enterpriseApprovalDialogBindings = {
   fetchEnterpriseApplications,
   runEnterpriseApprovalEmptyStateAction,
   applyEnterpriseApprovalReviewNoteTemplate,
+  clearEnterpriseApprovalReviewNote,
   copyEnterpriseApplicationUsername,
   copyEnterpriseApplicationContactEmail,
   runEnterpriseApprovalAction,
