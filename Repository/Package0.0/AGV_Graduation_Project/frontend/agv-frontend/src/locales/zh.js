@@ -370,6 +370,7 @@
     "auth_enterprise_register_existing_hint_rejected": "当前企业申请已被驳回。请先查看驳回备注，再带入当前企业资料修改注册草稿并重新提交。",
     "auth_enterprise_register_existing_hint_approved": "当前企业账号已审批通过。你仍可在这里核对企业资料，然后再回到企业工作区。",
     "auth_enterprise_register_existing_action_use": "带入当前申请信息",
+    "auth_enterprise_register_existing_action_open_settings": "打开企业设置",
     "auth_enterprise_register_submit": "提交注册申请",
     "auth_enterprise_register_submitting": "正在提交...",
     "auth_enterprise_register_success": "已提交“{company}”的企业注册申请。",

@@ -370,6 +370,7 @@
     "auth_enterprise_register_existing_hint_rejected": "この企業申請は却下されました。却下メモを確認したうえで、現在の企業情報を登録ドラフトへ戻して修正し、再申請してください。",
     "auth_enterprise_register_existing_hint_approved": "この企業アカウントはすでに承認済みです。企業ワークスペースへ戻る前に、ここで企業情報を再確認できます。",
     "auth_enterprise_register_existing_action_use": "現在の申請情報を使用",
+    "auth_enterprise_register_existing_action_open_settings": "企業設定を開く",
     "auth_enterprise_register_submit": "登録申請を送信",
     "auth_enterprise_register_submitting": "送信中...",
     "auth_enterprise_register_success": "「{company}」の企業登録申請を送信しました。",

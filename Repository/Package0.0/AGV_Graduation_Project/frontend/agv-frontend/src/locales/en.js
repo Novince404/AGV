@@ -370,6 +370,7 @@
     "auth_enterprise_register_existing_hint_rejected": "This enterprise application was rejected. Reopen the registration form with the current company details, adjust the draft, and resubmit after reviewing the note.",
     "auth_enterprise_register_existing_hint_approved": "This enterprise account is already approved. You can still review the company details here before returning to the enterprise workspace.",
     "auth_enterprise_register_existing_action_use": "Use Current Application Details",
+    "auth_enterprise_register_existing_action_open_settings": "Open Enterprise Settings",
     "auth_enterprise_register_submit": "Submit Registration",
     "auth_enterprise_register_submitting": "Submitting...",
     "auth_enterprise_register_success": "Submitted enterprise registration for {company}.",

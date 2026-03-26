@@ -735,6 +735,17 @@ const authEnterpriseRegisterExistingHint = computed(() => {
   }
   return t('auth_enterprise_register_existing_hint_approved')
 })
+const authEnterpriseRegisterExistingPrimaryActionLabel = computed(() =>
+  authCurrentAccountStatus.value === 'approved'
+    ? t('auth_enterprise_register_existing_action_open_settings')
+    : t('auth_enterprise_register_existing_action_use')
+)
+const authEnterpriseRegisterFollowupProgressItems = computed(() =>
+  buildEnterpriseApplicationProgressItems(
+    authEnterpriseRegisterFollowup.value,
+    String(authEnterpriseRegisterFollowup.value?.status || 'pending')
+  )
+)
 const enterpriseApplicationActionItems = computed(() => {
   if (!authIsEnterpriseRole.value) return []
   const items = []
@@ -3577,6 +3588,14 @@ function resumeEnterpriseRegistrationFromApplication(application = authCurrentEn
     }),
     'success'
   )
+}
+
+async function runAuthEnterpriseRegisterExistingPrimaryAction() {
+  if (authCurrentAccountStatus.value === 'approved') {
+    await openEnterpriseSettingsDialog()
+    return
+  }
+  resumeEnterpriseRegistrationFromApplication(authCurrentEnterpriseApplication.value)
 }
 
 async function handleEnterpriseRegister() {
@@ -9558,6 +9577,8 @@ const authDialogBindings = {
   authEnterpriseRegisterDraftHasContent,
   authEnterpriseRegisterDraftUpdatedText,
   authEnterpriseRegisterExistingHint,
+  authEnterpriseRegisterExistingPrimaryActionLabel,
+  authEnterpriseRegisterFollowupProgressItems,
   authEnterpriseRegisterFollowup,
   authLoading,
   authCapabilityCards,
@@ -9583,6 +9604,7 @@ const authDialogBindings = {
   handleEnterpriseRegister,
   signInEnterpriseRegisterFollowup,
   clearEnterpriseRegisterDraft,
+  runAuthEnterpriseRegisterExistingPrimaryAction,
   refreshEnterpriseAccountStatus,
   refreshEnterpriseApprovalSnapshot,
   resumeEnterpriseRegistrationFromApplication,

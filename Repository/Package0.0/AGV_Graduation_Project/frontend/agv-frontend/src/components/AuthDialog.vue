@@ -340,6 +340,17 @@
                 {{ t('enterprise_application_copy_username') }}
               </button>
             </div>
+            <div class="application-progress-grid">
+              <article
+                v-for="item in authEnterpriseRegisterFollowupProgressItems"
+                :key="`auth-followup-progress-${item.key}`"
+                class="application-progress-item"
+                :class="`is-${item.tone}`"
+              >
+                <span>{{ item.label }}</span>
+                <strong>{{ item.value }}</strong>
+              </article>
+            </div>
             <div class="enterprise-settings-status-grid auth-enterprise-status-grid">
               <div class="enterprise-settings-status-item">
                 <span>{{ t('enterprise_register_company_name') }}</span>
@@ -468,9 +479,9 @@
                 class="auth-dialog-inline-action"
                 type="button"
                 :disabled="authEnterpriseRegisterLoading"
-                @click="resumeEnterpriseRegistrationFromApplication(authCurrentEnterpriseApplication)"
+                @click="runAuthEnterpriseRegisterExistingPrimaryAction"
               >
-                {{ t('auth_enterprise_register_existing_action_use') }}
+                {{ authEnterpriseRegisterExistingPrimaryActionLabel }}
               </button>
             </div>
             <div class="enterprise-settings-status-grid auth-enterprise-status-grid">
@@ -502,7 +513,29 @@
                 <strong>{{ item.value }}</strong>
               </article>
             </div>
+            <small v-if="authAccountStatusLastCheckedText" class="operations-last-fetched">
+              {{ authAccountStatusLastCheckedText }}
+            </small>
+            <div
+              v-if="authCurrentEnterpriseApplication.review_note"
+              class="auth-status-subnote"
+            >
+              <strong>{{ t('enterprise_settings_application_review_note') }}</strong>
+              <span>{{ authCurrentEnterpriseApplication.review_note }}</span>
+            </div>
+            <div class="auth-status-subnote">
+              <strong>{{ t('enterprise_settings_application_next_step_title') }}</strong>
+              <span>{{ enterpriseApplicationNextStepText }}</span>
+            </div>
             <div class="auth-status-actions">
+              <button
+                class="auth-dialog-inline-action"
+                type="button"
+                :disabled="authEnterpriseRegisterLoading"
+                @click="runAuthEnterpriseRegisterExistingPrimaryAction"
+              >
+                {{ authEnterpriseRegisterExistingPrimaryActionLabel }}
+              </button>
               <button
                 class="btn-ghost"
                 type="button"
