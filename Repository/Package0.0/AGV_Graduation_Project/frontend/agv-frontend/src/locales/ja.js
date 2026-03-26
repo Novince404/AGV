@@ -518,6 +518,7 @@
     "enterprise_approval_next_step_rejected": "企業ユーザーに審査メモを確認してもらい、再申請前にプラットフォーム管理者へ相談するよう案内してください。",
     "enterprise_approval_followup_title": "最新審査フォローアップ",
     "enterprise_approval_followup_hint": "直近で審査した企業申請をここに残し、詳細の再表示、概要コピー、審査待ちキューへの復帰をすぐ行えるようにします。",
+    "enterprise_approval_followup_meta_title": "審査サマリー",
     "enterprise_approval_followup_meta": "{status} · 審査者 {reviewer} · {reviewedAt}",
     "enterprise_approval_followup_open_detail": "この審査詳細を開く",
     "enterprise_approval_followup_dismiss": "フォローアップを閉じる",

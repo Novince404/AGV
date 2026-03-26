@@ -84,10 +84,28 @@
             <div><strong>{{ t('enterprise_approval_status_label') }}</strong><span>{{ t(`enterprise_approval_status_${enterpriseApprovalReviewFollowup.status || 'pending'}`) }}</span></div>
             <div><strong>{{ t('enterprise_approval_reviewed_at') }}</strong><span>{{ enterpriseApprovalReviewFollowup.reviewed_at || enterpriseApprovalReviewFollowup.submitted_at || '—' }}</span></div>
           </div>
+          <div class="application-progress-grid">
+            <article
+              v-for="item in enterpriseApprovalReviewFollowupProgressItems"
+              :key="`approval-followup-progress-${item.key}`"
+              class="application-progress-item"
+              :class="`is-${item.tone}`"
+            >
+              <span>{{ item.label }}</span>
+              <strong>{{ item.value }}</strong>
+            </article>
+          </div>
           <div class="task-line operations-last-fetched" v-if="enterpriseApprovalReviewFollowupUpdatedText">
             {{ enterpriseApprovalReviewFollowupUpdatedText }}
           </div>
-          <p class="task-line">{{ enterpriseApprovalReviewFollowupMetaText }}</p>
+          <p class="task-line">
+            <strong>{{ t('enterprise_approval_next_step_title') }}</strong>
+            <span> {{ enterpriseApprovalReviewFollowupNextStepText }}</span>
+          </p>
+          <p class="task-line">
+            <strong>{{ t('enterprise_approval_followup_meta_title') }}</strong>
+            <span> {{ enterpriseApprovalReviewFollowupMetaText }}</span>
+          </p>
           <p v-if="enterpriseApprovalReviewFollowup.review_note">{{ enterpriseApprovalReviewFollowup.review_note }}</p>
           <div class="approval-actions approval-followup-actions">
             <button class="btn-secondary" type="button" @click="runEnterpriseApprovalFollowupAction('open-detail')">

@@ -271,6 +271,17 @@
                 >
                   <strong>{{ authEnterpriseStatusFollowupTitle }}</strong>
                   <p>{{ authEnterpriseStatusFollowupHint }}</p>
+                  <div class="application-progress-grid">
+                    <article
+                      v-for="item in authEnterpriseStatusFollowupProgressItems"
+                      :key="`enterprise-settings-followup-progress-${item.key}`"
+                      class="application-progress-item"
+                      :class="`is-${item.tone}`"
+                    >
+                      <span>{{ item.label }}</span>
+                      <strong>{{ item.value }}</strong>
+                    </article>
+                  </div>
                   <div v-if="authEnterpriseStatusFollowup.review_note" class="task-line">
                     {{ authEnterpriseStatusFollowup.review_note }}
                   </div>

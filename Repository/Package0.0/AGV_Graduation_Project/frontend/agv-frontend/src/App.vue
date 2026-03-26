@@ -513,7 +513,8 @@ function loadEnterpriseRegisterFollowup() {
     contact_name: String(parsed?.contact_name || '').trim(),
     contact_email: String(parsed?.contact_email || '').trim(),
     submitted_at: parsed?.submitted_at ? String(parsed.submitted_at) : null,
-    status: String(parsed?.status || 'pending').trim() || 'pending'
+    status: String(parsed?.status || 'pending').trim() || 'pending',
+    updated_at: parsed?.updated_at ? String(parsed.updated_at) : null
   }
 }
 
@@ -963,6 +964,29 @@ const authEnterpriseRegisterFollowupProgressItems = computed(() =>
     String(authEnterpriseRegisterFollowup.value?.status || 'pending')
   )
 )
+const authEnterpriseRegisterFollowupUpdatedText = computed(() =>
+  authEnterpriseRegisterFollowup.value?.updated_at
+    ? formatInlineMessage(t('operations_last_updated'), { at: authEnterpriseRegisterFollowup.value.updated_at })
+    : ''
+)
+const authEnterpriseStatusFollowupProgressItems = computed(() =>
+  buildEnterpriseApplicationProgressItems(
+    authEnterpriseStatusFollowup.value,
+    String(authEnterpriseStatusFollowup.value?.status || authCurrentAccountStatus.value || 'pending')
+  )
+)
+const enterpriseApprovalReviewFollowupProgressItems = computed(() =>
+  buildEnterpriseApplicationProgressItems(
+    enterpriseApprovalReviewFollowup.value,
+    String(enterpriseApprovalReviewFollowup.value?.status || 'pending')
+  )
+)
+const enterpriseApprovalReviewFollowupNextStepText = computed(() => {
+  const status = String(enterpriseApprovalReviewFollowup.value?.status || '').trim().toLowerCase()
+  if (status === 'approved') return t('enterprise_approval_next_step_approved')
+  if (status === 'rejected') return t('enterprise_approval_next_step_rejected')
+  return t('enterprise_approval_next_step_pending')
+})
 const enterpriseApplicationActionItems = computed(() => {
   if (!authIsEnterpriseRole.value) return []
   const items = []
@@ -4086,7 +4110,8 @@ watch(
         contact_name: String(nextValue?.contact_name || '').trim(),
         contact_email: String(nextValue?.contact_email || '').trim(),
         submitted_at: nextValue?.submitted_at || null,
-        status: String(nextValue?.status || 'pending').trim() || 'pending'
+        status: String(nextValue?.status || 'pending').trim() || 'pending',
+        updated_at: nextValue?.updated_at || new Date().toISOString()
       })
     )
   }
@@ -4231,7 +4256,8 @@ async function handleEnterpriseRegister() {
       contact_name: application.contact_name || payload.contact_name,
       contact_email: application.contact_email || payload.contact_email,
       submitted_at: application.submitted_at || null,
-      status: application.status || 'pending'
+      status: application.status || 'pending',
+      updated_at: new Date().toISOString()
     }
     switchAuthDialogView('login')
     showFloatingToast(
@@ -4278,13 +4304,10 @@ function syncEnterpriseRegisterFollowupFromApplication(application, statusFallba
     contact_name: normalizedApplication.contact_name || currentFollowup.contact_name,
     contact_email: normalizedApplication.contact_email || currentFollowup.contact_email,
     submitted_at: normalizedApplication.submitted_at || currentFollowup.submitted_at || null,
-    status: normalizedApplication.status || currentFollowup.status || 'pending'
+    status: normalizedApplication.status || currentFollowup.status || 'pending',
+    updated_at: new Date().toISOString()
   }
-  const didChange = ['company_name', 'username', 'contact_name', 'contact_email', 'submitted_at', 'status']
-    .some(key => String(currentFollowup?.[key] || '') !== String(nextFollowup?.[key] || ''))
-  if (didChange) {
-    authEnterpriseRegisterFollowup.value = nextFollowup
-  }
+  authEnterpriseRegisterFollowup.value = nextFollowup
 }
 
 function buildEnterpriseStatusFollowup(application, statusFallback = authCurrentAccountStatus.value) {
@@ -10525,6 +10548,7 @@ const authDialogBindings = {
   authEnterpriseStatusFollowupHint,
   authEnterpriseStatusFollowupNextStepText,
   authEnterpriseStatusFollowupUpdatedText,
+  authEnterpriseStatusFollowupProgressItems,
   authEnterpriseApplicationProgressItems,
   enterpriseApplicationNextStepText,
   authAccountStatusLastCheckedText,
@@ -10544,6 +10568,7 @@ const authDialogBindings = {
   authEnterpriseRegisterExistingPrimaryActionLabel,
   authEnterpriseRegisterSnapshotActionItems,
   authEnterpriseRegisterFollowupProgressItems,
+  authEnterpriseRegisterFollowupUpdatedText,
   authEnterpriseRegisterFollowup,
   authLoading,
   authCapabilityCards,
@@ -10563,6 +10588,8 @@ const authDialogBindings = {
   enterpriseApprovalReviewFollowupVisible,
   enterpriseApprovalReviewFollowupMetaText,
   enterpriseApprovalReviewFollowupUpdatedText,
+  enterpriseApprovalReviewFollowupProgressItems,
+  enterpriseApprovalReviewFollowupNextStepText,
   enterpriseApprovalDraftCount,
   enterpriseApprovalDraftSummaryText,
   enterpriseApprovalLastFetchedText,
@@ -11084,6 +11111,8 @@ const enterpriseApprovalDialogBindings = {
   enterpriseApprovalReviewFollowupVisible,
   enterpriseApprovalReviewFollowupMetaText,
   enterpriseApprovalReviewFollowupUpdatedText,
+  enterpriseApprovalReviewFollowupProgressItems,
+  enterpriseApprovalReviewFollowupNextStepText,
   selectedEnterpriseApplicationId,
   selectedEnterpriseApplication,
   selectedEnterpriseApplicationPositionText,
@@ -11161,6 +11190,7 @@ const enterpriseSettingsDialogBindings = {
   authEnterpriseStatusFollowupHint,
   authEnterpriseStatusFollowupNextStepText,
   authEnterpriseStatusFollowupUpdatedText,
+  authEnterpriseStatusFollowupProgressItems,
   enterpriseApplicationActionItems,
   authEnterpriseApplicationProgressItems,
   copyEnterpriseApplicationCompanyName,

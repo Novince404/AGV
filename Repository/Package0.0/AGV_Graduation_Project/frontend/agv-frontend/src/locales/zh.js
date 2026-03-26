@@ -719,6 +719,7 @@
     "enterprise_approval_next_step_rejected": "建议提醒企业用户先阅读审批备注，并联系平台管理员确认原因后再决定是否重新提交申请。",
     "enterprise_approval_followup_title": "最近审批跟进卡",
     "enterprise_approval_followup_hint": "这里会保留最近一次审批完成的企业申请，方便你继续打开详情、复制摘要或回到待审批队列。",
+    "enterprise_approval_followup_meta_title": "审批摘要",
     "enterprise_approval_followup_meta": "{status} · 审批人 {reviewer} · {reviewedAt}",
     "enterprise_approval_followup_open_detail": "打开该审批详情",
     "enterprise_approval_followup_dismiss": "关闭跟进卡",

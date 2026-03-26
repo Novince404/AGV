@@ -104,6 +104,17 @@
               <strong>{{ authEnterpriseStatusFollowup.reviewed_at || '—' }}</strong>
             </div>
           </div>
+          <div class="application-progress-grid">
+            <article
+              v-for="item in authEnterpriseStatusFollowupProgressItems"
+              :key="`auth-status-followup-progress-${item.key}`"
+              class="application-progress-item"
+              :class="`is-${item.tone}`"
+            >
+              <span>{{ item.label }}</span>
+              <strong>{{ item.value }}</strong>
+            </article>
+          </div>
           <small v-if="authEnterpriseStatusFollowupUpdatedText" class="operations-last-fetched">
             {{ authEnterpriseStatusFollowupUpdatedText }}
           </small>
@@ -302,11 +313,26 @@
               <strong>{{ enterpriseApprovalReviewFollowup.reviewed_at || enterpriseApprovalReviewFollowup.submitted_at || '—' }}</strong>
             </div>
           </div>
+          <div class="application-progress-grid">
+            <article
+              v-for="item in enterpriseApprovalReviewFollowupProgressItems"
+              :key="`auth-approval-followup-progress-${item.key}`"
+              class="application-progress-item"
+              :class="`is-${item.tone}`"
+            >
+              <span>{{ item.label }}</span>
+              <strong>{{ item.value }}</strong>
+            </article>
+          </div>
           <small v-if="enterpriseApprovalReviewFollowupUpdatedText" class="operations-last-fetched">
             {{ enterpriseApprovalReviewFollowupUpdatedText }}
           </small>
           <div class="auth-status-subnote">
             <strong>{{ t('enterprise_approval_next_step_title') }}</strong>
+            <span>{{ enterpriseApprovalReviewFollowupNextStepText }}</span>
+          </div>
+          <div class="auth-status-subnote">
+            <strong>{{ t('enterprise_approval_history_reviewed_meta_label') }}</strong>
             <span>{{ enterpriseApprovalReviewFollowupMetaText }}</span>
           </div>
           <div v-if="enterpriseApprovalReviewFollowup.review_note" class="auth-status-subnote">
@@ -645,12 +671,15 @@
                 <span>{{ t('enterprise_register_contact_email') }}</span>
                 <strong>{{ authEnterpriseRegisterFollowup.contact_email }}</strong>
               </div>
-              <div v-if="authEnterpriseRegisterFollowup.submitted_at" class="enterprise-settings-status-item">
-                <span>{{ t('enterprise_settings_application_submitted_at') }}</span>
-                <strong>{{ authEnterpriseRegisterFollowup.submitted_at }}</strong>
-              </div>
+            <div v-if="authEnterpriseRegisterFollowup.submitted_at" class="enterprise-settings-status-item">
+              <span>{{ t('enterprise_settings_application_submitted_at') }}</span>
+              <strong>{{ authEnterpriseRegisterFollowup.submitted_at }}</strong>
             </div>
-            <div class="auth-status-actions">
+          </div>
+          <small v-if="authEnterpriseRegisterFollowupUpdatedText" class="operations-last-fetched">
+            {{ authEnterpriseRegisterFollowupUpdatedText }}
+          </small>
+          <div class="auth-status-actions">
               <button
                 class="auth-dialog-inline-action"
                 type="button"

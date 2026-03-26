@@ -664,6 +664,7 @@
     "enterprise_approval_history_hint": "Keep an eye on the latest approval decisions before handling the next batch.",
     "enterprise_approval_followup_title": "Latest Review Follow-Up",
     "enterprise_approval_followup_hint": "Keep the most recently reviewed enterprise application nearby so you can reopen the detail, copy the summary, or jump back to pending work.",
+    "enterprise_approval_followup_meta_title": "Review Summary",
     "enterprise_approval_followup_meta": "{status} · reviewed by {reviewer} at {reviewedAt}",
     "enterprise_approval_followup_open_detail": "Open Reviewed Detail",
     "enterprise_approval_followup_dismiss": "Dismiss Follow-Up",
