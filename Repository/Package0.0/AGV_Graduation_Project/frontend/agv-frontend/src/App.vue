@@ -693,8 +693,10 @@ const authStatusNotice = computed(() => {
       tone: 'rejected',
       title: t('auth_status_notice_rejected_title'),
       hint: t('auth_status_notice_rejected_hint'),
-      actionLabel: t('auth_status_notice_refresh_action'),
-      actionKey: 'refresh-enterprise-status',
+      actionLabel: t('enterprise_application_resume_registration'),
+      actionKey: 'resume-enterprise-registration',
+      secondaryActionLabel: t('auth_status_notice_refresh_action'),
+      secondaryActionKey: 'refresh-enterprise-status',
       meta: application?.reviewed_at
         ? formatInlineMessage(t('auth_status_notice_rejected_meta'), { reviewedAt: application.reviewed_at })
         : '',
@@ -754,6 +756,13 @@ const enterpriseApplicationActionItems = computed(() => {
       tone: 'ghost'
     })
   }
+  if (authCurrentEnterpriseApplication.value?.company_name || authCurrentEnterpriseApplication.value?.username) {
+    items.push({
+      key: 'copy-summary',
+      label: t('enterprise_application_copy_summary'),
+      tone: 'ghost'
+    })
+  }
   if (authCurrentEnterpriseApplication.value?.review_note) {
     items.push({
       key: 'copy-review-note',
@@ -766,6 +775,13 @@ const enterpriseApplicationActionItems = computed(() => {
     label: t('enterprise_settings_application_refresh'),
     tone: 'ghost'
   })
+  if (authCurrentAccountStatus.value === 'rejected') {
+    items.push({
+      key: 'resume-registration',
+      label: t('enterprise_application_resume_registration'),
+      tone: 'secondary'
+    })
+  }
   if (authCurrentAccountStatus.value !== 'approved') {
     return items
   }
@@ -1085,6 +1101,13 @@ const authEnterpriseQuickActionItems = computed(() => {
       key: 'copy-summary',
       label: t('enterprise_application_copy_summary'),
       tone: 'ghost'
+    })
+  }
+  if (authCurrentAccountStatus.value === 'rejected') {
+    items.push({
+      key: 'resume-registration',
+      label: t('enterprise_application_resume_registration'),
+      tone: 'secondary'
     })
   }
   if (authCurrentAccountStatus.value === 'approved') {
@@ -3509,6 +3532,43 @@ function switchAuthDialogView(view) {
   authDialogView.value = view === 'enterprise-register' ? 'enterprise-register' : 'login'
 }
 
+function fillEnterpriseRegisterFormFromApplication(application = authCurrentEnterpriseApplication.value) {
+  if (!application) return false
+  const companyName = String(application?.company_name || authCurrentOrganizationName.value || '').trim()
+  const contactName = String(application?.contact_name || '').trim()
+  const contactEmail = String(application?.contact_email || '').trim()
+  const username = String(application?.username || '').trim()
+  if (!companyName && !contactName && !contactEmail && !username) return false
+  authEnterpriseRegisterForm.value = {
+    company_name: companyName,
+    contact_name: contactName,
+    contact_email: contactEmail,
+    username,
+    password: ''
+  }
+  return true
+}
+
+function resumeEnterpriseRegistrationFromApplication(application = authCurrentEnterpriseApplication.value, { closeSettings = false } = {}) {
+  const hydrated = fillEnterpriseRegisterFormFromApplication(application)
+  if (!hydrated) {
+    showFloatingToast(t('auth_enterprise_register_failed'), 'warning')
+    return
+  }
+  authEnterpriseRegisterFollowup.value = null
+  if (closeSettings) {
+    closeEnterpriseSettingsDialog()
+  }
+  authPanelOpen.value = true
+  switchAuthDialogView('enterprise-register')
+  showFloatingToast(
+    formatInlineMessage(t('enterprise_application_resume_registration_ok'), {
+      company: String(application?.company_name || authCurrentOrganizationName.value || '—')
+    }),
+    'success'
+  )
+}
+
 async function handleEnterpriseRegister() {
   const payload = authEnterpriseRegisterValidation.value.payload
   if (!authEnterpriseRegisterValidation.value.valid) {
@@ -3991,8 +4051,14 @@ async function runEnterpriseApplicationAction(actionKey) {
     case 'copy-username':
       copyEnterpriseApplicationUsername(authCurrentEnterpriseApplication.value)
       return
+    case 'copy-contact-email':
+      await copyEnterpriseApplicationContactEmail(authCurrentEnterpriseApplication.value)
+      return
     case 'refresh-status':
       await refreshEnterpriseAccountStatus()
+      return
+    case 'resume-registration':
+      resumeEnterpriseRegistrationFromApplication(authCurrentEnterpriseApplication.value, { closeSettings: true })
       return
     case 'switch-runtime':
       switchEnterpriseSettingsTab('runtime')
@@ -4087,8 +4153,30 @@ async function runAuthEnterpriseQuickAction(actionKey) {
     case 'refresh-status':
       await refreshEnterpriseAccountStatus()
       return
+    case 'resume-registration':
+      resumeEnterpriseRegistrationFromApplication(authCurrentEnterpriseApplication.value)
+      return
     case 'open-enterprise-settings':
       await openEnterpriseSettingsDialog()
+      return
+    default:
+      return
+  }
+}
+
+async function runAuthStatusNoticeAction(actionKey) {
+  switch (String(actionKey || '')) {
+    case 'enterprise-approval':
+      await openEnterpriseApprovalDialog()
+      return
+    case 'refresh-enterprise-status':
+      await refreshEnterpriseAccountStatus()
+      return
+    case 'enterprise-settings':
+      await openEnterpriseSettingsDialog()
+      return
+    case 'resume-enterprise-registration':
+      resumeEnterpriseRegistrationFromApplication(authCurrentEnterpriseApplication.value)
       return
     default:
       return
@@ -9496,7 +9584,8 @@ const authDialogBindings = {
   openEnterpriseApprovalDialog,
   openEnterpriseSettingsDialog,
   openEnterpriseApprovalDialogForItem,
-  runAuthEnterpriseQuickAction
+  runAuthEnterpriseQuickAction,
+  runAuthStatusNoticeAction
 }
 
 const operationsAuditPanelBindings = {
@@ -10033,6 +10122,7 @@ const enterpriseSettingsDialogBindings = {
   copyEnterpriseApplicationReviewNote,
   copyEnterpriseApplicationUsername,
   copyEnterpriseApplicationContactEmail,
+  resumeEnterpriseRegistrationFromApplication,
   currentMapProfileLabel,
   currentDispatchModeLabel,
   dispatchModeAutoLabel,

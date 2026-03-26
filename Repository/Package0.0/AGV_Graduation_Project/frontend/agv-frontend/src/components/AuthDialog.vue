@@ -45,33 +45,26 @@
           <span>{{ authStatusNotice.hint }}</span>
           <small v-if="authStatusNotice.meta">{{ authStatusNotice.meta }}</small>
           <p v-if="authStatusNotice.detail" class="auth-status-note-detail">{{ authStatusNotice.detail }}</p>
-          <button
-            v-if="authStatusNotice.actionKey === 'enterprise-approval'"
-            class="auth-dialog-inline-action"
-            type="button"
-            :disabled="authLoading"
-            @click="openEnterpriseApprovalDialog"
-          >
-            {{ authStatusNotice.actionLabel }}
-          </button>
-          <button
-            v-else-if="authStatusNotice.actionKey === 'refresh-enterprise-status'"
-            class="auth-dialog-inline-action"
-            type="button"
-            :disabled="authLoading"
-            @click="refreshEnterpriseAccountStatus"
-          >
-            {{ authStatusNotice.actionLabel }}
-          </button>
-          <button
-            v-else-if="authStatusNotice.actionKey === 'enterprise-settings'"
-            class="auth-dialog-inline-action"
-            type="button"
-            :disabled="authLoading"
-            @click="openEnterpriseSettingsDialog()"
-          >
-            {{ authStatusNotice.actionLabel }}
-          </button>
+          <div v-if="authStatusNotice.actionLabel || authStatusNotice.secondaryActionLabel" class="auth-status-actions">
+            <button
+              v-if="authStatusNotice.actionLabel"
+              class="auth-dialog-inline-action"
+              type="button"
+              :disabled="authLoading"
+              @click="runAuthStatusNoticeAction(authStatusNotice.actionKey)"
+            >
+              {{ authStatusNotice.actionLabel }}
+            </button>
+            <button
+              v-if="authStatusNotice.secondaryActionLabel"
+              class="btn-ghost"
+              type="button"
+              :disabled="authLoading"
+              @click="runAuthStatusNoticeAction(authStatusNotice.secondaryActionKey)"
+            >
+              {{ authStatusNotice.secondaryActionLabel }}
+            </button>
+          </div>
         </div>
 
         <div
