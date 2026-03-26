@@ -745,6 +745,20 @@ const enterpriseApplicationActionItems = computed(() => {
       tone: 'ghost'
     })
   }
+  if (authCurrentEnterpriseApplication.value?.contact_email) {
+    items.push({
+      key: 'copy-contact-email',
+      label: t('enterprise_application_copy_contact_email'),
+      tone: 'ghost'
+    })
+  }
+  if (authCurrentEnterpriseApplication.value?.review_note) {
+    items.push({
+      key: 'copy-review-note',
+      label: t('enterprise_application_copy_review_note'),
+      tone: 'ghost'
+    })
+  }
   items.push({
     key: 'refresh-status',
     label: t('enterprise_settings_application_refresh'),
@@ -854,6 +868,13 @@ const selectedEnterpriseApplicationActionItems = computed(() => {
     items.push({
       key: 'copy-contact-email',
       label: t('enterprise_application_copy_contact_email'),
+      tone: 'ghost'
+    })
+  }
+  if (application.review_note) {
+    items.push({
+      key: 'copy-review-note',
+      label: t('enterprise_application_copy_review_note'),
       tone: 'ghost'
     })
   }
@@ -1040,6 +1061,13 @@ const authEnterpriseQuickActionItems = computed(() => {
     items.push({
       key: 'copy-contact-email',
       label: t('enterprise_application_copy_contact_email'),
+      tone: 'ghost'
+    })
+  }
+  if (application?.review_note) {
+    items.push({
+      key: 'copy-review-note',
+      label: t('enterprise_application_copy_review_note'),
       tone: 'ghost'
     })
   }
@@ -3597,6 +3625,22 @@ async function copyEnterpriseApplicationContactName(application = authCurrentEnt
   showFloatingToast(t('enterprise_application_copy_contact_name_failed'), 'error')
 }
 
+async function copyEnterpriseApplicationReviewNote(application = authCurrentEnterpriseApplication.value) {
+  const reviewNote = String(application?.review_note || '').trim()
+  if (!reviewNote) return
+  const copied = await copyTextToClipboard(reviewNote)
+  if (copied) {
+    showFloatingToast(
+      formatInlineMessage(t('enterprise_application_copy_review_note_ok'), {
+        company: String(application?.company_name || authCurrentOrganizationName.value || '—')
+      }),
+      'success'
+    )
+    return
+  }
+  showFloatingToast(t('enterprise_application_copy_review_note_failed'), 'error')
+}
+
 async function copyEnterpriseApplicationContactEmail(application = selectedEnterpriseApplication.value) {
   const email = String(application?.contact_email || '').trim()
   if (!email) return
@@ -3868,6 +3912,9 @@ async function runEnterpriseApplicationAction(actionKey) {
     case 'copy-contact-name':
       await copyEnterpriseApplicationContactName(authCurrentEnterpriseApplication.value)
       return
+    case 'copy-review-note':
+      await copyEnterpriseApplicationReviewNote(authCurrentEnterpriseApplication.value)
+      return
     case 'copy-username':
       copyEnterpriseApplicationUsername(authCurrentEnterpriseApplication.value)
       return
@@ -3914,6 +3961,9 @@ async function runEnterpriseApprovalAction(actionKey) {
     case 'copy-contact-name':
       await copyEnterpriseApplicationContactName(selectedEnterpriseApplication.value)
       return
+    case 'copy-review-note':
+      await copyEnterpriseApplicationReviewNote(selectedEnterpriseApplication.value)
+      return
     case 'copy-username':
       await copyEnterpriseApplicationUsername(selectedEnterpriseApplication.value)
       return
@@ -3945,6 +3995,9 @@ async function runAuthEnterpriseQuickAction(actionKey) {
       return
     case 'copy-contact-name':
       await copyEnterpriseApplicationContactName(authCurrentEnterpriseApplication.value)
+      return
+    case 'copy-review-note':
+      await copyEnterpriseApplicationReviewNote(authCurrentEnterpriseApplication.value)
       return
     case 'copy-username':
       await copyEnterpriseApplicationUsername(authCurrentEnterpriseApplication.value)
@@ -9318,6 +9371,7 @@ const authDialogBindings = {
   authCurrentEnterpriseApplication,
   authIsEnterpriseRole,
   authEnterpriseApplicationProgressItems,
+  enterpriseApplicationNextStepText,
   authAccountStatusLastCheckedText,
   authEnterpriseQuickActionItems,
   authEnterpriseQuickActionHint,
@@ -9354,6 +9408,7 @@ const authDialogBindings = {
   refreshEnterpriseApprovalSnapshot,
   copyEnterpriseApplicationCompanyName,
   copyEnterpriseApplicationContactName,
+  copyEnterpriseApplicationReviewNote,
   copyEnterpriseApplicationUsername,
   copyEnterpriseApplicationContactEmail,
   formatInlineMessage,
@@ -9893,6 +9948,8 @@ const enterpriseSettingsDialogBindings = {
   authEnterpriseApplicationProgressItems,
   copyEnterpriseApplicationCompanyName,
   copyEnterpriseApplicationContactName,
+  copyEnterpriseApplicationReviewNote,
+  copyEnterpriseApplicationUsername,
   copyEnterpriseApplicationContactEmail,
   currentMapProfileLabel,
   currentDispatchModeLabel,
@@ -10018,7 +10075,6 @@ const enterpriseSettingsDialogBindings = {
   exportFilteredOperationAuditsJsonWithAuth,
   exportFilteredOperationAuditsCsvWithAuth,
   refreshEnterpriseAccountStatus,
-  copyEnterpriseApplicationUsername,
   runEnterpriseApplicationAction,
   applyEnterprisePanelPreset,
   jumpFromEnterpriseSettings,

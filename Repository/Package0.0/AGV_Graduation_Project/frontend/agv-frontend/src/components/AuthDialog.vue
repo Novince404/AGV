@@ -228,6 +228,24 @@
           <small v-if="authAccountStatusLastCheckedText" class="operations-last-fetched">
             {{ authAccountStatusLastCheckedText }}
           </small>
+          <div v-if="authCurrentEnterpriseApplication?.review_note" class="auth-status-subnote">
+            <strong>{{ t('enterprise_settings_application_review_note') }}</strong>
+            <span>{{ authCurrentEnterpriseApplication.review_note }}</span>
+            <div class="auth-status-actions">
+              <button
+                class="btn-ghost"
+                type="button"
+                :disabled="authLoading"
+                @click="copyEnterpriseApplicationReviewNote(authCurrentEnterpriseApplication)"
+              >
+                {{ t('enterprise_application_copy_review_note') }}
+              </button>
+            </div>
+          </div>
+          <div class="auth-status-subnote">
+            <strong>{{ t('enterprise_settings_application_next_step_title') }}</strong>
+            <span>{{ enterpriseApplicationNextStepText }}</span>
+          </div>
           <div v-if="authEnterpriseQuickActionItems.length" class="auth-status-subnote">
             <strong>{{ t('auth_enterprise_actions_title') }}</strong>
             <span>{{ authEnterpriseQuickActionHint }}</span>
