@@ -533,6 +533,7 @@ function loadEnterpriseApprovalUiState() {
     return {
       status: 'pending',
       search: '',
+      draftOnly: false,
       selectedId: null,
       noteDrafts: {}
     }
@@ -557,6 +558,7 @@ function loadEnterpriseApprovalUiState() {
   return {
     status: normalizedStatus,
     search: String(parsed?.search || ''),
+    draftOnly: Boolean(parsed?.draftOnly),
     selectedId: Number.isFinite(selectedId) && selectedId > 0 ? selectedId : null,
     noteDrafts
   }
@@ -606,6 +608,7 @@ const enterpriseApprovalSearch = ref(enterpriseApprovalUiState.search)
 const enterpriseApprovalSummary = ref({ all: 0, pending: 0, approved: 0, rejected: 0 })
 const enterpriseApplications = ref([])
 const enterpriseApprovalLastFetchedAt = ref('')
+const enterpriseApprovalDraftOnly = ref(Boolean(enterpriseApprovalUiState.draftOnly))
 const selectedEnterpriseApplicationId = ref(enterpriseApprovalUiState.selectedId)
 const enterpriseApprovalReviewNote = ref('')
 const enterpriseApprovalNoteDrafts = ref(enterpriseApprovalUiState.noteDrafts)
@@ -1098,16 +1101,19 @@ const enterpriseToolbarStatusBadgeText = computed(() => {
 })
 const filteredEnterpriseApplications = computed(() => {
   const keyword = String(enterpriseApprovalSearch.value || '').trim().toLowerCase()
-  if (!keyword) return enterpriseApplications.value
-  return enterpriseApplications.value.filter(item =>
-    [
+  return enterpriseApplications.value.filter(item => {
+    if (enterpriseApprovalDraftOnly.value && !hasEnterpriseApprovalDraft(item.id)) {
+      return false
+    }
+    if (!keyword) return true
+    return [
       item.company_name,
       item.contact_name,
       item.contact_email,
       item.username,
       item.status
     ].some(value => String(value || '').toLowerCase().includes(keyword))
-  )
+  })
 })
 const selectedEnterpriseApplication = computed(() =>
   filteredEnterpriseApplications.value.find(item => Number(item.id) === Number(selectedEnterpriseApplicationId.value)) || null
@@ -1128,20 +1134,26 @@ const enterpriseApprovalFilterSummaryText = computed(() => {
   const count = filteredEnterpriseApplications.value.length
   const statusLabel = t(`enterprise_approval_status_${enterpriseApprovalStatusFilter.value || 'all'}`)
   const keyword = String(enterpriseApprovalSearch.value || '').trim()
+  const draftSuffix = enterpriseApprovalDraftOnly.value
+    ? ` · ${t('enterprise_approval_filter_draft_active')}`
+    : ''
   if (keyword) {
     return formatInlineMessage(t('enterprise_approval_filter_summary_search'), {
       count,
       status: statusLabel,
       keyword
-    })
+    }) + draftSuffix
   }
   return formatInlineMessage(t('enterprise_approval_filter_summary'), {
     count,
     status: statusLabel
-  })
+  }) + draftSuffix
 })
 const enterpriseApprovalEmptyStateHint = computed(() => {
   const hasSearch = Boolean(String(enterpriseApprovalSearch.value || '').trim())
+  if (enterpriseApprovalDraftOnly.value) {
+    return t('enterprise_approval_empty_drafts_hint')
+  }
   if (enterpriseApprovalStatusFilter.value === 'pending' && !hasSearch) {
     return t('enterprise_approval_empty_pending_hint')
   }
@@ -1150,6 +1162,13 @@ const enterpriseApprovalEmptyStateHint = computed(() => {
 const enterpriseApprovalEmptyStateActions = computed(() => {
   const actions = []
   const hasSearch = Boolean(String(enterpriseApprovalSearch.value || '').trim())
+  if (enterpriseApprovalDraftOnly.value) {
+    actions.push({
+      key: 'clear-draft-filter',
+      label: t('enterprise_approval_filter_draft_clear'),
+      tone: 'secondary'
+    })
+  }
   if (enterpriseApprovalStatusFilter.value !== 'pending') {
     actions.push({
       key: 'show-pending',
@@ -1250,6 +1269,11 @@ const authEnterpriseQuickActionHint = computed(() => {
   if (authCurrentAccountStatus.value === 'rejected') return t('auth_enterprise_actions_hint_rejected')
   return t('auth_enterprise_actions_hint_pending')
 })
+const authEnterpriseRegisterExistingActionItems = computed(() =>
+  authEnterpriseQuickActionItems.value.filter(item =>
+    !['resume-registration', 'open-enterprise-settings'].includes(item.key)
+  )
+)
 const authCapabilityCards = computed(() => [
   {
     key: 'dispatch',
@@ -3978,6 +4002,9 @@ async function openEnterpriseApprovalDialog({ status = '', selectedId = null, re
   if (resetSearch) {
     enterpriseApprovalSearch.value = ''
   }
+  if (selectedId != null || String(status || '').trim()) {
+    enterpriseApprovalDraftOnly.value = false
+  }
   enterpriseApprovalReviewNote.value = ''
   if (String(status || '').trim()) {
     enterpriseApprovalStatusFilter.value = String(status).trim()
@@ -4002,6 +4029,7 @@ function closeEnterpriseApprovalDialog() {
 function resetEnterpriseApprovalFilters() {
   enterpriseApprovalStatusFilter.value = 'pending'
   enterpriseApprovalSearch.value = ''
+  enterpriseApprovalDraftOnly.value = false
   selectedEnterpriseApplicationId.value = null
 }
 
@@ -4009,8 +4037,15 @@ function setEnterpriseApprovalStatusFilter(nextStatus = 'all') {
   enterpriseApprovalStatusFilter.value = String(nextStatus || 'all')
 }
 
+function toggleEnterpriseApprovalDraftOnly() {
+  enterpriseApprovalDraftOnly.value = !enterpriseApprovalDraftOnly.value
+}
+
 async function runEnterpriseApprovalEmptyStateAction(actionKey) {
   switch (String(actionKey || '')) {
+    case 'clear-draft-filter':
+      enterpriseApprovalDraftOnly.value = false
+      return
     case 'show-pending':
       await focusEnterpriseApprovalPendingQueue()
       return
@@ -4027,6 +4062,7 @@ async function runEnterpriseApprovalEmptyStateAction(actionKey) {
 async function focusEnterpriseApprovalPendingQueue() {
   enterpriseApprovalStatusFilter.value = 'pending'
   enterpriseApprovalSearch.value = ''
+  enterpriseApprovalDraftOnly.value = false
   await fetchEnterpriseApplications({ forceSelectFirst: true })
 }
 
@@ -4038,10 +4074,11 @@ function buildEnterpriseApprovalExportFilename(prefix = 'agv-enterprise-applicat
   const statusPart = enterpriseApprovalStatusFilter.value && enterpriseApprovalStatusFilter.value !== 'all'
     ? enterpriseApprovalStatusFilter.value
     : 'all'
+  const draftPart = enterpriseApprovalDraftOnly.value ? 'drafts' : 'allitems'
   const searchPart = String(enterpriseApprovalSearch.value || '').trim()
     ? 'search'
     : 'full'
-  return `${prefix}-${statusPart}-${searchPart}`
+  return `${prefix}-${statusPart}-${draftPart}-${searchPart}`
 }
 
 function buildEnterpriseApprovalExportPayload() {
@@ -4068,12 +4105,13 @@ function exportEnterpriseApplicationsJson() {
   downloadJsonFile(
     `${buildEnterpriseApprovalExportFilename()}.json`,
     JSON.stringify(
-      {
-        exported_at: new Date().toISOString(),
-        status_filter: enterpriseApprovalStatusFilter.value,
-        search: String(enterpriseApprovalSearch.value || '').trim(),
-        items: payload
-      },
+        {
+          exported_at: new Date().toISOString(),
+          status_filter: enterpriseApprovalStatusFilter.value,
+          draft_only: enterpriseApprovalDraftOnly.value,
+          search: String(enterpriseApprovalSearch.value || '').trim(),
+          items: payload
+        },
       null,
       2
     )
@@ -4095,12 +4133,13 @@ function saveEnterpriseApprovalUiState() {
   if (typeof window === 'undefined' || !window.localStorage) return
   window.localStorage.setItem(
     ENTERPRISE_APPROVAL_UI_STORAGE_KEY,
-    JSON.stringify({
-      status: enterpriseApprovalStatusFilter.value,
-      search: String(enterpriseApprovalSearch.value || ''),
-      selectedId: selectedEnterpriseApplicationId.value ?? null,
-      noteDrafts: enterpriseApprovalNoteDrafts.value
-    })
+      JSON.stringify({
+        status: enterpriseApprovalStatusFilter.value,
+        search: String(enterpriseApprovalSearch.value || ''),
+        draftOnly: enterpriseApprovalDraftOnly.value,
+        selectedId: selectedEnterpriseApplicationId.value ?? null,
+        noteDrafts: enterpriseApprovalNoteDrafts.value
+      })
   )
 }
 
@@ -9555,7 +9594,7 @@ watch([enterpriseApprovalSearch, filteredEnterpriseApplications], () => {
 })
 
 watch(
-  [enterpriseApprovalStatusFilter, enterpriseApprovalSearch, selectedEnterpriseApplicationId, enterpriseApprovalNoteDrafts],
+  [enterpriseApprovalStatusFilter, enterpriseApprovalSearch, enterpriseApprovalDraftOnly, selectedEnterpriseApplicationId, enterpriseApprovalNoteDrafts],
   () => {
     saveEnterpriseApprovalUiState()
   },
@@ -9775,6 +9814,7 @@ const authDialogBindings = {
   authAccountStatusLastCheckedText,
   authEnterpriseQuickActionItems,
   authEnterpriseQuickActionHint,
+  authEnterpriseRegisterExistingActionItems,
   authStatusNotice,
   authEnterpriseRegisterValidation,
   authEnterpriseRegisterStatusText,
@@ -10294,6 +10334,7 @@ const enterpriseApprovalDialogBindings = {
   enterpriseApprovalSummary,
   enterpriseApprovalStatusFilter,
   enterpriseApprovalSearch,
+  enterpriseApprovalDraftOnly,
   enterpriseApprovalLoading,
   filteredEnterpriseApplications,
   recentReviewedEnterpriseApplications,
@@ -10318,6 +10359,7 @@ const enterpriseApprovalDialogBindings = {
   closeEnterpriseApprovalDialog,
   resetEnterpriseApprovalFilters,
   setEnterpriseApprovalStatusFilter,
+  toggleEnterpriseApprovalDraftOnly,
   refreshEnterpriseApprovalSnapshot,
   exportEnterpriseApplicationsJson,
   exportEnterpriseApplicationsCsv,

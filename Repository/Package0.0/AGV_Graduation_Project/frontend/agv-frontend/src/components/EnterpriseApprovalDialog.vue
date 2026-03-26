@@ -108,6 +108,9 @@
           <button class="btn-ghost" type="button" @click="resetEnterpriseApprovalFilters">
             {{ t('enterprise_approval_reset_filters') }}
           </button>
+          <button class="btn-ghost" type="button" @click="toggleEnterpriseApprovalDraftOnly">
+            {{ enterpriseApprovalDraftOnly ? t('enterprise_approval_filter_draft_clear') : t('enterprise_approval_filter_draft_only') }}
+          </button>
           <button class="btn-ghost" type="button" @click="exportEnterpriseApplicationsJson">
             {{ t('enterprise_approval_export_json') }}
           </button>

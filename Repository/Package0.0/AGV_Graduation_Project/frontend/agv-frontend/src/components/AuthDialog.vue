@@ -543,6 +543,22 @@
               <strong>{{ t('enterprise_settings_application_next_step_title') }}</strong>
               <span>{{ enterpriseApplicationNextStepText }}</span>
             </div>
+            <div v-if="authEnterpriseRegisterExistingActionItems.length" class="auth-status-subnote">
+              <strong>{{ t('auth_enterprise_actions_title') }}</strong>
+              <span>{{ authEnterpriseQuickActionHint }}</span>
+              <div class="auth-status-actions">
+                <button
+                  v-for="action in authEnterpriseRegisterExistingActionItems"
+                  :key="`auth-enterprise-register-action-${action.key}`"
+                  :class="action.tone === 'ghost' ? 'btn-ghost' : 'btn-secondary'"
+                  type="button"
+                  :disabled="authEnterpriseRegisterLoading"
+                  @click="runAuthEnterpriseQuickAction(action.key)"
+                >
+                  {{ action.label }}
+                </button>
+              </div>
+            </div>
             <div class="auth-status-actions">
               <button
                 class="auth-dialog-inline-action"
@@ -611,6 +627,15 @@
                 @click="handleEnterpriseRegister"
               >
                 {{ authEnterpriseRegisterLoading ? t('auth_enterprise_register_submitting') : t('auth_enterprise_register_submit') }}
+              </button>
+              <button
+                v-if="authCurrentEnterpriseApplication"
+                class="btn-ghost"
+                type="button"
+                :disabled="authEnterpriseRegisterLoading"
+                @click="runAuthEnterpriseRegisterExistingPrimaryAction"
+              >
+                {{ authEnterpriseRegisterExistingPrimaryActionLabel }}
               </button>
               <button
                 class="btn-ghost"
