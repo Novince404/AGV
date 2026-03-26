@@ -96,6 +96,21 @@
                 </div>
               </div>
               <div class="enterprise-settings-role-note">
+                <strong>{{ t('enterprise_settings_overview_quick_tabs_title') }}</strong>
+                <p>{{ t('enterprise_settings_overview_quick_tabs_hint') }}</p>
+                <div class="enterprise-settings-chip-list">
+                  <button
+                    v-for="tab in enterpriseOverviewQuickTabs"
+                    :key="`enterprise-overview-tab-${tab.key}`"
+                    class="btn-ghost enterprise-settings-action-chip"
+                    type="button"
+                    @click="switchEnterpriseSettingsTab(tab.key)"
+                  >
+                    {{ tab.label }} · {{ tab.accessLabel }}
+                  </button>
+                </div>
+              </div>
+              <div class="enterprise-settings-role-note">
                 <div class="enterprise-settings-status-head">
                   <div>
                     <strong>{{ t('enterprise_settings_application_status_title') }}</strong>
@@ -338,6 +353,26 @@
                 <strong>{{ enterpriseActiveTabModeLabel }}</strong>
                 <p>{{ enterpriseActiveTabModeHint }}</p>
               </div>
+              <div class="enterprise-settings-role-note">
+                <strong>{{ t('enterprise_settings_map_profiles_workspace_title') }}</strong>
+                <p>{{ t('enterprise_settings_map_profiles_workspace_hint') }}</p>
+                <div class="map-settings-info-grid enterprise-settings-grid">
+                  <div
+                    v-for="card in enterpriseMapWorkspaceCards"
+                    :key="`enterprise-map-workspace-${card.key}`"
+                    class="map-settings-info-card"
+                  >
+                    <div class="map-settings-info-label">{{ card.label }}</div>
+                    <div class="map-settings-info-value">{{ card.value }}</div>
+                  </div>
+                </div>
+                <div
+                  v-if="enterpriseMapWorkspaceMetaText"
+                  class="task-line operations-last-fetched"
+                >
+                  {{ enterpriseMapWorkspaceMetaText }}
+                </div>
+              </div>
               <div class="map-settings-info-grid enterprise-settings-grid">
                 <div class="map-settings-info-card">
                   <div class="map-settings-info-label">{{ settingsLocale.mapInfoProfile }}</div>
@@ -568,6 +603,20 @@
                 <p>{{ enterpriseActiveTabModeHint }}</p>
               </div>
               <div class="enterprise-settings-role-note">
+                <strong>{{ t('enterprise_settings_point_templates_workspace_title') }}</strong>
+                <p>{{ t('enterprise_settings_point_templates_workspace_hint') }}</p>
+                <div class="map-settings-info-grid enterprise-settings-grid">
+                  <div
+                    v-for="card in enterprisePointTemplateWorkspaceCards"
+                    :key="`enterprise-point-template-workspace-${card.key}`"
+                    class="map-settings-info-card"
+                  >
+                    <div class="map-settings-info-label">{{ card.label }}</div>
+                    <div class="map-settings-info-value">{{ card.value }}</div>
+                  </div>
+                </div>
+              </div>
+              <div class="enterprise-settings-role-note">
                 <strong>{{ t('enterprise_settings_actions_title') }}</strong>
                 <p>{{ t('enterprise_settings_point_templates_action_hint') }}</p>
                 <div class="enterprise-settings-chip-list">
@@ -793,6 +842,20 @@
                 <p>{{ enterpriseActiveTabModeHint }}</p>
               </div>
               <div class="enterprise-settings-role-note">
+                <strong>{{ t('enterprise_settings_runtime_workspace_title') }}</strong>
+                <p>{{ t('enterprise_settings_runtime_workspace_hint') }}</p>
+                <div class="map-settings-info-grid enterprise-settings-grid">
+                  <div
+                    v-for="card in enterpriseRuntimeWorkspaceCards"
+                    :key="`enterprise-runtime-workspace-${card.key}`"
+                    class="map-settings-info-card"
+                  >
+                    <div class="map-settings-info-label">{{ card.label }}</div>
+                    <div class="map-settings-info-value">{{ card.value }}</div>
+                  </div>
+                </div>
+              </div>
+              <div class="enterprise-settings-role-note">
                 <strong>{{ t('enterprise_settings_actions_title') }}</strong>
                 <p>{{ t('enterprise_settings_runtime_action_hint') }}</p>
                 <div class="enterprise-settings-chip-list">
@@ -1005,6 +1068,37 @@
                 <p>{{ enterpriseActiveTabModeHint }}</p>
               </div>
               <div class="enterprise-settings-role-note">
+                <strong>{{ t('enterprise_settings_ai_workspace_title') }}</strong>
+                <p>{{ t('enterprise_settings_ai_workspace_hint') }}</p>
+                <div class="map-settings-info-grid enterprise-settings-grid">
+                  <div
+                    v-for="card in enterpriseAiWorkspaceCards"
+                    :key="`enterprise-ai-workspace-${card.key}`"
+                    class="map-settings-info-card"
+                  >
+                    <div class="map-settings-info-label">{{ card.label }}</div>
+                    <div class="map-settings-info-value">{{ card.value }}</div>
+                  </div>
+                </div>
+                <div
+                  v-if="comfyRenderLastFetchedText"
+                  class="task-line operations-last-fetched"
+                >
+                  {{ comfyRenderLastFetchedText }}
+                </div>
+                <div class="enterprise-settings-inline-actions">
+                  <button class="btn-ghost enterprise-settings-inline-button" type="button" @click="fetchComfyCheckpoints({ force: true })">
+                    {{ t('enterprise_settings_ai_refresh_checkpoints') }}
+                  </button>
+                  <button class="btn-ghost enterprise-settings-inline-button" type="button" @click="fetchComfyRenderJobs({ force: true })">
+                    {{ t('enterprise_settings_ai_refresh_jobs') }}
+                  </button>
+                  <button class="btn-ghost enterprise-settings-inline-button" type="button" @click="fetchComfySharedTemplates({ force: true })">
+                    {{ t('enterprise_settings_ai_refresh_shared') }}
+                  </button>
+                </div>
+              </div>
+              <div class="enterprise-settings-role-note">
                 <strong>{{ t('enterprise_settings_actions_title') }}</strong>
                 <p>{{ t('enterprise_settings_ai_action_hint') }}</p>
                 <div class="enterprise-settings-chip-list">
@@ -1128,6 +1222,26 @@
               <div class="enterprise-settings-role-note">
                 <strong>{{ enterpriseActiveTabModeLabel }}</strong>
                 <p>{{ enterpriseActiveTabModeHint }}</p>
+              </div>
+              <div class="enterprise-settings-role-note">
+                <strong>{{ t('enterprise_settings_audit_workspace_title') }}</strong>
+                <p>{{ t('enterprise_settings_audit_workspace_hint') }}</p>
+                <div class="map-settings-info-grid enterprise-settings-grid">
+                  <div
+                    v-for="card in enterpriseAuditWorkspaceCards"
+                    :key="`enterprise-audit-workspace-${card.key}`"
+                    class="map-settings-info-card"
+                  >
+                    <div class="map-settings-info-label">{{ card.label }}</div>
+                    <div class="map-settings-info-value">{{ card.value }}</div>
+                  </div>
+                </div>
+                <div
+                  v-if="operationAuditLastFetchedAt"
+                  class="task-line operations-last-fetched"
+                >
+                  {{ formatInlineMessage(t('operations_last_updated'), { at: operationAuditLastFetchedAt }) }}
+                </div>
               </div>
               <div class="map-settings-info-grid enterprise-settings-grid">
                 <div class="map-settings-info-card">

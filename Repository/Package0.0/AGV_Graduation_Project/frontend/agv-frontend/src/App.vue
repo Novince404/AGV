@@ -1483,6 +1483,16 @@ const enterpriseOverviewCards = computed(() => [
     value: uiSettingsBackendMode.value || '—'
   }
 ])
+const enterpriseOverviewQuickTabs = computed(() =>
+  enterpriseSettingsTabDefinitions.value
+    .filter(item => item.key !== 'overview')
+    .map(item => ({
+      key: item.key,
+      label: item.label,
+      accessLabel: enterpriseTabAccessLabel(item.accessMode),
+      primary: Boolean(item.primary)
+    }))
+)
 const enterpriseRoleFocus = computed(() => {
   if (authCurrentRole.value === 'enterprise_operator') {
     return {
@@ -1739,6 +1749,151 @@ const enterpriseRecentCustomTemplates = computed(() => customTaskTemplates.value
 const enterpriseRecentAiJobs = computed(() => comfyRenderJobs.value.slice(0, 4))
 const enterpriseRecentAuditEntries = computed(() => operationAudits.value.slice(0, 5))
 const enterpriseFilteredAuditEntries = computed(() => filteredOperationAudits.value.slice(0, 8))
+const enterpriseMapWorkspaceCards = computed(() => [
+  {
+    key: 'profile',
+    label: t('enterprise_settings_summary_map_profile'),
+    value: currentMapProfileLabel.value
+  },
+  {
+    key: 'size',
+    label: settingsLocale.value.mapInfoSize,
+    value: mapSizeLabel.value
+  },
+  {
+    key: 'blocked',
+    label: settingsLocale.value.mapInfoBlocked,
+    value: String(blockedCellCount.value)
+  },
+  {
+    key: 'profiles',
+    label: t('enterprise_settings_summary_profile_count'),
+    value: String(mapProfiles.value.length)
+  }
+])
+const enterpriseMapWorkspaceMetaText = computed(() => {
+  if (!mapProfileActionSummary.value) return ''
+  const profileName = mapProfileActionSummary.value.profileName || currentMapProfileLabel.value || '—'
+  return `${mapProfileActionSummaryTitle()} · ${profileName}`
+})
+const enterprisePointFormDraftText = computed(() => {
+  const draft = customPointForm.value || {}
+  const parts = []
+  if (String(draft.name || '').trim()) parts.push(String(draft.name || '').trim())
+  if (String(draft.zone || '').trim()) parts.push(String(draft.zone || '').trim())
+  const x = Number(draft.x)
+  const y = Number(draft.y)
+  if (Number.isFinite(x) && Number.isFinite(y)) {
+    parts.push(`(${x}, ${y})`)
+  }
+  return parts.join(' · ') || pointFormStatus.value || t('enterprise_settings_workspace_ready')
+})
+const enterpriseTemplateFormDraftText = computed(() => {
+  const name = String(taskTemplateForm.value?.name || '').trim()
+  return name || taskTemplateStatus.value || t('enterprise_settings_workspace_ready')
+})
+const enterprisePointTemplateWorkspaceCards = computed(() => [
+  {
+    key: 'points-custom',
+    label: t('enterprise_settings_summary_points_custom'),
+    value: String(customPoints.value.length)
+  },
+  {
+    key: 'templates-custom',
+    label: t('enterprise_settings_summary_templates_custom'),
+    value: String(customTaskTemplates.value.length)
+  },
+  {
+    key: 'point-draft',
+    label: t('enterprise_settings_summary_point_form'),
+    value: enterprisePointFormDraftText.value
+  },
+  {
+    key: 'template-draft',
+    label: t('enterprise_settings_summary_template_form'),
+    value: enterpriseTemplateFormDraftText.value
+  }
+])
+const enterpriseRuntimeWorkspaceCards = computed(() => [
+  {
+    key: 'dispatch',
+    label: t('enterprise_settings_summary_dispatch_mode'),
+    value: currentDispatchModeLabel.value
+  },
+  {
+    key: 'algorithm',
+    label: t('enterprise_settings_runtime_algorithm_title'),
+    value: algorithmText(algorithm.value)
+  },
+  {
+    key: 'display',
+    label: compareDisplayTitleLabel.value,
+    value: compareDisplayMode.value === 'floating'
+      ? compareDisplayFloatingLabel.value
+      : compareDisplayPanelLabel.value
+  },
+  {
+    key: 'compare',
+    label: t('enterprise_settings_summary_compare'),
+    value: compareEntryText.value
+  }
+])
+const comfyRenderSourceTypeLabel = computed(() =>
+  comfyRenderSourceLabelMap.value[comfyRenderSourceType.value] || '—'
+)
+const comfyRenderWorkflowPresetLabel = computed(() =>
+  comfyRenderWorkflowPresetLabelMap.value[comfyRenderWorkflowPreset.value] || '—'
+)
+const comfyRenderPromptStyleLabel = computed(() =>
+  comfyRenderPromptStyleLabelMap.value[comfyRenderPromptStyle.value] || '—'
+)
+const enterpriseAiWorkspaceCards = computed(() => [
+  {
+    key: 'source',
+    label: t('enterprise_settings_summary_ai_source'),
+    value: comfyRenderSourceTypeLabel.value
+  },
+  {
+    key: 'preset',
+    label: t('enterprise_settings_summary_ai_preset'),
+    value: comfyRenderWorkflowPresetLabel.value
+  },
+  {
+    key: 'style',
+    label: t('enterprise_settings_summary_ai_style'),
+    value: comfyRenderPromptStyleLabel.value
+  },
+  {
+    key: 'templates',
+    label: t('enterprise_settings_summary_ai_templates'),
+    value: `${comfyRenderSavedTemplates.value.length} / ${comfyRenderSharedTemplates.value.length}`
+  }
+])
+const operationAuditResourceFilterLabel = computed(() =>
+  operationAuditResourceOptions.value.find(option => option.value === operationAuditResourceFilter.value)?.label
+  || t('operations_filter_resource_all')
+)
+const operationAuditActionFilterLabel = computed(() =>
+  operationAuditActionOptions.value.find(option => option.value === operationAuditActionFilter.value)?.label
+  || t('operations_filter_action_all')
+)
+const enterpriseAuditWorkspaceCards = computed(() => [
+  {
+    key: 'resource',
+    label: t('enterprise_settings_summary_audit_resource'),
+    value: operationAuditResourceFilterLabel.value
+  },
+  {
+    key: 'action',
+    label: t('enterprise_settings_summary_audit_action'),
+    value: operationAuditActionFilterLabel.value
+  },
+  {
+    key: 'matches',
+    label: t('enterprise_settings_summary_audit_matches'),
+    value: String(enterpriseFilteredAuditEntries.value.length)
+  }
+])
 const showAuthGate = computed(() => !authInitialized.value || !dashboardUnlocked.value)
 const showAuthDialog = computed(() => showAuthGate.value || authPanelOpen.value)
 
@@ -10522,6 +10677,7 @@ const enterpriseSettingsDialogBindings = {
   enterpriseRoleFocus,
   enterpriseRoleScopeText,
   enterpriseWorkspaceSectionLabels,
+  enterpriseOverviewQuickTabs,
   enterpriseEnabledCapabilityCards,
   enterpriseReadonlyCapabilityCards,
   enterpriseOverviewCards,
@@ -10555,6 +10711,12 @@ const enterpriseSettingsDialogBindings = {
   enterpriseRecentAuditEntries,
   enterprisePointTemplateActionScope,
   enterprisePointTemplateFocus,
+  enterpriseMapWorkspaceCards,
+  enterpriseMapWorkspaceMetaText,
+  enterprisePointTemplateWorkspaceCards,
+  enterpriseRuntimeWorkspaceCards,
+  enterpriseAiWorkspaceCards,
+  enterpriseAuditWorkspaceCards,
   enterpriseRecentCustomPoints,
   enterpriseRecentCustomTemplates,
   enterpriseRuntimeActionScope,
@@ -10624,6 +10786,7 @@ const enterpriseSettingsDialogBindings = {
   comfyRenderWorkflowPresetSummary,
   comfyRenderPromptStyleSummary,
   comfyRenderRecommendedCheckpointSummary,
+  comfyRenderLastFetchedText,
   comfyRenderSubmitting,
   comfyRenderLoading,
   comfyRenderSharedTemplateSaving,
@@ -10636,6 +10799,8 @@ const enterpriseSettingsDialogBindings = {
   operationAuditActionFilter,
   operationAuditResourceOptions,
   operationAuditActionOptions,
+  operationAuditResourceFilterLabel,
+  operationAuditActionFilterLabel,
   operationAuditLoading,
   enterpriseFilteredAuditEntries,
   matchedOperationAuditIds,
@@ -10701,6 +10866,7 @@ const enterpriseSettingsDialogBindings = {
   buildAiRenderSharedTemplatesHintText,
   openComfyBuiltinTemplateOverview,
   applySelectedBuiltinComfyTemplate,
+  fetchComfyCheckpoints,
   loadComfySourcePayload,
   loadDefaultComfyWorkflow,
   submitComfyRenderJob,
