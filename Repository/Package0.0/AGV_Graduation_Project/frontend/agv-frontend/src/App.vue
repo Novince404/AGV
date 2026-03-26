@@ -865,6 +865,32 @@ const recentPendingEnterpriseApplications = computed(() =>
     .sort((left, right) => compareTime(right.submitted_at, left.submitted_at))
     .slice(0, 3)
 )
+const enterpriseApprovalEmptyStateHint = computed(() => {
+  const hasSearch = Boolean(String(enterpriseApprovalSearch.value || '').trim())
+  if (enterpriseApprovalStatusFilter.value === 'pending' && !hasSearch) {
+    return t('enterprise_approval_empty_pending_hint')
+  }
+  return t('enterprise_approval_empty_filtered_hint')
+})
+const enterpriseApprovalEmptyStateActions = computed(() => {
+  const actions = []
+  const hasSearch = Boolean(String(enterpriseApprovalSearch.value || '').trim())
+  if (enterpriseApprovalStatusFilter.value !== 'pending') {
+    actions.push({
+      key: 'show-pending',
+      label: t('enterprise_approval_focus_pending'),
+      tone: 'secondary'
+    })
+  }
+  if (enterpriseApprovalStatusFilter.value !== 'all' || hasSearch) {
+    actions.push({
+      key: 'show-all',
+      label: t('enterprise_approval_show_all'),
+      tone: 'ghost'
+    })
+  }
+  return actions
+})
 const enterpriseApprovalLastFetchedText = computed(() =>
   enterpriseApprovalLastFetchedAt.value
     ? formatInlineMessage(t('operations_last_updated'), { at: enterpriseApprovalLastFetchedAt.value })
@@ -3442,6 +3468,21 @@ function resetEnterpriseApprovalFilters() {
 
 function setEnterpriseApprovalStatusFilter(nextStatus = 'all') {
   enterpriseApprovalStatusFilter.value = String(nextStatus || 'all')
+}
+
+async function runEnterpriseApprovalEmptyStateAction(actionKey) {
+  switch (String(actionKey || '')) {
+    case 'show-pending':
+      await focusEnterpriseApprovalPendingQueue()
+      return
+    case 'show-all':
+      enterpriseApprovalStatusFilter.value = 'all'
+      enterpriseApprovalSearch.value = ''
+      await fetchEnterpriseApplications({ forceSelectFirst: false })
+      return
+    default:
+      return
+  }
 }
 
 async function focusEnterpriseApprovalPendingQueue() {
@@ -9545,6 +9586,8 @@ const enterpriseApprovalDialogBindings = {
   enterpriseApprovalLoading,
   filteredEnterpriseApplications,
   recentReviewedEnterpriseApplications,
+  enterpriseApprovalEmptyStateHint,
+  enterpriseApprovalEmptyStateActions,
   enterpriseApprovalLastFetchedText,
   selectedEnterpriseApplicationId,
   selectedEnterpriseApplication,
@@ -9560,6 +9603,7 @@ const enterpriseApprovalDialogBindings = {
   exportEnterpriseApplicationsJson,
   exportEnterpriseApplicationsCsv,
   fetchEnterpriseApplications,
+  runEnterpriseApprovalEmptyStateAction,
   copyEnterpriseApplicationUsername,
   copyEnterpriseApplicationContactEmail,
   runEnterpriseApprovalAction,

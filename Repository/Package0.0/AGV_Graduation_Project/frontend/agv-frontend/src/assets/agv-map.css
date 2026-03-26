@@ -710,6 +710,12 @@ h2 {
   gap: 14px;
 }
 
+.approval-empty {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+}
+
 .approval-detail-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -730,6 +736,10 @@ h2 {
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+.approval-empty-actions {
+  justify-content: center;
 }
 
 .approval-detail-toolbar {

@@ -117,7 +117,19 @@
               <small>{{ t(`enterprise_approval_status_${item.status}`) }}</small>
             </button>
             <div v-if="!enterpriseApprovalLoading && filteredEnterpriseApplications.length === 0" class="approval-empty">
-              {{ t('enterprise_approval_empty') }}
+              <strong>{{ t('enterprise_approval_empty') }}</strong>
+              <span>{{ enterpriseApprovalEmptyStateHint }}</span>
+              <div v-if="enterpriseApprovalEmptyStateActions.length" class="approval-actions approval-empty-actions">
+                <button
+                  v-for="action in enterpriseApprovalEmptyStateActions"
+                  :key="`approval-empty-${action.key}`"
+                  :class="action.tone === 'ghost' ? 'btn-ghost' : 'btn-secondary'"
+                  type="button"
+                  @click="runEnterpriseApprovalEmptyStateAction(action.key)"
+                >
+                  {{ action.label }}
+                </button>
+              </div>
             </div>
           </div>
 
