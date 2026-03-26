@@ -161,6 +161,7 @@ export function useAuthSession(options) {
   const authPassword = ref('')
   const sessionToken = ref(readStoredToken(storageKey))
   const authState = ref(buildGuestState())
+  const authLastFetchedAt = ref('')
   const demoAccounts = [
     { role: 'personal', username: 'personal_demo', password: 'personal123' },
     { role: 'enterprise_admin', username: 'enterprise_demo', password: 'enterprise123' },
@@ -203,6 +204,7 @@ export function useAuthSession(options) {
       if (!response.ok) {
         throw createApiError(data, 'Auth status request failed')
       }
+      authLastFetchedAt.value = new Date().toISOString()
       return applyAuthPayload(data)
     } catch (error) {
       applyAuthPayload(null)
@@ -232,6 +234,7 @@ export function useAuthSession(options) {
         throw createApiError(data, 'Login failed')
       }
       authPassword.value = ''
+      authLastFetchedAt.value = new Date().toISOString()
       return applyAuthPayload(data)
     } finally {
       authInitialized.value = true
@@ -251,6 +254,7 @@ export function useAuthSession(options) {
         throw createApiError(data, 'Logout failed')
       }
       authPassword.value = ''
+      authLastFetchedAt.value = new Date().toISOString()
       return applyAuthPayload(data)
     } finally {
       authInitialized.value = true
@@ -283,6 +287,7 @@ export function useAuthSession(options) {
     authUsername,
     authPassword,
     authState,
+    authLastFetchedAt,
     sessionToken,
     demoAccounts,
     isAuthenticated,

@@ -141,6 +141,9 @@
                     <strong>{{ authCurrentEnterpriseApplication?.reviewed_by || '—' }}</strong>
                   </div>
                 </div>
+                <div v-if="authAccountStatusLastCheckedText" class="task-line operations-last-fetched">
+                  {{ authAccountStatusLastCheckedText }}
+                </div>
                 <div class="application-progress-grid">
                   <article
                     v-for="item in authEnterpriseApplicationProgressItems"

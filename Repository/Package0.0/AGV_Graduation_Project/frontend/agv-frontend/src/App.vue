@@ -461,6 +461,7 @@ const {
   authInitialized,
   authUsername,
   authPassword,
+  authLastFetchedAt,
   demoAccounts: authDemoAccounts,
   isAuthenticated: authAuthenticated,
   currentUser: authCurrentUser,
@@ -867,6 +868,11 @@ const recentPendingEnterpriseApplications = computed(() =>
 const enterpriseApprovalLastFetchedText = computed(() =>
   enterpriseApprovalLastFetchedAt.value
     ? formatInlineMessage(t('operations_last_updated'), { at: enterpriseApprovalLastFetchedAt.value })
+    : ''
+)
+const authAccountStatusLastCheckedText = computed(() =>
+  authLastFetchedAt.value
+    ? formatInlineMessage(t('operations_last_updated'), { at: authLastFetchedAt.value })
     : ''
 )
 const authEnterpriseQuickActionItems = computed(() => {
@@ -9019,6 +9025,7 @@ const authDialogBindings = {
   authCurrentEnterpriseApplication,
   authIsEnterpriseRole,
   authEnterpriseApplicationProgressItems,
+  authAccountStatusLastCheckedText,
   authEnterpriseQuickActionItems,
   authEnterpriseQuickActionHint,
   authStatusNotice,
@@ -9573,6 +9580,7 @@ const enterpriseSettingsDialogBindings = {
   enterpriseEnabledCapabilityCards,
   enterpriseReadonlyCapabilityCards,
   enterpriseOverviewCards,
+  authAccountStatusLastCheckedText,
   enterpriseApplicationNextStepText,
   enterpriseApplicationActionItems,
   authEnterpriseApplicationProgressItems,

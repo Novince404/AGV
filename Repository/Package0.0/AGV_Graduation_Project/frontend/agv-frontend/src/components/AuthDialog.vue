@@ -201,6 +201,9 @@
               <strong>{{ item.value }}</strong>
             </article>
           </div>
+          <small v-if="authAccountStatusLastCheckedText" class="operations-last-fetched">
+            {{ authAccountStatusLastCheckedText }}
+          </small>
           <div v-if="authEnterpriseQuickActionItems.length" class="auth-status-subnote">
             <strong>{{ t('auth_enterprise_actions_title') }}</strong>
             <span>{{ authEnterpriseQuickActionHint }}</span>
