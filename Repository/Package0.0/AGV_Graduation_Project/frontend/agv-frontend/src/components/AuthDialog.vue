@@ -171,6 +171,58 @@
         </div>
 
         <div
+          v-if="authCanEnterpriseApprove"
+          class="auth-status-note"
+        >
+          <div class="auth-status-note-head">
+            <div>
+              <strong>{{ t('auth_platform_draft_snapshot_title') }}</strong>
+              <span>{{ t('auth_platform_draft_snapshot_hint') }}</span>
+            </div>
+            <button
+              class="auth-dialog-inline-action"
+              type="button"
+              :disabled="authLoading"
+              @click="openEnterpriseApprovalDraftWorkspace()"
+            >
+              {{ t('enterprise_approval_filter_draft_only') }}
+            </button>
+            <button
+              class="auth-dialog-inline-action"
+              type="button"
+              :disabled="authLoading"
+              @click="refreshEnterpriseApprovalSnapshot"
+            >
+              {{ t('enterprise_approval_refresh') }}
+            </button>
+          </div>
+          <small v-if="enterpriseApprovalLastFetchedText">{{ enterpriseApprovalLastFetchedText }}</small>
+          <small>{{ enterpriseApprovalDraftSummaryText }}</small>
+          <div v-if="recentEnterpriseApprovalDraftApplications.length" class="auth-status-list">
+            <button
+              v-for="item in recentEnterpriseApprovalDraftApplications"
+              :key="`auth-draft-${item.id}`"
+              class="auth-status-list-item"
+              type="button"
+              @click="openEnterpriseApprovalDraftWorkspace(item.id)"
+            >
+              <strong>{{ item.company_name }}</strong>
+              <span>
+                {{
+                  formatInlineMessage(t('auth_platform_draft_snapshot_item'), {
+                    contact: item.contact_name,
+                    username: item.username
+                  })
+                }}
+              </span>
+            </button>
+          </div>
+          <div v-else class="auth-status-empty">
+            {{ t('auth_platform_draft_snapshot_empty') }}
+          </div>
+        </div>
+
+        <div
           v-if="authIsEnterpriseRole && authEnterpriseApplicationProgressItems.length"
           class="auth-status-note"
         >
@@ -592,14 +644,32 @@
             <small v-if="authEnterpriseRegisterDraftUpdatedText" class="operations-last-fetched">
               {{ authEnterpriseRegisterDraftUpdatedText }}
             </small>
-            <div
-              v-if="authEnterpriseRegisterDraftDiffText"
-              class="auth-status-subnote"
-            >
-              <strong>{{ t('auth_enterprise_register_draft_compare_title') }}</strong>
-              <span>{{ authEnterpriseRegisterDraftDiffText }}</span>
-            </div>
+          <div
+            v-if="authEnterpriseRegisterDraftDiffText"
+            class="auth-status-subnote"
+          >
+            <strong>{{ t('auth_enterprise_register_draft_compare_title') }}</strong>
+            <span>{{ authEnterpriseRegisterDraftDiffText }}</span>
           </div>
+          <div v-if="authCurrentEnterpriseApplication" class="auth-status-actions">
+            <button
+              class="btn-ghost"
+              type="button"
+              :disabled="authEnterpriseRegisterLoading"
+              @click="useCurrentEnterpriseApplicationForRegisterDraft"
+            >
+              {{ t('auth_enterprise_register_existing_action_use') }}
+            </button>
+            <button
+              class="btn-ghost"
+              type="button"
+              :disabled="authEnterpriseRegisterLoading"
+              @click="copyEnterpriseApplicationSummary(authCurrentEnterpriseApplication)"
+            >
+              {{ t('enterprise_application_copy_summary') }}
+            </button>
+          </div>
+        </div>
           <div class="auth-dialog-form">
             <label class="auth-dialog-field">
               <span>{{ t('enterprise_register_company_name') }}</span>

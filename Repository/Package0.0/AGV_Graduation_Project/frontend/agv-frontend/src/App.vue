@@ -1188,6 +1188,17 @@ const recentPendingEnterpriseApplications = computed(() =>
     .sort((left, right) => compareTime(right.submitted_at, left.submitted_at))
     .slice(0, 3)
 )
+const recentEnterpriseApprovalDraftApplications = computed(() =>
+  [...enterpriseApplications.value]
+    .filter(item => hasEnterpriseApprovalDraft(item.id))
+    .sort((left, right) =>
+      compareTime(
+        enterpriseApprovalNoteDrafts.value[String(right.id)]?.updated_at,
+        enterpriseApprovalNoteDrafts.value[String(left.id)]?.updated_at
+      )
+    )
+    .slice(0, 3)
+)
 const enterpriseApprovalFilterSummaryText = computed(() => {
   const count = filteredEnterpriseApplications.value.length
   const statusLabel = t(`enterprise_approval_status_${enterpriseApprovalStatusFilter.value || 'all'}`)
@@ -4064,14 +4075,17 @@ async function fetchEnterpriseApplications({ forceSelectFirst = false, preferred
   }
 }
 
-async function openEnterpriseApprovalDialog({ status = '', selectedId = null, resetSearch = false } = {}) {
+async function openEnterpriseApprovalDialog({ status = '', selectedId = null, resetSearch = false, draftOnly = null } = {}) {
   if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'enterprise.approve', buildCapabilityDeniedMessage('platform'))) return
   enterpriseApprovalDialogOpen.value = true
   if (resetSearch) {
     enterpriseApprovalSearch.value = ''
   }
-  if (selectedId != null || String(status || '').trim()) {
+  if (draftOnly == null && (selectedId != null || String(status || '').trim())) {
     enterpriseApprovalDraftOnly.value = false
+  }
+  if (draftOnly != null) {
+    enterpriseApprovalDraftOnly.value = Boolean(draftOnly)
   }
   enterpriseApprovalReviewNote.value = ''
   if (String(status || '').trim()) {
@@ -4083,10 +4097,19 @@ async function openEnterpriseApprovalDialog({ status = '', selectedId = null, re
 async function openEnterpriseApprovalDialogForItem(applicationId, status = 'pending') {
   const normalizedId = Number(applicationId || 0)
   if (!normalizedId) {
-    await openEnterpriseApprovalDialog({ status })
+    await openEnterpriseApprovalDialog({ status, draftOnly: false })
     return
   }
-  await openEnterpriseApprovalDialog({ status, selectedId: normalizedId })
+  await openEnterpriseApprovalDialog({ status, selectedId: normalizedId, draftOnly: false })
+}
+
+async function openEnterpriseApprovalDraftWorkspace(preferredSelectedId = null) {
+  await openEnterpriseApprovalDialog({
+    status: 'all',
+    selectedId: preferredSelectedId,
+    resetSearch: true,
+    draftOnly: true
+  })
 }
 
 function closeEnterpriseApprovalDialog() {
@@ -9927,6 +9950,9 @@ const authDialogBindings = {
   authCanEnterpriseApprove,
   recentPendingEnterpriseApplications,
   recentReviewedEnterpriseApplications,
+  recentEnterpriseApprovalDraftApplications,
+  enterpriseApprovalDraftCount,
+  enterpriseApprovalDraftSummaryText,
   enterpriseApprovalLastFetchedText,
   enterGuestMode,
   handleAuthLogout,
@@ -9953,6 +9979,7 @@ const authDialogBindings = {
   copyEnterpriseApplicationContactEmail,
   formatInlineMessage,
   openEnterpriseApprovalDialog,
+  openEnterpriseApprovalDraftWorkspace,
   openEnterpriseSettingsDialog,
   openEnterpriseApprovalDialogForItem,
   runAuthEnterpriseQuickAction,
