@@ -206,6 +206,21 @@
               <span>{{ t('enterprise_approval_review_note') }}</span>
               <textarea v-model.trim="enterpriseApprovalReviewNote" rows="4"></textarea>
             </label>
+            <div class="approval-existing-note">
+              <strong>{{ t('enterprise_approval_note_templates_title') }}</strong>
+              <p>{{ t('enterprise_approval_note_templates_hint') }}</p>
+              <div class="approval-actions approval-followup-actions">
+                <button
+                  v-for="item in enterpriseApprovalReviewNoteTemplates"
+                  :key="`approval-note-template-${item.key}`"
+                  class="btn-ghost"
+                  type="button"
+                  @click="applyEnterpriseApprovalReviewNoteTemplate(item.key)"
+                >
+                  {{ item.label }}
+                </button>
+              </div>
+            </div>
 
             <div v-if="selectedEnterpriseApplication.review_note" class="approval-existing-note">
               <strong>{{ t('enterprise_approval_existing_review_note') }}</strong>

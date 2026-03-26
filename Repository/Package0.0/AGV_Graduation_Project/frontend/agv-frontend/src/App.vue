@@ -798,6 +798,23 @@ const selectedEnterpriseApplicationActionItems = computed(() => {
   }
   return items
 })
+const enterpriseApprovalReviewNoteTemplates = computed(() => [
+  {
+    key: 'approve-standard',
+    label: t('enterprise_approval_note_template_approve_label'),
+    value: t('enterprise_approval_note_template_approve_value')
+  },
+  {
+    key: 'reject-followup',
+    label: t('enterprise_approval_note_template_reject_label'),
+    value: t('enterprise_approval_note_template_reject_value')
+  },
+  {
+    key: 'request-more-info',
+    label: t('enterprise_approval_note_template_more_info_label'),
+    value: t('enterprise_approval_note_template_more_info_value')
+  }
+])
 const authTitleButtonTitle = computed(() =>
   authAuthenticated.value
     ? `${t('auth_current_identity')}: ${authCurrentDisplayName.value} (${authRoleLabel.value})`
@@ -3720,6 +3737,12 @@ async function runEnterpriseApprovalAction(actionKey) {
     default:
       return
   }
+}
+
+function applyEnterpriseApprovalReviewNoteTemplate(templateKey) {
+  const matched = enterpriseApprovalReviewNoteTemplates.value.find(item => item.key === String(templateKey || ''))
+  if (!matched) return
+  enterpriseApprovalReviewNote.value = matched.value
 }
 
 async function runAuthEnterpriseQuickAction(actionKey) {
@@ -9611,6 +9634,7 @@ const enterpriseApprovalDialogBindings = {
   selectedEnterpriseApplicationProgressItems,
   selectedEnterpriseApplicationNextStepText,
   selectedEnterpriseApplicationActionItems,
+  enterpriseApprovalReviewNoteTemplates,
   enterpriseApprovalReviewNote,
   enterpriseApprovalReviewLoading,
   closeEnterpriseApprovalDialog,
@@ -9621,6 +9645,7 @@ const enterpriseApprovalDialogBindings = {
   exportEnterpriseApplicationsCsv,
   fetchEnterpriseApplications,
   runEnterpriseApprovalEmptyStateAction,
+  applyEnterpriseApprovalReviewNoteTemplate,
   copyEnterpriseApplicationUsername,
   copyEnterpriseApplicationContactEmail,
   runEnterpriseApprovalAction,
