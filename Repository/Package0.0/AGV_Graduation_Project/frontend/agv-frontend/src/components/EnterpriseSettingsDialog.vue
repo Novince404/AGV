@@ -176,6 +176,41 @@
                 <div v-if="authAccountStatusLastCheckedText" class="task-line operations-last-fetched">
                   {{ authAccountStatusLastCheckedText }}
                 </div>
+                <div
+                  v-if="authEnterpriseRegisterDraftHasContent"
+                  class="enterprise-settings-status-note"
+                >
+                  <strong>{{ t('auth_enterprise_register_draft_title') }}</strong>
+                  <p>{{ t('auth_enterprise_register_draft_hint') }}</p>
+                  <div
+                    v-if="authEnterpriseRegisterDraftDiffText"
+                    class="task-line"
+                  >
+                    {{ authEnterpriseRegisterDraftDiffText }}
+                  </div>
+                  <div
+                    v-if="authEnterpriseRegisterDraftUpdatedText"
+                    class="task-line operations-last-fetched"
+                  >
+                    {{ authEnterpriseRegisterDraftUpdatedText }}
+                  </div>
+                  <div class="enterprise-settings-actions enterprise-settings-status-actions">
+                    <button
+                      class="btn-ghost"
+                      type="button"
+                      @click="useCurrentEnterpriseApplicationForRegisterDraft"
+                    >
+                      {{ t('auth_enterprise_register_existing_action_use') }}
+                    </button>
+                    <button
+                      class="btn-secondary"
+                      type="button"
+                      @click="resumeEnterpriseRegistrationFromApplication(authCurrentEnterpriseApplication, { closeSettings: true })"
+                    >
+                      {{ t('auth_enterprise_register_followup_edit') }}
+                    </button>
+                  </div>
+                </div>
                 <div class="application-progress-grid">
                   <article
                     v-for="item in authEnterpriseApplicationProgressItems"
