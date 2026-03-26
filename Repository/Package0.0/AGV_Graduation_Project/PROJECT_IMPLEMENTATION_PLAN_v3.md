@@ -207,3 +207,17 @@
 - `ComfyUI` 一期明确只做素材生成桥接，不参与实时调度与数据库业务写回。
 - 企业三岗位第一版只做显示框架与权限骨架，不做重型仿真能力。
 - 企业第二代系统架构的高风险能力统一后置，不在本轮近期实施范围。
+
+## Progress Update - 2026-03-27
+- Phase 1 is complete: platform-admin enterprise registration review, detail drill-down, export actions, draft notes, and approval follow-up cards are all in place.
+- Phase 2 is complete: the ComfyUI bridge can turn exported business JSON into enterprise material generation jobs, with presets, shared templates, preview overlays, and result management available in the product.
+- Phase 3 core scope is complete: enterprise three-role framing, dedicated enterprise settings dialog, six enterprise tabs, role-aware workspace entry points, and the registration -> approval -> enterprise-console onboarding chain are now all implemented.
+- Phase 3 closure work has also been validated with current locale parity checks (en / zh / ja matched with no missing keys) plus frontend lint/build verification.
+- Phase 4 has not started yet. The deferred second-generation enterprise architecture items remain unchanged:
+  - dual-lane routing
+  - non-grid / irregular maps
+  - continuous AGV motion
+  - loading / unloading dwell simulation
+  - avoidance / priority yielding
+  - return-to-warehouse / auto-charge behaviors
+  - dedicated enterprise EXE client

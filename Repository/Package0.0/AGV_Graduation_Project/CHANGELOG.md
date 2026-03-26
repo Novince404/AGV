@@ -8,6 +8,8 @@
 - Added `PROJECT_IMPLEMENTATION_PLAN_v3.md` and `PROJECT_IMPLEMENTATION_PLAN_v3.docx` to lock the new three-end split, platform-admin approval, `ComfyUI` bridge, and enterprise roadmap.
 - Added platform-admin enterprise approval flow with `POST /auth/register-enterprise`, `GET /auth/enterprise-applications`, detail lookup, approve, and reject endpoints.
 - Added enterprise-application storage models/repositories for both memory and SQL backends so phase-1 approvals can be exercised without waiting for the enterprise re-architecture stage.
+- Added the `ComfyUI` phase-one bridge with enterprise material generation jobs, shared workflow templates, built-in prompt/workflow presets, preview overlays, and template persistence across the main dashboard plus enterprise settings.
+- Added the enterprise three-role workspace shell with a dedicated enterprise settings dialog, six role-aware tabs, enterprise quick actions, enterprise application follow-up cards, and platform-admin approval follow-up cards.
 
 ### Improved
 - Improved the top toolbar with a compact identity badge, sign-in panel, demo-account quick fill, and localized auth messages across Chinese, English, and Japanese.
@@ -15,6 +17,12 @@
 - Improved the auth role model by normalizing legacy `enterprise` -> `enterprise_admin` and `admin` -> `platform_admin`, while extending `/auth/me` with `account_status`, `organization_id`, and `organization_name`.
 - Improved the central auth dialog with enterprise registration entry, richer role labels, account-status feedback, and platform-approval capability display.
 - Improved the frontend with a dedicated platform-admin enterprise-approval modal that stays separate from enterprise settings and preserves the existing map/dashboard layout.
+- Improved the enterprise registration -> approval -> console onboarding chain with draft persistence, approval-note drafts, recent-review snapshots, status-progress cards, copy helpers, reapply shortcuts, and synchronized prompts across auth, enterprise settings, and platform approval dialogs.
+- Improved frontend packaging and runtime loading by splitting heavy dashboard panels into async components and adding stable Vite chunking for Vue, locale bundles, and `ComfyUI` templates so the previous `chunk > 500kB` warning no longer blocks release validation.
+
+### Verified
+- Verified locale parity for `en / zh / ja` against the current phase-three enterprise/onboarding surface with no missing keys remaining.
+- Verified the current frontend phase-three baseline with `cmd /c npm run lint` and `cmd /c npm run build` after the latest enterprise follow-up consistency pass.
 
 ## v2.0.0 - 2026-03-19
 
