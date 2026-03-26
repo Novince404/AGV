@@ -331,6 +331,24 @@
               {{ t('enterprise_approval_focus_pending') }}
             </button>
             <button
+              v-if="enterpriseApprovalReviewFollowup.username"
+              class="btn-ghost"
+              type="button"
+              :disabled="authLoading"
+              @click="runEnterpriseApprovalFollowupAction('copy-username')"
+            >
+              {{ t('enterprise_application_copy_username') }}
+            </button>
+            <button
+              v-if="enterpriseApprovalReviewFollowup.contact_email"
+              class="btn-ghost"
+              type="button"
+              :disabled="authLoading"
+              @click="runEnterpriseApprovalFollowupAction('copy-contact-email')"
+            >
+              {{ t('enterprise_application_copy_contact_email') }}
+            </button>
+            <button
               class="btn-ghost"
               type="button"
               :disabled="authLoading"
@@ -802,17 +820,17 @@
               <strong>{{ t('enterprise_settings_application_next_step_title') }}</strong>
               <span>{{ enterpriseApplicationNextStepText }}</span>
             </div>
-            <div v-if="authEnterpriseRegisterExistingActionItems.length" class="auth-status-subnote">
+            <div v-if="authEnterpriseRegisterSnapshotActionItems.length" class="auth-status-subnote">
               <strong>{{ t('auth_enterprise_actions_title') }}</strong>
               <span>{{ authEnterpriseQuickActionHint }}</span>
               <div class="auth-status-actions">
                 <button
-                  v-for="action in authEnterpriseRegisterExistingActionItems"
+                  v-for="action in authEnterpriseRegisterSnapshotActionItems"
                   :key="`auth-enterprise-register-action-${action.key}`"
                   :class="action.tone === 'ghost' ? 'btn-ghost' : 'btn-secondary'"
                   type="button"
                   :disabled="authEnterpriseRegisterLoading"
-                  @click="runAuthEnterpriseQuickAction(action.key)"
+                  @click="runAuthEnterpriseRegisterExistingAction(action.key)"
                 >
                   {{ action.label }}
                 </button>
@@ -853,32 +871,6 @@
                   {{ action.label }}
                 </button>
               </div>
-            </div>
-            <div class="auth-status-actions">
-              <button
-                class="auth-dialog-inline-action"
-                type="button"
-                :disabled="authEnterpriseRegisterLoading"
-                @click="runAuthEnterpriseRegisterExistingPrimaryAction"
-              >
-                {{ authEnterpriseRegisterExistingPrimaryActionLabel }}
-              </button>
-              <button
-                class="btn-ghost"
-                type="button"
-                :disabled="authEnterpriseRegisterLoading"
-                @click="copyEnterpriseApplicationSummary(authCurrentEnterpriseApplication)"
-              >
-                {{ t('enterprise_application_copy_summary') }}
-              </button>
-              <button
-                class="btn-ghost"
-                type="button"
-                :disabled="authEnterpriseRegisterLoading"
-                @click="refreshEnterpriseAccountStatus"
-              >
-                {{ t('auth_status_notice_refresh_action') }}
-              </button>
             </div>
           </div>
           <div v-if="authEnterpriseRegisterDraftHasContent" class="auth-status-note">

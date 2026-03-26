@@ -1008,18 +1008,18 @@ const enterpriseApplicationActionItems = computed(() => {
       tone: 'ghost'
     })
   }
+  if (authCurrentEnterpriseApplication.value && authCurrentAccountStatus.value !== 'approved') {
+    items.push({
+      key: 'edit-application',
+      label: t('auth_enterprise_register_followup_edit'),
+      tone: 'secondary'
+    })
+  }
   items.push({
     key: 'refresh-status',
     label: t('enterprise_settings_application_refresh'),
     tone: 'ghost'
   })
-  if (authCurrentAccountStatus.value === 'rejected') {
-    items.push({
-      key: 'resume-registration',
-      label: t('enterprise_application_resume_registration'),
-      tone: 'secondary'
-    })
-  }
   if (authCurrentAccountStatus.value !== 'approved') {
     return items
   }
@@ -1421,10 +1421,10 @@ const authEnterpriseQuickActionItems = computed(() => {
       tone: 'ghost'
     })
   }
-  if (authCurrentAccountStatus.value === 'rejected') {
+  if (application && authCurrentAccountStatus.value !== 'approved') {
     items.push({
-      key: 'resume-registration',
-      label: t('enterprise_application_resume_registration'),
+      key: 'edit-application',
+      label: t('auth_enterprise_register_followup_edit'),
       tone: 'secondary'
     })
   }
@@ -1443,17 +1443,27 @@ const authEnterpriseQuickActionItems = computed(() => {
   }
   return items
 })
+const authEnterpriseRegisterSnapshotActionItems = computed(() => {
+  if (!authIsEnterpriseRole.value || !authCurrentEnterpriseApplication.value) return []
+  const sharedItems = authEnterpriseQuickActionItems.value.filter(item => item.key !== 'open-enterprise-settings')
+  if (authCurrentAccountStatus.value === 'approved') {
+    return [
+      {
+        key: 'apply-workspace',
+        label: t('enterprise_settings_apply_workspace_preset'),
+        tone: 'secondary'
+      },
+      ...sharedItems
+    ]
+  }
+  return sharedItems
+})
 const authEnterpriseQuickActionHint = computed(() => {
   if (!authIsEnterpriseRole.value) return ''
   if (authCurrentAccountStatus.value === 'approved') return t('auth_enterprise_actions_hint_approved')
   if (authCurrentAccountStatus.value === 'rejected') return t('auth_enterprise_actions_hint_rejected')
   return t('auth_enterprise_actions_hint_pending')
 })
-const authEnterpriseRegisterExistingActionItems = computed(() =>
-  authEnterpriseQuickActionItems.value.filter(item =>
-    !['resume-registration', 'open-enterprise-settings'].includes(item.key)
-  )
-)
 const enterpriseRoleWorkspaceActionItems = computed(() => {
   if (!authIsEnterpriseRole.value || authCurrentAccountStatus.value !== 'approved') return []
   if (authCurrentRole.value === 'enterprise_operator') {
@@ -4915,6 +4925,7 @@ async function runEnterpriseApplicationAction(actionKey) {
     case 'refresh-status':
       await refreshEnterpriseAccountStatus()
       return
+    case 'edit-application':
     case 'resume-registration':
       resumeEnterpriseRegistrationFromApplication(authCurrentEnterpriseApplication.value, { closeSettings: true })
       return
@@ -4960,6 +4971,15 @@ async function runEnterpriseApplicationAction(actionKey) {
 
 async function runEnterpriseApprovalFollowupAction(actionKey) {
   switch (String(actionKey || '')) {
+    case 'copy-company-name':
+      await copyEnterpriseApplicationCompanyName(enterpriseApprovalReviewFollowup.value)
+      return
+    case 'copy-username':
+      await copyEnterpriseApplicationUsername(enterpriseApprovalReviewFollowup.value)
+      return
+    case 'copy-contact-email':
+      await copyEnterpriseApplicationContactEmail(enterpriseApprovalReviewFollowup.value)
+      return
     case 'open-detail':
       if (enterpriseApprovalReviewFollowup.value?.id) {
         await openEnterpriseApprovalDialogForItem(
@@ -5043,6 +5063,7 @@ async function runAuthEnterpriseQuickAction(actionKey) {
     case 'refresh-status':
       await refreshEnterpriseAccountStatus()
       return
+    case 'edit-application':
     case 'resume-registration':
       resumeEnterpriseRegistrationFromApplication(authCurrentEnterpriseApplication.value)
       return
@@ -5064,6 +5085,17 @@ async function runAuthEnterpriseQuickAction(actionKey) {
       await runEnterpriseWorkspaceAction(actionKey, { closeAuth: true })
       return
     default:
+      return
+  }
+}
+
+async function runAuthEnterpriseRegisterExistingAction(actionKey) {
+  switch (String(actionKey || '')) {
+    case 'use-current-application':
+      useCurrentEnterpriseApplicationForRegisterDraft()
+      return
+    default:
+      await runAuthEnterpriseQuickAction(actionKey)
       return
   }
 }
@@ -10498,7 +10530,6 @@ const authDialogBindings = {
   authAccountStatusLastCheckedText,
   authEnterpriseQuickActionItems,
   authEnterpriseQuickActionHint,
-  authEnterpriseRegisterExistingActionItems,
   enterpriseRoleFocus,
   enterpriseRoleScopeText,
   enterpriseWorkspaceSectionLabels,
@@ -10511,6 +10542,7 @@ const authDialogBindings = {
   authEnterpriseRegisterDraftDiffText,
   authEnterpriseRegisterExistingHint,
   authEnterpriseRegisterExistingPrimaryActionLabel,
+  authEnterpriseRegisterSnapshotActionItems,
   authEnterpriseRegisterFollowupProgressItems,
   authEnterpriseRegisterFollowup,
   authLoading,
@@ -10565,6 +10597,7 @@ const authDialogBindings = {
   applyCurrentEnterpriseWorkspacePreset,
   applyEnterpriseWorkspaceFromAuth,
   runAuthEnterpriseQuickAction,
+  runAuthEnterpriseRegisterExistingAction,
   runEnterpriseStatusFollowupAction,
   runEnterpriseApprovalFollowupAction,
   runEnterpriseWorkspaceAction,

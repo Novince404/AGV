@@ -96,6 +96,22 @@
             <button class="btn-ghost" type="button" @click="runEnterpriseApprovalFollowupAction('focus-pending')">
               {{ t('enterprise_approval_focus_pending') }}
             </button>
+            <button
+              v-if="enterpriseApprovalReviewFollowup.username"
+              class="btn-ghost"
+              type="button"
+              @click="runEnterpriseApprovalFollowupAction('copy-username')"
+            >
+              {{ t('enterprise_application_copy_username') }}
+            </button>
+            <button
+              v-if="enterpriseApprovalReviewFollowup.contact_email"
+              class="btn-ghost"
+              type="button"
+              @click="runEnterpriseApprovalFollowupAction('copy-contact-email')"
+            >
+              {{ t('enterprise_application_copy_contact_email') }}
+            </button>
             <button class="btn-ghost" type="button" @click="runEnterpriseApprovalFollowupAction('copy-summary')">
               {{ t('enterprise_application_copy_summary') }}
             </button>
