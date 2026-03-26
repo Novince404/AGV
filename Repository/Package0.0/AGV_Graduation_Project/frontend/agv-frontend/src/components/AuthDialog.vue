@@ -307,6 +307,42 @@
               </button>
             </div>
           </div>
+          <div
+            v-if="showEnterpriseWorkspaceBanner && enterpriseRoleWorkspaceActionItems.length"
+            class="auth-status-subnote"
+          >
+            <strong>{{ enterpriseRoleFocus.title }}</strong>
+            <span>{{ enterpriseRoleScopeText }}</span>
+            <div class="auth-status-chip-list">
+              <span
+                v-for="label in enterpriseWorkspaceSectionLabels"
+                :key="`auth-enterprise-workspace-${label}`"
+                class="point-badge enterprise-settings-chip enterprise-settings-chip-muted"
+              >
+                {{ label }}
+              </span>
+            </div>
+            <div class="auth-status-actions">
+                <button
+                  class="btn-secondary"
+                  type="button"
+                  :disabled="authLoading"
+                  @click="applyEnterpriseWorkspaceFromAuth"
+                >
+                  {{ t('enterprise_settings_apply_workspace_preset') }}
+                </button>
+              <button
+                v-for="action in enterpriseRoleWorkspaceActionItems"
+                :key="`auth-enterprise-workspace-action-${action.key}`"
+                :class="action.tone === 'ghost' ? 'btn-ghost' : 'btn-secondary'"
+                type="button"
+                :disabled="authLoading"
+                @click="runEnterpriseWorkspaceAction(action.key, { closeAuth: true })"
+              >
+                {{ action.label }}
+              </button>
+            </div>
+          </div>
         </div>
 
         <div class="auth-capability-panel">
@@ -606,6 +642,42 @@
                   type="button"
                   :disabled="authEnterpriseRegisterLoading"
                   @click="runAuthEnterpriseQuickAction(action.key)"
+                >
+                  {{ action.label }}
+                </button>
+              </div>
+            </div>
+            <div
+              v-if="showEnterpriseWorkspaceBanner && enterpriseRoleWorkspaceActionItems.length"
+              class="auth-status-subnote"
+            >
+              <strong>{{ enterpriseRoleFocus.title }}</strong>
+              <span>{{ enterpriseRoleScopeText }}</span>
+              <div class="auth-status-chip-list">
+                <span
+                  v-for="label in enterpriseWorkspaceSectionLabels"
+                  :key="`auth-enterprise-register-workspace-${label}`"
+                  class="point-badge enterprise-settings-chip enterprise-settings-chip-muted"
+                >
+                  {{ label }}
+                </span>
+              </div>
+              <div class="auth-status-actions">
+                <button
+                  class="btn-secondary"
+                  type="button"
+                  :disabled="authEnterpriseRegisterLoading"
+                  @click="applyEnterpriseWorkspaceFromAuth"
+                >
+                  {{ t('enterprise_settings_apply_workspace_preset') }}
+                </button>
+                <button
+                  v-for="action in enterpriseRoleWorkspaceActionItems"
+                  :key="`auth-enterprise-register-workspace-action-${action.key}`"
+                  :class="action.tone === 'ghost' ? 'btn-ghost' : 'btn-secondary'"
+                  type="button"
+                  :disabled="authEnterpriseRegisterLoading"
+                  @click="runEnterpriseWorkspaceAction(action.key, { closeAuth: true })"
                 >
                   {{ action.label }}
                 </button>

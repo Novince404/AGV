@@ -1343,6 +1343,67 @@ const authEnterpriseRegisterExistingActionItems = computed(() =>
     !['resume-registration', 'open-enterprise-settings'].includes(item.key)
   )
 )
+const enterpriseRoleWorkspaceActionItems = computed(() => {
+  if (!authIsEnterpriseRole.value || authCurrentAccountStatus.value !== 'approved') return []
+  if (authCurrentRole.value === 'enterprise_operator') {
+    return [
+      {
+        key: 'open-runtime',
+        label: t('enterprise_settings_tab_runtime'),
+        tone: 'secondary'
+      },
+      {
+        key: 'jump-control',
+        label: t('enterprise_settings_open_dispatch'),
+        tone: 'ghost'
+      },
+      {
+        key: 'jump-queue',
+        label: t('enterprise_settings_open_queue'),
+        tone: 'ghost'
+      }
+    ]
+  }
+  if (authCurrentRole.value === 'enterprise_logistics') {
+    return [
+      {
+        key: 'open-map-profiles',
+        label: t('enterprise_settings_tab_map_profiles'),
+        tone: 'secondary'
+      },
+      {
+        key: 'jump-points',
+        label: t('enterprise_settings_open_points'),
+        tone: 'ghost'
+      },
+      {
+        key: 'jump-templates',
+        label: t('enterprise_settings_open_templates'),
+        tone: 'ghost'
+      }
+    ]
+  }
+  return [
+    {
+      key: 'open-audit',
+      label: t('enterprise_settings_tab_audit'),
+      tone: 'secondary'
+    },
+    {
+      key: 'jump-audit',
+      label: t('enterprise_settings_open_audit'),
+      tone: 'ghost'
+    },
+    {
+      key: 'jump-ai',
+      label: t('enterprise_settings_open_ai'),
+      tone: 'ghost'
+    }
+  ]
+})
+const showEnterpriseWorkspaceBanner = computed(() =>
+  authIsEnterpriseRole.value && authCurrentAccountStatus.value === 'approved'
+)
 const authCapabilityCards = computed(() => [
   {
     key: 'dispatch',
@@ -4531,6 +4592,66 @@ async function jumpFromEnterpriseSettings(sectionKey) {
   await jumpToPanelSearchResult(sectionKey)
 }
 
+async function applyCurrentEnterpriseWorkspacePreset() {
+  applyEnterprisePanelPreset(authCurrentRole.value, { silent: false })
+}
+
+async function applyEnterpriseWorkspaceFromAuth() {
+  await applyCurrentEnterpriseWorkspacePreset()
+  if (dashboardUnlocked.value) {
+    authPanelOpen.value = false
+  }
+}
+
+async function runEnterpriseWorkspaceAction(actionKey, { closeAuth = false, closeSettings = false } = {}) {
+  if (closeSettings) {
+    closeEnterpriseSettingsDialog()
+  }
+  if (closeAuth && dashboardUnlocked.value) {
+    authPanelOpen.value = false
+  }
+  switch (String(actionKey || '')) {
+    case 'open-runtime':
+      await nextTick()
+      await openEnterpriseSettingsDialog('runtime')
+      return
+    case 'open-map-profiles':
+      await nextTick()
+      await openEnterpriseSettingsDialog('map_profiles')
+      return
+    case 'open-audit':
+      await nextTick()
+      await openEnterpriseSettingsDialog('audit')
+      return
+    case 'jump-control':
+      await nextTick()
+      await jumpToPanelSearchResult('control')
+      return
+    case 'jump-queue':
+      await nextTick()
+      await jumpToPanelSearchResult('queue')
+      return
+    case 'jump-points':
+      await nextTick()
+      await jumpToPanelSearchResult('points')
+      return
+    case 'jump-templates':
+      await nextTick()
+      await jumpToPanelSearchResult('templates')
+      return
+    case 'jump-audit':
+      await nextTick()
+      await jumpToPanelSearchResult('operations')
+      return
+    case 'jump-ai':
+      await nextTick()
+      await jumpToPanelSearchResult('ai')
+      return
+    default:
+      return
+  }
+}
+
 async function runEnterpriseApplicationAction(actionKey) {
   switch (String(actionKey || '')) {
     case 'copy-company-name':
@@ -4557,6 +4678,9 @@ async function runEnterpriseApplicationAction(actionKey) {
     case 'resume-registration':
       resumeEnterpriseRegistrationFromApplication(authCurrentEnterpriseApplication.value, { closeSettings: true })
       return
+    case 'apply-workspace':
+      await applyCurrentEnterpriseWorkspacePreset()
+      return
     case 'switch-runtime':
       switchEnterpriseSettingsTab('runtime')
       return
@@ -4567,22 +4691,27 @@ async function runEnterpriseApplicationAction(actionKey) {
       switchEnterpriseSettingsTab('audit')
       return
     case 'jump-control':
-      await jumpFromEnterpriseSettings('control')
+      await runEnterpriseWorkspaceAction('jump-control', { closeSettings: true })
       return
     case 'jump-queue':
-      await jumpFromEnterpriseSettings('queue')
+      await runEnterpriseWorkspaceAction('jump-queue', { closeSettings: true })
       return
     case 'jump-points':
-      await jumpFromEnterpriseSettings('points')
+      await runEnterpriseWorkspaceAction('jump-points', { closeSettings: true })
       return
     case 'jump-templates':
-      await jumpFromEnterpriseSettings('templates')
+      await runEnterpriseWorkspaceAction('jump-templates', { closeSettings: true })
       return
     case 'jump-audit':
-      await jumpFromEnterpriseSettings('operations')
+      await runEnterpriseWorkspaceAction('jump-audit', { closeSettings: true })
       return
     case 'jump-ai':
-      await jumpFromEnterpriseSettings('ai')
+      await runEnterpriseWorkspaceAction('jump-ai', { closeSettings: true })
+      return
+    case 'open-runtime':
+    case 'open-map-profiles':
+    case 'open-audit':
+      await runEnterpriseWorkspaceAction(actionKey, { closeSettings: true })
       return
     default:
       return
@@ -4655,6 +4784,20 @@ async function runAuthEnterpriseQuickAction(actionKey) {
       return
     case 'open-enterprise-settings':
       await openEnterpriseSettingsDialog()
+      return
+    case 'apply-workspace':
+      await applyCurrentEnterpriseWorkspacePreset()
+      return
+    case 'open-runtime':
+    case 'open-map-profiles':
+    case 'open-audit':
+    case 'jump-control':
+    case 'jump-queue':
+    case 'jump-points':
+    case 'jump-templates':
+    case 'jump-audit':
+    case 'jump-ai':
+      await runEnterpriseWorkspaceAction(actionKey, { closeAuth: true })
       return
     default:
       return
@@ -10076,12 +10219,17 @@ const authDialogBindings = {
   authCurrentOrganizationName,
   authCurrentEnterpriseApplication,
   authIsEnterpriseRole,
+  showEnterpriseWorkspaceBanner,
   authEnterpriseApplicationProgressItems,
   enterpriseApplicationNextStepText,
   authAccountStatusLastCheckedText,
   authEnterpriseQuickActionItems,
   authEnterpriseQuickActionHint,
   authEnterpriseRegisterExistingActionItems,
+  enterpriseRoleFocus,
+  enterpriseRoleScopeText,
+  enterpriseWorkspaceSectionLabels,
+  enterpriseRoleWorkspaceActionItems,
   authStatusNotice,
   authEnterpriseRegisterValidation,
   authEnterpriseRegisterStatusText,
@@ -10137,7 +10285,10 @@ const authDialogBindings = {
   openEnterpriseApprovalDraftWorkspace,
   openEnterpriseSettingsDialog,
   openEnterpriseApprovalDialogForItem,
+  applyCurrentEnterpriseWorkspacePreset,
+  applyEnterpriseWorkspaceFromAuth,
   runAuthEnterpriseQuickAction,
+  runEnterpriseWorkspaceAction,
   runAuthStatusNoticeAction
 }
 
@@ -10677,6 +10828,7 @@ const enterpriseSettingsDialogBindings = {
   enterpriseRoleFocus,
   enterpriseRoleScopeText,
   enterpriseWorkspaceSectionLabels,
+  enterpriseRoleWorkspaceActionItems,
   enterpriseOverviewQuickTabs,
   enterpriseEnabledCapabilityCards,
   enterpriseReadonlyCapabilityCards,
@@ -10831,7 +10983,9 @@ const enterpriseSettingsDialogBindings = {
   refreshEnterpriseAccountStatus,
   runEnterpriseApplicationAction,
   applyEnterprisePanelPreset,
+  applyCurrentEnterpriseWorkspacePreset,
   jumpFromEnterpriseSettings,
+  runEnterpriseWorkspaceAction,
   mapProfileActionSummaryTitle,
   buildMapResizeReasonItem,
   focusMapResizeReasonKey,
@@ -11008,6 +11162,41 @@ onBeforeUnmount(() => {
 
     <p class="toolbar-hint">{{ t('hint') }}</p>
     <p class="toolbar-hint toolbar-hint-secondary">{{ toolbarGuideHintText }}</p>
+    <div
+      v-if="showEnterpriseWorkspaceBanner"
+      class="enterprise-toolbar-strip"
+    >
+      <div class="enterprise-toolbar-strip-copy">
+        <div class="enterprise-toolbar-strip-title-row">
+          <strong>{{ enterpriseRoleFocus.title }}</strong>
+          <span class="point-badge enterprise-settings-chip">{{ authRoleLabel }}</span>
+        </div>
+        <p>{{ enterpriseRoleScopeText }}</p>
+        <div class="enterprise-settings-chip-list">
+          <span
+            v-for="label in enterpriseWorkspaceSectionLabels"
+            :key="`enterprise-toolbar-workspace-${label}`"
+            class="point-badge enterprise-settings-chip enterprise-settings-chip-muted"
+          >
+            {{ label }}
+          </span>
+        </div>
+      </div>
+      <div class="enterprise-toolbar-strip-actions">
+        <button class="btn-secondary" type="button" @click="applyCurrentEnterpriseWorkspacePreset">
+          {{ t('enterprise_settings_apply_workspace_preset') }}
+        </button>
+        <button
+          v-for="action in enterpriseRoleWorkspaceActionItems"
+          :key="`enterprise-toolbar-action-${action.key}`"
+          :class="action.tone === 'ghost' ? 'btn-ghost' : 'btn-secondary'"
+          type="button"
+          @click="runEnterpriseWorkspaceAction(action.key)"
+        >
+          {{ action.label }}
+        </button>
+      </div>
+    </div>
       </div>
 
       <div class="page-top-spacer"></div>

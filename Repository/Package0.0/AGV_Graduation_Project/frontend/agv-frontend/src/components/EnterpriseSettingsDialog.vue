@@ -70,6 +70,27 @@
                   </span>
                 </div>
               </div>
+              <div
+                v-if="enterpriseRoleWorkspaceActionItems.length"
+                class="enterprise-settings-role-note"
+              >
+                <strong>{{ enterpriseRoleFocus.title }}</strong>
+                <p>{{ enterpriseRoleScopeText }}</p>
+                <div class="enterprise-settings-actions">
+                  <button class="btn-secondary" type="button" @click="applyCurrentEnterpriseWorkspacePreset">
+                    {{ t('enterprise_settings_apply_workspace_preset') }}
+                  </button>
+                  <button
+                    v-for="action in enterpriseRoleWorkspaceActionItems"
+                    :key="`enterprise-overview-workspace-action-${action.key}`"
+                    :class="action.tone === 'ghost' ? 'btn-ghost' : 'btn-secondary'"
+                    type="button"
+                    @click="runEnterpriseWorkspaceAction(action.key)"
+                  >
+                    {{ action.label }}
+                  </button>
+                </div>
+              </div>
               <div class="enterprise-settings-role-note">
                 <strong>{{ t('enterprise_settings_capabilities_title') }}</strong>
                 <p>{{ t('enterprise_settings_capabilities_hint') }}</p>
@@ -335,14 +356,17 @@
                 </div>
               </div>
               <div class="enterprise-settings-actions">
-                <button class="btn-secondary" type="button" @click="applyEnterprisePanelPreset()">
+                <button class="btn-secondary" type="button" @click="applyCurrentEnterpriseWorkspacePreset()">
                   {{ t('enterprise_settings_apply_workspace_preset') }}
                 </button>
-                <button class="btn-secondary" type="button" @click="jumpFromEnterpriseSettings('control')">
-                  {{ t('enterprise_settings_open_dispatch') }}
-                </button>
-                <button class="btn-secondary" type="button" @click="jumpFromEnterpriseSettings('queue')">
-                  {{ t('enterprise_settings_open_queue') }}
+                <button
+                  v-for="action in enterpriseRoleWorkspaceActionItems"
+                  :key="`enterprise-overview-footer-action-${action.key}`"
+                  :class="action.tone === 'ghost' ? 'btn-ghost' : 'btn-secondary'"
+                  type="button"
+                  @click="runEnterpriseWorkspaceAction(action.key)"
+                >
+                  {{ action.label }}
                 </button>
               </div>
             </template>

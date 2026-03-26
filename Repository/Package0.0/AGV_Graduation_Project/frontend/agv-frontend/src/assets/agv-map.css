@@ -101,6 +101,46 @@ h2 {
   opacity: 0.9;
 }
 
+.enterprise-toolbar-strip {
+  display: grid;
+  gap: 12px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  border: 1px solid rgba(212, 201, 187, 0.92);
+  border-radius: 16px;
+  background: rgba(255, 252, 247, 0.92);
+}
+
+.enterprise-toolbar-strip-copy {
+  display: grid;
+  gap: 8px;
+}
+
+.enterprise-toolbar-strip-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.enterprise-toolbar-strip-copy strong {
+  color: var(--strong-text);
+  font-size: 13px;
+}
+
+.enterprise-toolbar-strip-copy p {
+  margin: 0;
+  color: var(--muted-text);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.enterprise-toolbar-strip-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .top-compare-glance {
   padding: 10px 12px;
   border: 1px solid #d8d0c5;
@@ -382,6 +422,12 @@ h2 {
   background: rgba(255, 255, 255, 0.74);
   color: var(--strong-text);
   line-height: 1.5;
+}
+
+.auth-status-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .auth-status-actions {
