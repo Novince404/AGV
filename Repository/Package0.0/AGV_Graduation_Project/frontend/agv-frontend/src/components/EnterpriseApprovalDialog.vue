@@ -15,6 +15,15 @@
         <div class="approval-summary-grid">
           <button
             class="approval-summary-card"
+            :class="{ active: enterpriseApprovalStatusFilter === 'all' }"
+            type="button"
+            @click="setEnterpriseApprovalStatusFilter('all')"
+          >
+            <strong>{{ enterpriseApprovalSummary.all || 0 }}</strong>
+            <span>{{ t('enterprise_approval_status_all') }}</span>
+          </button>
+          <button
+            class="approval-summary-card"
             :class="{ active: enterpriseApprovalStatusFilter === 'pending' }"
             type="button"
             @click="setEnterpriseApprovalStatusFilter('pending')"
@@ -67,6 +76,9 @@
         </div>
 
         <div class="approval-toolbar">
+          <div class="task-line operations-last-fetched approval-filter-summary">
+            {{ enterpriseApprovalFilterSummaryText }}
+          </div>
           <label class="auth-dialog-field">
             <span>{{ t('enterprise_approval_filter_status') }}</span>
             <select v-model="enterpriseApprovalStatusFilter">

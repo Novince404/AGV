@@ -582,6 +582,8 @@
     "enterprise_approval_filter_search": "搜索",
     "enterprise_approval_filter_search_placeholder": "企业 / 联系人 / 用户名",
     "enterprise_approval_reset_filters": "重置筛选",
+    "enterprise_approval_filter_summary": "当前显示 {count} 条申请 · 状态：{status}",
+    "enterprise_approval_filter_summary_search": "当前显示 {count} 条申请 · 状态：{status} · 搜索：{keyword}",
     "enterprise_approval_history_title": "最近审批摘要",
     "enterprise_approval_history_hint": "在处理下一批申请前，先快速查看最近的审批决定。",
     "enterprise_approval_history_reviewed_meta": "{reviewer} · {reviewedAt}",

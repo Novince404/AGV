@@ -421,6 +421,8 @@
     "enterprise_approval_filter_search": "検索",
     "enterprise_approval_filter_search_placeholder": "企業 / 担当者 / ユーザー名",
     "enterprise_approval_reset_filters": "フィルターをリセット",
+    "enterprise_approval_filter_summary": "{count} 件の申請を表示中 · 状態: {status}",
+    "enterprise_approval_filter_summary_search": "{count} 件の申請を表示中 · 状態: {status} · 検索: {keyword}",
     "enterprise_approval_history_title": "最近の審査サマリー",
     "enterprise_approval_history_hint": "次の申請を処理する前に、直近の承認・却下結果をすばやく確認できます。",
     "enterprise_approval_history_reviewed_meta": "{reviewer} · {reviewedAt}",

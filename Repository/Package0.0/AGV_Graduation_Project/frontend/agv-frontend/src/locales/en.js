@@ -582,6 +582,8 @@
     "enterprise_approval_filter_search": "Search",
     "enterprise_approval_filter_search_placeholder": "Company / contact / username",
     "enterprise_approval_reset_filters": "Reset Filters",
+    "enterprise_approval_filter_summary": "{count} application(s) shown · Status: {status}",
+    "enterprise_approval_filter_summary_search": "{count} application(s) shown · Status: {status} · Search: {keyword}",
     "enterprise_approval_history_title": "Recent Review Summary",
     "enterprise_approval_history_hint": "Keep an eye on the latest approval decisions before handling the next batch.",
     "enterprise_approval_history_reviewed_meta": "{reviewer} · {reviewedAt}",

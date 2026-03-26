@@ -567,7 +567,7 @@ h2 {
 
 .approval-summary-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
 }
 
@@ -606,6 +606,11 @@ h2 {
   justify-content: flex-start;
   flex-wrap: wrap;
   gap: 12px;
+}
+
+.approval-filter-summary {
+  width: 100%;
+  margin-bottom: -2px;
 }
 
 .approval-history-shell {

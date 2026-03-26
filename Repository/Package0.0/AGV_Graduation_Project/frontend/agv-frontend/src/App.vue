@@ -865,6 +865,22 @@ const recentPendingEnterpriseApplications = computed(() =>
     .sort((left, right) => compareTime(right.submitted_at, left.submitted_at))
     .slice(0, 3)
 )
+const enterpriseApprovalFilterSummaryText = computed(() => {
+  const count = filteredEnterpriseApplications.value.length
+  const statusLabel = t(`enterprise_approval_status_${enterpriseApprovalStatusFilter.value || 'all'}`)
+  const keyword = String(enterpriseApprovalSearch.value || '').trim()
+  if (keyword) {
+    return formatInlineMessage(t('enterprise_approval_filter_summary_search'), {
+      count,
+      status: statusLabel,
+      keyword
+    })
+  }
+  return formatInlineMessage(t('enterprise_approval_filter_summary'), {
+    count,
+    status: statusLabel
+  })
+})
 const enterpriseApprovalEmptyStateHint = computed(() => {
   const hasSearch = Boolean(String(enterpriseApprovalSearch.value || '').trim())
   if (enterpriseApprovalStatusFilter.value === 'pending' && !hasSearch) {
@@ -9586,6 +9602,7 @@ const enterpriseApprovalDialogBindings = {
   enterpriseApprovalLoading,
   filteredEnterpriseApplications,
   recentReviewedEnterpriseApplications,
+  enterpriseApprovalFilterSummaryText,
   enterpriseApprovalEmptyStateHint,
   enterpriseApprovalEmptyStateActions,
   enterpriseApprovalLastFetchedText,
