@@ -201,6 +201,24 @@
               <strong>{{ item.value }}</strong>
             </article>
           </div>
+          <div class="enterprise-settings-status-grid auth-enterprise-status-grid">
+            <div class="enterprise-settings-status-item">
+              <span>{{ t('enterprise_register_company_name') }}</span>
+              <strong>{{ authCurrentEnterpriseApplication?.company_name || authCurrentOrganizationName || '—' }}</strong>
+            </div>
+            <div class="enterprise-settings-status-item">
+              <span>{{ t('enterprise_register_username') }}</span>
+              <strong>{{ authCurrentEnterpriseApplication?.username || '—' }}</strong>
+            </div>
+            <div class="enterprise-settings-status-item">
+              <span>{{ t('enterprise_register_contact_name') }}</span>
+              <strong>{{ authCurrentEnterpriseApplication?.contact_name || '—' }}</strong>
+            </div>
+            <div class="enterprise-settings-status-item">
+              <span>{{ t('enterprise_register_contact_email') }}</span>
+              <strong>{{ authCurrentEnterpriseApplication?.contact_email || '—' }}</strong>
+            </div>
+          </div>
           <small v-if="authAccountStatusLastCheckedText" class="operations-last-fetched">
             {{ authAccountStatusLastCheckedText }}
           </small>

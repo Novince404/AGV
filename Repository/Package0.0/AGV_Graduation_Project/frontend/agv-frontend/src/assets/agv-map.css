@@ -399,6 +399,10 @@ h2 {
   background: rgba(255, 255, 255, 0.72);
 }
 
+.auth-enterprise-status-grid {
+  margin-top: 10px;
+}
+
 .auth-status-list {
   display: grid;
   gap: 8px;
