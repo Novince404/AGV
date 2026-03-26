@@ -75,7 +75,7 @@
         </div>
 
         <div
-          v-if="authCanEnterpriseApprove && recentPendingEnterpriseApplications.length"
+          v-if="authCanEnterpriseApprove"
           class="auth-status-note tone-platform"
         >
           <div class="auth-status-note-head">
@@ -101,7 +101,7 @@
             </button>
           </div>
           <small v-if="enterpriseApprovalLastFetchedText">{{ enterpriseApprovalLastFetchedText }}</small>
-          <div class="auth-status-list">
+          <div v-if="recentPendingEnterpriseApplications.length" class="auth-status-list">
             <button
               v-for="item in recentPendingEnterpriseApplications"
               :key="`auth-pending-${item.id}`"
@@ -120,10 +120,13 @@
               </span>
             </button>
           </div>
+          <div v-else class="auth-status-empty">
+            {{ t('auth_platform_pending_snapshot_empty') }}
+          </div>
         </div>
 
         <div
-          v-if="authCanEnterpriseApprove && recentReviewedEnterpriseApplications.length"
+          v-if="authCanEnterpriseApprove"
           class="auth-status-note"
         >
           <div class="auth-status-note-head">
@@ -149,7 +152,7 @@
             </button>
           </div>
           <small v-if="enterpriseApprovalLastFetchedText">{{ enterpriseApprovalLastFetchedText }}</small>
-          <div class="auth-status-list">
+          <div v-if="recentReviewedEnterpriseApplications.length" class="auth-status-list">
             <button
               v-for="item in recentReviewedEnterpriseApplications"
               :key="`auth-reviewed-${item.id}`"
@@ -168,6 +171,9 @@
                 }}
               </span>
             </button>
+          </div>
+          <div v-else class="auth-status-empty">
+            {{ t('auth_platform_recent_review_snapshot_empty') }}
           </div>
         </div>
 
