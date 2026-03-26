@@ -374,6 +374,14 @@
                 class="btn-ghost"
                 type="button"
                 :disabled="authLoading"
+                @click="copyEnterpriseApplicationSummary(authEnterpriseRegisterFollowup)"
+              >
+                {{ t('enterprise_application_copy_summary') }}
+              </button>
+              <button
+                class="btn-ghost"
+                type="button"
+                :disabled="authLoading"
                 @click="copyEnterpriseApplicationCompanyName(authEnterpriseRegisterFollowup)"
               >
                 {{ t('enterprise_application_copy_company_name') }}
@@ -453,6 +461,9 @@
           <div v-if="authEnterpriseRegisterDraftHasContent" class="auth-status-note">
             <strong>{{ t('auth_enterprise_register_draft_title') }}</strong>
             <span>{{ t('auth_enterprise_register_draft_hint') }}</span>
+            <small v-if="authEnterpriseRegisterDraftUpdatedText" class="operations-last-fetched">
+              {{ authEnterpriseRegisterDraftUpdatedText }}
+            </small>
           </div>
           <div class="auth-dialog-form">
             <label class="auth-dialog-field">

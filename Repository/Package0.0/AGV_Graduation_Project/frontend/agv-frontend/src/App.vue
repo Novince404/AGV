@@ -456,8 +456,21 @@ function formatInlineMessage(template, replacements = {}) {
   )
 }
 
+function readEnterpriseRegisterDraftPayload() {
+  if (typeof window === 'undefined' || !window.localStorage) return null
+  try {
+    const raw = window.localStorage.getItem(ENTERPRISE_REGISTER_DRAFT_STORAGE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    return typeof parsed === 'object' && parsed ? parsed : null
+  } catch {
+    return null
+  }
+}
+
 function loadEnterpriseRegisterDraft() {
-  if (typeof window === 'undefined' || !window.localStorage) {
+  const parsed = readEnterpriseRegisterDraftPayload()
+  if (!parsed) {
     return {
       company_name: '',
       contact_name: '',
@@ -466,33 +479,12 @@ function loadEnterpriseRegisterDraft() {
       password: ''
     }
   }
-  try {
-    const raw = window.localStorage.getItem(ENTERPRISE_REGISTER_DRAFT_STORAGE_KEY)
-    if (!raw) {
-      return {
-        company_name: '',
-        contact_name: '',
-        contact_email: '',
-        username: '',
-        password: ''
-      }
-    }
-    const parsed = JSON.parse(raw)
-    return {
-      company_name: String(parsed?.company_name || ''),
-      contact_name: String(parsed?.contact_name || ''),
-      contact_email: String(parsed?.contact_email || ''),
-      username: String(parsed?.username || ''),
-      password: ''
-    }
-  } catch {
-    return {
-      company_name: '',
-      contact_name: '',
-      contact_email: '',
-      username: '',
-      password: ''
-    }
+  return {
+    company_name: String(parsed?.company_name || ''),
+    contact_name: String(parsed?.contact_name || ''),
+    contact_email: String(parsed?.contact_email || ''),
+    username: String(parsed?.username || ''),
+    password: ''
   }
 }
 
@@ -528,6 +520,9 @@ const authDialogView = ref('login')
 const authEnterpriseRegisterLoading = ref(false)
 const authEnterpriseRegisterFollowup = ref(null)
 const authEnterpriseRegisterForm = ref(loadEnterpriseRegisterDraft())
+const authEnterpriseRegisterDraftUpdatedAt = ref(
+  String(readEnterpriseRegisterDraftPayload()?.updated_at || '')
+)
 const enterpriseApprovalDialogOpen = ref(false)
 const enterpriseApprovalLoading = ref(false)
 const enterpriseApprovalReviewLoading = ref(false)
@@ -613,6 +608,13 @@ const authEnterpriseRegisterDraftHasContent = computed(() => {
   return ['company_name', 'contact_name', 'contact_email', 'username']
     .some(key => Boolean(String(draft?.[key] || '').trim()))
 })
+const authEnterpriseRegisterDraftUpdatedText = computed(() =>
+  authEnterpriseRegisterDraftUpdatedAt.value
+    ? formatInlineMessage(t('auth_enterprise_register_draft_updated_at'), {
+        at: formatDateTimeInline(authEnterpriseRegisterDraftUpdatedAt.value)
+      })
+    : ''
+)
 function buildEnterpriseApplicationProgressItems(application, fallbackStatus = '') {
   if (!application || typeof application !== 'object') return []
   const normalizedStatus = String(application.status || fallbackStatus || '').trim().toLowerCase()
@@ -878,6 +880,13 @@ const selectedEnterpriseApplicationActionItems = computed(() => {
       tone: 'ghost'
     })
   }
+  if (application.company_name || application.username) {
+    items.push({
+      key: 'copy-summary',
+      label: t('enterprise_application_copy_summary'),
+      tone: 'ghost'
+    })
+  }
   if (status === 'approved' || status === 'rejected') {
     items.push({
       key: 'focus-pending',
@@ -1068,6 +1077,13 @@ const authEnterpriseQuickActionItems = computed(() => {
     items.push({
       key: 'copy-review-note',
       label: t('enterprise_application_copy_review_note'),
+      tone: 'ghost'
+    })
+  }
+  if (application?.company_name || application?.username) {
+    items.push({
+      key: 'copy-summary',
+      label: t('enterprise_application_copy_summary'),
       tone: 'ghost'
     })
   }
@@ -3433,6 +3449,7 @@ function resetEnterpriseRegisterForm() {
 
 function clearEnterpriseRegisterDraft() {
   resetEnterpriseRegisterForm()
+  authEnterpriseRegisterDraftUpdatedAt.value = ''
   showFloatingToast(t('auth_enterprise_register_draft_cleared'), 'info')
 }
 
@@ -3449,9 +3466,18 @@ watch(
     const hasContent = Object.values(nextDraft).some(item => Boolean(item))
     if (!hasContent) {
       window.localStorage.removeItem(ENTERPRISE_REGISTER_DRAFT_STORAGE_KEY)
+      authEnterpriseRegisterDraftUpdatedAt.value = ''
       return
     }
-    window.localStorage.setItem(ENTERPRISE_REGISTER_DRAFT_STORAGE_KEY, JSON.stringify(nextDraft))
+    const updatedAt = new Date().toISOString()
+    authEnterpriseRegisterDraftUpdatedAt.value = updatedAt
+    window.localStorage.setItem(
+      ENTERPRISE_REGISTER_DRAFT_STORAGE_KEY,
+      JSON.stringify({
+        ...nextDraft,
+        updated_at: updatedAt
+      })
+    )
   },
   { deep: true }
 )
@@ -3461,6 +3487,8 @@ watch(
   nextView => {
     if (nextView !== 'enterprise-register') return
     if (!authEnterpriseRegisterDraftHasContent.value) return
+    const draftMeta = readEnterpriseRegisterDraftPayload()
+    authEnterpriseRegisterDraftUpdatedAt.value = String(draftMeta?.updated_at || '')
     authEnterpriseRegisterForm.value = {
       ...loadEnterpriseRegisterDraft(),
       password: authEnterpriseRegisterForm.value.password || ''
@@ -3473,6 +3501,7 @@ watch(
   nextValue => {
     if (!nextValue || typeof window === 'undefined' || !window.localStorage) return
     window.localStorage.removeItem(ENTERPRISE_REGISTER_DRAFT_STORAGE_KEY)
+    authEnterpriseRegisterDraftUpdatedAt.value = ''
   }
 )
 
@@ -3623,6 +3652,47 @@ async function copyEnterpriseApplicationContactName(application = authCurrentEnt
     return
   }
   showFloatingToast(t('enterprise_application_copy_contact_name_failed'), 'error')
+}
+
+function buildEnterpriseApplicationSummaryText(application = authCurrentEnterpriseApplication.value) {
+  const lines = []
+  const companyName = String(application?.company_name || authCurrentOrganizationName.value || '').trim()
+  const contactName = String(application?.contact_name || '').trim()
+  const contactEmail = String(application?.contact_email || '').trim()
+  const username = String(application?.username || '').trim()
+  const status = String(application?.status || authCurrentAccountStatus.value || '').trim()
+  const submittedAt = String(application?.submitted_at || '').trim()
+  const reviewedAt = String(application?.reviewed_at || '').trim()
+  const reviewedBy = String(application?.reviewed_by || '').trim()
+  const reviewNote = String(application?.review_note || '').trim()
+
+  if (companyName) lines.push(`${t('enterprise_register_company_name')}: ${companyName}`)
+  if (contactName) lines.push(`${t('enterprise_register_contact_name')}: ${contactName}`)
+  if (contactEmail) lines.push(`${t('enterprise_register_contact_email')}: ${contactEmail}`)
+  if (username) lines.push(`${t('enterprise_register_username')}: ${username}`)
+  if (status) lines.push(`${t('enterprise_settings_summary_status')}: ${t(`enterprise_approval_status_${status}`)}`)
+  if (submittedAt) lines.push(`${t('enterprise_settings_application_submitted_at')}: ${submittedAt}`)
+  if (reviewedAt) lines.push(`${t('enterprise_settings_application_reviewed_at')}: ${reviewedAt}`)
+  if (reviewedBy) lines.push(`${t('enterprise_settings_application_reviewed_by')}: ${reviewedBy}`)
+  if (reviewNote) lines.push(`${t('enterprise_settings_application_review_note')}: ${reviewNote}`)
+
+  return lines.join('\n')
+}
+
+async function copyEnterpriseApplicationSummary(application = authCurrentEnterpriseApplication.value) {
+  const summaryText = buildEnterpriseApplicationSummaryText(application)
+  if (!summaryText) return
+  const copied = await copyTextToClipboard(summaryText)
+  if (copied) {
+    showFloatingToast(
+      formatInlineMessage(t('enterprise_application_copy_summary_ok'), {
+        company: String(application?.company_name || authCurrentOrganizationName.value || '—')
+      }),
+      'success'
+    )
+    return
+  }
+  showFloatingToast(t('enterprise_application_copy_summary_failed'), 'error')
 }
 
 async function copyEnterpriseApplicationReviewNote(application = authCurrentEnterpriseApplication.value) {
@@ -3915,6 +3985,9 @@ async function runEnterpriseApplicationAction(actionKey) {
     case 'copy-review-note':
       await copyEnterpriseApplicationReviewNote(authCurrentEnterpriseApplication.value)
       return
+    case 'copy-summary':
+      await copyEnterpriseApplicationSummary(authCurrentEnterpriseApplication.value)
+      return
     case 'copy-username':
       copyEnterpriseApplicationUsername(authCurrentEnterpriseApplication.value)
       return
@@ -3964,6 +4037,9 @@ async function runEnterpriseApprovalAction(actionKey) {
     case 'copy-review-note':
       await copyEnterpriseApplicationReviewNote(selectedEnterpriseApplication.value)
       return
+    case 'copy-summary':
+      await copyEnterpriseApplicationSummary(selectedEnterpriseApplication.value)
+      return
     case 'copy-username':
       await copyEnterpriseApplicationUsername(selectedEnterpriseApplication.value)
       return
@@ -3998,6 +4074,9 @@ async function runAuthEnterpriseQuickAction(actionKey) {
       return
     case 'copy-review-note':
       await copyEnterpriseApplicationReviewNote(authCurrentEnterpriseApplication.value)
+      return
+    case 'copy-summary':
+      await copyEnterpriseApplicationSummary(authCurrentEnterpriseApplication.value)
       return
     case 'copy-username':
       await copyEnterpriseApplicationUsername(authCurrentEnterpriseApplication.value)
@@ -9379,6 +9458,7 @@ const authDialogBindings = {
   authEnterpriseRegisterValidation,
   authEnterpriseRegisterStatusText,
   authEnterpriseRegisterDraftHasContent,
+  authEnterpriseRegisterDraftUpdatedText,
   authEnterpriseRegisterFollowup,
   authLoading,
   authCapabilityCards,
@@ -9408,6 +9488,7 @@ const authDialogBindings = {
   refreshEnterpriseApprovalSnapshot,
   copyEnterpriseApplicationCompanyName,
   copyEnterpriseApplicationContactName,
+  copyEnterpriseApplicationSummary,
   copyEnterpriseApplicationReviewNote,
   copyEnterpriseApplicationUsername,
   copyEnterpriseApplicationContactEmail,
@@ -9948,6 +10029,7 @@ const enterpriseSettingsDialogBindings = {
   authEnterpriseApplicationProgressItems,
   copyEnterpriseApplicationCompanyName,
   copyEnterpriseApplicationContactName,
+  copyEnterpriseApplicationSummary,
   copyEnterpriseApplicationReviewNote,
   copyEnterpriseApplicationUsername,
   copyEnterpriseApplicationContactEmail,
