@@ -91,7 +91,16 @@
             >
               {{ t('enterprise_approval_entry') }}
             </button>
+            <button
+              class="auth-dialog-inline-action"
+              type="button"
+              :disabled="authLoading"
+              @click="refreshEnterpriseApprovalSnapshot"
+            >
+              {{ t('enterprise_approval_refresh') }}
+            </button>
           </div>
+          <small v-if="enterpriseApprovalLastFetchedText">{{ enterpriseApprovalLastFetchedText }}</small>
           <div class="auth-status-list">
             <button
               v-for="item in recentPendingEnterpriseApplications"
@@ -130,7 +139,16 @@
             >
               {{ t('enterprise_approval_entry') }}
             </button>
+            <button
+              class="auth-dialog-inline-action"
+              type="button"
+              :disabled="authLoading"
+              @click="refreshEnterpriseApprovalSnapshot"
+            >
+              {{ t('enterprise_approval_refresh') }}
+            </button>
           </div>
+          <small v-if="enterpriseApprovalLastFetchedText">{{ enterpriseApprovalLastFetchedText }}</small>
           <div class="auth-status-list">
             <button
               v-for="item in recentReviewedEnterpriseApplications"
@@ -182,6 +200,22 @@
               <span>{{ item.label }}</span>
               <strong>{{ item.value }}</strong>
             </article>
+          </div>
+          <div v-if="authEnterpriseQuickActionItems.length" class="auth-status-subnote">
+            <strong>{{ t('auth_enterprise_actions_title') }}</strong>
+            <span>{{ authEnterpriseQuickActionHint }}</span>
+            <div class="auth-status-actions">
+              <button
+                v-for="action in authEnterpriseQuickActionItems"
+                :key="`auth-enterprise-action-${action.key}`"
+                :class="action.tone === 'ghost' ? 'btn-ghost' : 'btn-secondary'"
+                type="button"
+                :disabled="authLoading"
+                @click="runAuthEnterpriseQuickAction(action.key)"
+              >
+                {{ action.label }}
+              </button>
+            </div>
           </div>
         </div>
 

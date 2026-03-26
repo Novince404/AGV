@@ -390,6 +390,15 @@ h2 {
   gap: 8px;
 }
 
+.auth-status-subnote {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px dashed rgba(216, 208, 197, 0.92);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
 .auth-status-list {
   display: grid;
   gap: 8px;

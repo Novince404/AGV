@@ -84,6 +84,9 @@
               :placeholder="t('enterprise_approval_filter_search_placeholder')"
             />
           </label>
+          <div v-if="enterpriseApprovalLastFetchedText" class="task-line operations-last-fetched">
+            {{ enterpriseApprovalLastFetchedText }}
+          </div>
           <button class="auth-dialog-inline-action" type="button" :disabled="enterpriseApprovalLoading" @click="fetchEnterpriseApplications({ forceSelectFirst: false })">
             {{ t('enterprise_approval_refresh') }}
           </button>

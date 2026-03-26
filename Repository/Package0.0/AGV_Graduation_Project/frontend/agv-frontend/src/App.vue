@@ -499,6 +499,7 @@ const enterpriseApprovalStatusFilter = ref('pending')
 const enterpriseApprovalSearch = ref('')
 const enterpriseApprovalSummary = ref({ all: 0, pending: 0, approved: 0, rejected: 0 })
 const enterpriseApplications = ref([])
+const enterpriseApprovalLastFetchedAt = ref('')
 const selectedEnterpriseApplicationId = ref(null)
 const enterpriseApprovalReviewNote = ref('')
 const enterpriseSettingsDialogOpen = ref(false)
@@ -863,6 +864,43 @@ const recentPendingEnterpriseApplications = computed(() =>
     .sort((left, right) => compareTime(right.submitted_at, left.submitted_at))
     .slice(0, 3)
 )
+const enterpriseApprovalLastFetchedText = computed(() =>
+  enterpriseApprovalLastFetchedAt.value
+    ? formatInlineMessage(t('operations_last_updated'), { at: enterpriseApprovalLastFetchedAt.value })
+    : ''
+)
+const authEnterpriseQuickActionItems = computed(() => {
+  if (!authIsEnterpriseRole.value) return []
+  const application = authCurrentEnterpriseApplication.value
+  const items = []
+  if (application?.username) {
+    items.push({
+      key: 'copy-username',
+      label: t('enterprise_application_copy_username'),
+      tone: 'ghost'
+    })
+  }
+  if (authCurrentAccountStatus.value === 'approved') {
+    items.push({
+      key: 'open-enterprise-settings',
+      label: t('enterprise_settings_entry'),
+      tone: 'secondary'
+    })
+  } else {
+    items.push({
+      key: 'refresh-status',
+      label: t('auth_status_notice_refresh_action'),
+      tone: 'secondary'
+    })
+  }
+  return items
+})
+const authEnterpriseQuickActionHint = computed(() => {
+  if (!authIsEnterpriseRole.value) return ''
+  if (authCurrentAccountStatus.value === 'approved') return t('auth_enterprise_actions_hint_approved')
+  if (authCurrentAccountStatus.value === 'rejected') return t('auth_enterprise_actions_hint_rejected')
+  return t('auth_enterprise_actions_hint_pending')
+})
 const authCapabilityCards = computed(() => [
   {
     key: 'dispatch',
@@ -3343,6 +3381,7 @@ async function fetchEnterpriseApplications({ forceSelectFirst = false, preferred
     }
     enterpriseApplications.value = Array.isArray(data?.items) ? data.items : []
     enterpriseApprovalSummary.value = data?.summary ?? { all: 0, pending: 0, approved: 0, rejected: 0 }
+    enterpriseApprovalLastFetchedAt.value = new Date().toISOString()
     if (preferredSelectedId != null && enterpriseApplications.value.some(item => Number(item.id) === Number(preferredSelectedId))) {
       selectedEnterpriseApplicationId.value = Number(preferredSelectedId)
     } else if (forceSelectFirst || !selectedEnterpriseApplication.value) {
@@ -3396,6 +3435,10 @@ async function focusEnterpriseApprovalPendingQueue() {
   enterpriseApprovalStatusFilter.value = 'pending'
   enterpriseApprovalSearch.value = ''
   await fetchEnterpriseApplications({ forceSelectFirst: true })
+}
+
+async function refreshEnterpriseApprovalSnapshot() {
+  await fetchEnterpriseApplications({ forceSelectFirst: false })
 }
 
 function buildEnterpriseApprovalExportFilename(prefix = 'agv-enterprise-applications') {
@@ -3603,6 +3646,22 @@ async function runEnterpriseApprovalAction(actionKey) {
       return
     case 'focus-pending':
       await focusEnterpriseApprovalPendingQueue()
+      return
+    default:
+      return
+  }
+}
+
+async function runAuthEnterpriseQuickAction(actionKey) {
+  switch (String(actionKey || '')) {
+    case 'copy-username':
+      await copyEnterpriseApplicationUsername(authCurrentEnterpriseApplication.value)
+      return
+    case 'refresh-status':
+      await refreshEnterpriseAccountStatus()
+      return
+    case 'open-enterprise-settings':
+      await openEnterpriseSettingsDialog()
       return
     default:
       return
@@ -8960,6 +9019,8 @@ const authDialogBindings = {
   authCurrentEnterpriseApplication,
   authIsEnterpriseRole,
   authEnterpriseApplicationProgressItems,
+  authEnterpriseQuickActionItems,
+  authEnterpriseQuickActionHint,
   authStatusNotice,
   authEnterpriseRegisterValidation,
   authEnterpriseRegisterStatusText,
@@ -8977,6 +9038,7 @@ const authDialogBindings = {
   authCanEnterpriseApprove,
   recentPendingEnterpriseApplications,
   recentReviewedEnterpriseApplications,
+  enterpriseApprovalLastFetchedText,
   enterGuestMode,
   handleAuthLogout,
   handleAuthQuickLogin,
@@ -8987,11 +9049,13 @@ const authDialogBindings = {
   handleEnterpriseRegister,
   signInEnterpriseRegisterFollowup,
   refreshEnterpriseAccountStatus,
+  refreshEnterpriseApprovalSnapshot,
   copyEnterpriseApplicationUsername,
   formatInlineMessage,
   openEnterpriseApprovalDialog,
   openEnterpriseSettingsDialog,
-  openEnterpriseApprovalDialogForItem
+  openEnterpriseApprovalDialogForItem,
+  runAuthEnterpriseQuickAction
 }
 
 const operationsAuditPanelBindings = {
@@ -9463,6 +9527,7 @@ const enterpriseApprovalDialogBindings = {
   enterpriseApprovalLoading,
   filteredEnterpriseApplications,
   recentReviewedEnterpriseApplications,
+  enterpriseApprovalLastFetchedText,
   selectedEnterpriseApplicationId,
   selectedEnterpriseApplication,
   selectedEnterpriseApplicationProgressItems,
@@ -9473,6 +9538,7 @@ const enterpriseApprovalDialogBindings = {
   closeEnterpriseApprovalDialog,
   resetEnterpriseApprovalFilters,
   setEnterpriseApprovalStatusFilter,
+  refreshEnterpriseApprovalSnapshot,
   exportEnterpriseApplicationsJson,
   exportEnterpriseApplicationsCsv,
   fetchEnterpriseApplications,
