@@ -68,6 +68,102 @@
         </div>
 
         <div
+          v-if="authEnterpriseStatusFollowupVisible"
+          class="auth-status-note"
+          :class="[`tone-${authEnterpriseStatusFollowup.status}`]"
+        >
+          <div class="auth-status-note-head">
+            <div>
+              <strong>{{ authEnterpriseStatusFollowupTitle }}</strong>
+              <span>{{ authEnterpriseStatusFollowupHint }}</span>
+            </div>
+            <button
+              class="btn-ghost"
+              type="button"
+              :disabled="authLoading"
+              @click="runEnterpriseStatusFollowupAction('dismiss')"
+            >
+              {{ t('auth_enterprise_status_followup_dismiss') }}
+            </button>
+          </div>
+          <div class="enterprise-settings-status-grid auth-enterprise-status-grid">
+            <div class="enterprise-settings-status-item">
+              <span>{{ t('enterprise_register_company_name') }}</span>
+              <strong>{{ authEnterpriseStatusFollowup.company_name || '—' }}</strong>
+            </div>
+            <div class="enterprise-settings-status-item">
+              <span>{{ t('enterprise_register_username') }}</span>
+              <strong>{{ authEnterpriseStatusFollowup.username || '—' }}</strong>
+            </div>
+            <div class="enterprise-settings-status-item">
+              <span>{{ t('enterprise_settings_summary_status') }}</span>
+              <strong>{{ t(`auth_account_status_${authEnterpriseStatusFollowup.status}`) }}</strong>
+            </div>
+            <div class="enterprise-settings-status-item">
+              <span>{{ t('enterprise_settings_application_reviewed_at') }}</span>
+              <strong>{{ authEnterpriseStatusFollowup.reviewed_at || '—' }}</strong>
+            </div>
+          </div>
+          <small v-if="authEnterpriseStatusFollowupUpdatedText" class="operations-last-fetched">
+            {{ authEnterpriseStatusFollowupUpdatedText }}
+          </small>
+          <div v-if="authEnterpriseStatusFollowup.review_note" class="auth-status-subnote">
+            <strong>{{ t('enterprise_settings_application_review_note') }}</strong>
+            <span>{{ authEnterpriseStatusFollowup.review_note }}</span>
+          </div>
+          <div class="auth-status-subnote">
+            <strong>{{ t('auth_enterprise_status_followup_next_step_title') }}</strong>
+            <span>{{ authEnterpriseStatusFollowupNextStepText }}</span>
+          </div>
+          <div class="auth-status-actions">
+            <button
+              v-if="authEnterpriseStatusFollowup.status === 'approved'"
+              class="auth-dialog-inline-action"
+              type="button"
+              :disabled="authLoading"
+              @click="runEnterpriseStatusFollowupAction('open-enterprise-settings')"
+            >
+              {{ t('enterprise_settings_entry') }}
+            </button>
+            <button
+              v-if="authEnterpriseStatusFollowup.status === 'approved'"
+              class="btn-secondary"
+              type="button"
+              :disabled="authLoading"
+              @click="runEnterpriseStatusFollowupAction('apply-workspace')"
+            >
+              {{ t('enterprise_settings_apply_workspace_preset') }}
+            </button>
+            <button
+              v-if="authEnterpriseStatusFollowup.status === 'rejected'"
+              class="auth-dialog-inline-action"
+              type="button"
+              :disabled="authLoading"
+              @click="runEnterpriseStatusFollowupAction('resume-registration')"
+            >
+              {{ t('enterprise_application_resume_registration') }}
+            </button>
+            <button
+              v-if="authEnterpriseStatusFollowup.status === 'rejected' && authEnterpriseStatusFollowup.review_note"
+              class="btn-ghost"
+              type="button"
+              :disabled="authLoading"
+              @click="runEnterpriseStatusFollowupAction('copy-review-note')"
+            >
+              {{ t('enterprise_application_copy_review_note') }}
+            </button>
+            <button
+              class="btn-ghost"
+              type="button"
+              :disabled="authLoading"
+              @click="runEnterpriseStatusFollowupAction('copy-summary')"
+            >
+              {{ t('enterprise_application_copy_summary') }}
+            </button>
+          </div>
+        </div>
+
+        <div
           v-if="authCanEnterpriseApprove"
           class="auth-status-note tone-platform"
         >
@@ -167,6 +263,81 @@
           </div>
           <div v-else class="auth-status-empty">
             {{ t('auth_platform_recent_review_snapshot_empty') }}
+          </div>
+        </div>
+
+        <div
+          v-if="enterpriseApprovalReviewFollowupVisible"
+          class="auth-status-note tone-platform"
+        >
+          <div class="auth-status-note-head">
+            <div>
+              <strong>{{ t('enterprise_approval_followup_title') }}</strong>
+              <span>{{ t('enterprise_approval_followup_hint') }}</span>
+            </div>
+            <button
+              class="btn-ghost"
+              type="button"
+              :disabled="authLoading"
+              @click="runEnterpriseApprovalFollowupAction('dismiss')"
+            >
+              {{ t('enterprise_approval_followup_dismiss') }}
+            </button>
+          </div>
+          <div class="enterprise-settings-status-grid auth-enterprise-status-grid">
+            <div class="enterprise-settings-status-item">
+              <span>{{ t('enterprise_register_company_name') }}</span>
+              <strong>{{ enterpriseApprovalReviewFollowup.company_name || '—' }}</strong>
+            </div>
+            <div class="enterprise-settings-status-item">
+              <span>{{ t('enterprise_register_username') }}</span>
+              <strong>{{ enterpriseApprovalReviewFollowup.username || '—' }}</strong>
+            </div>
+            <div class="enterprise-settings-status-item">
+              <span>{{ t('enterprise_approval_status_label') }}</span>
+              <strong>{{ t(`enterprise_approval_status_${enterpriseApprovalReviewFollowup.status || 'pending'}`) }}</strong>
+            </div>
+            <div class="enterprise-settings-status-item">
+              <span>{{ t('enterprise_approval_reviewed_at') }}</span>
+              <strong>{{ enterpriseApprovalReviewFollowup.reviewed_at || enterpriseApprovalReviewFollowup.submitted_at || '—' }}</strong>
+            </div>
+          </div>
+          <small v-if="enterpriseApprovalReviewFollowupUpdatedText" class="operations-last-fetched">
+            {{ enterpriseApprovalReviewFollowupUpdatedText }}
+          </small>
+          <div class="auth-status-subnote">
+            <strong>{{ t('enterprise_approval_next_step_title') }}</strong>
+            <span>{{ enterpriseApprovalReviewFollowupMetaText }}</span>
+          </div>
+          <div v-if="enterpriseApprovalReviewFollowup.review_note" class="auth-status-subnote">
+            <strong>{{ t('enterprise_settings_application_review_note') }}</strong>
+            <span>{{ enterpriseApprovalReviewFollowup.review_note }}</span>
+          </div>
+          <div class="auth-status-actions">
+            <button
+              class="auth-dialog-inline-action"
+              type="button"
+              :disabled="authLoading"
+              @click="runEnterpriseApprovalFollowupAction('open-detail')"
+            >
+              {{ t('enterprise_approval_followup_open_detail') }}
+            </button>
+            <button
+              class="btn-secondary"
+              type="button"
+              :disabled="authLoading"
+              @click="runEnterpriseApprovalFollowupAction('focus-pending')"
+            >
+              {{ t('enterprise_approval_focus_pending') }}
+            </button>
+            <button
+              class="btn-ghost"
+              type="button"
+              :disabled="authLoading"
+              @click="runEnterpriseApprovalFollowupAction('copy-summary')"
+            >
+              {{ t('enterprise_application_copy_summary') }}
+            </button>
           </div>
         </div>
 

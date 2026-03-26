@@ -107,6 +107,8 @@ const ENTERPRISE_SETTINGS_TAB_STORAGE_KEY = 'agv_enterprise_settings_tabs'
 const ENTERPRISE_REGISTER_DRAFT_STORAGE_KEY = 'agv_enterprise_register_draft'
 const ENTERPRISE_REGISTER_FOLLOWUP_STORAGE_KEY = 'agv_enterprise_register_followup'
 const ENTERPRISE_APPROVAL_UI_STORAGE_KEY = 'agv_enterprise_approval_ui'
+const ENTERPRISE_STATUS_FOLLOWUP_STORAGE_KEY = 'agv_enterprise_status_followup'
+const ENTERPRISE_APPROVAL_REVIEW_FOLLOWUP_STORAGE_KEY = 'agv_enterprise_approval_review_followup'
 const MINIMAP_WIDTH = 168
 const MIN_ZOOM = 0.75
 const MAX_ZOOM = 3
@@ -515,6 +517,56 @@ function loadEnterpriseRegisterFollowup() {
   }
 }
 
+function normalizeEnterpriseApplicationSnapshot(application, statusFallback = 'pending') {
+  if (!application || typeof application !== 'object') return null
+  const normalizedId = Number(application?.id)
+  return {
+    id: Number.isFinite(normalizedId) && normalizedId > 0 ? normalizedId : null,
+    company_name: String(application?.company_name || '').trim(),
+    username: String(application?.username || '').trim(),
+    contact_name: String(application?.contact_name || '').trim(),
+    contact_email: String(application?.contact_email || '').trim(),
+    submitted_at: application?.submitted_at ? String(application.submitted_at) : null,
+    reviewed_at: application?.reviewed_at ? String(application.reviewed_at) : null,
+    reviewed_by: application?.reviewed_by ? String(application.reviewed_by) : null,
+    review_note: String(application?.review_note || '').trim(),
+    status: String(application?.status || statusFallback || 'pending').trim() || 'pending',
+    updated_at: application?.updated_at ? String(application.updated_at) : null
+  }
+}
+
+function readEnterpriseStatusFollowupPayload() {
+  if (typeof window === 'undefined' || !window.localStorage) return null
+  try {
+    const raw = window.localStorage.getItem(ENTERPRISE_STATUS_FOLLOWUP_STORAGE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    return typeof parsed === 'object' && parsed ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+function loadEnterpriseStatusFollowup() {
+  return normalizeEnterpriseApplicationSnapshot(readEnterpriseStatusFollowupPayload())
+}
+
+function readEnterpriseApprovalReviewFollowupPayload() {
+  if (typeof window === 'undefined' || !window.localStorage) return null
+  try {
+    const raw = window.localStorage.getItem(ENTERPRISE_APPROVAL_REVIEW_FOLLOWUP_STORAGE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    return typeof parsed === 'object' && parsed ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+function loadEnterpriseApprovalReviewFollowup() {
+  return normalizeEnterpriseApplicationSnapshot(readEnterpriseApprovalReviewFollowupPayload())
+}
+
 function readEnterpriseApprovalUiPayload() {
   if (typeof window === 'undefined' || !window.localStorage) return null
   try {
@@ -595,6 +647,7 @@ const authGuestAccepted = ref(false)
 const authDialogView = ref('login')
 const authEnterpriseRegisterLoading = ref(false)
 const authEnterpriseRegisterFollowup = ref(loadEnterpriseRegisterFollowup())
+const authEnterpriseStatusFollowup = ref(loadEnterpriseStatusFollowup())
 const authEnterpriseRegisterForm = ref(loadEnterpriseRegisterDraft())
 const authEnterpriseRegisterDraftUpdatedAt = ref(
   String(readEnterpriseRegisterDraftPayload()?.updated_at || '')
@@ -612,6 +665,7 @@ const enterpriseApprovalDraftOnly = ref(Boolean(enterpriseApprovalUiState.draftO
 const selectedEnterpriseApplicationId = ref(enterpriseApprovalUiState.selectedId)
 const enterpriseApprovalReviewNote = ref('')
 const enterpriseApprovalNoteDrafts = ref(enterpriseApprovalUiState.noteDrafts)
+const enterpriseApprovalReviewFollowup = ref(loadEnterpriseApprovalReviewFollowup())
 const enterpriseSettingsDialogOpen = ref(false)
 const enterpriseSettingsActiveTab = ref('overview')
 const authRoleLabel = computed(() => t(`auth_role_${authCurrentRole.value}`))
@@ -821,6 +875,63 @@ const authStatusNotice = computed(() => {
   }
   return null
 })
+const authEnterpriseStatusFollowupVisible = computed(() => {
+  if (!authAuthenticated.value || !authIsEnterpriseRole.value || !authEnterpriseStatusFollowup.value) return false
+  const currentUsername = String(
+    authCurrentEnterpriseApplication.value?.username || authCurrentUser.value?.username || ''
+  ).trim()
+  const followupUsername = String(authEnterpriseStatusFollowup.value?.username || '').trim()
+  if (followupUsername && currentUsername && followupUsername !== currentUsername) return false
+  return ['approved', 'rejected'].includes(String(authEnterpriseStatusFollowup.value?.status || '').trim())
+})
+const authEnterpriseStatusFollowupTitle = computed(() => {
+  if (!authEnterpriseStatusFollowupVisible.value) return ''
+  return t(
+    authEnterpriseStatusFollowup.value?.status === 'approved'
+      ? 'auth_enterprise_status_followup_title_approved'
+      : 'auth_enterprise_status_followup_title_rejected'
+  )
+})
+const authEnterpriseStatusFollowupHint = computed(() => {
+  if (!authEnterpriseStatusFollowupVisible.value) return ''
+  return t(
+    authEnterpriseStatusFollowup.value?.status === 'approved'
+      ? 'auth_enterprise_status_followup_hint_approved'
+      : 'auth_enterprise_status_followup_hint_rejected'
+  )
+})
+const authEnterpriseStatusFollowupNextStepText = computed(() => {
+  if (!authEnterpriseStatusFollowupVisible.value) return ''
+  return t(
+    authEnterpriseStatusFollowup.value?.status === 'approved'
+      ? 'auth_enterprise_status_followup_next_step_approved'
+      : 'auth_enterprise_status_followup_next_step_rejected'
+  )
+})
+const authEnterpriseStatusFollowupUpdatedText = computed(() =>
+  authEnterpriseStatusFollowup.value?.updated_at
+    ? formatInlineMessage(t('operations_last_updated'), { at: authEnterpriseStatusFollowup.value.updated_at })
+    : ''
+)
+const enterpriseApprovalReviewFollowupVisible = computed(() =>
+  authAuthenticated.value && authCurrentRole.value === 'platform_admin' && Boolean(enterpriseApprovalReviewFollowup.value)
+)
+const enterpriseApprovalReviewFollowupMetaText = computed(() => {
+  if (!enterpriseApprovalReviewFollowupVisible.value) return ''
+  return formatInlineMessage(t('enterprise_approval_followup_meta'), {
+    status: t(`enterprise_approval_status_${enterpriseApprovalReviewFollowup.value?.status || 'pending'}`),
+    reviewer: enterpriseApprovalReviewFollowup.value?.reviewed_by || '—',
+    reviewedAt:
+      enterpriseApprovalReviewFollowup.value?.reviewed_at ||
+      enterpriseApprovalReviewFollowup.value?.submitted_at ||
+      '—'
+  })
+})
+const enterpriseApprovalReviewFollowupUpdatedText = computed(() =>
+  enterpriseApprovalReviewFollowup.value?.updated_at
+    ? formatInlineMessage(t('operations_last_updated'), { at: enterpriseApprovalReviewFollowup.value.updated_at })
+    : ''
+)
 const enterpriseApplicationNextStepText = computed(() => {
   if (!authIsEnterpriseRole.value) return ''
   if (authCurrentAccountStatus.value === 'pending') {
@@ -3971,6 +4082,58 @@ watch(
   }
 )
 
+watch(
+  authEnterpriseStatusFollowup,
+  nextValue => {
+    if (typeof window === 'undefined' || !window.localStorage) return
+    if (!nextValue) {
+      window.localStorage.removeItem(ENTERPRISE_STATUS_FOLLOWUP_STORAGE_KEY)
+      return
+    }
+    window.localStorage.setItem(
+      ENTERPRISE_STATUS_FOLLOWUP_STORAGE_KEY,
+      JSON.stringify({
+        ...nextValue,
+        updated_at: nextValue.updated_at || new Date().toISOString()
+      })
+    )
+  },
+  { deep: true }
+)
+
+watch(
+  enterpriseApprovalReviewFollowup,
+  nextValue => {
+    if (typeof window === 'undefined' || !window.localStorage) return
+    if (!nextValue) {
+      window.localStorage.removeItem(ENTERPRISE_APPROVAL_REVIEW_FOLLOWUP_STORAGE_KEY)
+      return
+    }
+    window.localStorage.setItem(
+      ENTERPRISE_APPROVAL_REVIEW_FOLLOWUP_STORAGE_KEY,
+      JSON.stringify({
+        ...nextValue,
+        updated_at: nextValue.updated_at || new Date().toISOString()
+      })
+    )
+  },
+  { deep: true }
+)
+
+watch(
+  [
+    authAuthenticated,
+    authCurrentRole,
+    authCurrentAccountStatus,
+    authCurrentEnterpriseApplication
+  ],
+  () => {
+    if (!authAuthenticated.value || !authIsEnterpriseRole.value || !authCurrentEnterpriseApplication.value) return
+    syncEnterpriseRegisterFollowupFromApplication(authCurrentEnterpriseApplication.value, authCurrentAccountStatus.value)
+  },
+  { deep: true }
+)
+
 function switchAuthDialogView(view) {
   authDialogView.value = view === 'enterprise-register' ? 'enterprise-register' : 'login'
 }
@@ -4091,13 +4254,65 @@ function dismissEnterpriseRegisterFollowup() {
   showFloatingToast(t('auth_enterprise_register_followup_dismissed'), 'info')
 }
 
+function syncEnterpriseRegisterFollowupFromApplication(application, statusFallback = authCurrentAccountStatus.value) {
+  const currentFollowup = authEnterpriseRegisterFollowup.value
+  const normalizedApplication = normalizeEnterpriseApplicationSnapshot(application, statusFallback)
+  if (!currentFollowup || !normalizedApplication) return
+  const followupUsername = String(currentFollowup.username || '').trim()
+  if (followupUsername && normalizedApplication.username && followupUsername !== normalizedApplication.username) {
+    return
+  }
+  const nextFollowup = {
+    company_name: normalizedApplication.company_name || currentFollowup.company_name,
+    username: normalizedApplication.username || currentFollowup.username,
+    contact_name: normalizedApplication.contact_name || currentFollowup.contact_name,
+    contact_email: normalizedApplication.contact_email || currentFollowup.contact_email,
+    submitted_at: normalizedApplication.submitted_at || currentFollowup.submitted_at || null,
+    status: normalizedApplication.status || currentFollowup.status || 'pending'
+  }
+  const didChange = ['company_name', 'username', 'contact_name', 'contact_email', 'submitted_at', 'status']
+    .some(key => String(currentFollowup?.[key] || '') !== String(nextFollowup?.[key] || ''))
+  if (didChange) {
+    authEnterpriseRegisterFollowup.value = nextFollowup
+  }
+}
+
+function buildEnterpriseStatusFollowup(application, statusFallback = authCurrentAccountStatus.value) {
+  const normalized = normalizeEnterpriseApplicationSnapshot(application, statusFallback)
+  if (!normalized) return null
+  return {
+    ...normalized,
+    updated_at: new Date().toISOString()
+  }
+}
+
+function dismissEnterpriseStatusFollowup() {
+  if (!authEnterpriseStatusFollowup.value) return
+  authEnterpriseStatusFollowup.value = null
+  showFloatingToast(t('auth_enterprise_status_followup_dismissed'), 'info')
+}
+
+function dismissEnterpriseApprovalReviewFollowup() {
+  if (!enterpriseApprovalReviewFollowup.value) return
+  enterpriseApprovalReviewFollowup.value = null
+  showFloatingToast(t('enterprise_approval_followup_dismissed'), 'info')
+}
+
 async function refreshEnterpriseAccountStatus() {
   const previousStatus = String(authCurrentAccountStatus.value || 'approved')
   try {
     const state = await fetchAuthMe({ silent: false })
     authGuestAccepted.value = Boolean(state?.authenticated)
     const nextStatus = String(state?.user?.account_status || previousStatus)
+    const nextApplication = normalizeEnterpriseApplicationSnapshot(
+      state?.user?.enterprise_application,
+      nextStatus
+    )
+    syncEnterpriseRegisterFollowupFromApplication(nextApplication, nextStatus)
     if (previousStatus !== nextStatus) {
+      if (nextApplication && ['approved', 'rejected'].includes(nextStatus)) {
+        authEnterpriseStatusFollowup.value = buildEnterpriseStatusFollowup(nextApplication, nextStatus)
+      }
       showFloatingToast(t(`auth_account_status_refresh_${nextStatus}`), 'success')
       return
     }
@@ -4652,6 +4867,31 @@ async function runEnterpriseWorkspaceAction(actionKey, { closeAuth = false, clos
   }
 }
 
+async function runEnterpriseStatusFollowupAction(actionKey) {
+  switch (String(actionKey || '')) {
+    case 'copy-summary':
+      await copyEnterpriseApplicationSummary(authEnterpriseStatusFollowup.value)
+      return
+    case 'copy-review-note':
+      await copyEnterpriseApplicationReviewNote(authEnterpriseStatusFollowup.value)
+      return
+    case 'resume-registration':
+      resumeEnterpriseRegistrationFromApplication(authEnterpriseStatusFollowup.value)
+      return
+    case 'open-enterprise-settings':
+      await openEnterpriseSettingsDialog()
+      return
+    case 'apply-workspace':
+      await applyCurrentEnterpriseWorkspacePreset()
+      return
+    case 'dismiss':
+      dismissEnterpriseStatusFollowup()
+      return
+    default:
+      return
+  }
+}
+
 async function runEnterpriseApplicationAction(actionKey) {
   switch (String(actionKey || '')) {
     case 'copy-company-name':
@@ -4712,6 +4952,30 @@ async function runEnterpriseApplicationAction(actionKey) {
     case 'open-map-profiles':
     case 'open-audit':
       await runEnterpriseWorkspaceAction(actionKey, { closeSettings: true })
+      return
+    default:
+      return
+  }
+}
+
+async function runEnterpriseApprovalFollowupAction(actionKey) {
+  switch (String(actionKey || '')) {
+    case 'open-detail':
+      if (enterpriseApprovalReviewFollowup.value?.id) {
+        await openEnterpriseApprovalDialogForItem(
+          enterpriseApprovalReviewFollowup.value.id,
+          enterpriseApprovalReviewFollowup.value.status || 'all'
+        )
+      }
+      return
+    case 'copy-summary':
+      await copyEnterpriseApplicationSummary(enterpriseApprovalReviewFollowup.value)
+      return
+    case 'focus-pending':
+      await openEnterpriseApprovalDialog({ status: 'pending', resetSearch: true, draftOnly: false })
+      return
+    case 'dismiss':
+      dismissEnterpriseApprovalReviewFollowup()
       return
     default:
       return
@@ -4849,6 +5113,9 @@ async function reviewEnterpriseApplication(decision) {
       throw createApiError(data, 'Enterprise application review failed')
     }
     const reviewedApplication = data?.application ?? null
+    if (reviewedApplication) {
+      enterpriseApprovalReviewFollowup.value = buildEnterpriseStatusFollowup(reviewedApplication, reviewedApplication?.status)
+    }
     const draftKey = String(applicationId)
     if (enterpriseApprovalNoteDrafts.value[draftKey]) {
       const nextDrafts = { ...enterpriseApprovalNoteDrafts.value }
@@ -10220,6 +10487,12 @@ const authDialogBindings = {
   authCurrentEnterpriseApplication,
   authIsEnterpriseRole,
   showEnterpriseWorkspaceBanner,
+  authEnterpriseStatusFollowup,
+  authEnterpriseStatusFollowupVisible,
+  authEnterpriseStatusFollowupTitle,
+  authEnterpriseStatusFollowupHint,
+  authEnterpriseStatusFollowupNextStepText,
+  authEnterpriseStatusFollowupUpdatedText,
   authEnterpriseApplicationProgressItems,
   enterpriseApplicationNextStepText,
   authAccountStatusLastCheckedText,
@@ -10254,6 +10527,10 @@ const authDialogBindings = {
   recentPendingEnterpriseApplications,
   recentReviewedEnterpriseApplications,
   recentEnterpriseApprovalDraftApplications,
+  enterpriseApprovalReviewFollowup,
+  enterpriseApprovalReviewFollowupVisible,
+  enterpriseApprovalReviewFollowupMetaText,
+  enterpriseApprovalReviewFollowupUpdatedText,
   enterpriseApprovalDraftCount,
   enterpriseApprovalDraftSummaryText,
   enterpriseApprovalLastFetchedText,
@@ -10288,6 +10565,8 @@ const authDialogBindings = {
   applyCurrentEnterpriseWorkspacePreset,
   applyEnterpriseWorkspaceFromAuth,
   runAuthEnterpriseQuickAction,
+  runEnterpriseStatusFollowupAction,
+  runEnterpriseApprovalFollowupAction,
   runEnterpriseWorkspaceAction,
   runAuthStatusNoticeAction
 }
@@ -10768,6 +11047,10 @@ const enterpriseApprovalDialogBindings = {
   enterpriseApprovalEmptyStateHint,
   enterpriseApprovalEmptyStateActions,
   enterpriseApprovalLastFetchedText,
+  enterpriseApprovalReviewFollowup,
+  enterpriseApprovalReviewFollowupVisible,
+  enterpriseApprovalReviewFollowupMetaText,
+  enterpriseApprovalReviewFollowupUpdatedText,
   selectedEnterpriseApplicationId,
   selectedEnterpriseApplication,
   selectedEnterpriseApplicationPositionText,
@@ -10802,6 +11085,7 @@ const enterpriseApprovalDialogBindings = {
   clearAllEnterpriseApprovalDrafts,
   copyEnterpriseApplicationUsername,
   copyEnterpriseApplicationContactEmail,
+  runEnterpriseApprovalFollowupAction,
   runEnterpriseApprovalAction,
   openEnterpriseApprovalDialogForItem,
   reviewEnterpriseApplication
@@ -10838,6 +11122,12 @@ const enterpriseSettingsDialogBindings = {
   authEnterpriseRegisterDraftUpdatedText,
   authEnterpriseRegisterDraftDiffText,
   enterpriseApplicationNextStepText,
+  authEnterpriseStatusFollowup,
+  authEnterpriseStatusFollowupVisible,
+  authEnterpriseStatusFollowupTitle,
+  authEnterpriseStatusFollowupHint,
+  authEnterpriseStatusFollowupNextStepText,
+  authEnterpriseStatusFollowupUpdatedText,
   enterpriseApplicationActionItems,
   authEnterpriseApplicationProgressItems,
   copyEnterpriseApplicationCompanyName,
@@ -10981,6 +11271,7 @@ const enterpriseSettingsDialogBindings = {
   exportFilteredOperationAuditsJsonWithAuth,
   exportFilteredOperationAuditsCsvWithAuth,
   refreshEnterpriseAccountStatus,
+  runEnterpriseStatusFollowupAction,
   runEnterpriseApplicationAction,
   applyEnterprisePanelPreset,
   applyCurrentEnterpriseWorkspacePreset,

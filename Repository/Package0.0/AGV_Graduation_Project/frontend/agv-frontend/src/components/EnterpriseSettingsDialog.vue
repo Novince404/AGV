@@ -265,6 +265,62 @@
                   <strong>{{ t('enterprise_settings_application_review_note') }}</strong>
                   <p>{{ authCurrentEnterpriseApplication.review_note }}</p>
                 </div>
+                <div
+                  v-if="authEnterpriseStatusFollowupVisible"
+                  class="enterprise-settings-status-note"
+                >
+                  <strong>{{ authEnterpriseStatusFollowupTitle }}</strong>
+                  <p>{{ authEnterpriseStatusFollowupHint }}</p>
+                  <div v-if="authEnterpriseStatusFollowup.review_note" class="task-line">
+                    {{ authEnterpriseStatusFollowup.review_note }}
+                  </div>
+                  <div v-if="authEnterpriseStatusFollowupUpdatedText" class="task-line operations-last-fetched">
+                    {{ authEnterpriseStatusFollowupUpdatedText }}
+                  </div>
+                  <div class="task-line">
+                    {{ authEnterpriseStatusFollowupNextStepText }}
+                  </div>
+                  <div class="enterprise-settings-actions enterprise-settings-status-actions">
+                    <button
+                      v-if="authEnterpriseStatusFollowup.status === 'approved'"
+                      class="btn-secondary"
+                      type="button"
+                      @click="runEnterpriseStatusFollowupAction('apply-workspace')"
+                    >
+                      {{ t('enterprise_settings_apply_workspace_preset') }}
+                    </button>
+                    <button
+                      v-if="authEnterpriseStatusFollowup.status === 'rejected'"
+                      class="btn-secondary"
+                      type="button"
+                      @click="runEnterpriseStatusFollowupAction('resume-registration')"
+                    >
+                      {{ t('enterprise_application_resume_registration') }}
+                    </button>
+                    <button
+                      v-if="authEnterpriseStatusFollowup.status === 'rejected' && authEnterpriseStatusFollowup.review_note"
+                      class="btn-ghost"
+                      type="button"
+                      @click="runEnterpriseStatusFollowupAction('copy-review-note')"
+                    >
+                      {{ t('enterprise_application_copy_review_note') }}
+                    </button>
+                    <button
+                      class="btn-ghost"
+                      type="button"
+                      @click="runEnterpriseStatusFollowupAction('copy-summary')"
+                    >
+                      {{ t('enterprise_application_copy_summary') }}
+                    </button>
+                    <button
+                      class="btn-ghost"
+                      type="button"
+                      @click="runEnterpriseStatusFollowupAction('dismiss')"
+                    >
+                      {{ t('auth_enterprise_status_followup_dismiss') }}
+                    </button>
+                  </div>
+                </div>
                 <div class="enterprise-settings-status-note">
                   <strong>{{ t('enterprise_settings_application_next_step_title') }}</strong>
                   <p>{{ enterpriseApplicationNextStepText }}</p>

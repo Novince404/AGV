@@ -75,6 +75,36 @@
           </div>
         </div>
 
+        <div v-if="enterpriseApprovalReviewFollowupVisible" class="approval-existing-note">
+          <strong>{{ t('enterprise_approval_followup_title') }}</strong>
+          <p>{{ t('enterprise_approval_followup_hint') }}</p>
+          <div class="approval-detail-grid">
+            <div><strong>{{ t('enterprise_register_company_name') }}</strong><span>{{ enterpriseApprovalReviewFollowup.company_name || '—' }}</span></div>
+            <div><strong>{{ t('enterprise_register_username') }}</strong><span>{{ enterpriseApprovalReviewFollowup.username || '—' }}</span></div>
+            <div><strong>{{ t('enterprise_approval_status_label') }}</strong><span>{{ t(`enterprise_approval_status_${enterpriseApprovalReviewFollowup.status || 'pending'}`) }}</span></div>
+            <div><strong>{{ t('enterprise_approval_reviewed_at') }}</strong><span>{{ enterpriseApprovalReviewFollowup.reviewed_at || enterpriseApprovalReviewFollowup.submitted_at || '—' }}</span></div>
+          </div>
+          <div class="task-line operations-last-fetched" v-if="enterpriseApprovalReviewFollowupUpdatedText">
+            {{ enterpriseApprovalReviewFollowupUpdatedText }}
+          </div>
+          <p class="task-line">{{ enterpriseApprovalReviewFollowupMetaText }}</p>
+          <p v-if="enterpriseApprovalReviewFollowup.review_note">{{ enterpriseApprovalReviewFollowup.review_note }}</p>
+          <div class="approval-actions approval-followup-actions">
+            <button class="btn-secondary" type="button" @click="runEnterpriseApprovalFollowupAction('open-detail')">
+              {{ t('enterprise_approval_followup_open_detail') }}
+            </button>
+            <button class="btn-ghost" type="button" @click="runEnterpriseApprovalFollowupAction('focus-pending')">
+              {{ t('enterprise_approval_focus_pending') }}
+            </button>
+            <button class="btn-ghost" type="button" @click="runEnterpriseApprovalFollowupAction('copy-summary')">
+              {{ t('enterprise_application_copy_summary') }}
+            </button>
+            <button class="btn-ghost" type="button" @click="runEnterpriseApprovalFollowupAction('dismiss')">
+              {{ t('enterprise_approval_followup_dismiss') }}
+            </button>
+          </div>
+        </div>
+
         <div class="approval-toolbar">
           <div class="task-line operations-last-fetched approval-filter-summary">
             {{ enterpriseApprovalFilterSummaryText }}
