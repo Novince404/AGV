@@ -451,6 +451,76 @@
         <template v-else>
           <div class="auth-dialog-divider">{{ t('auth_enterprise_register') }}</div>
           <p class="auth-dialog-hint">{{ t('auth_enterprise_register_hint') }}</p>
+          <div
+            v-if="authIsEnterpriseRole && authCurrentEnterpriseApplication"
+            class="auth-status-note"
+            :class="{
+              'tone-pending': authCurrentAccountStatus === 'pending',
+              'tone-rejected': authCurrentAccountStatus === 'rejected'
+            }"
+          >
+            <div class="auth-status-note-head">
+              <div>
+                <strong>{{ t('auth_enterprise_register_existing_title') }}</strong>
+                <span>{{ authEnterpriseRegisterExistingHint }}</span>
+              </div>
+              <button
+                class="auth-dialog-inline-action"
+                type="button"
+                :disabled="authEnterpriseRegisterLoading"
+                @click="resumeEnterpriseRegistrationFromApplication(authCurrentEnterpriseApplication)"
+              >
+                {{ t('auth_enterprise_register_existing_action_use') }}
+              </button>
+            </div>
+            <div class="enterprise-settings-status-grid auth-enterprise-status-grid">
+              <div class="enterprise-settings-status-item">
+                <span>{{ t('enterprise_register_company_name') }}</span>
+                <strong>{{ authCurrentEnterpriseApplication.company_name || '—' }}</strong>
+              </div>
+              <div class="enterprise-settings-status-item">
+                <span>{{ t('enterprise_register_username') }}</span>
+                <strong>{{ authCurrentEnterpriseApplication.username || '—' }}</strong>
+              </div>
+              <div class="enterprise-settings-status-item">
+                <span>{{ t('enterprise_register_contact_name') }}</span>
+                <strong>{{ authCurrentEnterpriseApplication.contact_name || '—' }}</strong>
+              </div>
+              <div class="enterprise-settings-status-item">
+                <span>{{ t('enterprise_register_contact_email') }}</span>
+                <strong>{{ authCurrentEnterpriseApplication.contact_email || '—' }}</strong>
+              </div>
+            </div>
+            <div class="application-progress-grid">
+              <article
+                v-for="item in authEnterpriseApplicationProgressItems"
+                :key="`auth-register-progress-${item.key}`"
+                class="application-progress-item"
+                :class="`is-${item.tone}`"
+              >
+                <span>{{ item.label }}</span>
+                <strong>{{ item.value }}</strong>
+              </article>
+            </div>
+            <div class="auth-status-actions">
+              <button
+                class="btn-ghost"
+                type="button"
+                :disabled="authEnterpriseRegisterLoading"
+                @click="copyEnterpriseApplicationSummary(authCurrentEnterpriseApplication)"
+              >
+                {{ t('enterprise_application_copy_summary') }}
+              </button>
+              <button
+                class="btn-ghost"
+                type="button"
+                :disabled="authEnterpriseRegisterLoading"
+                @click="refreshEnterpriseAccountStatus"
+              >
+                {{ t('auth_status_notice_refresh_action') }}
+              </button>
+            </div>
+          </div>
           <div v-if="authEnterpriseRegisterDraftHasContent" class="auth-status-note">
             <strong>{{ t('auth_enterprise_register_draft_title') }}</strong>
             <span>{{ t('auth_enterprise_register_draft_hint') }}</span>

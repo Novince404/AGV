@@ -725,6 +725,16 @@ const enterpriseApplicationNextStepText = computed(() => {
   }
   return t('enterprise_settings_application_next_step_approved')
 })
+const authEnterpriseRegisterExistingHint = computed(() => {
+  if (!authIsEnterpriseRole.value) return ''
+  if (authCurrentAccountStatus.value === 'rejected') {
+    return t('auth_enterprise_register_existing_hint_rejected')
+  }
+  if (authCurrentAccountStatus.value === 'pending') {
+    return t('auth_enterprise_register_existing_hint_pending')
+  }
+  return t('auth_enterprise_register_existing_hint_approved')
+})
 const enterpriseApplicationActionItems = computed(() => {
   if (!authIsEnterpriseRole.value) return []
   const items = []
@@ -9547,6 +9557,7 @@ const authDialogBindings = {
   authEnterpriseRegisterStatusText,
   authEnterpriseRegisterDraftHasContent,
   authEnterpriseRegisterDraftUpdatedText,
+  authEnterpriseRegisterExistingHint,
   authEnterpriseRegisterFollowup,
   authLoading,
   authCapabilityCards,
@@ -9574,6 +9585,7 @@ const authDialogBindings = {
   clearEnterpriseRegisterDraft,
   refreshEnterpriseAccountStatus,
   refreshEnterpriseApprovalSnapshot,
+  resumeEnterpriseRegistrationFromApplication,
   copyEnterpriseApplicationCompanyName,
   copyEnterpriseApplicationContactName,
   copyEnterpriseApplicationSummary,
