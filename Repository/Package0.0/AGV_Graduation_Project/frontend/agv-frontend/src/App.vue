@@ -3431,10 +3431,14 @@ async function handleEnterpriseRegister() {
     }
     authUsername.value = payload.username
     authPassword.value = payload.password
+    const application = data?.application || {}
     authEnterpriseRegisterFollowup.value = {
-      company_name: payload.company_name,
-      username: payload.username,
-      contact_email: payload.contact_email
+      company_name: application.company_name || payload.company_name,
+      username: application.username || payload.username,
+      contact_name: application.contact_name || payload.contact_name,
+      contact_email: application.contact_email || payload.contact_email,
+      submitted_at: application.submitted_at || null,
+      status: application.status || 'pending'
     }
     switchAuthDialogView('login')
     showFloatingToast(

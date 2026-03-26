@@ -338,9 +338,17 @@
                 <span>{{ t('enterprise_register_username') }}</span>
                 <strong>{{ authEnterpriseRegisterFollowup.username || '—' }}</strong>
               </div>
+              <div v-if="authEnterpriseRegisterFollowup.contact_name" class="enterprise-settings-status-item">
+                <span>{{ t('enterprise_register_contact_name') }}</span>
+                <strong>{{ authEnterpriseRegisterFollowup.contact_name }}</strong>
+              </div>
               <div v-if="authEnterpriseRegisterFollowup.contact_email" class="enterprise-settings-status-item">
                 <span>{{ t('enterprise_register_contact_email') }}</span>
                 <strong>{{ authEnterpriseRegisterFollowup.contact_email }}</strong>
+              </div>
+              <div v-if="authEnterpriseRegisterFollowup.submitted_at" class="enterprise-settings-status-item">
+                <span>{{ t('enterprise_settings_application_submitted_at') }}</span>
+                <strong>{{ authEnterpriseRegisterFollowup.submitted_at }}</strong>
               </div>
             </div>
             <div class="auth-status-actions">
