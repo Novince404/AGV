@@ -592,6 +592,13 @@
             <small v-if="authEnterpriseRegisterDraftUpdatedText" class="operations-last-fetched">
               {{ authEnterpriseRegisterDraftUpdatedText }}
             </small>
+            <div
+              v-if="authEnterpriseRegisterDraftDiffText"
+              class="auth-status-subnote"
+            >
+              <strong>{{ t('auth_enterprise_register_draft_compare_title') }}</strong>
+              <span>{{ authEnterpriseRegisterDraftDiffText }}</span>
+            </div>
           </div>
           <div class="auth-dialog-form">
             <label class="auth-dialog-field">
@@ -644,6 +651,15 @@
                 @click="clearEnterpriseRegisterDraft"
               >
                 {{ t('auth_enterprise_register_clear_draft') }}
+              </button>
+              <button
+                v-if="authCurrentEnterpriseApplication"
+                class="btn-ghost"
+                type="button"
+                :disabled="authEnterpriseRegisterLoading"
+                @click="useCurrentEnterpriseApplicationForRegisterDraft"
+              >
+                {{ t('auth_enterprise_register_existing_action_use') }}
               </button>
             </div>
             <p class="auth-dialog-hint auth-register-draft-hint">

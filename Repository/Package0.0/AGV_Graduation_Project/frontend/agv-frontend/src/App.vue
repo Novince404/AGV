@@ -694,6 +694,33 @@ const authEnterpriseRegisterDraftUpdatedText = computed(() =>
       })
     : ''
 )
+const authEnterpriseRegisterDraftDiffFields = computed(() => {
+  const application = authCurrentEnterpriseApplication.value
+  if (!application || !authEnterpriseRegisterDraftHasContent.value) return []
+  const fieldDefinitions = [
+    { key: 'company_name', label: t('enterprise_register_company_name') },
+    { key: 'contact_name', label: t('enterprise_register_contact_name') },
+    { key: 'contact_email', label: t('enterprise_register_contact_email') },
+    { key: 'username', label: t('enterprise_register_username') }
+  ]
+  return fieldDefinitions
+    .filter(item => {
+      const draftValue = String(authEnterpriseRegisterForm.value?.[item.key] || '').trim()
+      const applicationValue = String(application?.[item.key] || '').trim()
+      return draftValue !== applicationValue
+    })
+    .map(item => item.label)
+})
+const authEnterpriseRegisterDraftDiffText = computed(() => {
+  if (!authCurrentEnterpriseApplication.value || !authEnterpriseRegisterDraftHasContent.value) return ''
+  if (!authEnterpriseRegisterDraftDiffFields.value.length) {
+    return t('auth_enterprise_register_draft_compare_same')
+  }
+  return formatInlineMessage(t('auth_enterprise_register_draft_compare_changed'), {
+    count: authEnterpriseRegisterDraftDiffFields.value.length,
+    fields: authEnterpriseRegisterDraftDiffFields.value.join(' / ')
+  })
+})
 function buildEnterpriseApplicationProgressItems(application, fallbackStatus = '') {
   if (!application || typeof application !== 'object') return []
   const normalizedStatus = String(application.status || fallbackStatus || '').trim().toLowerCase()
@@ -1117,6 +1144,37 @@ const filteredEnterpriseApplications = computed(() => {
 })
 const selectedEnterpriseApplication = computed(() =>
   filteredEnterpriseApplications.value.find(item => Number(item.id) === Number(selectedEnterpriseApplicationId.value)) || null
+)
+const selectedEnterpriseApplicationIndex = computed(() =>
+  filteredEnterpriseApplications.value.findIndex(item => Number(item.id) === Number(selectedEnterpriseApplicationId.value))
+)
+const selectedEnterpriseApplicationPositionText = computed(() => {
+  if (!selectedEnterpriseApplication.value || selectedEnterpriseApplicationIndex.value < 0) return ''
+  return formatInlineMessage(t('enterprise_approval_position'), {
+    index: selectedEnterpriseApplicationIndex.value + 1,
+    total: filteredEnterpriseApplications.value.length
+  })
+})
+const canSelectPreviousEnterpriseApplication = computed(() =>
+  selectedEnterpriseApplicationIndex.value > 0
+)
+const canSelectNextEnterpriseApplication = computed(() =>
+  selectedEnterpriseApplicationIndex.value >= 0 &&
+  selectedEnterpriseApplicationIndex.value < filteredEnterpriseApplications.value.length - 1
+)
+const nextEnterpriseApprovalDraftApplicationId = computed(() => {
+  const draftItems = filteredEnterpriseApplications.value.filter(item => hasEnterpriseApprovalDraft(item.id))
+  if (!draftItems.length) return null
+  const currentId = Number(selectedEnterpriseApplicationId.value || 0)
+  const currentDraftIndex = draftItems.findIndex(item => Number(item.id) === currentId)
+  if (currentDraftIndex === -1) {
+    return draftItems[0]?.id ?? null
+  }
+  if (draftItems.length === 1) return null
+  return draftItems[(currentDraftIndex + 1) % draftItems.length]?.id ?? null
+})
+const hasNextEnterpriseApprovalDraft = computed(() =>
+  Number(nextEnterpriseApprovalDraftApplicationId.value || 0) > 0
 )
 const recentReviewedEnterpriseApplications = computed(() =>
   [...enterpriseApplications.value]
@@ -3707,6 +3765,16 @@ function fillEnterpriseRegisterFormFromApplication(application = authCurrentEnte
   return true
 }
 
+function useCurrentEnterpriseApplicationForRegisterDraft() {
+  const hydrated = fillEnterpriseRegisterFormFromApplication(authCurrentEnterpriseApplication.value)
+  if (!hydrated) {
+    showFloatingToast(t('auth_enterprise_register_failed'), 'warning')
+    return
+  }
+  switchAuthDialogView('enterprise-register')
+  showFloatingToast(t('auth_enterprise_register_existing_used'), 'success')
+}
+
 function resumeEnterpriseRegistrationFromApplication(application = authCurrentEnterpriseApplication.value, { closeSettings = false } = {}) {
   const hydrated = fillEnterpriseRegisterFormFromApplication(application)
   if (!hydrated) {
@@ -4064,6 +4132,27 @@ async function focusEnterpriseApprovalPendingQueue() {
   enterpriseApprovalSearch.value = ''
   enterpriseApprovalDraftOnly.value = false
   await fetchEnterpriseApplications({ forceSelectFirst: true })
+}
+
+function selectEnterpriseApprovalByOffset(offset = 1) {
+  if (!selectedEnterpriseApplication.value) return
+  const nextIndex = selectedEnterpriseApplicationIndex.value + Number(offset || 0)
+  if (nextIndex < 0 || nextIndex >= filteredEnterpriseApplications.value.length) return
+  selectedEnterpriseApplicationId.value = filteredEnterpriseApplications.value[nextIndex]?.id ?? null
+}
+
+function selectPreviousEnterpriseApplication() {
+  selectEnterpriseApprovalByOffset(-1)
+}
+
+function selectNextEnterpriseApplication() {
+  selectEnterpriseApprovalByOffset(1)
+}
+
+function selectNextEnterpriseApprovalDraft() {
+  const nextId = Number(nextEnterpriseApprovalDraftApplicationId.value || 0)
+  if (!nextId) return
+  selectedEnterpriseApplicationId.value = nextId
 }
 
 async function refreshEnterpriseApprovalSnapshot() {
@@ -9820,6 +9909,7 @@ const authDialogBindings = {
   authEnterpriseRegisterStatusText,
   authEnterpriseRegisterDraftHasContent,
   authEnterpriseRegisterDraftUpdatedText,
+  authEnterpriseRegisterDraftDiffText,
   authEnterpriseRegisterExistingHint,
   authEnterpriseRegisterExistingPrimaryActionLabel,
   authEnterpriseRegisterFollowupProgressItems,
@@ -9850,6 +9940,7 @@ const authDialogBindings = {
   continueEnterpriseRegisterFollowupEditing,
   dismissEnterpriseRegisterFollowup,
   clearEnterpriseRegisterDraft,
+  useCurrentEnterpriseApplicationForRegisterDraft,
   runAuthEnterpriseRegisterExistingPrimaryAction,
   refreshEnterpriseAccountStatus,
   refreshEnterpriseApprovalSnapshot,
@@ -10346,6 +10437,7 @@ const enterpriseApprovalDialogBindings = {
   enterpriseApprovalLastFetchedText,
   selectedEnterpriseApplicationId,
   selectedEnterpriseApplication,
+  selectedEnterpriseApplicationPositionText,
   selectedEnterpriseApplicationProgressItems,
   selectedEnterpriseApplicationNextStepText,
   selectedEnterpriseApplicationActionItems,
@@ -10356,6 +10448,9 @@ const enterpriseApprovalDialogBindings = {
   enterpriseApprovalCanReject,
   enterpriseApprovalReviewLoading,
   hasEnterpriseApprovalDraft,
+  canSelectPreviousEnterpriseApplication,
+  canSelectNextEnterpriseApplication,
+  hasNextEnterpriseApprovalDraft,
   closeEnterpriseApprovalDialog,
   resetEnterpriseApprovalFilters,
   setEnterpriseApprovalStatusFilter,
@@ -10365,6 +10460,9 @@ const enterpriseApprovalDialogBindings = {
   exportEnterpriseApplicationsCsv,
   fetchEnterpriseApplications,
   runEnterpriseApprovalEmptyStateAction,
+  selectPreviousEnterpriseApplication,
+  selectNextEnterpriseApplication,
+  selectNextEnterpriseApprovalDraft,
   applyEnterpriseApprovalReviewNoteTemplate,
   clearEnterpriseApprovalReviewNote,
   clearEnterpriseApprovalCurrentDraft,

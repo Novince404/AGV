@@ -180,7 +180,12 @@
             </div>
 
             <div class="approval-detail-toolbar">
-              <strong>{{ t('enterprise_application_progress_title') }}</strong>
+              <div>
+                <strong>{{ t('enterprise_application_progress_title') }}</strong>
+                <div v-if="selectedEnterpriseApplicationPositionText" class="task-line operations-last-fetched approval-filter-summary">
+                  {{ selectedEnterpriseApplicationPositionText }}
+                </div>
+              </div>
               <div class="approval-actions approval-detail-actions">
                 <span
                   v-if="hasEnterpriseApprovalDraft(selectedEnterpriseApplication.id)"
@@ -188,6 +193,30 @@
                 >
                   {{ t('enterprise_approval_draft_badge') }}
                 </span>
+                <button
+                  class="btn-ghost"
+                  type="button"
+                  :disabled="!canSelectPreviousEnterpriseApplication"
+                  @click="selectPreviousEnterpriseApplication"
+                >
+                  {{ t('enterprise_approval_previous') }}
+                </button>
+                <button
+                  class="btn-ghost"
+                  type="button"
+                  :disabled="!canSelectNextEnterpriseApplication"
+                  @click="selectNextEnterpriseApplication"
+                >
+                  {{ t('enterprise_approval_next') }}
+                </button>
+                <button
+                  v-if="hasNextEnterpriseApprovalDraft"
+                  class="btn-ghost"
+                  type="button"
+                  @click="selectNextEnterpriseApprovalDraft"
+                >
+                  {{ t('enterprise_approval_next_draft') }}
+                </button>
                 <button
                   v-if="selectedEnterpriseApplication.username"
                   class="btn-ghost"
