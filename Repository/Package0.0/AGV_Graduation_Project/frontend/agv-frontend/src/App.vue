@@ -104,6 +104,7 @@ const TASK_QUEUE_VIEW_STORAGE_KEY = 'agv_task_queue_view'
 const EXPERIMENT_RECORDS_STORAGE_KEY = 'agv_experiment_records'
 const COMFY_WORKFLOW_TEMPLATE_STORAGE_KEY = 'agv_comfy_workflow_templates'
 const ENTERPRISE_SETTINGS_TAB_STORAGE_KEY = 'agv_enterprise_settings_tabs'
+const ENTERPRISE_REGISTER_DRAFT_STORAGE_KEY = 'agv_enterprise_register_draft'
 const MINIMAP_WIDTH = 168
 const MIN_ZOOM = 0.75
 const MAX_ZOOM = 3
@@ -455,6 +456,46 @@ function formatInlineMessage(template, replacements = {}) {
   )
 }
 
+function loadEnterpriseRegisterDraft() {
+  if (typeof window === 'undefined' || !window.localStorage) {
+    return {
+      company_name: '',
+      contact_name: '',
+      contact_email: '',
+      username: '',
+      password: ''
+    }
+  }
+  try {
+    const raw = window.localStorage.getItem(ENTERPRISE_REGISTER_DRAFT_STORAGE_KEY)
+    if (!raw) {
+      return {
+        company_name: '',
+        contact_name: '',
+        contact_email: '',
+        username: '',
+        password: ''
+      }
+    }
+    const parsed = JSON.parse(raw)
+    return {
+      company_name: String(parsed?.company_name || ''),
+      contact_name: String(parsed?.contact_name || ''),
+      contact_email: String(parsed?.contact_email || ''),
+      username: String(parsed?.username || ''),
+      password: ''
+    }
+  } catch {
+    return {
+      company_name: '',
+      contact_name: '',
+      contact_email: '',
+      username: '',
+      password: ''
+    }
+  }
+}
+
 const {
   authPanelOpen,
   authLoading,
@@ -486,13 +527,7 @@ const authGuestAccepted = ref(false)
 const authDialogView = ref('login')
 const authEnterpriseRegisterLoading = ref(false)
 const authEnterpriseRegisterFollowup = ref(null)
-const authEnterpriseRegisterForm = ref({
-  company_name: '',
-  contact_name: '',
-  contact_email: '',
-  username: '',
-  password: ''
-})
+const authEnterpriseRegisterForm = ref(loadEnterpriseRegisterDraft())
 const enterpriseApprovalDialogOpen = ref(false)
 const enterpriseApprovalLoading = ref(false)
 const enterpriseApprovalReviewLoading = ref(false)
@@ -573,6 +608,11 @@ const authEnterpriseRegisterStatusText = computed(() =>
     ? t('auth_enterprise_register_ready')
     : formatInlineMessage(t('auth_enterprise_register_incomplete'), { count: authEnterpriseRegisterValidation.value.missingCount })
 )
+const authEnterpriseRegisterDraftHasContent = computed(() => {
+  const draft = authEnterpriseRegisterForm.value
+  return ['company_name', 'contact_name', 'contact_email', 'username']
+    .some(key => Boolean(String(draft?.[key] || '').trim()))
+})
 function buildEnterpriseApplicationProgressItems(application, fallbackStatus = '') {
   if (!application || typeof application !== 'object') return []
   const normalizedStatus = String(application.status || fallbackStatus || '').trim().toLowerCase()
@@ -3307,7 +3347,55 @@ function resetEnterpriseRegisterForm() {
     username: '',
     password: ''
   }
+  if (typeof window !== 'undefined' && window.localStorage) {
+    window.localStorage.removeItem(ENTERPRISE_REGISTER_DRAFT_STORAGE_KEY)
+  }
 }
+
+function clearEnterpriseRegisterDraft() {
+  resetEnterpriseRegisterForm()
+  showFloatingToast(t('auth_enterprise_register_draft_cleared'), 'info')
+}
+
+watch(
+  authEnterpriseRegisterForm,
+  value => {
+    if (typeof window === 'undefined' || !window.localStorage) return
+    const nextDraft = {
+      company_name: String(value?.company_name || '').trim(),
+      contact_name: String(value?.contact_name || '').trim(),
+      contact_email: String(value?.contact_email || '').trim(),
+      username: String(value?.username || '').trim()
+    }
+    const hasContent = Object.values(nextDraft).some(item => Boolean(item))
+    if (!hasContent) {
+      window.localStorage.removeItem(ENTERPRISE_REGISTER_DRAFT_STORAGE_KEY)
+      return
+    }
+    window.localStorage.setItem(ENTERPRISE_REGISTER_DRAFT_STORAGE_KEY, JSON.stringify(nextDraft))
+  },
+  { deep: true }
+)
+
+watch(
+  authDialogView,
+  nextView => {
+    if (nextView !== 'enterprise-register') return
+    if (!authEnterpriseRegisterDraftHasContent.value) return
+    authEnterpriseRegisterForm.value = {
+      ...loadEnterpriseRegisterDraft(),
+      password: authEnterpriseRegisterForm.value.password || ''
+    }
+  }
+)
+
+watch(
+  authEnterpriseRegisterFollowup,
+  nextValue => {
+    if (!nextValue || typeof window === 'undefined' || !window.localStorage) return
+    window.localStorage.removeItem(ENTERPRISE_REGISTER_DRAFT_STORAGE_KEY)
+  }
+)
 
 function switchAuthDialogView(view) {
   authDialogView.value = view === 'enterprise-register' ? 'enterprise-register' : 'login'
@@ -3336,7 +3424,8 @@ async function handleEnterpriseRegister() {
     authPassword.value = payload.password
     authEnterpriseRegisterFollowup.value = {
       company_name: payload.company_name,
-      username: payload.username
+      username: payload.username,
+      contact_email: payload.contact_email
     }
     switchAuthDialogView('login')
     showFloatingToast(
@@ -9121,6 +9210,7 @@ const authDialogBindings = {
   authStatusNotice,
   authEnterpriseRegisterValidation,
   authEnterpriseRegisterStatusText,
+  authEnterpriseRegisterDraftHasContent,
   authEnterpriseRegisterFollowup,
   authLoading,
   authCapabilityCards,
@@ -9145,6 +9235,7 @@ const authDialogBindings = {
   handleAuthDemoFill,
   handleEnterpriseRegister,
   signInEnterpriseRegisterFollowup,
+  clearEnterpriseRegisterDraft,
   refreshEnterpriseAccountStatus,
   refreshEnterpriseApprovalSnapshot,
   copyEnterpriseApplicationUsername,

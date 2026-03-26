@@ -331,6 +331,15 @@
             </div>
             <div class="auth-status-actions">
               <button
+                v-if="authEnterpriseRegisterFollowup.contact_email"
+                class="btn-ghost"
+                type="button"
+                :disabled="authLoading"
+                @click="copyEnterpriseApplicationContactEmail(authEnterpriseRegisterFollowup)"
+              >
+                {{ t('enterprise_application_copy_contact_email') }}
+              </button>
+              <button
                 class="auth-dialog-submit"
                 type="button"
                 :disabled="authLoading"
@@ -419,7 +428,18 @@
               >
                 {{ authEnterpriseRegisterLoading ? t('auth_enterprise_register_submitting') : t('auth_enterprise_register_submit') }}
               </button>
+              <button
+                class="btn-ghost"
+                type="button"
+                :disabled="authEnterpriseRegisterLoading || !authEnterpriseRegisterDraftHasContent"
+                @click="clearEnterpriseRegisterDraft"
+              >
+                {{ t('auth_enterprise_register_clear_draft') }}
+              </button>
             </div>
+            <p class="auth-dialog-hint auth-register-draft-hint">
+              {{ t('auth_enterprise_register_draft_hint') }}
+            </p>
 
             <div class="auth-register-sidecard">
               <div class="auth-register-sidecard-head">

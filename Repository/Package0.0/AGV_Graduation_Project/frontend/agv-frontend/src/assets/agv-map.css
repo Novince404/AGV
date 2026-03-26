@@ -1316,6 +1316,10 @@ h2 {
   gap: 6px;
 }
 
+.auth-register-draft-hint {
+  margin: -4px 0 0;
+}
+
 .auth-dialog-submit {
   padding: 11px 14px;
   border: none;
