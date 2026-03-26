@@ -103,6 +103,22 @@
                   </div>
                   <div class="enterprise-settings-inline-actions">
                     <button
+                      v-if="authCurrentEnterpriseApplication?.company_name || authCurrentOrganizationName"
+                      class="btn-ghost enterprise-settings-inline-button"
+                      type="button"
+                      @click="copyEnterpriseApplicationCompanyName(authCurrentEnterpriseApplication)"
+                    >
+                      {{ t('enterprise_application_copy_company_name') }}
+                    </button>
+                    <button
+                      v-if="authCurrentEnterpriseApplication?.contact_name"
+                      class="btn-ghost enterprise-settings-inline-button"
+                      type="button"
+                      @click="copyEnterpriseApplicationContactName(authCurrentEnterpriseApplication)"
+                    >
+                      {{ t('enterprise_application_copy_contact_name') }}
+                    </button>
+                    <button
                       v-if="authCurrentEnterpriseApplication?.username"
                       class="btn-ghost enterprise-settings-inline-button"
                       type="button"

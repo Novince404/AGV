@@ -353,6 +353,23 @@
             </div>
             <div class="auth-status-actions">
               <button
+                class="btn-ghost"
+                type="button"
+                :disabled="authLoading"
+                @click="copyEnterpriseApplicationCompanyName(authEnterpriseRegisterFollowup)"
+              >
+                {{ t('enterprise_application_copy_company_name') }}
+              </button>
+              <button
+                v-if="authEnterpriseRegisterFollowup.contact_name"
+                class="btn-ghost"
+                type="button"
+                :disabled="authLoading"
+                @click="copyEnterpriseApplicationContactName(authEnterpriseRegisterFollowup)"
+              >
+                {{ t('enterprise_application_copy_contact_name') }}
+              </button>
+              <button
                 v-if="authEnterpriseRegisterFollowup.contact_email"
                 class="btn-ghost"
                 type="button"

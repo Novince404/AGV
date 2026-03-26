@@ -724,6 +724,20 @@ const enterpriseApplicationNextStepText = computed(() => {
 const enterpriseApplicationActionItems = computed(() => {
   if (!authIsEnterpriseRole.value) return []
   const items = []
+  if (authCurrentEnterpriseApplication.value?.company_name) {
+    items.push({
+      key: 'copy-company-name',
+      label: t('enterprise_application_copy_company_name'),
+      tone: 'ghost'
+    })
+  }
+  if (authCurrentEnterpriseApplication.value?.contact_name) {
+    items.push({
+      key: 'copy-contact-name',
+      label: t('enterprise_application_copy_contact_name'),
+      tone: 'ghost'
+    })
+  }
   if (authCurrentEnterpriseApplication.value?.username) {
     items.push({
       key: 'copy-username',
@@ -815,6 +829,20 @@ const selectedEnterpriseApplicationActionItems = computed(() => {
   if (!application) return []
   const status = String(application.status || '').trim().toLowerCase()
   const items = []
+  if (application.company_name) {
+    items.push({
+      key: 'copy-company-name',
+      label: t('enterprise_application_copy_company_name'),
+      tone: 'ghost'
+    })
+  }
+  if (application.contact_name) {
+    items.push({
+      key: 'copy-contact-name',
+      label: t('enterprise_application_copy_contact_name'),
+      tone: 'ghost'
+    })
+  }
   if (application.username) {
     items.push({
       key: 'copy-username',
@@ -987,6 +1015,20 @@ const authEnterpriseQuickActionItems = computed(() => {
   if (!authIsEnterpriseRole.value) return []
   const application = authCurrentEnterpriseApplication.value
   const items = []
+  if (application?.company_name) {
+    items.push({
+      key: 'copy-company-name',
+      label: t('enterprise_application_copy_company_name'),
+      tone: 'ghost'
+    })
+  }
+  if (application?.contact_name) {
+    items.push({
+      key: 'copy-contact-name',
+      label: t('enterprise_application_copy_contact_name'),
+      tone: 'ghost'
+    })
+  }
   if (application?.username) {
     items.push({
       key: 'copy-username',
@@ -3522,6 +3564,39 @@ async function copyEnterpriseApplicationUsername(application = authCurrentEnterp
   showFloatingToast(t('enterprise_application_copy_username_failed'), 'error')
 }
 
+async function copyEnterpriseApplicationCompanyName(application = authCurrentEnterpriseApplication.value) {
+  const companyName = String(application?.company_name || authCurrentOrganizationName.value || '').trim()
+  if (!companyName) return
+  const copied = await copyTextToClipboard(companyName)
+  if (copied) {
+    showFloatingToast(
+      formatInlineMessage(t('enterprise_application_copy_company_name_ok'), {
+        company: companyName
+      }),
+      'success'
+    )
+    return
+  }
+  showFloatingToast(t('enterprise_application_copy_company_name_failed'), 'error')
+}
+
+async function copyEnterpriseApplicationContactName(application = authCurrentEnterpriseApplication.value) {
+  const contactName = String(application?.contact_name || '').trim()
+  if (!contactName) return
+  const copied = await copyTextToClipboard(contactName)
+  if (copied) {
+    showFloatingToast(
+      formatInlineMessage(t('enterprise_application_copy_contact_name_ok'), {
+        company: String(application?.company_name || authCurrentOrganizationName.value || '—'),
+        contact: contactName
+      }),
+      'success'
+    )
+    return
+  }
+  showFloatingToast(t('enterprise_application_copy_contact_name_failed'), 'error')
+}
+
 async function copyEnterpriseApplicationContactEmail(application = selectedEnterpriseApplication.value) {
   const email = String(application?.contact_email || '').trim()
   if (!email) return
@@ -3787,6 +3862,12 @@ async function jumpFromEnterpriseSettings(sectionKey) {
 
 async function runEnterpriseApplicationAction(actionKey) {
   switch (String(actionKey || '')) {
+    case 'copy-company-name':
+      await copyEnterpriseApplicationCompanyName(authCurrentEnterpriseApplication.value)
+      return
+    case 'copy-contact-name':
+      await copyEnterpriseApplicationContactName(authCurrentEnterpriseApplication.value)
+      return
     case 'copy-username':
       copyEnterpriseApplicationUsername(authCurrentEnterpriseApplication.value)
       return
@@ -3827,6 +3908,12 @@ async function runEnterpriseApplicationAction(actionKey) {
 
 async function runEnterpriseApprovalAction(actionKey) {
   switch (String(actionKey || '')) {
+    case 'copy-company-name':
+      await copyEnterpriseApplicationCompanyName(selectedEnterpriseApplication.value)
+      return
+    case 'copy-contact-name':
+      await copyEnterpriseApplicationContactName(selectedEnterpriseApplication.value)
+      return
     case 'copy-username':
       await copyEnterpriseApplicationUsername(selectedEnterpriseApplication.value)
       return
@@ -3853,6 +3940,12 @@ function clearEnterpriseApprovalReviewNote() {
 
 async function runAuthEnterpriseQuickAction(actionKey) {
   switch (String(actionKey || '')) {
+    case 'copy-company-name':
+      await copyEnterpriseApplicationCompanyName(authCurrentEnterpriseApplication.value)
+      return
+    case 'copy-contact-name':
+      await copyEnterpriseApplicationContactName(authCurrentEnterpriseApplication.value)
+      return
     case 'copy-username':
       await copyEnterpriseApplicationUsername(authCurrentEnterpriseApplication.value)
       return
@@ -9259,6 +9352,8 @@ const authDialogBindings = {
   clearEnterpriseRegisterDraft,
   refreshEnterpriseAccountStatus,
   refreshEnterpriseApprovalSnapshot,
+  copyEnterpriseApplicationCompanyName,
+  copyEnterpriseApplicationContactName,
   copyEnterpriseApplicationUsername,
   copyEnterpriseApplicationContactEmail,
   formatInlineMessage,
@@ -9796,6 +9891,8 @@ const enterpriseSettingsDialogBindings = {
   enterpriseApplicationNextStepText,
   enterpriseApplicationActionItems,
   authEnterpriseApplicationProgressItems,
+  copyEnterpriseApplicationCompanyName,
+  copyEnterpriseApplicationContactName,
   copyEnterpriseApplicationContactEmail,
   currentMapProfileLabel,
   currentDispatchModeLabel,
