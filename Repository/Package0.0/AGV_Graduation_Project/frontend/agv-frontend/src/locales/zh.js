@@ -627,6 +627,7 @@
     "enterprise_approval_reviewed_by": "审批人",
     "enterprise_approval_review_note": "审批备注",
     "enterprise_approval_review_note_hint": "通过时可选填简短备注；驳回时建议写明原因，方便企业后续跟进。",
+    "enterprise_approval_review_note_saved_at": "备注草稿最近保存于 {at}",
     "enterprise_approval_review_note_counter": "已输入 {count} 个字符",
     "enterprise_approval_review_note_clear": "清空备注",
     "enterprise_approval_reject_requires_note": "驳回企业申请前，请先填写审批备注。",

@@ -452,6 +452,7 @@
     "enterprise_approval_reviewed_by": "審査者",
     "enterprise_approval_review_note": "審査メモ",
     "enterprise_approval_review_note_hint": "承認では短い任意メモを使えます。却下時はフォローアップしやすいよう理由を明記してください。",
+    "enterprise_approval_review_note_saved_at": "メモの下書きを {at} に保存しました",
     "enterprise_approval_review_note_counter": "{count} 文字",
     "enterprise_approval_review_note_clear": "メモを消去",
     "enterprise_approval_reject_requires_note": "この企業申請を却下する前に審査メモを入力してください。",

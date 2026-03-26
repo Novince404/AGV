@@ -627,6 +627,7 @@
     "enterprise_approval_reviewed_by": "Reviewed By",
     "enterprise_approval_review_note": "Review Note",
     "enterprise_approval_review_note_hint": "Approvals can use an optional short note. Rejections should include a clear reason for follow-up.",
+    "enterprise_approval_review_note_saved_at": "Draft saved at {at}",
     "enterprise_approval_review_note_counter": "{count} character(s)",
     "enterprise_approval_review_note_clear": "Clear Note",
     "enterprise_approval_reject_requires_note": "Add a review note before rejecting this enterprise application.",

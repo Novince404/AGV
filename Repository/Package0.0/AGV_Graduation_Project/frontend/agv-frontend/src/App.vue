@@ -106,6 +106,7 @@ const COMFY_WORKFLOW_TEMPLATE_STORAGE_KEY = 'agv_comfy_workflow_templates'
 const ENTERPRISE_SETTINGS_TAB_STORAGE_KEY = 'agv_enterprise_settings_tabs'
 const ENTERPRISE_REGISTER_DRAFT_STORAGE_KEY = 'agv_enterprise_register_draft'
 const ENTERPRISE_REGISTER_FOLLOWUP_STORAGE_KEY = 'agv_enterprise_register_followup'
+const ENTERPRISE_APPROVAL_UI_STORAGE_KEY = 'agv_enterprise_approval_ui'
 const MINIMAP_WIDTH = 168
 const MIN_ZOOM = 0.75
 const MAX_ZOOM = 3
@@ -514,6 +515,53 @@ function loadEnterpriseRegisterFollowup() {
   }
 }
 
+function readEnterpriseApprovalUiPayload() {
+  if (typeof window === 'undefined' || !window.localStorage) return null
+  try {
+    const raw = window.localStorage.getItem(ENTERPRISE_APPROVAL_UI_STORAGE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    return typeof parsed === 'object' && parsed ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+function loadEnterpriseApprovalUiState() {
+  const parsed = readEnterpriseApprovalUiPayload()
+  if (!parsed) {
+    return {
+      status: 'pending',
+      search: '',
+      selectedId: null,
+      noteDrafts: {}
+    }
+  }
+  const normalizedStatus = ['all', 'pending', 'approved', 'rejected'].includes(String(parsed?.status || ''))
+    ? String(parsed.status)
+    : 'pending'
+  const selectedId = Number(parsed?.selectedId)
+  const rawDrafts = parsed?.noteDrafts && typeof parsed.noteDrafts === 'object' ? parsed.noteDrafts : {}
+  const noteDrafts = Object.fromEntries(
+    Object.entries(rawDrafts).map(([key, value]) => {
+      const normalized = value && typeof value === 'object' ? value : {}
+      return [
+        String(key),
+        {
+          text: String(normalized.text || ''),
+          updated_at: String(normalized.updated_at || '')
+        }
+      ]
+    })
+  )
+  return {
+    status: normalizedStatus,
+    search: String(parsed?.search || ''),
+    selectedId: Number.isFinite(selectedId) && selectedId > 0 ? selectedId : null,
+    noteDrafts
+  }
+}
+
 const {
   authPanelOpen,
   authLoading,
@@ -549,16 +597,18 @@ const authEnterpriseRegisterForm = ref(loadEnterpriseRegisterDraft())
 const authEnterpriseRegisterDraftUpdatedAt = ref(
   String(readEnterpriseRegisterDraftPayload()?.updated_at || '')
 )
+const enterpriseApprovalUiState = loadEnterpriseApprovalUiState()
 const enterpriseApprovalDialogOpen = ref(false)
 const enterpriseApprovalLoading = ref(false)
 const enterpriseApprovalReviewLoading = ref(false)
-const enterpriseApprovalStatusFilter = ref('pending')
-const enterpriseApprovalSearch = ref('')
+const enterpriseApprovalStatusFilter = ref(enterpriseApprovalUiState.status)
+const enterpriseApprovalSearch = ref(enterpriseApprovalUiState.search)
 const enterpriseApprovalSummary = ref({ all: 0, pending: 0, approved: 0, rejected: 0 })
 const enterpriseApplications = ref([])
 const enterpriseApprovalLastFetchedAt = ref('')
-const selectedEnterpriseApplicationId = ref(null)
+const selectedEnterpriseApplicationId = ref(enterpriseApprovalUiState.selectedId)
 const enterpriseApprovalReviewNote = ref('')
+const enterpriseApprovalNoteDrafts = ref(enterpriseApprovalUiState.noteDrafts)
 const enterpriseSettingsDialogOpen = ref(false)
 const enterpriseSettingsActiveTab = ref('overview')
 const authRoleLabel = computed(() => t(`auth_role_${authCurrentRole.value}`))
@@ -984,6 +1034,18 @@ const enterpriseApprovalReviewNoteLength = computed(() =>
 )
 const enterpriseApprovalCanReject = computed(() =>
   enterpriseApprovalReviewNoteLength.value > 0
+)
+const enterpriseApprovalCurrentDraftMeta = computed(() => {
+  const applicationId = Number(selectedEnterpriseApplicationId.value || 0)
+  if (!applicationId) return null
+  return enterpriseApprovalNoteDrafts.value[String(applicationId)] || null
+})
+const enterpriseApprovalReviewDraftUpdatedText = computed(() =>
+  enterpriseApprovalCurrentDraftMeta.value?.updated_at
+    ? formatInlineMessage(t('enterprise_approval_review_note_saved_at'), {
+      at: formatDateTimeInline(enterpriseApprovalCurrentDraftMeta.value.updated_at)
+    })
+    : ''
 )
 const authTitleButtonTitle = computed(() =>
   authAuthenticated.value
@@ -3900,14 +3962,16 @@ async function fetchEnterpriseApplications({ forceSelectFirst = false, preferred
   }
 }
 
-async function openEnterpriseApprovalDialog({ status = 'pending', selectedId = null, resetSearch = true } = {}) {
+async function openEnterpriseApprovalDialog({ status = '', selectedId = null, resetSearch = false } = {}) {
   if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'enterprise.approve', buildCapabilityDeniedMessage('platform'))) return
   enterpriseApprovalDialogOpen.value = true
   if (resetSearch) {
     enterpriseApprovalSearch.value = ''
   }
   enterpriseApprovalReviewNote.value = ''
-  enterpriseApprovalStatusFilter.value = String(status || 'pending')
+  if (String(status || '').trim()) {
+    enterpriseApprovalStatusFilter.value = String(status).trim()
+  }
   await fetchEnterpriseApplications({ forceSelectFirst: selectedId == null, preferredSelectedId: selectedId })
 }
 
@@ -3922,13 +3986,13 @@ async function openEnterpriseApprovalDialogForItem(applicationId, status = 'pend
 
 function closeEnterpriseApprovalDialog() {
   enterpriseApprovalDialogOpen.value = false
-  enterpriseApprovalSearch.value = ''
   enterpriseApprovalReviewNote.value = ''
 }
 
 function resetEnterpriseApprovalFilters() {
   enterpriseApprovalStatusFilter.value = 'pending'
   enterpriseApprovalSearch.value = ''
+  selectedEnterpriseApplicationId.value = null
 }
 
 function setEnterpriseApprovalStatusFilter(nextStatus = 'all') {
@@ -4015,6 +4079,19 @@ function exportEnterpriseApplicationsCsv() {
   }
   downloadCsvFile(`${buildEnterpriseApprovalExportFilename()}.csv`, rowsToCsv(rows))
   showFloatingToast(t('enterprise_approval_export_csv_ok'), 'success')
+}
+
+function saveEnterpriseApprovalUiState() {
+  if (typeof window === 'undefined' || !window.localStorage) return
+  window.localStorage.setItem(
+    ENTERPRISE_APPROVAL_UI_STORAGE_KEY,
+    JSON.stringify({
+      status: enterpriseApprovalStatusFilter.value,
+      search: String(enterpriseApprovalSearch.value || ''),
+      selectedId: selectedEnterpriseApplicationId.value ?? null,
+      noteDrafts: enterpriseApprovalNoteDrafts.value
+    })
+  )
 }
 
 function preferredEnterpriseSettingsTab(role = authCurrentRole.value) {
@@ -4290,6 +4367,12 @@ async function reviewEnterpriseApplication(decision) {
       throw createApiError(data, 'Enterprise application review failed')
     }
     const reviewedApplication = data?.application ?? null
+    const draftKey = String(applicationId)
+    if (enterpriseApprovalNoteDrafts.value[draftKey]) {
+      const nextDrafts = { ...enterpriseApprovalNoteDrafts.value }
+      delete nextDrafts[draftKey]
+      enterpriseApprovalNoteDrafts.value = nextDrafts
+    }
     enterpriseApprovalReviewNote.value = ''
     await fetchEnterpriseApplications({ forceSelectFirst: false })
     const remainingFiltered = filteredEnterpriseApplications.value
@@ -9438,6 +9521,42 @@ watch([enterpriseApprovalSearch, filteredEnterpriseApplications], () => {
   }
 })
 
+watch(
+  [enterpriseApprovalStatusFilter, enterpriseApprovalSearch, selectedEnterpriseApplicationId, enterpriseApprovalNoteDrafts],
+  () => {
+    saveEnterpriseApprovalUiState()
+  },
+  { deep: true }
+)
+
+watch(selectedEnterpriseApplicationId, nextId => {
+  const normalizedId = Number(nextId || 0)
+  if (!normalizedId) {
+    enterpriseApprovalReviewNote.value = ''
+    return
+  }
+  const savedDraft = enterpriseApprovalNoteDrafts.value[String(normalizedId)]
+  enterpriseApprovalReviewNote.value = String(savedDraft?.text || '')
+})
+
+watch(enterpriseApprovalReviewNote, nextValue => {
+  const applicationId = Number(selectedEnterpriseApplicationId.value || 0)
+  if (!applicationId) return
+  const normalizedKey = String(applicationId)
+  const trimmed = String(nextValue || '').trim()
+  const nextDrafts = { ...enterpriseApprovalNoteDrafts.value }
+  if (!trimmed) {
+    delete nextDrafts[normalizedKey]
+    enterpriseApprovalNoteDrafts.value = nextDrafts
+    return
+  }
+  nextDrafts[normalizedKey] = {
+    text: String(nextValue || ''),
+    updated_at: new Date().toISOString()
+  }
+  enterpriseApprovalNoteDrafts.value = nextDrafts
+})
+
 watch(panelSummaryMode, () => {
   summaryZoomArmed.value = false
   savePanelSummaryMode()
@@ -10157,6 +10276,7 @@ const enterpriseApprovalDialogBindings = {
   enterpriseApprovalReviewNoteTemplates,
   enterpriseApprovalReviewNote,
   enterpriseApprovalReviewNoteLength,
+  enterpriseApprovalReviewDraftUpdatedText,
   enterpriseApprovalCanReject,
   enterpriseApprovalReviewLoading,
   closeEnterpriseApprovalDialog,

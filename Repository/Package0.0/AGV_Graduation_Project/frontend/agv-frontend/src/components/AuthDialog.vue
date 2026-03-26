@@ -80,7 +80,7 @@
               class="auth-dialog-inline-action"
               type="button"
               :disabled="authLoading"
-              @click="openEnterpriseApprovalDialog"
+              @click="openEnterpriseApprovalDialog({ status: 'pending', resetSearch: true })"
             >
               {{ t('enterprise_approval_entry') }}
             </button>

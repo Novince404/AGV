@@ -208,6 +208,7 @@
             </label>
             <div class="approval-note-meta">
               <span>{{ t('enterprise_approval_review_note_hint') }}</span>
+              <span v-if="enterpriseApprovalReviewDraftUpdatedText">{{ enterpriseApprovalReviewDraftUpdatedText }}</span>
               <div class="approval-actions">
                 <small>{{ formatInlineMessage(t('enterprise_approval_review_note_counter'), { count: enterpriseApprovalReviewNoteLength }) }}</small>
                 <button
