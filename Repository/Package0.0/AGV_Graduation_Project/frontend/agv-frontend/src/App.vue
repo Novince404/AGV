@@ -1040,12 +1040,22 @@ const enterpriseApprovalCurrentDraftMeta = computed(() => {
   if (!applicationId) return null
   return enterpriseApprovalNoteDrafts.value[String(applicationId)] || null
 })
+const enterpriseApprovalDraftCount = computed(() =>
+  Object.values(enterpriseApprovalNoteDrafts.value || {}).filter(item => String(item?.text || '').trim()).length
+)
 const enterpriseApprovalReviewDraftUpdatedText = computed(() =>
   enterpriseApprovalCurrentDraftMeta.value?.updated_at
     ? formatInlineMessage(t('enterprise_approval_review_note_saved_at'), {
       at: formatDateTimeInline(enterpriseApprovalCurrentDraftMeta.value.updated_at)
     })
     : ''
+)
+const enterpriseApprovalDraftSummaryText = computed(() =>
+  enterpriseApprovalDraftCount.value > 0
+    ? formatInlineMessage(t('enterprise_approval_draft_summary'), {
+      count: enterpriseApprovalDraftCount.value
+    })
+    : t('enterprise_approval_draft_summary_empty')
 )
 const authTitleButtonTitle = computed(() =>
   authAuthenticated.value
@@ -4092,6 +4102,29 @@ function saveEnterpriseApprovalUiState() {
       noteDrafts: enterpriseApprovalNoteDrafts.value
     })
   )
+}
+
+function hasEnterpriseApprovalDraft(applicationId) {
+  const normalizedId = Number(applicationId || 0)
+  if (!normalizedId) return false
+  return Boolean(String(enterpriseApprovalNoteDrafts.value[String(normalizedId)]?.text || '').trim())
+}
+
+function clearEnterpriseApprovalCurrentDraft() {
+  const applicationId = Number(selectedEnterpriseApplicationId.value || 0)
+  if (!applicationId || !hasEnterpriseApprovalDraft(applicationId)) return
+  const nextDrafts = { ...enterpriseApprovalNoteDrafts.value }
+  delete nextDrafts[String(applicationId)]
+  enterpriseApprovalNoteDrafts.value = nextDrafts
+  enterpriseApprovalReviewNote.value = ''
+  showFloatingToast(t('enterprise_approval_clear_current_draft_ok'), 'info')
+}
+
+function clearAllEnterpriseApprovalDrafts() {
+  if (!enterpriseApprovalDraftCount.value) return
+  enterpriseApprovalNoteDrafts.value = {}
+  enterpriseApprovalReviewNote.value = ''
+  showFloatingToast(t('enterprise_approval_clear_all_drafts_ok'), 'info')
 }
 
 function preferredEnterpriseSettingsTab(role = authCurrentRole.value) {
@@ -10265,6 +10298,8 @@ const enterpriseApprovalDialogBindings = {
   filteredEnterpriseApplications,
   recentReviewedEnterpriseApplications,
   enterpriseApprovalFilterSummaryText,
+  enterpriseApprovalDraftCount,
+  enterpriseApprovalDraftSummaryText,
   enterpriseApprovalEmptyStateHint,
   enterpriseApprovalEmptyStateActions,
   enterpriseApprovalLastFetchedText,
@@ -10279,6 +10314,7 @@ const enterpriseApprovalDialogBindings = {
   enterpriseApprovalReviewDraftUpdatedText,
   enterpriseApprovalCanReject,
   enterpriseApprovalReviewLoading,
+  hasEnterpriseApprovalDraft,
   closeEnterpriseApprovalDialog,
   resetEnterpriseApprovalFilters,
   setEnterpriseApprovalStatusFilter,
@@ -10289,6 +10325,8 @@ const enterpriseApprovalDialogBindings = {
   runEnterpriseApprovalEmptyStateAction,
   applyEnterpriseApprovalReviewNoteTemplate,
   clearEnterpriseApprovalReviewNote,
+  clearEnterpriseApprovalCurrentDraft,
+  clearAllEnterpriseApprovalDrafts,
   copyEnterpriseApplicationUsername,
   copyEnterpriseApplicationContactEmail,
   runEnterpriseApprovalAction,

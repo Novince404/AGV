@@ -79,6 +79,9 @@
           <div class="task-line operations-last-fetched approval-filter-summary">
             {{ enterpriseApprovalFilterSummaryText }}
           </div>
+          <div class="task-line operations-last-fetched approval-filter-summary">
+            {{ enterpriseApprovalDraftSummaryText }}
+          </div>
           <label class="auth-dialog-field">
             <span>{{ t('enterprise_approval_filter_status') }}</span>
             <select v-model="enterpriseApprovalStatusFilter">
@@ -111,6 +114,14 @@
           <button class="btn-ghost" type="button" @click="exportEnterpriseApplicationsCsv">
             {{ t('enterprise_approval_export_csv') }}
           </button>
+          <button
+            v-if="enterpriseApprovalDraftCount > 0"
+            class="btn-ghost"
+            type="button"
+            @click="clearAllEnterpriseApprovalDrafts"
+          >
+            {{ t('enterprise_approval_clear_all_drafts') }}
+          </button>
         </div>
 
         <div class="approval-layout">
@@ -126,7 +137,15 @@
             >
               <strong>{{ item.company_name }}</strong>
               <span>{{ formatInlineMessage(t('enterprise_approval_item_meta'), { contact: item.contact_name, username: item.username }) }}</span>
-              <small>{{ t(`enterprise_approval_status_${item.status}`) }}</small>
+              <div class="approval-list-meta">
+                <small>{{ t(`enterprise_approval_status_${item.status}`) }}</small>
+                <span
+                  v-if="hasEnterpriseApprovalDraft(item.id)"
+                  class="point-badge approval-draft-badge"
+                >
+                  {{ t('enterprise_approval_draft_badge') }}
+                </span>
+              </div>
             </button>
             <div v-if="!enterpriseApprovalLoading && filteredEnterpriseApplications.length === 0" class="approval-empty">
               <strong>{{ t('enterprise_approval_empty') }}</strong>
@@ -159,14 +178,22 @@
 
             <div class="approval-detail-toolbar">
               <strong>{{ t('enterprise_application_progress_title') }}</strong>
-              <button
-                v-if="selectedEnterpriseApplication.username"
-                class="btn-ghost"
-                type="button"
-                @click="copyEnterpriseApplicationUsername(selectedEnterpriseApplication)"
-              >
-                {{ t('enterprise_application_copy_username') }}
-              </button>
+              <div class="approval-actions approval-detail-actions">
+                <span
+                  v-if="hasEnterpriseApprovalDraft(selectedEnterpriseApplication.id)"
+                  class="point-badge approval-draft-badge"
+                >
+                  {{ t('enterprise_approval_draft_badge') }}
+                </span>
+                <button
+                  v-if="selectedEnterpriseApplication.username"
+                  class="btn-ghost"
+                  type="button"
+                  @click="copyEnterpriseApplicationUsername(selectedEnterpriseApplication)"
+                >
+                  {{ t('enterprise_application_copy_username') }}
+                </button>
+              </div>
             </div>
             <div class="application-progress-grid">
               <article
@@ -211,6 +238,15 @@
               <span v-if="enterpriseApprovalReviewDraftUpdatedText">{{ enterpriseApprovalReviewDraftUpdatedText }}</span>
               <div class="approval-actions">
                 <small>{{ formatInlineMessage(t('enterprise_approval_review_note_counter'), { count: enterpriseApprovalReviewNoteLength }) }}</small>
+                <button
+                  v-if="hasEnterpriseApprovalDraft(selectedEnterpriseApplication.id)"
+                  class="btn-ghost"
+                  type="button"
+                  :disabled="enterpriseApprovalReviewLoading"
+                  @click="clearEnterpriseApprovalCurrentDraft"
+                >
+                  {{ t('enterprise_approval_clear_current_draft') }}
+                </button>
                 <button
                   class="btn-ghost"
                   type="button"

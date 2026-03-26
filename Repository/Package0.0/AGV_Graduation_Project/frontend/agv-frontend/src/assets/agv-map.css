@@ -711,6 +711,19 @@ h2 {
   color: var(--muted-text);
 }
 
+.approval-list-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.approval-draft-badge {
+  background: rgba(21, 101, 192, 0.12);
+  color: #1565c0;
+}
+
 .approval-detail,
 .approval-detail-empty,
 .approval-empty {
@@ -763,6 +776,10 @@ h2 {
   justify-content: space-between;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+.approval-detail-actions {
+  align-items: center;
 }
 
 .approval-existing-note {
