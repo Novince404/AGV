@@ -886,6 +886,13 @@ const authEnterpriseQuickActionItems = computed(() => {
       tone: 'ghost'
     })
   }
+  if (application?.contact_email) {
+    items.push({
+      key: 'copy-contact-email',
+      label: t('enterprise_application_copy_contact_email'),
+      tone: 'ghost'
+    })
+  }
   if (authCurrentAccountStatus.value === 'approved') {
     items.push({
       key: 'open-enterprise-settings',
@@ -3662,6 +3669,9 @@ async function runAuthEnterpriseQuickAction(actionKey) {
   switch (String(actionKey || '')) {
     case 'copy-username':
       await copyEnterpriseApplicationUsername(authCurrentEnterpriseApplication.value)
+      return
+    case 'copy-contact-email':
+      await copyEnterpriseApplicationContactEmail(authCurrentEnterpriseApplication.value)
       return
     case 'refresh-status':
       await refreshEnterpriseAccountStatus()
@@ -9058,6 +9068,7 @@ const authDialogBindings = {
   refreshEnterpriseAccountStatus,
   refreshEnterpriseApprovalSnapshot,
   copyEnterpriseApplicationUsername,
+  copyEnterpriseApplicationContactEmail,
   formatInlineMessage,
   openEnterpriseApprovalDialog,
   openEnterpriseSettingsDialog,
@@ -9584,6 +9595,7 @@ const enterpriseSettingsDialogBindings = {
   enterpriseApplicationNextStepText,
   enterpriseApplicationActionItems,
   authEnterpriseApplicationProgressItems,
+  copyEnterpriseApplicationContactEmail,
   currentMapProfileLabel,
   currentDispatchModeLabel,
   dispatchModeAutoLabel,

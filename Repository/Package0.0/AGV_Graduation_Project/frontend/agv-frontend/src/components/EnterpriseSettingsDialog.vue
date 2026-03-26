@@ -113,6 +113,14 @@
                     <button class="btn-ghost enterprise-settings-inline-button" type="button" @click="refreshEnterpriseAccountStatus()">
                       {{ t('enterprise_settings_application_refresh') }}
                     </button>
+                    <button
+                      v-if="authCurrentEnterpriseApplication?.contact_email"
+                      class="btn-ghost enterprise-settings-inline-button"
+                      type="button"
+                      @click="copyEnterpriseApplicationContactEmail(authCurrentEnterpriseApplication)"
+                    >
+                      {{ t('enterprise_application_copy_contact_email') }}
+                    </button>
                   </div>
                 </div>
                 <div class="enterprise-settings-status-grid">
@@ -123,6 +131,14 @@
                   <div class="enterprise-settings-status-item">
                     <span>{{ t('enterprise_register_username') }}</span>
                     <strong>{{ authCurrentEnterpriseApplication?.username || '—' }}</strong>
+                  </div>
+                  <div class="enterprise-settings-status-item">
+                    <span>{{ t('enterprise_register_contact_name') }}</span>
+                    <strong>{{ authCurrentEnterpriseApplication?.contact_name || '—' }}</strong>
+                  </div>
+                  <div class="enterprise-settings-status-item">
+                    <span>{{ t('enterprise_register_contact_email') }}</span>
+                    <strong>{{ authCurrentEnterpriseApplication?.contact_email || '—' }}</strong>
                   </div>
                   <div class="enterprise-settings-status-item">
                     <span>{{ t('enterprise_settings_summary_status') }}</span>
