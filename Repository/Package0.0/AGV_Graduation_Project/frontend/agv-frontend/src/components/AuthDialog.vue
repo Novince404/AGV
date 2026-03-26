@@ -375,6 +375,14 @@
             </div>
             <div class="auth-status-actions">
               <button
+                class="auth-dialog-inline-action"
+                type="button"
+                :disabled="authLoading"
+                @click="continueEnterpriseRegisterFollowupEditing"
+              >
+                {{ t('auth_enterprise_register_followup_edit') }}
+              </button>
+              <button
                 class="btn-ghost"
                 type="button"
                 :disabled="authLoading"
@@ -415,6 +423,14 @@
                 @click="signInEnterpriseRegisterFollowup"
               >
                 {{ authLoading ? t('auth_signing_in') : t('auth_enterprise_register_followup_action') }}
+              </button>
+              <button
+                class="btn-ghost"
+                type="button"
+                :disabled="authLoading"
+                @click="dismissEnterpriseRegisterFollowup"
+              >
+                {{ t('auth_enterprise_register_followup_dismiss') }}
               </button>
             </div>
           </div>

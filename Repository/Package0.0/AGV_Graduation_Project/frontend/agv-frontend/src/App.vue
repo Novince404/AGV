@@ -105,6 +105,7 @@ const EXPERIMENT_RECORDS_STORAGE_KEY = 'agv_experiment_records'
 const COMFY_WORKFLOW_TEMPLATE_STORAGE_KEY = 'agv_comfy_workflow_templates'
 const ENTERPRISE_SETTINGS_TAB_STORAGE_KEY = 'agv_enterprise_settings_tabs'
 const ENTERPRISE_REGISTER_DRAFT_STORAGE_KEY = 'agv_enterprise_register_draft'
+const ENTERPRISE_REGISTER_FOLLOWUP_STORAGE_KEY = 'agv_enterprise_register_followup'
 const MINIMAP_WIDTH = 168
 const MIN_ZOOM = 0.75
 const MAX_ZOOM = 3
@@ -488,6 +489,31 @@ function loadEnterpriseRegisterDraft() {
   }
 }
 
+function readEnterpriseRegisterFollowupPayload() {
+  if (typeof window === 'undefined' || !window.localStorage) return null
+  try {
+    const raw = window.localStorage.getItem(ENTERPRISE_REGISTER_FOLLOWUP_STORAGE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    return typeof parsed === 'object' && parsed ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+function loadEnterpriseRegisterFollowup() {
+  const parsed = readEnterpriseRegisterFollowupPayload()
+  if (!parsed) return null
+  return {
+    company_name: String(parsed?.company_name || '').trim(),
+    username: String(parsed?.username || '').trim(),
+    contact_name: String(parsed?.contact_name || '').trim(),
+    contact_email: String(parsed?.contact_email || '').trim(),
+    submitted_at: parsed?.submitted_at ? String(parsed.submitted_at) : null,
+    status: String(parsed?.status || 'pending').trim() || 'pending'
+  }
+}
+
 const {
   authPanelOpen,
   authLoading,
@@ -518,7 +544,7 @@ const {
 const authGuestAccepted = ref(false)
 const authDialogView = ref('login')
 const authEnterpriseRegisterLoading = ref(false)
-const authEnterpriseRegisterFollowup = ref(null)
+const authEnterpriseRegisterFollowup = ref(loadEnterpriseRegisterFollowup())
 const authEnterpriseRegisterForm = ref(loadEnterpriseRegisterDraft())
 const authEnterpriseRegisterDraftUpdatedAt = ref(
   String(readEnterpriseRegisterDraftPayload()?.updated_at || '')
@@ -3543,9 +3569,24 @@ watch(
 watch(
   authEnterpriseRegisterFollowup,
   nextValue => {
-    if (!nextValue || typeof window === 'undefined' || !window.localStorage) return
+    if (typeof window === 'undefined' || !window.localStorage) return
+    if (!nextValue) {
+      window.localStorage.removeItem(ENTERPRISE_REGISTER_FOLLOWUP_STORAGE_KEY)
+      return
+    }
     window.localStorage.removeItem(ENTERPRISE_REGISTER_DRAFT_STORAGE_KEY)
     authEnterpriseRegisterDraftUpdatedAt.value = ''
+    window.localStorage.setItem(
+      ENTERPRISE_REGISTER_FOLLOWUP_STORAGE_KEY,
+      JSON.stringify({
+        company_name: String(nextValue?.company_name || '').trim(),
+        username: String(nextValue?.username || '').trim(),
+        contact_name: String(nextValue?.contact_name || '').trim(),
+        contact_email: String(nextValue?.contact_email || '').trim(),
+        submitted_at: nextValue?.submitted_at || null,
+        status: String(nextValue?.status || 'pending').trim() || 'pending'
+      })
+    )
   }
 )
 
@@ -3646,6 +3687,17 @@ async function handleEnterpriseRegister() {
 async function signInEnterpriseRegisterFollowup() {
   if (!authEnterpriseRegisterFollowup.value) return
   await handleAuthLogin()
+}
+
+function continueEnterpriseRegisterFollowupEditing() {
+  if (!authEnterpriseRegisterFollowup.value) return
+  resumeEnterpriseRegistrationFromApplication(authEnterpriseRegisterFollowup.value)
+}
+
+function dismissEnterpriseRegisterFollowup() {
+  if (!authEnterpriseRegisterFollowup.value) return
+  authEnterpriseRegisterFollowup.value = null
+  showFloatingToast(t('auth_enterprise_register_followup_dismissed'), 'info')
 }
 
 async function refreshEnterpriseAccountStatus() {
@@ -9603,6 +9655,8 @@ const authDialogBindings = {
   handleAuthDemoFill,
   handleEnterpriseRegister,
   signInEnterpriseRegisterFollowup,
+  continueEnterpriseRegisterFollowupEditing,
+  dismissEnterpriseRegisterFollowup,
   clearEnterpriseRegisterDraft,
   runAuthEnterpriseRegisterExistingPrimaryAction,
   refreshEnterpriseAccountStatus,
