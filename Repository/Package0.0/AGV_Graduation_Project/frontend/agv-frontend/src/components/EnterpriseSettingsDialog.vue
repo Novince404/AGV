@@ -1481,6 +1481,20 @@
                     <div v-if="formatOperationAuditMetadata(entry)" class="task-line operations-summary">
                       {{ formatOperationAuditMetadata(entry) }}
                     </div>
+                    <div class="operations-card-actions">
+                      <button
+                        class="btn-delete"
+                        type="button"
+                        :disabled="Number(deletingOperationAuditId) === Number(entry.id)"
+                        @click="deleteOperationAuditWithAuth(entry)"
+                      >
+                        {{
+                          Number(deletingOperationAuditId) === Number(entry.id)
+                            ? `${t('operations_delete_record')}...`
+                            : t('operations_delete_record')
+                        }}
+                      </button>
+                    </div>
                   </article>
                 </div>
               </div>

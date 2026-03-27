@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from app.core.database import get_db_session
 from app.models.operation_audit import OperationAudit
@@ -74,3 +74,16 @@ def add_operation_audit(entry: OperationAudit) -> OperationAudit:
         session.add(_model_to_entity(entry))
         session.commit()
     return entry
+
+
+def delete_operation_audit(audit_id: int) -> OperationAudit | None:
+    _ensure_loaded()
+    normalized_id = int(audit_id)
+    removed = next((item for item in operation_audit_list if int(item.id) == normalized_id), None)
+    if removed is None:
+        return None
+    operation_audit_list[:] = [item for item in operation_audit_list if int(item.id) != normalized_id]
+    with get_db_session() as session:
+        session.execute(delete(OperationAuditEntity).where(OperationAuditEntity.id == normalized_id))
+        session.commit()
+    return removed

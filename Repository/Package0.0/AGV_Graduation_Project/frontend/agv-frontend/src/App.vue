@@ -371,6 +371,7 @@ const compareFloatingX = ref(0)
 const compareFloatingY = ref(140)
 const operationAudits = ref([])
 const operationAuditLoading = ref(false)
+const deletingOperationAuditId = ref(null)
 const operationAuditResourceFilter = ref('all')
 const operationAuditActionFilter = ref('all')
 const operationAuditLastFetchedAt = ref('')
@@ -2409,7 +2410,8 @@ const pageTopStyle = computed(() =>
   isCompactLayout.value
     ? {}
     : {
-        gridTemplateColumns: `minmax(0, 1fr) 10px ${panelWidth.value}px`
+        gridTemplateColumns: `minmax(0, 1fr) 10px ${panelWidth.value}px`,
+        '--page-top-height': showEnterpriseWorkspaceBanner.value ? '244px' : '156px'
       }
 )
 const mapStageStyle = computed(() => ({
@@ -5592,6 +5594,35 @@ async function fetchOperationAudits({ force = false } = {}) {
     }
   } finally {
     operationAuditLoading.value = false
+  }
+}
+
+async function deleteOperationAuditWithAuth(entry) {
+  if (!entry?.id) return
+  if (!authAuthenticated.value || !authCanViewAudit.value) {
+    openAuthDialog()
+    return
+  }
+  if (!window.confirm(t('operations_delete_confirm'))) return
+
+  const auditId = Number(entry.id)
+  deletingOperationAuditId.value = auditId
+  try {
+    const response = await fetch(`${API_BASE}/auth/operations/${auditId}`, {
+      method: 'DELETE',
+      headers: buildAuthorizedHeaders()
+    })
+    const data = await response.json()
+    if (!response.ok) {
+      throw createApiError(data, 'Delete operation audit failed')
+    }
+    operationAudits.value = operationAudits.value.filter(item => Number(item.id) !== auditId)
+    showFloatingToast(t('operations_delete_ok'), 'success')
+  } catch (error) {
+    console.error('Delete operation audit error:', error)
+    showFloatingToast(error?.message || t('operations_delete_failed'), 'error')
+  } finally {
+    deletingOperationAuditId.value = null
   }
 }
 
@@ -10701,6 +10732,7 @@ const operationsAuditPanelBindings = {
   operationAuditActionOptions,
   operationAuditLastFetchedAt,
   operationAuditLoading,
+  deletingOperationAuditId,
   operationAudits,
   filteredOperationAudits,
   matchedOperationAuditIds,
@@ -10710,6 +10742,7 @@ const operationsAuditPanelBindings = {
   resetOperationAuditFilters,
   exportFilteredOperationAuditsJsonWithAuth,
   exportFilteredOperationAuditsCsvWithAuth,
+  deleteOperationAuditWithAuth,
   formatOperationAuditTitle,
   formatOperationAuditResourceRef,
   operationActionLabel,
@@ -11379,6 +11412,7 @@ const enterpriseSettingsDialogBindings = {
   operationAuditResourceFilterLabel,
   operationAuditActionFilterLabel,
   operationAuditLoading,
+  deletingOperationAuditId,
   enterpriseFilteredAuditEntries,
   matchedOperationAuditIds,
   settingsLocale,
@@ -11410,6 +11444,7 @@ const enterpriseSettingsDialogBindings = {
   resetOperationAuditFilters,
   exportFilteredOperationAuditsJsonWithAuth,
   exportFilteredOperationAuditsCsvWithAuth,
+  deleteOperationAuditWithAuth,
   refreshEnterpriseAccountStatus,
   runEnterpriseStatusFollowupAction,
   runEnterpriseApplicationAction,

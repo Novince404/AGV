@@ -36,7 +36,8 @@
     "enterprise_application_username_taken": "That enterprise username is already in use.",
     "enterprise_application_not_found": "Enterprise application not found.",
     "enterprise_application_already_reviewed": "This enterprise application has already been reviewed.",
-    "enterprise_application_invalid_decision": "Unsupported enterprise application decision."
+    "enterprise_application_invalid_decision": "Unsupported enterprise application decision.",
+    "operation_audit_not_found": "Operation record not found."
   },
   "dispatchReasonText": {
     "agv_fault_stop": "The current task was interrupted because the AGV entered fault state.",
@@ -935,6 +936,10 @@
     "operations_filter_resource": "Resource",
     "operations_filter_action": "Action",
     "operations_last_updated": "Last updated: {at}",
+    "operations_delete_record": "Delete Record",
+    "operations_delete_confirm": "Delete this operation record now?",
+    "operations_delete_ok": "Operation record deleted.",
+    "operations_delete_failed": "Failed to delete the operation record.",
     "operations_resource_all": "All Resources",
     "operations_resource_task": "Task",
     "operations_resource_fault": "Fault",

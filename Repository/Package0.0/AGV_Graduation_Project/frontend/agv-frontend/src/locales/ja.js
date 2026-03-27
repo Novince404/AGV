@@ -36,7 +36,8 @@
     "enterprise_application_username_taken": "この企業アカウント名はすでに使用されています。",
     "enterprise_application_not_found": "この企業申請は見つかりません。",
     "enterprise_application_already_reviewed": "この企業申請はすでに審査済みです。",
-    "enterprise_application_invalid_decision": "サポートされていない審査アクションです。"
+    "enterprise_application_invalid_decision": "サポートされていない審査アクションです。",
+    "operation_audit_not_found": "この操作記録は見つかりません。"
   },
   "dispatchReasonText": {
     "agv_fault_stop": "AGV に故障が発生したため、現在のタスクは中断されました。",
@@ -935,6 +936,10 @@
     "operations_filter_resource": "リソース種別",
     "operations_filter_action": "操作種別",
     "operations_last_updated": "最終更新：{at}",
+    "operations_delete_record": "記録を削除",
+    "operations_delete_confirm": "この操作記録を削除しますか？",
+    "operations_delete_ok": "操作記録を削除しました。",
+    "operations_delete_failed": "操作記録を削除できませんでした。",
     "operations_resource_all": "すべてのリソース",
     "operations_resource_task": "タスク",
     "operations_resource_fault": "故障",

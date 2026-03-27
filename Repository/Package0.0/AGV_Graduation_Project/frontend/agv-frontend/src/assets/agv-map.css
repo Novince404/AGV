@@ -109,6 +109,7 @@ h2 {
   border: 1px solid rgba(212, 201, 187, 0.92);
   border-radius: 16px;
   background: rgba(255, 252, 247, 0.92);
+  overflow: hidden;
 }
 
 .enterprise-toolbar-strip-copy {
@@ -4172,6 +4173,12 @@ h2 {
 
 .operations-summary {
   color: #5b4a2f;
+}
+
+.operations-card-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
 }
 
 .operations-login-card {

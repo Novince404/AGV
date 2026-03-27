@@ -3,7 +3,13 @@ from __future__ import annotations
 from datetime import datetime
 
 from app.models.operation_audit import OperationAudit
-from app.repositories.operation_audit_repository import add_operation_audit, get_next_operation_audit_id, list_operation_audits
+from app.repositories.operation_audit_repository import (
+    add_operation_audit,
+    delete_operation_audit,
+    get_next_operation_audit_id,
+    list_operation_audits,
+)
+from app.utils.api_error import raise_api_error
 
 
 def now_iso() -> str:
@@ -135,3 +141,10 @@ def list_recent_operation_audits(
 
     filtered.sort(key=lambda item: (item.performed_at, int(item.id)), reverse=True)
     return [serialize_operation_audit(entry) for entry in filtered[:normalized_limit]]
+
+
+def remove_operation_audit_entry(audit_id: int) -> dict:
+    removed = delete_operation_audit(int(audit_id))
+    if removed is None:
+        raise_api_error(404, "operation_audit_not_found")
+    return serialize_operation_audit(removed)

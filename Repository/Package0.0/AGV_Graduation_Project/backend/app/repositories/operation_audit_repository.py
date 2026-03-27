@@ -23,8 +23,13 @@ def add_operation_audit(entry):
     return _store.add_operation_audit(entry)
 
 
+def delete_operation_audit(audit_id):
+    return _store.delete_operation_audit(audit_id)
+
+
 __all__ = [
     "add_operation_audit",
+    "delete_operation_audit",
     "get_next_operation_audit_id",
     "list_operation_audits",
     "operation_audit_list",

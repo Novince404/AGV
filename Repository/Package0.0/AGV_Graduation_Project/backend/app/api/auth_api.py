@@ -33,6 +33,11 @@ def get_operation_feed(
     return auth_service.list_operation_feed(limit=limit, resource_type=resource_type, action=action)
 
 
+@router.delete("/operations/{audit_id}")
+def delete_operation_feed_item(request: Request, audit_id: int):
+    return auth_service.delete_operation_feed_item(request, audit_id)
+
+
 @router.post("/register-enterprise")
 def register_enterprise(req: EnterpriseRegisterRequest):
     return auth_service.register_enterprise(

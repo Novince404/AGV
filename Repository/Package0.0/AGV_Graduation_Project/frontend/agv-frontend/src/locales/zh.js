@@ -36,7 +36,8 @@
     "enterprise_application_username_taken": "该企业账号已被占用。",
     "enterprise_application_not_found": "未找到该企业申请。",
     "enterprise_application_already_reviewed": "该企业申请已经审批过了。",
-    "enterprise_application_invalid_decision": "不支持的审批动作。"
+    "enterprise_application_invalid_decision": "不支持的审批动作。",
+    "operation_audit_not_found": "未找到该操作记录。"
   },
   "dispatchReasonText": {
     "agv_fault_stop": "AGV 发生故障，当前任务已中断。",
@@ -935,6 +936,10 @@
     "operations_filter_resource": "资源类型",
     "operations_filter_action": "操作类型",
     "operations_last_updated": "最近刷新：{at}",
+    "operations_delete_record": "删除记录",
+    "operations_delete_confirm": "现在删除这条操作记录吗？",
+    "operations_delete_ok": "操作记录已删除。",
+    "operations_delete_failed": "删除操作记录失败。",
     "operations_resource_all": "全部资源",
     "operations_resource_task": "任务",
     "operations_resource_fault": "故障",

@@ -25,7 +25,7 @@ from app.repositories.enterprise_application_repository import (
     upsert_enterprise_application,
 )
 from app.services.operation_audit_service import list_recent_operation_audits
-from app.services.operation_audit_service import now_iso, record_operation_audit
+from app.services.operation_audit_service import now_iso, record_operation_audit, remove_operation_audit_entry
 from app.utils.api_error import raise_api_error
 
 
@@ -389,4 +389,11 @@ def list_operation_feed(limit: int = 60, resource_type: str | None = None, actio
         "limit": max(1, min(int(limit or 60), 200)),
         "resource_type": str(resource_type or "").strip().lower() or None,
         "action": str(action or "").strip().lower() or None,
+    }
+
+
+def delete_operation_feed_item(request: Request, audit_id: int) -> dict:
+    require_actor_capability(request, "audit.view")
+    return {
+        "item": remove_operation_audit_entry(audit_id),
     }
