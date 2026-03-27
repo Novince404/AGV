@@ -1291,6 +1291,12 @@ h2 {
   font-weight: 600;
 }
 
+.enterprise-shortcut-editor-banner.is-warning {
+  border-color: rgba(180, 140, 44, 0.42);
+  background: rgba(255, 248, 225, 0.92);
+  color: #8b6a10;
+}
+
 .enterprise-shortcut-editor-card {
   border: 1px solid #e5ddd1;
   border-radius: 14px;

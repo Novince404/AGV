@@ -649,6 +649,12 @@ function normalizeEditableShortcutConfig(raw, { allowEmpty = false } = {}) {
   )
 }
 
+function areEditableShortcutConfigsEqual(left, right) {
+  const normalizedLeft = normalizeEditableShortcutConfig(left, { allowEmpty: true })
+  const normalizedRight = normalizeEditableShortcutConfig(right, { allowEmpty: true })
+  return EDITABLE_SHORTCUT_ACTION_KEYS.every(actionKey => normalizedLeft[actionKey] === normalizedRight[actionKey])
+}
+
 function readShortcutPreferencePayload() {
   if (typeof window === 'undefined' || !window.localStorage) return {}
   try {
@@ -846,6 +852,9 @@ const shortcutEditorConflictMap = computed(() => {
   )
 })
 const shortcutEditorHasConflicts = computed(() => Object.keys(shortcutEditorConflictMap.value).length > 0)
+const shortcutEditorHasUnsavedChanges = computed(
+  () => !areEditableShortcutConfigsEqual(shortcutEditorDraft.value, activeShortcutBindings.value)
+)
 const shortcutGuideEntries = computed(() => [
   formatInlineMessage(t('shortcut_editor_guide_selection_cancel'), {
     key: activeShortcutBindings.value.selection_cancel
@@ -5269,6 +5278,11 @@ function saveShortcutEditorDraft() {
   showFloatingToast(t('shortcut_editor_saved'), 'success')
 }
 
+function confirmDiscardShortcutEditorChanges() {
+  if (!shortcutEditorCanEdit.value || !shortcutEditorHasUnsavedChanges.value) return true
+  return window.confirm(t('shortcut_editor_unsaved_close_confirm'))
+}
+
 function applyEnterprisePanelPreset(role = authCurrentRole.value, { silent = false } = {}) {
   const preset = enterprisePanelPreset(role)
   if (!preset) return false
@@ -5309,10 +5323,8 @@ async function openEnterpriseSettingsDialog(targetTab = '') {
 }
 
 function closeEnterpriseSettingsDialog() {
+  if (enterpriseShortcutPlannerDialogOpen.value && !closeEnterpriseShortcutPlannerDialog()) return
   enterprisePageSettingsDialogOpen.value = false
-  enterpriseShortcutPlannerDialogOpen.value = false
-  shortcutEditorCaptureActionKey.value = ''
-  resetShortcutEditorDraftStatus('', 'info')
   enterpriseMapEditorDialogOpen.value = false
   enterpriseSettingsDialogOpen.value = false
 }
@@ -5333,9 +5345,14 @@ function openEnterpriseShortcutPlannerDialog() {
 }
 
 function closeEnterpriseShortcutPlannerDialog() {
+  if (!confirmDiscardShortcutEditorChanges()) {
+    resetShortcutEditorDraftStatus(t('shortcut_editor_unsaved_changes'), 'error')
+    return false
+  }
   shortcutEditorCaptureActionKey.value = ''
   resetShortcutEditorDraftStatus('', 'info')
   enterpriseShortcutPlannerDialogOpen.value = false
+  return true
 }
 
 function switchEnterpriseSettingsTab(nextTab) {
@@ -11240,6 +11257,12 @@ watch(
   { immediate: true }
 )
 
+function onWindowBeforeUnload(event) {
+  if (!enterpriseShortcutPlannerDialogOpen.value || !shortcutEditorHasUnsavedChanges.value || !shortcutEditorCanEdit.value) return
+  event.preventDefault()
+  event.returnValue = ''
+}
+
 onMounted(() => {
   loadCustomPoints()
   loadTaskTemplates()
@@ -11277,6 +11300,7 @@ onMounted(() => {
     void refreshState()
   }, 1000)
   window.addEventListener('keydown', onKeyDown)
+  window.addEventListener('beforeunload', onWindowBeforeUnload)
   window.addEventListener('resize', onWindowResize)
   window.addEventListener('mousemove', onGlobalMouseMove)
   window.addEventListener('mouseup', onGlobalMouseUp)
@@ -12294,6 +12318,7 @@ const enterpriseSettingsDialogBindings = {
   shortcutEditorStatus,
   shortcutEditorStatusType,
   shortcutEditorHasConflicts,
+  shortcutEditorHasUnsavedChanges,
   openGuideCenter,
   showAutoPath,
   showMarkerIcons,
@@ -12559,6 +12584,7 @@ onBeforeUnmount(() => {
   stopObstaclePaint()
   document.body.style.cursor = ''
   window.removeEventListener('keydown', onKeyDown)
+  window.removeEventListener('beforeunload', onWindowBeforeUnload)
   window.removeEventListener('resize', onWindowResize)
   window.removeEventListener('mousemove', onGlobalMouseMove)
   window.removeEventListener('mouseup', onGlobalMouseUp)

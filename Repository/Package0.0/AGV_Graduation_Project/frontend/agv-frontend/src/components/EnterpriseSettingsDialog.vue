@@ -1686,6 +1686,7 @@
               <section class="enterprise-settings-subsection enterprise-page-settings-group">
                 <div class="enterprise-settings-subtitle">{{ t('shortcut_editor_live_title') }}</div>
                 <p class="panel-hint">{{ t('shortcut_editor_live_hint') }}</p>
+                <p class="panel-hint">{{ t('shortcut_editor_scope_hint') }}</p>
                 <p
                   v-if="shortcutEditorStatus"
                   class="panel-hint"
@@ -1700,6 +1701,12 @@
                   <div class="empty-note">{{ t('shortcut_editor_readonly_hint') }}</div>
                 </div>
                 <div v-else class="enterprise-shortcut-editor-grid-shell">
+                  <div
+                    v-if="shortcutEditorHasUnsavedChanges"
+                    class="enterprise-shortcut-editor-banner is-warning"
+                  >
+                    {{ t('shortcut_editor_unsaved_changes') }}
+                  </div>
                   <div v-if="shortcutEditorHasConflicts" class="enterprise-shortcut-editor-banner">
                     {{ t('shortcut_editor_conflict') }}
                   </div>
@@ -1783,7 +1790,7 @@
                   <button
                     class="btn-primary"
                     type="button"
-                    :disabled="!shortcutEditorCanEdit || shortcutEditorHasConflicts"
+                    :disabled="!shortcutEditorCanEdit || shortcutEditorHasConflicts || !shortcutEditorHasUnsavedChanges"
                     @click="saveShortcutEditorDraft"
                   >
                     {{ t('shortcut_editor_save') }}
