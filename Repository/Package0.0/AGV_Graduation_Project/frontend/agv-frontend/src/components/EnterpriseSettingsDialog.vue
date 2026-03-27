@@ -1790,11 +1790,40 @@
                       </button>
                     </div>
                   </div>
+                  <div class="enterprise-map-editor-stepper-card enterprise-map-editor-zoom-card">
+                    <div class="map-settings-info-label">{{ t('enterprise_settings_map_editor_zoom_title') }}</div>
+                    <div class="enterprise-map-editor-zoom-controls">
+                      <button
+                        class="btn-ghost enterprise-map-editor-stepper-button"
+                        type="button"
+                        :title="t('enterprise_settings_map_editor_zoom_out')"
+                        @click="adjustEnterpriseMapEditorZoom(-0.05)"
+                      >
+                        -
+                      </button>
+                      <button
+                        class="btn-ghost enterprise-map-editor-zoom-readout"
+                        type="button"
+                        :title="t('enterprise_settings_map_editor_zoom_reset')"
+                        @click="resetEnterpriseMapEditorZoom"
+                      >
+                        {{ enterpriseMapEditorZoomPercent }}
+                      </button>
+                      <button
+                        class="btn-ghost enterprise-map-editor-stepper-button"
+                        type="button"
+                        :title="t('enterprise_settings_map_editor_zoom_in')"
+                        @click="adjustEnterpriseMapEditorZoom(0.05)"
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
                 </div>
-                <div class="enterprise-map-editor-grid-shell">
+                <div class="enterprise-map-editor-grid-shell" @wheel.prevent="handleEnterpriseMapEditorWheel">
                   <div
                     class="enterprise-map-editor-grid"
-                    :style="{ gridTemplateColumns: `repeat(${enterpriseMapEditorCols.length}, minmax(30px, 1fr))` }"
+                    :style="enterpriseMapEditorGridStyle"
                   >
                     <template v-for="row in enterpriseMapEditorRows" :key="`enterprise-map-editor-row-${row}`">
                       <button

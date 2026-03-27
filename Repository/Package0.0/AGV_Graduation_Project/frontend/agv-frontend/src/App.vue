@@ -111,6 +111,10 @@ const ENTERPRISE_APPROVAL_UI_STORAGE_KEY = 'agv_enterprise_approval_ui'
 const ENTERPRISE_STATUS_FOLLOWUP_STORAGE_KEY = 'agv_enterprise_status_followup'
 const ENTERPRISE_APPROVAL_REVIEW_FOLLOWUP_STORAGE_KEY = 'agv_enterprise_approval_review_followup'
 const MINIMAP_WIDTH = 168
+const ENTERPRISE_MAP_EDITOR_ZOOM_DEFAULT = 0.85
+const ENTERPRISE_MAP_EDITOR_ZOOM_MIN = 0.5
+const ENTERPRISE_MAP_EDITOR_ZOOM_MAX = 1.6
+const ENTERPRISE_MAP_EDITOR_ZOOM_STEP = 0.05
 const MIN_ZOOM = 0.75
 const MAX_ZOOM = 3
 const DEFAULT_BLOCKED_CELLS = [
@@ -719,6 +723,7 @@ const enterpriseMapEditorDraftBlockedCells = ref([])
 const enterpriseMapEditorDraftValidCells = ref(buildFullValidCellList(GRID_COLS, GRID_ROWS))
 const enterpriseMapEditorDraftCols = ref(GRID_COLS)
 const enterpriseMapEditorDraftRows = ref(GRID_ROWS)
+const enterpriseMapEditorZoom = ref(ENTERPRISE_MAP_EDITOR_ZOOM_DEFAULT)
 const authRoleLabel = computed(() => t(`auth_role_${authCurrentRole.value}`))
 const authRoleBadgeClass = computed(() => `role-${authCurrentRole.value}`)
 const dashboardUnlocked = computed(() => authAuthenticated.value || authGuestAccepted.value)
@@ -1664,6 +1669,12 @@ const enterpriseMapEditorValidCount = computed(() => enterpriseMapEditorDraftVal
 const enterpriseMapEditorIsIrregular = computed(() =>
   enterpriseMapEditorValidCount.value !== Number(enterpriseMapEditorDraftCols.value || gridColsValue()) * Number(enterpriseMapEditorDraftRows.value || gridRowsValue())
 )
+const enterpriseMapEditorCellSize = computed(() =>
+  Math.max(16, Math.round(30 * Number(enterpriseMapEditorZoom.value || ENTERPRISE_MAP_EDITOR_ZOOM_DEFAULT)))
+)
+const enterpriseMapEditorZoomPercent = computed(() =>
+  `${Math.round(Number(enterpriseMapEditorZoom.value || ENTERPRISE_MAP_EDITOR_ZOOM_DEFAULT) * 100)}%`
+)
 const enterpriseMapEditorFootprintLabel = computed(() =>
   `${Number(enterpriseMapEditorDraftCols.value || gridColsValue())} x ${Number(enterpriseMapEditorDraftRows.value || gridRowsValue())}`
 )
@@ -1672,6 +1683,10 @@ const enterpriseMapEditorSizeLabel = computed(() =>
     ? `${t('map_shape_irregular')} · ${enterpriseMapEditorFootprintLabel.value}`
     : enterpriseMapEditorFootprintLabel.value
 )
+const enterpriseMapEditorGridStyle = computed(() => ({
+  gridTemplateColumns: `repeat(${enterpriseMapEditorCols.value.length}, ${enterpriseMapEditorCellSize.value}px)`,
+  '--enterprise-map-editor-cell-size': `${enterpriseMapEditorCellSize.value}px`
+}))
 const authCapabilityCards = computed(() => [
   {
     key: 'dispatch',
@@ -2605,6 +2620,7 @@ const mapIsIrregular = computed(() => validCellCount.value !== gridColsValue() *
 const mapSizeLabel = computed(() =>
   mapIsIrregular.value ? t('map_shape_irregular') : `${currentGridCols.value} x ${currentGridRows.value}`
 )
+const mapValidCells = computed(() => (mapIsIrregular.value ? validCells.value : []))
 const mapVoidCells = computed(() => {
   if (!mapIsIrregular.value) return []
   const cells = []
@@ -5714,6 +5730,7 @@ function openEnterpriseMapEditorDialog() {
   enterpriseMapEditorDraftRows.value = gridRowsValue()
   enterpriseMapEditorDraftValidCells.value = normalizeValidCellList(validCells.value)
   enterpriseMapEditorDraftBlockedCells.value = normalizeBlockedCellList(blockedCells.value)
+  enterpriseMapEditorZoom.value = ENTERPRISE_MAP_EDITOR_ZOOM_DEFAULT
   enterpriseMapEditorDialogOpen.value = true
 }
 
@@ -5733,6 +5750,11 @@ function canResizeEnterpriseMapEditorTo(nextCols, nextRows) {
   const rows = Math.max(1, Math.round(Number(nextRows) || 1))
   if (cols > 30 || rows > 24) return false
 
+  const currentCols = Math.max(1, Math.round(Number(enterpriseMapEditorDraftCols.value || gridColsValue()) || 1))
+  const currentRows = Math.max(1, Math.round(Number(enterpriseMapEditorDraftRows.value || gridRowsValue()) || 1))
+  const isShrinking = cols < currentCols || rows < currentRows
+  if (!isShrinking) return true
+
   const protectedCells = Array.from(protectedMapCellSet.value).map(key => {
     const [x, y] = key.split(',').map(Number)
     return { x, y }
@@ -5743,6 +5765,30 @@ function canResizeEnterpriseMapEditorTo(nextCols, nextRows) {
   ]
 
   return requiredCells.every(cell => cell.x < cols && cell.y < rows)
+}
+
+function clampEnterpriseMapEditorZoom(value) {
+  return clampValue(
+    Number(value) || ENTERPRISE_MAP_EDITOR_ZOOM_DEFAULT,
+    ENTERPRISE_MAP_EDITOR_ZOOM_MIN,
+    ENTERPRISE_MAP_EDITOR_ZOOM_MAX
+  )
+}
+
+function adjustEnterpriseMapEditorZoom(delta) {
+  enterpriseMapEditorZoom.value = clampEnterpriseMapEditorZoom(
+    Number(enterpriseMapEditorZoom.value || ENTERPRISE_MAP_EDITOR_ZOOM_DEFAULT) + Number(delta || 0)
+  )
+}
+
+function resetEnterpriseMapEditorZoom() {
+  enterpriseMapEditorZoom.value = ENTERPRISE_MAP_EDITOR_ZOOM_DEFAULT
+}
+
+function handleEnterpriseMapEditorWheel(event) {
+  if (!enterpriseMapEditorDialogOpen.value) return
+  const direction = Number(event?.deltaY) < 0 ? 1 : -1
+  adjustEnterpriseMapEditorZoom(direction * ENTERPRISE_MAP_EDITOR_ZOOM_STEP)
 }
 
 function resizeEnterpriseMapEditorDraft(axis, delta) {
@@ -11973,8 +12019,10 @@ const enterpriseSettingsDialogBindings = {
   enterpriseMapEditorValidCount,
   enterpriseMapEditorBlockedCount,
   enterpriseMapEditorIsIrregular,
+  enterpriseMapEditorZoomPercent,
   enterpriseMapEditorFootprintLabel,
   enterpriseMapEditorSizeLabel,
+  enterpriseMapEditorGridStyle,
   mapProfiles,
   mapProfileActionSummary,
   pointLibrary,
@@ -12126,6 +12174,9 @@ const enterpriseSettingsDialogBindings = {
   isEnterpriseMapEditorCellLocked,
   canResizeEnterpriseMapEditorTo,
   resizeEnterpriseMapEditorDraft,
+  adjustEnterpriseMapEditorZoom,
+  resetEnterpriseMapEditorZoom,
+  handleEnterpriseMapEditorWheel,
   applyEnterpriseMapEditorCell,
   saveEnterpriseMapEditorDraft,
   isCellOccupied,
@@ -12446,7 +12497,18 @@ onBeforeUnmount(() => {
             </div>
           </div>
 
-          <div class="map-stage" :style="mapStageStyle">
+          <div class="map-stage" :class="{ 'is-irregular': mapIsIrregular }" :style="mapStageStyle">
+            <div
+              v-for="cell in mapValidCells"
+              :key="`valid-${cell.x}-${cell.y}`"
+              class="map-valid-cell"
+              :style="{
+                left: `${cell.x * CELL_SIZE}px`,
+                top: `${cell.y * CELL_SIZE}px`,
+                width: `${CELL_SIZE}px`,
+                height: `${CELL_SIZE}px`
+              }"
+            ></div>
             <div
               v-for="cell in mapVoidCells"
               :key="`void-${cell.x}-${cell.y}`"
@@ -12708,8 +12770,20 @@ onBeforeUnmount(() => {
           >
             <div
               class="minimap-grid"
+              :class="{ 'is-irregular': mapIsIrregular }"
               :style="{
                 backgroundSize: `${CELL_SIZE * minimapScale}px ${CELL_SIZE * minimapScale}px`
+              }"
+            ></div>
+            <div
+              v-for="cell in mapValidCells"
+              :key="`mini-valid-${cell.x}-${cell.y}`"
+              class="minimap-valid-cell"
+              :style="{
+                left: `${cell.x * CELL_SIZE * minimapScale}px`,
+                top: `${cell.y * CELL_SIZE * minimapScale}px`,
+                width: `${CELL_SIZE * minimapScale}px`,
+                height: `${CELL_SIZE * minimapScale}px`
               }"
             ></div>
             <div

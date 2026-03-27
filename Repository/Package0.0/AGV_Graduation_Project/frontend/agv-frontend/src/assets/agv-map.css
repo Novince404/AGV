@@ -1290,14 +1290,15 @@ h2 {
 }
 
 .enterprise-map-editor-grid {
+  --enterprise-map-editor-cell-size: 30px;
   display: grid;
-  gap: 3px;
+  gap: 0;
   min-width: max-content;
 }
 
 .enterprise-map-editor-draft-controls {
   display: grid;
-  grid-template-columns: minmax(0, 1.3fr) repeat(2, minmax(118px, 1fr));
+  grid-template-columns: minmax(0, 1.3fr) repeat(3, minmax(118px, 1fr));
   gap: 8px;
   margin-bottom: 10px;
 }
@@ -1340,14 +1341,28 @@ h2 {
   padding: 0;
 }
 
+.enterprise-map-editor-zoom-controls {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) 32px;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.enterprise-map-editor-zoom-readout {
+  min-width: 0;
+  min-height: 32px;
+  padding: 0 8px;
+  font-weight: 700;
+}
+
 .enterprise-map-editor-cell {
-  width: 30px;
-  height: 30px;
+  width: var(--enterprise-map-editor-cell-size);
+  height: var(--enterprise-map-editor-cell-size);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   border: 1px solid #ddcfbf;
-  border-radius: 8px;
+  border-radius: 0;
   background: rgba(255, 255, 255, 0.96);
   color: #9a7a55;
   font-size: 12px;
@@ -1369,8 +1384,8 @@ h2 {
 }
 
 .enterprise-map-editor-cell.is-valid {
-  border-color: rgba(214, 196, 171, 0.96);
-  background: rgba(244, 237, 225, 0.92);
+  border-color: rgba(214, 196, 171, 0.82);
+  background: rgba(244, 237, 225, 0.82);
   color: #8f7558;
 }
 
@@ -2012,20 +2027,32 @@ h2 {
   will-change: transform;
 }
 
+.map-stage.is-irregular {
+  background-color: transparent;
+  background-image: none;
+}
+
+.map-valid-cell,
 .void-cell,
 .blocked-cell,
+.minimap-valid-cell,
 .minimap-blocked-cell {
   position: absolute;
   pointer-events: none;
+}
+
+.map-valid-cell,
+.minimap-valid-cell {
+  background: rgba(244, 237, 225, 0.88);
+  box-shadow: inset 0 0 0 1px rgba(214, 196, 171, 0.76);
 }
 
 .void-cell,
 .minimap-void-cell {
   position: absolute;
   pointer-events: none;
-  background:
-    linear-gradient(180deg, rgba(247, 242, 235, 0.96), rgba(234, 227, 216, 0.96));
-  box-shadow: inset 0 0 0 1px rgba(210, 200, 188, 0.92);
+  background: transparent;
+  box-shadow: none;
 }
 
 .blocked-cell,
@@ -2893,6 +2920,11 @@ h2 {
   background-image:
     linear-gradient(to right, rgba(215, 210, 200, 0.9) 1px, transparent 1px),
     linear-gradient(to bottom, rgba(215, 210, 200, 0.9) 1px, transparent 1px);
+}
+
+.minimap-grid.is-irregular {
+  background-color: transparent;
+  background-image: none;
 }
 
 .minimap-label {
