@@ -1060,6 +1060,61 @@ h2 {
   color: #546e7a;
 }
 
+.enterprise-settings-sidebar-footer {
+  margin-top: auto;
+  padding-top: 6px;
+  border-top: 1px dashed rgba(216, 208, 197, 0.88);
+}
+
+.enterprise-settings-sidebar-action {
+  width: 100%;
+  display: grid;
+  align-items: center;
+  justify-items: start;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid #ddd4c8;
+  border-radius: 14px;
+  background: rgba(255, 252, 247, 0.96);
+  color: var(--strong-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.enterprise-settings-sidebar-action-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 12px;
+  background: rgba(201, 168, 106, 0.12);
+  font-size: 17px;
+  line-height: 1;
+}
+
+.enterprise-settings-sidebar-action-copy {
+  min-width: 0;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.enterprise-settings-sidebar-action-hint {
+  min-width: 0;
+  color: var(--muted-text);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.enterprise-settings-sidebar.is-collapsed .enterprise-settings-sidebar-footer {
+  padding-top: 2px;
+}
+
+.enterprise-settings-sidebar.is-collapsed .enterprise-settings-sidebar-action {
+  justify-items: center;
+  padding: 10px 6px;
+}
+
 .enterprise-settings-content {
   display: grid;
   align-content: start;
@@ -1907,6 +1962,19 @@ h2 {
 
 .map-control-button {
   padding: 7px 10px;
+}
+
+.map-control-button-page-settings {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  min-width: 38px;
+  min-height: 38px;
+  padding: 0;
+  border-radius: 12px;
+  font-size: 17px;
+  line-height: 1;
 }
 
 .map-settings-panel {

@@ -455,6 +455,8 @@
     "enterprise_settings_navigation": "功能分栏",
     "enterprise_settings_sidebar_expand": "展开",
     "enterprise_settings_sidebar_collapse": "收起",
+    "enterprise_settings_page_settings_entry": "页面设置",
+    "enterprise_settings_page_settings_hint": "打开当前页面设置面板，让企业设置继续聚焦企业侧流程和资产。",
     "enterprise_settings_tab_overview": "企业概览",
     "enterprise_settings_tab_map_profiles": "地图方案",
     "enterprise_settings_tab_point_templates": "点位与模板",
@@ -651,7 +653,7 @@
     "enterprise_settings_runtime_focus_admin_hint": "企业管理员主要利用运行状态做统一协调、留痕判断和发布前把关，而不是长期盯住现场单条任务。",
     "enterprise_settings_open_dispatch": "打开调度面板",
     "enterprise_settings_open_queue": "打开任务队列",
-    "enterprise_settings_open_map_settings": "打开地图设置",
+    "enterprise_settings_open_page_settings": "打开页面设置",
     "enterprise_settings_open_points": "打开点位面板",
     "enterprise_settings_open_templates": "打开模板面板",
     "enterprise_settings_open_experiments": "打开实验记录",
@@ -1228,3 +1230,4 @@
     }
   }
 }
+

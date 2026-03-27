@@ -7226,6 +7226,12 @@ function toggleMapSettings() {
   showMapSettings.value = !showMapSettings.value
 }
 
+async function openPageSettingsFromEnterpriseSettings() {
+  closeEnterpriseSettingsDialog()
+  await nextTick()
+  showMapSettings.value = true
+}
+
 function handlePanelSummaryItemClick(item) {
   if (item.interactive !== 'zoom') {
     summaryZoomArmed.value = false
@@ -11377,6 +11383,7 @@ const enterpriseSettingsDialogBindings = {
   runEnterpriseApplicationAction,
   applyEnterprisePanelPreset,
   applyCurrentEnterpriseWorkspacePreset,
+  openPageSettingsFromEnterpriseSettings,
   jumpFromEnterpriseSettings,
   runEnterpriseWorkspaceAction,
   mapProfileActionSummaryTitle,
@@ -11925,8 +11932,15 @@ onBeforeUnmount(() => {
             @wheel.stop
           >
             <div class="map-zoom-pill">{{ mapZoomLabel }}</div>
-            <button class="map-control-button" type="button" @click="toggleMapSettings">
-              {{ settingsLocale.title }}
+            <button
+              class="map-control-button map-control-button-page-settings"
+              type="button"
+              :title="t('enterprise_settings_page_settings_entry')"
+              :aria-label="t('enterprise_settings_page_settings_entry')"
+              @click="toggleMapSettings"
+            >
+              <span aria-hidden="true">⚙</span>
+              <span class="visually-hidden">{{ t('enterprise_settings_page_settings_entry') }}</span>
             </button>
             <MapSettingsPanel :ui="mapSettingsPanelBindings" />
           </div>

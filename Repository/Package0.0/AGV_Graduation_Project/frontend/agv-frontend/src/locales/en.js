@@ -455,6 +455,8 @@
     "enterprise_settings_navigation": "Navigation",
     "enterprise_settings_sidebar_expand": "Expand",
     "enterprise_settings_sidebar_collapse": "Collapse",
+    "enterprise_settings_page_settings_entry": "Page Settings",
+    "enterprise_settings_page_settings_hint": "Open the live page settings panel and keep the enterprise hub focused on enterprise workflows.",
     "enterprise_settings_tab_overview": "Enterprise Overview",
     "enterprise_settings_tab_map_profiles": "Map Profiles",
     "enterprise_settings_tab_point_templates": "Points & Templates",
@@ -651,7 +653,7 @@
     "enterprise_settings_runtime_focus_admin_hint": "Enterprise admins mainly use runtime signals for coordination, audit context, and deciding whether broader changes should be approved.",
     "enterprise_settings_open_dispatch": "Open Dispatch Panel",
     "enterprise_settings_open_queue": "Open Task Queue",
-    "enterprise_settings_open_map_settings": "Open Map Settings",
+    "enterprise_settings_open_page_settings": "Open Page Settings",
     "enterprise_settings_open_points": "Open Points Panel",
     "enterprise_settings_open_templates": "Open Templates Panel",
     "enterprise_settings_open_experiments": "Open Experiments",
@@ -1228,3 +1230,4 @@
     }
   }
 }
+

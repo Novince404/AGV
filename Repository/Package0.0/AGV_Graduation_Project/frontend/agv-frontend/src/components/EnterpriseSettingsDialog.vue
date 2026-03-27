@@ -83,6 +83,24 @@
                   </span>
                 </span>
               </button>
+              <div class="enterprise-settings-sidebar-footer">
+                <button
+                  class="enterprise-settings-sidebar-action"
+                  type="button"
+                  :title="`${t('enterprise_settings_page_settings_entry')} · ${t('enterprise_settings_page_settings_hint')}`"
+                  @click="openPageSettingsFromEnterpriseSettings"
+                >
+                  <span class="enterprise-settings-sidebar-action-icon" aria-hidden="true">⚙</span>
+                  <template v-if="!enterpriseSettingsSidebarCollapsed">
+                    <span class="enterprise-settings-sidebar-action-copy">
+                      {{ t('enterprise_settings_page_settings_entry') }}
+                    </span>
+                    <span class="enterprise-settings-sidebar-action-hint">
+                      {{ t('enterprise_settings_page_settings_hint') }}
+                    </span>
+                  </template>
+                </button>
+              </div>
           </aside>
 
           <div class="enterprise-settings-content">
@@ -727,8 +745,8 @@
                 </div>
               </div>
               <div class="enterprise-settings-actions">
-                <button class="btn-secondary" type="button" @click="jumpFromEnterpriseSettings('control')">
-                  {{ t('enterprise_settings_open_map_settings') }}
+                <button class="btn-secondary" type="button" @click="openPageSettingsFromEnterpriseSettings">
+                  {{ t('enterprise_settings_open_page_settings') }}
                 </button>
               </div>
             </template>

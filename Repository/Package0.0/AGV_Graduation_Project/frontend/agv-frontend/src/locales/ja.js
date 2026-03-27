@@ -545,6 +545,8 @@
     "enterprise_settings_navigation": "機能タブ",
     "enterprise_settings_sidebar_expand": "展開",
     "enterprise_settings_sidebar_collapse": "折りたたむ",
+    "enterprise_settings_page_settings_entry": "ページ設定",
+    "enterprise_settings_page_settings_hint": "現在のページ設定パネルを開き、企業設定は企業向けの導線と資産管理に集中させます。",
     "enterprise_settings_tab_overview": "企業概要",
     "enterprise_settings_tab_map_profiles": "マッププラン",
     "enterprise_settings_tab_point_templates": "ポイントとテンプレート",
@@ -685,7 +687,7 @@
     "enterprise_settings_ai_jobs_empty": "AI 素材ジョブはまだありません。",
     "enterprise_settings_open_dispatch": "配車パネルを開く",
     "enterprise_settings_open_queue": "タスクキューを開く",
-    "enterprise_settings_open_map_settings": "マップ設定を開く",
+    "enterprise_settings_open_page_settings": "ページ設定を開く",
     "enterprise_settings_open_points": "ポイントパネルを開く",
     "enterprise_settings_open_templates": "テンプレートパネルを開く",
     "enterprise_settings_open_experiments": "実験記録を開く",
@@ -1228,3 +1230,4 @@
     }
   }
 }
+
