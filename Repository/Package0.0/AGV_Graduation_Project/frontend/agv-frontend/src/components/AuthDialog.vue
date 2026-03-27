@@ -4,12 +4,13 @@
         <aside class="auth-dialog-side-panel auth-dialog-side-panel-capabilities">
           <div class="auth-capability-panel">
             <div class="auth-dialog-divider">{{ t('auth_capabilities_title') }}</div>
+            <strong class="auth-side-preview-title">{{ authPreviewIdentityLabel }}</strong>
             <p class="auth-dialog-hint">
-              {{ authAuthenticated ? t('auth_capabilities_hint') : t('auth_capabilities_guest_hint') }}
+              {{ authPreviewCapabilityHint }}
             </p>
             <div class="auth-capability-grid">
               <article
-                v-for="item in authCapabilityCards"
+                v-for="item in authPreviewCapabilityCards"
                 :key="item.key"
                 class="auth-capability-card"
                 :class="{ enabled: item.enabled, disabled: !item.enabled }"
@@ -586,22 +587,21 @@
 
         <div class="auth-dialog-entry-shell">
           <div class="auth-dialog-choice-grid auth-dialog-choice-grid-identities">
-            <button class="auth-dialog-choice guest" type="button" @click="enterGuestMode">
-              <strong>{{ t('auth_role_guest') }}</strong>
-              <span>{{ t('auth_enter_guest') }}</span>
-            </button>
             <button
-              v-for="account in authPrimaryAccounts"
-              :key="account.role"
+              v-for="account in authPreviewIdentityOptions"
+              :key="account.key"
               class="auth-dialog-choice"
+              :class="[{ guest: account.role === 'guest' }, { 'is-selected': authSelectedPreviewRole === account.role }]"
               type="button"
               :disabled="authLoading"
-              @click="handleAuthQuickLogin(account)"
+              @click="selectAuthIdentityPreview(account)"
+              @dblclick="activateAuthIdentityPreview(account)"
             >
-              <strong>{{ t(`auth_role_${account.role}`) }}</strong>
-              <span>{{ account.username }}</span>
+              <strong>{{ account.label }}</strong>
+              <span>{{ account.meta }}</span>
             </button>
           </div>
+          <p class="auth-dialog-hint">{{ t('auth_identity_preview_hint') }}</p>
 
           <div class="auth-dialog-divider">{{ t('auth_manual_login') }}</div>
           <div class="auth-dialog-segmented">
@@ -993,58 +993,57 @@
                 {{ t('auth_enterprise_register_existing_action_use') }}
               </button>
             </div>
-            <p class="auth-dialog-hint auth-register-draft-hint">
-              {{ t('auth_enterprise_register_draft_hint') }}
-            </p>
-
-            <div class="auth-register-sidecard">
-              <div class="auth-register-sidecard-head">
-                <strong>{{ t('auth_enterprise_register_panel_title') }}</strong>
-                <span class="auth-register-sidecard-state" :class="{ ready: authEnterpriseRegisterValidation.valid }">
-                  {{ authEnterpriseRegisterStatusText }}
-                </span>
-              </div>
-
-              <div class="auth-register-checklist">
-                <article
-                  v-for="item in authEnterpriseRegisterValidation.items"
-                  :key="item.key"
-                  class="auth-register-check-item"
-                  :class="{ ready: item.valid }"
-                >
-                  <strong>{{ item.label }}</strong>
-                  <span>{{ item.valid ? t('auth_enterprise_register_requirement_complete') : item.message }}</span>
-                </article>
-              </div>
-
-              <div class="auth-register-process">
-                <strong>{{ t('auth_enterprise_register_process_title') }}</strong>
-                <ol>
-                  <li>{{ t('auth_enterprise_register_process_step_submit') }}</li>
-                  <li>{{ t('auth_enterprise_register_process_step_review') }}</li>
-                  <li>{{ t('auth_enterprise_register_process_step_unlock') }}</li>
-                </ol>
-              </div>
-              </div>
-            </div>
+          </div>
           </div>
         </template>
       </div>
       <aside class="auth-dialog-side-panel auth-dialog-side-panel-demo">
         <div class="auth-dialog-entry-shell auth-dialog-demo-shell">
-          <div class="auth-dialog-demo-label">{{ t('auth_demo_accounts') }}</div>
+          <div class="auth-dialog-demo-label">{{ t('auth_side_guide_title') }}</div>
           <p class="auth-dialog-hint">{{ t('auth_login_hint') }}</p>
-          <div class="auth-dialog-demo-grid auth-dialog-demo-grid-prominent">
-            <button
-              v-for="account in authDemoAccounts"
-              :key="account.username"
-              class="auth-dialog-demo-button"
-              type="button"
-              :disabled="authLoading"
-              @click="handleAuthDemoFill(account)"
+          <div class="auth-side-guide-list">
+            <article
+              v-for="item in authSideGuideItems"
+              :key="item.key"
+              class="auth-side-guide-item"
             >
-              {{ authDemoAccountLabel(account) }}
-            </button>
+              <strong>{{ item.title }}</strong>
+              <span>{{ item.hint }}</span>
+            </article>
+          </div>
+        </div>
+        <div
+          v-if="authDialogView === 'enterprise-register'"
+          class="auth-register-sidecard auth-register-sidecard-side"
+        >
+          <div class="auth-register-sidecard-head">
+            <strong>{{ t('auth_enterprise_register_panel_title') }}</strong>
+            <span class="auth-register-sidecard-state" :class="{ ready: authEnterpriseRegisterValidation.valid }">
+              {{ authEnterpriseRegisterStatusText }}
+            </span>
+          </div>
+          <p class="auth-dialog-hint auth-register-draft-hint">
+            {{ t('auth_enterprise_register_draft_hint') }}
+          </p>
+          <div class="auth-register-checklist">
+            <article
+              v-for="item in authEnterpriseRegisterValidation.items"
+              :key="item.key"
+              class="auth-register-check-item"
+              :class="{ ready: item.valid }"
+            >
+              <strong>{{ item.label }}</strong>
+              <span>{{ item.valid ? t('auth_enterprise_register_requirement_complete') : item.message }}</span>
+            </article>
+          </div>
+
+          <div class="auth-register-process">
+            <strong>{{ t('auth_enterprise_register_process_title') }}</strong>
+            <ol>
+              <li>{{ t('auth_enterprise_register_process_step_submit') }}</li>
+              <li>{{ t('auth_enterprise_register_process_step_review') }}</li>
+              <li>{{ t('auth_enterprise_register_process_step_unlock') }}</li>
+            </ol>
           </div>
         </div>
       </aside>
@@ -1053,7 +1052,7 @@
 </template>
 
 <script>
-import { defineComponent, reactive, watchEffect } from 'vue'
+import { computed, defineComponent, reactive, ref, watchEffect } from 'vue'
 
 export default defineComponent({
   name: 'AuthDialog',
@@ -1065,9 +1064,202 @@ export default defineComponent({
   },
   setup(props) {
     const exposed = reactive({})
+    const selectedPreviewRole = ref('')
+
+    const previewCapabilityGroupsByRole = {
+      guest: {
+        dispatch: false,
+        fault: false,
+        map: false,
+        data: false,
+        audit: false,
+        ai: false,
+        platform: false
+      },
+      personal: {
+        dispatch: true,
+        fault: true,
+        map: true,
+        data: true,
+        audit: true,
+        ai: false,
+        platform: false
+      },
+      enterprise_operator: {
+        dispatch: true,
+        fault: true,
+        map: false,
+        data: false,
+        audit: false,
+        ai: true,
+        platform: false
+      },
+      enterprise_logistics: {
+        dispatch: false,
+        fault: false,
+        map: true,
+        data: true,
+        audit: false,
+        ai: true,
+        platform: false
+      },
+      enterprise_admin: {
+        dispatch: true,
+        fault: true,
+        map: true,
+        data: true,
+        audit: true,
+        ai: true,
+        platform: false
+      },
+      platform_admin: {
+        dispatch: true,
+        fault: true,
+        map: true,
+        data: true,
+        audit: true,
+        ai: true,
+        platform: true
+      }
+    }
+
+    const previewIdentityOptions = computed(() => {
+      const ui = props.ui || {}
+      const t = typeof ui.t === 'function' ? ui.t : key => key
+      const demoAccounts = Array.isArray(ui.authDemoAccounts) ? ui.authDemoAccounts : []
+      const desiredRoles = [
+        'guest',
+        'personal',
+        'enterprise_admin',
+        'enterprise_operator',
+        'enterprise_logistics',
+        'platform_admin'
+      ]
+      return desiredRoles
+        .map(role => {
+          if (role === 'guest') {
+            return {
+              key: 'guest',
+              role: 'guest',
+              username: 'guest',
+              label: t('auth_role_guest'),
+              meta: t('auth_enter_guest')
+            }
+          }
+          const matched = demoAccounts.find(account => account.role === role)
+          if (!matched) return null
+          return {
+            key: role,
+            role,
+            username: matched.username,
+            label: t(`auth_role_${role}`),
+            meta: matched.username
+          }
+        })
+        .filter(Boolean)
+    })
+
+    const selectedPreviewOption = computed(() => {
+      const options = previewIdentityOptions.value
+      return options.find(option => option.role === selectedPreviewRole.value) || options[0] || {
+        key: 'guest',
+        role: 'guest',
+        username: 'guest',
+        label: 'guest',
+        meta: ''
+      }
+    })
+
+    const previewCapabilityCards = computed(() => {
+      const ui = props.ui || {}
+      const t = typeof ui.t === 'function' ? ui.t : key => key
+      const buildStateText = typeof ui.buildAuthCapabilityStateText === 'function'
+        ? ui.buildAuthCapabilityStateText
+        : enabled => (enabled ? 'enabled' : 'disabled')
+      const groups = previewCapabilityGroupsByRole[selectedPreviewOption.value.role] || previewCapabilityGroupsByRole.guest
+      const cardDefs = [
+        { key: 'dispatch', label: t('auth_capability_dispatch_label'), hint: t('auth_capability_dispatch_hint') },
+        { key: 'fault', label: t('auth_capability_fault_label'), hint: t('auth_capability_fault_hint') },
+        { key: 'map', label: t('auth_capability_map_label'), hint: t('auth_capability_map_hint') },
+        { key: 'data', label: t('auth_capability_data_label'), hint: t('auth_capability_data_hint') },
+        { key: 'audit', label: t('auth_capability_audit_label'), hint: t('auth_capability_audit_hint') },
+        { key: 'ai', label: t('auth_capability_ai_label'), hint: t('auth_capability_ai_hint') },
+        { key: 'platform', label: t('auth_capability_platform_label'), hint: t('auth_capability_platform_hint') }
+      ]
+      return cardDefs.map(item => ({
+        ...item,
+        enabled: Boolean(groups[item.key]),
+        stateText: buildStateText(Boolean(groups[item.key]))
+      }))
+    })
+
+    const previewCapabilityHint = computed(() => {
+      const ui = props.ui || {}
+      const t = typeof ui.t === 'function' ? ui.t : key => key
+      return selectedPreviewOption.value.role === 'guest'
+        ? t('auth_capabilities_guest_hint')
+        : t('auth_capabilities_hint')
+    })
+
+    const sideGuideItems = computed(() => {
+      const ui = props.ui || {}
+      const t = typeof ui.t === 'function' ? ui.t : key => key
+      const items = [
+        {
+          key: 'preview',
+          title: t('auth_side_guide_preview_title'),
+          hint: t('auth_side_guide_preview_hint')
+        },
+        {
+          key: 'enter',
+          title: t('auth_side_guide_enter_title'),
+          hint: t('auth_side_guide_enter_hint')
+        }
+      ]
+      if (ui.authDialogView === 'enterprise-register') {
+        items.push({
+          key: 'register',
+          title: t('auth_side_guide_register_title'),
+          hint: t('auth_side_guide_register_hint')
+        })
+      }
+      return items
+    })
+
+    function selectAuthIdentityPreview(account) {
+      selectedPreviewRole.value = String(account?.role || 'guest')
+    }
+
+    function activateAuthIdentityPreview(account) {
+      const ui = props.ui || {}
+      if (account?.role === 'guest') {
+        if (typeof ui.enterGuestMode === 'function') ui.enterGuestMode()
+        return
+      }
+      if (typeof ui.handleAuthQuickLogin === 'function') {
+        ui.handleAuthQuickLogin(account)
+      }
+    }
 
     watchEffect(() => {
-      Object.assign(exposed, props.ui || {})
+      const ui = props.ui || {}
+      const options = previewIdentityOptions.value
+      const desiredDefaultRole = ui.authAuthenticated ? String(ui.authCurrentRole || 'guest') : 'guest'
+      if (!options.some(option => option.role === selectedPreviewRole.value)) {
+        selectedPreviewRole.value = options.some(option => option.role === desiredDefaultRole)
+          ? desiredDefaultRole
+          : (options[0]?.role || 'guest')
+      }
+      Object.assign(exposed, ui, {
+        authPreviewIdentityOptions: options,
+        authSelectedPreviewRole: selectedPreviewRole.value,
+        authPreviewIdentityLabel: selectedPreviewOption.value.label,
+        authPreviewCapabilityCards: previewCapabilityCards.value,
+        authPreviewCapabilityHint: previewCapabilityHint.value,
+        authSideGuideItems: sideGuideItems.value,
+        selectAuthIdentityPreview,
+        activateAuthIdentityPreview
+      })
     })
 
     return exposed
