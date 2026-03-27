@@ -11933,6 +11933,7 @@ onBeforeUnmount(() => {
           >
             <div class="map-zoom-pill">{{ mapZoomLabel }}</div>
             <button
+              v-if="!authIsEnterpriseRole"
               class="map-control-button map-control-button-page-settings"
               type="button"
               :title="t('enterprise_settings_page_settings_entry')"
