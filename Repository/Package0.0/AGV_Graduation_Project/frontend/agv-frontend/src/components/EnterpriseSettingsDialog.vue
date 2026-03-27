@@ -12,20 +12,66 @@
           </button>
         </header>
 
-        <div class="enterprise-settings-shell">
-          <aside class="enterprise-settings-sidebar">
-            <div class="enterprise-settings-sidebar-title">{{ t('enterprise_settings_navigation') }}</div>
+        <div
+          class="enterprise-settings-shell"
+          :class="{ 'is-sidebar-collapsed': enterpriseSettingsSidebarCollapsed }"
+        >
+          <aside
+            class="enterprise-settings-sidebar"
+            :class="{ 'is-collapsed': enterpriseSettingsSidebarCollapsed }"
+          >
+            <div class="enterprise-settings-sidebar-head">
+              <div
+                v-if="!enterpriseSettingsSidebarCollapsed"
+                class="enterprise-settings-sidebar-title"
+              >
+                {{ t('enterprise_settings_navigation') }}
+              </div>
+              <button
+                class="enterprise-settings-sidebar-toggle"
+                type="button"
+                :title="enterpriseSettingsSidebarCollapsed ? t('enterprise_settings_sidebar_expand') : t('enterprise_settings_sidebar_collapse')"
+                @click="toggleEnterpriseSettingsSidebar"
+              >
+                <span class="enterprise-settings-sidebar-toggle-icon">
+                  {{ enterpriseSettingsSidebarCollapsed ? '>>' : '<<' }}
+                </span>
+                <span v-if="!enterpriseSettingsSidebarCollapsed">
+                  {{ enterpriseSettingsSidebarCollapsed ? t('enterprise_settings_sidebar_expand') : t('enterprise_settings_sidebar_collapse') }}
+                </span>
+              </button>
+            </div>
               <button
                 v-for="tab in enterpriseSettingsTabDefinitions"
                 :key="tab.key"
                 class="enterprise-settings-tab"
                 :class="{ active: enterpriseSettingsActiveTab === tab.key, 'is-primary': tab.primary }"
                 type="button"
+                :title="`${tab.label} · ${tab.hint}`"
                 @click="switchEnterpriseSettingsTab(tab.key)"
               >
-                <span class="enterprise-settings-tab-copy">{{ tab.label }}</span>
-                <span class="enterprise-settings-tab-hint">{{ tab.hint }}</span>
-                <span class="enterprise-settings-tab-badges">
+                <span
+                  class="enterprise-settings-tab-short"
+                  :class="{ 'is-visible': enterpriseSettingsSidebarCollapsed }"
+                >
+                  {{ tab.shortLabel }}
+                </span>
+                <span
+                  v-if="!enterpriseSettingsSidebarCollapsed"
+                  class="enterprise-settings-tab-copy"
+                >
+                  {{ tab.label }}
+                </span>
+                <span
+                  v-if="!enterpriseSettingsSidebarCollapsed"
+                  class="enterprise-settings-tab-hint"
+                >
+                  {{ tab.hint }}
+                </span>
+                <span
+                  v-if="!enterpriseSettingsSidebarCollapsed"
+                  class="enterprise-settings-tab-badges"
+                >
                   <span class="enterprise-settings-tab-badge">
                     {{ tab.primary ? t('enterprise_settings_tab_badge_primary') : t('enterprise_settings_tab_badge_secondary') }}
                   </span>

@@ -104,6 +104,7 @@ const TASK_QUEUE_VIEW_STORAGE_KEY = 'agv_task_queue_view'
 const EXPERIMENT_RECORDS_STORAGE_KEY = 'agv_experiment_records'
 const COMFY_WORKFLOW_TEMPLATE_STORAGE_KEY = 'agv_comfy_workflow_templates'
 const ENTERPRISE_SETTINGS_TAB_STORAGE_KEY = 'agv_enterprise_settings_tabs'
+const ENTERPRISE_SETTINGS_SIDEBAR_STORAGE_KEY = 'agv_enterprise_settings_sidebar_collapsed'
 const ENTERPRISE_REGISTER_DRAFT_STORAGE_KEY = 'agv_enterprise_register_draft'
 const ENTERPRISE_REGISTER_FOLLOWUP_STORAGE_KEY = 'agv_enterprise_register_followup'
 const ENTERPRISE_APPROVAL_UI_STORAGE_KEY = 'agv_enterprise_approval_ui'
@@ -669,6 +670,7 @@ const enterpriseApprovalNoteDrafts = ref(enterpriseApprovalUiState.noteDrafts)
 const enterpriseApprovalReviewFollowup = ref(loadEnterpriseApprovalReviewFollowup())
 const enterpriseSettingsDialogOpen = ref(false)
 const enterpriseSettingsActiveTab = ref('overview')
+const enterpriseSettingsSidebarCollapsed = ref(false)
 const authRoleLabel = computed(() => t(`auth_role_${authCurrentRole.value}`))
 const authRoleBadgeClass = computed(() => `role-${authCurrentRole.value}`)
 const dashboardUnlocked = computed(() => authAuthenticated.value || authGuestAccepted.value)
@@ -1627,11 +1629,13 @@ function enterpriseTabAccessHint(tabKey, accessMode = enterpriseTabAccessMode(ta
 
 const enterpriseSettingsTabDefinitions = computed(() => {
   const tabLabel = key => t(`enterprise_settings_tab_${key}`)
+  const tabShortLabel = key => t(`enterprise_settings_tab_short_${key}`)
   const buildTab = (key, primary) => {
     const accessMode = enterpriseTabAccessMode(key)
     return {
       key,
       label: tabLabel(key),
+      shortLabel: tabShortLabel(key),
       primary,
       accessMode,
       hint: enterpriseTabAccessHint(key, accessMode)
@@ -4763,6 +4767,29 @@ function loadEnterpriseSettingsTabPreference(role = authCurrentRole.value) {
   }
 }
 
+function loadEnterpriseSettingsSidebarPreference() {
+  try {
+    const raw = window.localStorage.getItem(ENTERPRISE_SETTINGS_SIDEBAR_STORAGE_KEY)
+    if (!raw) return false
+    const parsed = JSON.parse(raw)
+    return Boolean(parsed?.collapsed)
+  } catch (error) {
+    console.error('Load enterprise settings sidebar preference error:', error)
+    return false
+  }
+}
+
+function saveEnterpriseSettingsSidebarPreference(collapsed = enterpriseSettingsSidebarCollapsed.value) {
+  try {
+    window.localStorage.setItem(
+      ENTERPRISE_SETTINGS_SIDEBAR_STORAGE_KEY,
+      JSON.stringify({ collapsed: Boolean(collapsed) })
+    )
+  } catch (error) {
+    console.error('Save enterprise settings sidebar preference error:', error)
+  }
+}
+
 function saveEnterpriseSettingsTabPreference(role = authCurrentRole.value, tab = enterpriseSettingsActiveTab.value) {
   try {
     const normalizedRole = String(role || '').trim()
@@ -4800,6 +4827,7 @@ async function openEnterpriseSettingsDialog(targetTab = '') {
   const availableKeys = enterpriseSettingsTabKeys.value
   const rememberedTab = loadEnterpriseSettingsTabPreference()
   const preferredTab = String(targetTab || '').trim() || rememberedTab || preferredEnterpriseSettingsTab()
+  enterpriseSettingsSidebarCollapsed.value = loadEnterpriseSettingsSidebarPreference()
   enterpriseSettingsActiveTab.value = availableKeys.includes(preferredTab)
     ? preferredTab
     : (availableKeys[0] || 'overview')
@@ -4849,6 +4877,15 @@ async function applyEnterpriseWorkspaceFromAuth() {
   if (dashboardUnlocked.value) {
     authPanelOpen.value = false
   }
+}
+
+function setEnterpriseSettingsSidebarCollapsed(collapsed) {
+  enterpriseSettingsSidebarCollapsed.value = Boolean(collapsed)
+  saveEnterpriseSettingsSidebarPreference(enterpriseSettingsSidebarCollapsed.value)
+}
+
+function toggleEnterpriseSettingsSidebar() {
+  setEnterpriseSettingsSidebarCollapsed(!enterpriseSettingsSidebarCollapsed.value)
 }
 
 async function runEnterpriseWorkspaceAction(actionKey, { closeAuth = false, closeSettings = false } = {}) {
@@ -11167,6 +11204,7 @@ const enterpriseSettingsDialogBindings = {
   enterpriseSettingsTabDefinitions,
   enterpriseSettingsActiveTab,
   enterpriseSettingsTabLabel,
+  enterpriseSettingsSidebarCollapsed,
   enterpriseActiveTabModeLabel,
   enterpriseActiveTabAccessLabel,
   enterpriseActiveTabAccessHint,
@@ -11319,6 +11357,7 @@ const enterpriseSettingsDialogBindings = {
   mapProfileImporting,
   closeEnterpriseSettingsDialog,
   switchEnterpriseSettingsTab,
+  toggleEnterpriseSettingsSidebar,
   enterpriseTabAccessLabel,
   taskStatusText,
   formatTaskCompactSummary,

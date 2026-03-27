@@ -889,6 +889,10 @@ h2 {
   gap: 14px;
 }
 
+.enterprise-settings-shell.is-sidebar-collapsed {
+  grid-template-columns: 92px minmax(0, 1fr);
+}
+
 .enterprise-settings-sidebar {
   display: grid;
   align-content: start;
@@ -901,11 +905,48 @@ h2 {
   min-height: 0;
 }
 
+.enterprise-settings-sidebar.is-collapsed {
+  padding: 12px 10px;
+}
+
+.enterprise-settings-sidebar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
 .enterprise-settings-sidebar-title {
   font-size: 12px;
   font-weight: 700;
   color: var(--muted-text);
   letter-spacing: 0.04em;
+}
+
+.enterprise-settings-sidebar-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid #ddd4c8;
+  background: rgba(255, 252, 247, 0.96);
+  color: var(--strong-text);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.enterprise-settings-sidebar.is-collapsed .enterprise-settings-sidebar-toggle {
+  width: 100%;
+  padding: 0;
+}
+
+.enterprise-settings-sidebar-toggle-icon {
+  font-family: monospace;
+  letter-spacing: -0.08em;
 }
 
 .enterprise-settings-tab {
@@ -920,6 +961,33 @@ h2 {
   color: var(--strong-text);
   text-align: left;
   cursor: pointer;
+}
+
+.enterprise-settings-sidebar.is-collapsed .enterprise-settings-tab {
+  justify-items: center;
+  gap: 8px;
+  padding: 10px 6px;
+  text-align: center;
+}
+
+.enterprise-settings-tab-short {
+  display: none;
+  min-width: 42px;
+  min-height: 42px;
+  padding: 6px;
+  border-radius: 12px;
+  align-items: center;
+  justify-content: center;
+  background: rgba(201, 168, 106, 0.12);
+  color: inherit;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.1;
+  text-transform: uppercase;
+}
+
+.enterprise-settings-tab-short.is-visible {
+  display: inline-flex;
 }
 
 .enterprise-settings-tab-copy {
@@ -951,6 +1019,11 @@ h2 {
 
 .enterprise-settings-tab.active .enterprise-settings-tab-hint {
   color: rgba(21, 101, 192, 0.78);
+}
+
+.enterprise-settings-tab.active .enterprise-settings-tab-short {
+  background: rgba(21, 101, 192, 0.14);
+  color: #1565c0;
 }
 
 .enterprise-settings-tab.is-primary {
