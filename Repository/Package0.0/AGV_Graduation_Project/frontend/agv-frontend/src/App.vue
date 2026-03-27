@@ -5530,13 +5530,13 @@ function resetEnterpriseWorkspacePopupPosition() {
   const popupEl = enterpriseWorkspacePopupRef.value
   if (!paneEl || !popupEl) {
     enterpriseWorkspacePopupX.value = null
-    enterpriseWorkspacePopupY.value = 10
+    enterpriseWorkspacePopupY.value = 8
     return
   }
   const paneRect = paneEl.getBoundingClientRect()
   const popupRect = popupEl.getBoundingClientRect()
-  enterpriseWorkspacePopupX.value = Math.max(14, paneRect.width - popupRect.width - 14)
-  enterpriseWorkspacePopupY.value = 10
+  enterpriseWorkspacePopupX.value = Math.max(14, paneRect.left + paneRect.width - popupRect.width - 14)
+  enterpriseWorkspacePopupY.value = 8
 }
 
 async function ensureEnterpriseWorkspacePopupPosition() {
@@ -5555,38 +5555,31 @@ function startEnterpriseWorkspacePopupDrag(event) {
   if (event.button !== 0) return
   if (event.target.closest('button')) return
 
-  const paneEl = mapPaneRef.value
   const popupEl = enterpriseWorkspacePopupRef.value
-  if (!paneEl || !popupEl) return
+  if (!popupEl) return
 
   if (enterpriseWorkspacePopupX.value == null) {
-    const paneRect = paneEl.getBoundingClientRect()
-    const popupRect = popupEl.getBoundingClientRect()
-    enterpriseWorkspacePopupX.value = Math.max(14, paneRect.width - popupRect.width - 14)
-    enterpriseWorkspacePopupY.value = 10
+    resetEnterpriseWorkspacePopupPosition()
   }
 
-  const paneRect = paneEl.getBoundingClientRect()
   enterpriseWorkspacePopupDragging = true
-  enterpriseWorkspacePopupDragOffsetX = event.clientX - paneRect.left - (enterpriseWorkspacePopupX.value ?? 14)
-  enterpriseWorkspacePopupDragOffsetY = event.clientY - paneRect.top - enterpriseWorkspacePopupY.value
+  enterpriseWorkspacePopupDragOffsetX = event.clientX - (enterpriseWorkspacePopupX.value ?? 14)
+  enterpriseWorkspacePopupDragOffsetY = event.clientY - enterpriseWorkspacePopupY.value
   event.preventDefault()
 }
 
 function syncEnterpriseWorkspacePopupDrag(event) {
   if (!enterpriseWorkspacePopupDragging) return false
-  const paneEl = mapPaneRef.value
   const popupEl = enterpriseWorkspacePopupRef.value
-  if (!paneEl || !popupEl) return false
+  if (!popupEl) return false
 
-  const paneRect = paneEl.getBoundingClientRect()
   const popupRect = popupEl.getBoundingClientRect()
-  const nextX = event.clientX - paneRect.left - enterpriseWorkspacePopupDragOffsetX
-  const nextY = event.clientY - paneRect.top - enterpriseWorkspacePopupDragOffsetY
-  const maxX = Math.max(14, paneRect.width - popupRect.width - 14)
-  const maxY = Math.max(14, paneRect.height - popupRect.height - 14)
+  const nextX = event.clientX - enterpriseWorkspacePopupDragOffsetX
+  const nextY = event.clientY - enterpriseWorkspacePopupDragOffsetY
+  const maxX = Math.max(14, window.innerWidth - popupRect.width - 14)
+  const maxY = Math.max(8, window.innerHeight - popupRect.height - 14)
   enterpriseWorkspacePopupX.value = clampValue(nextX, 14, maxX)
-  enterpriseWorkspacePopupY.value = clampValue(nextY, 14, maxY)
+  enterpriseWorkspacePopupY.value = clampValue(nextY, 8, maxY)
   return true
 }
 

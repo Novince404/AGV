@@ -102,10 +102,10 @@ h2 {
 }
 
 .enterprise-workspace-popup {
-  position: absolute;
-  top: 10px;
+  position: fixed;
+  top: 8px;
   right: 14px;
-  z-index: 24;
+  z-index: 38;
   width: min(360px, calc(100% - 28px));
   display: grid;
   gap: 10px;
@@ -1107,7 +1107,8 @@ h2 {
 
 .enterprise-settings-sidebar-footer {
   margin-top: auto;
-  padding-top: 6px;
+  padding-top: 12px;
+  margin-top: 10px;
   border-top: 1px dashed rgba(216, 208, 197, 0.88);
 }
 
@@ -1152,7 +1153,7 @@ h2 {
 }
 
 .enterprise-settings-sidebar.is-collapsed .enterprise-settings-sidebar-footer {
-  padding-top: 2px;
+  padding-top: 10px;
 }
 
 .enterprise-settings-sidebar.is-collapsed .enterprise-settings-sidebar-action {
