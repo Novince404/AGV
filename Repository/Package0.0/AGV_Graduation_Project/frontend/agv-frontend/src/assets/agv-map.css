@@ -312,17 +312,31 @@ h2 {
 }
 
 .auth-dialog-card {
-  width: min(1040px, calc(100vw - 32px));
+  width: min(820px, 100%);
   display: grid;
   gap: 14px;
   padding: 20px;
-  margin: auto 0;
   max-height: calc(100vh - 48px);
   overflow-y: auto;
   border: 1px solid #d8d0c5;
   border-radius: 22px;
   background: rgba(255, 253, 249, 0.98);
   box-shadow: 0 24px 64px rgba(60, 45, 30, 0.16);
+}
+
+.auth-dialog-stage {
+  width: min(1440px, calc(100vw - 32px));
+  display: grid;
+  grid-template-columns: minmax(240px, 300px) minmax(0, 820px) minmax(240px, 300px);
+  gap: 16px;
+  align-items: start;
+  margin: auto 0;
+}
+
+.auth-dialog-side-panel {
+  display: grid;
+  gap: 12px;
+  align-self: start;
 }
 
 .auth-dialog-header {
@@ -380,11 +394,8 @@ h2 {
   background: linear-gradient(180deg, rgba(252, 250, 246, 0.96), rgba(255, 255, 255, 0.92));
 }
 
-.auth-dialog-overview-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(300px, 0.95fr);
-  gap: 14px;
-  align-items: start;
+.auth-dialog-demo-shell {
+  align-content: start;
 }
 
 .auth-dialog-current.role-personal {
@@ -621,10 +632,6 @@ h2 {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 10px;
-}
-
-.auth-dialog-entry-shell .auth-dialog-choice-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .auth-dialog-choice {
@@ -1927,6 +1934,10 @@ h2 {
 .auth-dialog-demo-grid {
   display: grid;
   gap: 8px;
+}
+
+.auth-dialog-demo-grid-prominent {
+  grid-template-columns: 1fr;
 }
 
 .auth-dialog-demo-button {
@@ -5424,9 +5435,21 @@ h2 {
     grid-template-columns: 1fr;
   }
 
-  .auth-dialog-overview-grid,
-  .auth-dialog-entry-shell .auth-dialog-choice-grid {
+  .auth-dialog-stage {
     grid-template-columns: 1fr;
+  }
+
+  .auth-dialog-card {
+    width: min(100%, calc(100vw - 20px));
+    order: 1;
+  }
+
+  .auth-dialog-side-panel.auth-dialog-side-panel-demo {
+    order: 2;
+  }
+
+  .auth-dialog-side-panel.auth-dialog-side-panel-capabilities {
+    order: 3;
   }
 
   .enterprise-settings-dialog-card {
