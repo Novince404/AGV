@@ -671,6 +671,8 @@ const enterpriseApprovalReviewFollowup = ref(loadEnterpriseApprovalReviewFollowu
 const enterpriseSettingsDialogOpen = ref(false)
 const enterpriseSettingsActiveTab = ref('overview')
 const enterpriseSettingsSidebarCollapsed = ref(false)
+const enterprisePageSettingsDialogOpen = ref(false)
+const enterpriseShortcutPlannerDialogOpen = ref(false)
 const authRoleLabel = computed(() => t(`auth_role_${authCurrentRole.value}`))
 const authRoleBadgeClass = computed(() => `role-${authCurrentRole.value}`)
 const dashboardUnlocked = computed(() => authAuthenticated.value || authGuestAccepted.value)
@@ -4845,7 +4847,25 @@ async function openEnterpriseSettingsDialog(targetTab = '') {
 }
 
 function closeEnterpriseSettingsDialog() {
+  enterprisePageSettingsDialogOpen.value = false
+  enterpriseShortcutPlannerDialogOpen.value = false
   enterpriseSettingsDialogOpen.value = false
+}
+
+function openEnterprisePageSettingsDialog() {
+  enterprisePageSettingsDialogOpen.value = true
+}
+
+function closeEnterprisePageSettingsDialog() {
+  enterprisePageSettingsDialogOpen.value = false
+}
+
+function openEnterpriseShortcutPlannerDialog() {
+  enterpriseShortcutPlannerDialogOpen.value = true
+}
+
+function closeEnterpriseShortcutPlannerDialog() {
+  enterpriseShortcutPlannerDialogOpen.value = false
 }
 
 function switchEnterpriseSettingsTab(nextTab) {
@@ -7226,10 +7246,8 @@ function toggleMapSettings() {
   showMapSettings.value = !showMapSettings.value
 }
 
-async function openPageSettingsFromEnterpriseSettings() {
-  closeEnterpriseSettingsDialog()
-  await nextTick()
-  showMapSettings.value = true
+function openPageSettingsFromEnterpriseSettings() {
+  openEnterprisePageSettingsDialog()
 }
 
 function handlePanelSummaryItemClick(item) {
@@ -11211,6 +11229,8 @@ const enterpriseSettingsDialogBindings = {
   enterpriseSettingsActiveTab,
   enterpriseSettingsTabLabel,
   enterpriseSettingsSidebarCollapsed,
+  enterprisePageSettingsDialogOpen,
+  enterpriseShortcutPlannerDialogOpen,
   enterpriseActiveTabModeLabel,
   enterpriseActiveTabAccessLabel,
   enterpriseActiveTabAccessHint,
@@ -11252,6 +11272,14 @@ const enterpriseSettingsDialogBindings = {
   compareDisplayTitleLabel,
   compareDisplayPanelLabel,
   compareDisplayFloatingLabel,
+  guideCenterLocale,
+  openGuideCenter,
+  showAutoPath,
+  showMarkerIcons,
+  showPathArrows,
+  showMinimap,
+  compareFloatingOpacity,
+  resetMapView,
   enterpriseActiveTasks,
   enterpriseOpenFaults,
   enterpriseBusyAgvs,
@@ -11362,6 +11390,10 @@ const enterpriseSettingsDialogBindings = {
   mapProfileExportingKey,
   mapProfileImporting,
   closeEnterpriseSettingsDialog,
+  openEnterprisePageSettingsDialog,
+  closeEnterprisePageSettingsDialog,
+  openEnterpriseShortcutPlannerDialog,
+  closeEnterpriseShortcutPlannerDialog,
   switchEnterpriseSettingsTab,
   toggleEnterpriseSettingsSidebar,
   enterpriseTabAccessLabel,

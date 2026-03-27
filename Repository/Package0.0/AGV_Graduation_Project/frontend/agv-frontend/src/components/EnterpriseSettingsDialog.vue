@@ -1493,6 +1493,133 @@
             </template>
           </div>
         </div>
+
+        <div
+          v-if="enterprisePageSettingsDialogOpen"
+          class="enterprise-settings-overlay"
+          @click.self="closeEnterprisePageSettingsDialog"
+        >
+          <section class="enterprise-settings-overlay-card" role="dialog" aria-modal="true">
+            <header class="enterprise-settings-overlay-header">
+              <div>
+                <div class="auth-dialog-kicker">{{ t('enterprise_settings_page_settings_entry') }}</div>
+                <h3 class="auth-dialog-title">{{ t('enterprise_settings_page_settings_title') }}</h3>
+                <p class="auth-dialog-hint">{{ t('enterprise_settings_page_settings_dialog_hint') }}</p>
+              </div>
+              <button class="auth-dialog-close" type="button" @click="closeEnterprisePageSettingsDialog">
+                ×
+              </button>
+            </header>
+
+            <div class="enterprise-settings-overlay-body">
+              <section class="enterprise-settings-subsection enterprise-page-settings-group">
+                <div class="enterprise-settings-subtitle">{{ t('enterprise_settings_page_settings_display_title') }}</div>
+                <p class="panel-hint">{{ t('enterprise_settings_page_settings_display_hint') }}</p>
+                <label class="map-setting-row">
+                  <input v-model="showAutoPath" type="checkbox" />
+                  <span>{{ settingsLocale.showAutoPath }}</span>
+                </label>
+                <label class="map-setting-row">
+                  <input v-model="showMarkerIcons" type="checkbox" />
+                  <span>{{ settingsLocale.showMarkerIcons }}</span>
+                </label>
+                <label class="map-setting-row">
+                  <input v-model="showPathArrows" type="checkbox" />
+                  <span>{{ settingsLocale.showPathArrows }}</span>
+                </label>
+                <label class="map-setting-row">
+                  <input v-model="showMinimap" type="checkbox" />
+                  <span>{{ settingsLocale.showMinimap }}</span>
+                </label>
+              </section>
+
+              <section class="enterprise-settings-subsection enterprise-page-settings-group">
+                <div class="enterprise-settings-subtitle">{{ t('enterprise_settings_page_settings_overlap_title') }}</div>
+                <p class="panel-hint">{{ t('enterprise_settings_page_settings_overlap_hint') }}</p>
+                <div class="enterprise-page-settings-shortcuts">
+                  <article class="enterprise-page-settings-shortcut-card">
+                    <strong>{{ t('enterprise_settings_page_settings_overlap_map_title') }}</strong>
+                    <p>{{ t('enterprise_settings_page_settings_overlap_map_hint') }}</p>
+                    <button
+                      class="btn-secondary"
+                      type="button"
+                      @click="closeEnterprisePageSettingsDialog(); switchEnterpriseSettingsTab('map_profiles')"
+                    >
+                      {{ t('enterprise_settings_page_settings_jump_map_profiles') }}
+                    </button>
+                  </article>
+                  <article class="enterprise-page-settings-shortcut-card">
+                    <strong>{{ t('enterprise_settings_page_settings_overlap_runtime_title') }}</strong>
+                    <p>{{ t('enterprise_settings_page_settings_overlap_runtime_hint') }}</p>
+                    <button
+                      class="btn-secondary"
+                      type="button"
+                      @click="closeEnterprisePageSettingsDialog(); switchEnterpriseSettingsTab('runtime')"
+                    >
+                      {{ t('enterprise_settings_page_settings_jump_runtime') }}
+                    </button>
+                  </article>
+                </div>
+              </section>
+
+              <section class="enterprise-settings-subsection enterprise-page-settings-group">
+                <div class="enterprise-settings-subtitle">{{ t('enterprise_settings_page_settings_tools_title') }}</div>
+                <p class="panel-hint">{{ t('enterprise_settings_page_settings_tools_hint') }}</p>
+                <div class="enterprise-settings-actions">
+                  <button class="btn-secondary" type="button" @click="openGuideCenter">
+                    {{ guideCenterLocale.open }}
+                  </button>
+                  <button class="btn-ghost" type="button" @click="resetMapView">
+                    {{ settingsLocale.resetView }}
+                  </button>
+                  <button class="btn-ghost" type="button" @click="openEnterpriseShortcutPlannerDialog">
+                    {{ t('enterprise_settings_shortcuts_entry') }}
+                  </button>
+                </div>
+              </section>
+            </div>
+          </section>
+        </div>
+
+        <div
+          v-if="enterpriseShortcutPlannerDialogOpen"
+          class="enterprise-settings-overlay"
+          @click.self="closeEnterpriseShortcutPlannerDialog"
+        >
+          <section class="enterprise-settings-overlay-card enterprise-settings-overlay-card-compact" role="dialog" aria-modal="true">
+            <header class="enterprise-settings-overlay-header">
+              <div>
+                <div class="auth-dialog-kicker">{{ t('enterprise_settings_shortcuts_entry') }}</div>
+                <h3 class="auth-dialog-title">{{ t('enterprise_settings_shortcuts_dialog_title') }}</h3>
+                <p class="auth-dialog-hint">{{ t('enterprise_settings_shortcuts_dialog_hint') }}</p>
+              </div>
+              <button class="auth-dialog-close" type="button" @click="closeEnterpriseShortcutPlannerDialog">
+                ×
+              </button>
+            </header>
+
+            <div class="enterprise-settings-overlay-body">
+              <section class="enterprise-settings-subsection enterprise-page-settings-group">
+                <div class="enterprise-settings-subtitle">{{ guideCenterLocale.shortcutsTitle }}</div>
+                <div class="enterprise-page-settings-shortcut-list">
+                  <div class="task-line">{{ guideCenterLocale.shortcutCancel }}</div>
+                  <div class="task-line">{{ guideCenterLocale.shortcutAlgorithm }}</div>
+                  <div class="task-line">{{ guideCenterLocale.shortcutContext }}</div>
+                </div>
+              </section>
+
+              <section class="enterprise-settings-subsection enterprise-page-settings-group">
+                <div class="enterprise-settings-subtitle">{{ t('enterprise_settings_shortcuts_plan_title') }}</div>
+                <p class="panel-hint">{{ t('enterprise_settings_shortcuts_plan_hint') }}</p>
+                <ul class="enterprise-page-settings-plan-list">
+                  <li>{{ t('enterprise_settings_shortcuts_plan_item_one') }}</li>
+                  <li>{{ t('enterprise_settings_shortcuts_plan_item_two') }}</li>
+                  <li>{{ t('enterprise_settings_shortcuts_plan_item_three') }}</li>
+                </ul>
+              </section>
+            </div>
+          </section>
+        </div>
       </section>
     </div>
 </template>
