@@ -1272,6 +1272,56 @@ h2 {
   gap: 8px;
 }
 
+.enterprise-shortcut-editor-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.enterprise-shortcut-editor-card {
+  border: 1px solid #e5ddd1;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.8);
+  padding: 12px;
+  display: grid;
+  gap: 8px;
+}
+
+.enterprise-shortcut-editor-card.is-conflict {
+  border-color: rgba(191, 84, 58, 0.55);
+  box-shadow: inset 0 0 0 1px rgba(191, 84, 58, 0.18);
+}
+
+.enterprise-shortcut-editor-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.enterprise-shortcut-editor-head strong {
+  display: block;
+  color: var(--strong-text);
+}
+
+.enterprise-shortcut-editor-head p {
+  margin: 4px 0 0;
+  color: var(--muted-text);
+  line-height: 1.5;
+}
+
+.enterprise-shortcut-key-badge {
+  white-space: nowrap;
+  font-weight: 700;
+}
+
+.enterprise-shortcut-editor-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  color: var(--muted-text);
+  font-size: 12px;
+}
+
 .enterprise-page-settings-plan-list {
   margin: 0;
   padding-left: 18px;

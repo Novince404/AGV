@@ -1626,6 +1626,15 @@
               <section class="enterprise-settings-subsection enterprise-page-settings-group">
                 <div class="enterprise-settings-subtitle">{{ t('enterprise_settings_page_settings_tools_title') }}</div>
                 <p class="panel-hint">{{ t('enterprise_settings_page_settings_tools_hint') }}</p>
+                <div class="enterprise-page-settings-shortcut-list">
+                  <div
+                    v-for="entry in shortcutGuideEntries"
+                    :key="`enterprise-shortcut-guide-${entry}`"
+                    class="task-line"
+                  >
+                    {{ entry }}
+                  </div>
+                </div>
                 <div class="enterprise-settings-actions">
                   <button class="btn-secondary" type="button" @click="openGuideCenter">
                     {{ guideCenterLocale.open }}
@@ -1663,20 +1672,97 @@
               <section class="enterprise-settings-subsection enterprise-page-settings-group">
                 <div class="enterprise-settings-subtitle">{{ guideCenterLocale.shortcutsTitle }}</div>
                 <div class="enterprise-page-settings-shortcut-list">
-                  <div class="task-line">{{ guideCenterLocale.shortcutCancel }}</div>
-                  <div class="task-line">{{ guideCenterLocale.shortcutAlgorithm }}</div>
-                  <div class="task-line">{{ guideCenterLocale.shortcutContext }}</div>
+                  <div
+                    v-for="entry in shortcutGuideEntries"
+                    :key="`shortcut-guide-entry-${entry}`"
+                    class="task-line"
+                  >
+                    {{ entry }}
+                  </div>
+                </div>
+                <p class="panel-hint">{{ t('shortcut_editor_fixed_mouse_hint') }}</p>
+              </section>
+
+              <section class="enterprise-settings-subsection enterprise-page-settings-group">
+                <div class="enterprise-settings-subtitle">{{ t('shortcut_editor_live_title') }}</div>
+                <p class="panel-hint">{{ t('shortcut_editor_live_hint') }}</p>
+                <p
+                  v-if="shortcutEditorStatus"
+                  class="panel-hint"
+                  :class="{
+                    'status-error': shortcutEditorStatusType === 'error',
+                    'status-success': shortcutEditorStatusType === 'success'
+                  }"
+                >
+                  {{ shortcutEditorStatus }}
+                </p>
+                <div v-if="!shortcutEditorCanEdit" class="permission-gate-card compact">
+                  <div class="empty-note">{{ t('shortcut_editor_readonly_hint') }}</div>
+                </div>
+                <div v-else class="enterprise-shortcut-editor-grid">
+                  <article
+                    v-for="item in shortcutEditorRows"
+                    :key="item.key"
+                    class="enterprise-shortcut-editor-card"
+                    :class="{ 'is-conflict': item.conflictKey }"
+                  >
+                    <div class="enterprise-shortcut-editor-head">
+                      <div>
+                        <strong>{{ item.label }}</strong>
+                        <p>{{ item.hint }}</p>
+                      </div>
+                      <span class="point-badge enterprise-shortcut-key-badge">{{ item.currentLabel }}</span>
+                    </div>
+                    <div class="enterprise-shortcut-editor-meta">
+                      <span>{{ t('shortcut_editor_current_key') }}{{ item.currentLabel }}</span>
+                      <span>{{ t('shortcut_editor_default_key') }}{{ item.defaultLabel }}</span>
+                    </div>
+                    <div v-if="item.fixedHint" class="panel-hint">{{ item.fixedHint }}</div>
+                    <div v-if="item.conflictKey" class="panel-hint status-error">
+                      {{ t('shortcut_editor_conflict') }}
+                    </div>
+                    <div class="enterprise-settings-actions">
+                      <button
+                        class="btn-secondary"
+                        type="button"
+                        @click="startShortcutCapture(item.key)"
+                      >
+                        {{
+                          shortcutEditorCaptureActionKey === item.key
+                            ? t('shortcut_editor_capturing')
+                            : t('shortcut_editor_record')
+                        }}
+                      </button>
+                      <button
+                        v-if="shortcutEditorCaptureActionKey === item.key"
+                        class="btn-ghost"
+                        type="button"
+                        @click="stopShortcutCapture"
+                      >
+                        {{ t('shortcut_editor_stop_capture') }}
+                      </button>
+                    </div>
+                  </article>
                 </div>
               </section>
 
               <section class="enterprise-settings-subsection enterprise-page-settings-group">
-                <div class="enterprise-settings-subtitle">{{ t('enterprise_settings_shortcuts_plan_title') }}</div>
-                <p class="panel-hint">{{ t('enterprise_settings_shortcuts_plan_hint') }}</p>
-                <ul class="enterprise-page-settings-plan-list">
-                  <li>{{ t('enterprise_settings_shortcuts_plan_item_one') }}</li>
-                  <li>{{ t('enterprise_settings_shortcuts_plan_item_two') }}</li>
-                  <li>{{ t('enterprise_settings_shortcuts_plan_item_three') }}</li>
-                </ul>
+                <div class="enterprise-settings-actions">
+                  <button class="btn-ghost" type="button" @click="restoreShortcutEditorDefaults">
+                    {{ t('shortcut_editor_restore_defaults') }}
+                  </button>
+                  <button class="btn-secondary" type="button" @click="closeEnterpriseShortcutPlannerDialog">
+                    {{ t('enterprise_settings_map_editor_cancel') }}
+                  </button>
+                  <button
+                    class="btn-primary"
+                    type="button"
+                    :disabled="!shortcutEditorCanEdit || shortcutEditorHasConflicts"
+                    @click="saveShortcutEditorDraft"
+                  >
+                    {{ t('shortcut_editor_save') }}
+                  </button>
+                </div>
               </section>
             </div>
           </section>

@@ -103,6 +103,7 @@ const PANEL_SUMMARY_MODE_STORAGE_KEY = 'agv_panel_summary_mode'
 const TASK_QUEUE_VIEW_STORAGE_KEY = 'agv_task_queue_view'
 const EXPERIMENT_RECORDS_STORAGE_KEY = 'agv_experiment_records'
 const COMFY_WORKFLOW_TEMPLATE_STORAGE_KEY = 'agv_comfy_workflow_templates'
+const SHORTCUT_PREFERENCES_STORAGE_KEY = 'agv_shortcut_preferences'
 const ENTERPRISE_SETTINGS_TAB_STORAGE_KEY = 'agv_enterprise_settings_tabs'
 const ENTERPRISE_SETTINGS_SIDEBAR_STORAGE_KEY = 'agv_enterprise_settings_sidebar_collapsed'
 const ENTERPRISE_REGISTER_DRAFT_STORAGE_KEY = 'agv_enterprise_register_draft'
@@ -581,6 +582,78 @@ function normalizeEnterpriseApplicationSnapshot(application, statusFallback = 'p
   }
 }
 
+const EDITABLE_SHORTCUT_ACTION_KEYS = ['selection_cancel', 'algorithm_toggle', 'context_cancel']
+const DEFAULT_EDITABLE_SHORTCUTS = Object.freeze({
+  selection_cancel: 'F',
+  algorithm_toggle: 'R',
+  context_cancel: 'Escape'
+})
+
+function normalizeShortcutKeyValue(value) {
+  const raw = String(value || '').trim()
+  if (!raw) return ''
+  if (raw === ' ') return 'Space'
+  const normalizedNamed = {
+    esc: 'Escape',
+    escape: 'Escape',
+    space: 'Space',
+    ' ': 'Space',
+    del: 'Delete',
+    delete: 'Delete',
+    enter: 'Enter',
+    return: 'Enter',
+    tab: 'Tab',
+    backspace: 'Backspace'
+  }
+  const lowered = raw.toLowerCase()
+  if (normalizedNamed[lowered]) return normalizedNamed[lowered]
+  if (/^arrow(up|down|left|right)$/i.test(raw)) {
+    const suffix = lowered.replace('arrow', '')
+    return `Arrow${suffix.charAt(0).toUpperCase()}${suffix.slice(1)}`
+  }
+  if (raw.length === 1) return raw.toUpperCase()
+  return `${raw.charAt(0).toUpperCase()}${raw.slice(1)}`
+}
+
+function formatShortcutKeyLabel(value) {
+  const normalized = normalizeShortcutKeyValue(value)
+  if (!normalized) return '—'
+  const labels = {
+    Escape: 'Esc',
+    Space: 'Space',
+    Delete: 'Del',
+    Backspace: 'Backspace',
+    ArrowUp: '↑',
+    ArrowDown: '↓',
+    ArrowLeft: '←',
+    ArrowRight: '→'
+  }
+  return labels[normalized] || normalized
+}
+
+function normalizeEditableShortcutConfig(raw) {
+  const source = raw && typeof raw === 'object' ? raw : {}
+  return Object.fromEntries(
+    EDITABLE_SHORTCUT_ACTION_KEYS.map(actionKey => {
+      const normalized = normalizeShortcutKeyValue(source[actionKey])
+      const safeValue = normalized === 'P' ? '' : normalized
+      return [actionKey, safeValue || DEFAULT_EDITABLE_SHORTCUTS[actionKey]]
+    })
+  )
+}
+
+function readShortcutPreferencePayload() {
+  if (typeof window === 'undefined' || !window.localStorage) return {}
+  try {
+    const raw = window.localStorage.getItem(SHORTCUT_PREFERENCES_STORAGE_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw)
+    return typeof parsed === 'object' && parsed ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
 function readEnterpriseStatusFollowupPayload() {
   if (typeof window === 'undefined' || !window.localStorage) return null
   try {
@@ -717,6 +790,11 @@ const enterpriseSettingsActiveTab = ref('overview')
 const enterpriseSettingsSidebarCollapsed = ref(false)
 const enterprisePageSettingsDialogOpen = ref(false)
 const enterpriseShortcutPlannerDialogOpen = ref(false)
+const shortcutEditorDraft = ref(normalizeEditableShortcutConfig(DEFAULT_EDITABLE_SHORTCUTS))
+const activeShortcutBindings = ref(normalizeEditableShortcutConfig(DEFAULT_EDITABLE_SHORTCUTS))
+const shortcutEditorCaptureActionKey = ref('')
+const shortcutEditorStatus = ref('')
+const shortcutEditorStatusType = ref('info')
 const enterpriseMapEditorDialogOpen = ref(false)
 const enterpriseMapEditorSaving = ref(false)
 const enterpriseMapEditorDraftBlockedCells = ref([])
@@ -735,6 +813,74 @@ const authEntryHintText = computed(() => {
   return t(`auth_entry_hint_${authCurrentRole.value}`)
 })
 const authAccountStatusLabel = computed(() => t(`auth_account_status_${authCurrentAccountStatus.value}`))
+const shortcutPreferenceScopeKey = computed(() => {
+  if (!authAuthenticated.value || authCurrentRole.value === 'guest') return 'guest'
+  const currentUser = authCurrentUser.value || {}
+  const username = String(currentUser?.username || authUsername.value || '').trim() || 'default'
+  const organizationId = String(currentUser?.organization_id || '').trim()
+  if (organizationId) {
+    return `${authCurrentRole.value}:${organizationId}:${username}`
+  }
+  return `${authCurrentRole.value}:${username}`
+})
+const shortcutEditorCanEdit = computed(() => authAuthenticated.value && authCurrentRole.value !== 'guest')
+const shortcutEditorConflictMap = computed(() => {
+  const grouped = {}
+  for (const actionKey of EDITABLE_SHORTCUT_ACTION_KEYS) {
+    const keyValue = normalizeShortcutKeyValue(shortcutEditorDraft.value?.[actionKey])
+    if (!keyValue) continue
+    if (!grouped[keyValue]) grouped[keyValue] = []
+    grouped[keyValue].push(actionKey)
+  }
+  return Object.fromEntries(
+    Object.entries(grouped).flatMap(([keyValue, actionKeys]) =>
+      actionKeys.length > 1 ? actionKeys.map(actionKey => [actionKey, keyValue]) : []
+    )
+  )
+})
+const shortcutEditorHasConflicts = computed(() => Object.keys(shortcutEditorConflictMap.value).length > 0)
+const shortcutGuideEntries = computed(() => [
+  formatInlineMessage(t('shortcut_editor_guide_selection_cancel'), {
+    key: formatShortcutKeyLabel(activeShortcutBindings.value.selection_cancel)
+  }),
+  formatInlineMessage(t('shortcut_editor_guide_algorithm_toggle'), {
+    key: formatShortcutKeyLabel(activeShortcutBindings.value.algorithm_toggle)
+  }),
+  formatInlineMessage(t('shortcut_editor_guide_context_cancel'), {
+    key: formatShortcutKeyLabel(activeShortcutBindings.value.context_cancel)
+  })
+])
+const shortcutEditorActionDefinitions = computed(() => [
+  {
+    key: 'selection_cancel',
+    label: t('shortcut_editor_action_selection_cancel_title'),
+    hint: t('shortcut_editor_action_selection_cancel_hint'),
+    fixedHint: t('shortcut_editor_fixed_mouse_hint'),
+    defaultLabel: formatShortcutKeyLabel(DEFAULT_EDITABLE_SHORTCUTS.selection_cancel)
+  },
+  {
+    key: 'algorithm_toggle',
+    label: t('shortcut_editor_action_algorithm_toggle_title'),
+    hint: t('shortcut_editor_action_algorithm_toggle_hint'),
+    fixedHint: '',
+    defaultLabel: formatShortcutKeyLabel(DEFAULT_EDITABLE_SHORTCUTS.algorithm_toggle)
+  },
+  {
+    key: 'context_cancel',
+    label: t('shortcut_editor_action_context_cancel_title'),
+    hint: t('shortcut_editor_action_context_cancel_hint'),
+    fixedHint: t('shortcut_editor_fixed_mouse_hint'),
+    defaultLabel: formatShortcutKeyLabel(DEFAULT_EDITABLE_SHORTCUTS.context_cancel)
+  }
+])
+const shortcutEditorRows = computed(() =>
+  shortcutEditorActionDefinitions.value.map(item => ({
+    ...item,
+    currentValue: normalizeShortcutKeyValue(shortcutEditorDraft.value?.[item.key]),
+    currentLabel: formatShortcutKeyLabel(shortcutEditorDraft.value?.[item.key]),
+    conflictKey: shortcutEditorConflictMap.value[item.key] || ''
+  }))
+)
 const authEnterpriseRegisterValidation = computed(() => {
   const payload = {
     company_name: String(authEnterpriseRegisterForm.value.company_name || '').trim(),
@@ -5007,6 +5153,75 @@ function saveEnterpriseSettingsTabPreference(role = authCurrentRole.value, tab =
   }
 }
 
+function loadShortcutBindingsForScope(scopeKey = shortcutPreferenceScopeKey.value) {
+  const payload = readShortcutPreferencePayload()
+  return normalizeEditableShortcutConfig(payload?.[String(scopeKey || 'guest')])
+}
+
+function persistShortcutBindingsForScope(config, scopeKey = shortcutPreferenceScopeKey.value) {
+  if (typeof window === 'undefined' || !window.localStorage) return
+  try {
+    const payload = readShortcutPreferencePayload()
+    payload[String(scopeKey || 'guest')] = normalizeEditableShortcutConfig(config)
+    window.localStorage.setItem(SHORTCUT_PREFERENCES_STORAGE_KEY, JSON.stringify(payload))
+  } catch (error) {
+    console.error('Save shortcut preferences error:', error)
+  }
+}
+
+function resetShortcutEditorDraftStatus(message = '', type = 'info') {
+  shortcutEditorStatus.value = message
+  shortcutEditorStatusType.value = type
+}
+
+function startShortcutCapture(actionKey) {
+  if (!shortcutEditorCanEdit.value) return
+  shortcutEditorCaptureActionKey.value = String(actionKey || '')
+  resetShortcutEditorDraftStatus(t('shortcut_editor_capture_hint'), 'info')
+}
+
+function stopShortcutCapture() {
+  shortcutEditorCaptureActionKey.value = ''
+}
+
+function applyCapturedShortcutKey(actionKey, keyValue) {
+  const normalizedActionKey = String(actionKey || '')
+  if (!normalizedActionKey) return
+  const normalizedKey = normalizeShortcutKeyValue(keyValue)
+  if (!normalizedKey) return
+  if (normalizedKey === 'P') {
+    resetShortcutEditorDraftStatus(t('shortcut_editor_reserved_key'), 'error')
+    return
+  }
+  shortcutEditorDraft.value = {
+    ...shortcutEditorDraft.value,
+    [normalizedActionKey]: normalizedKey
+  }
+  shortcutEditorCaptureActionKey.value = ''
+  resetShortcutEditorDraftStatus('', 'info')
+}
+
+function restoreShortcutEditorDefaults() {
+  shortcutEditorDraft.value = normalizeEditableShortcutConfig(DEFAULT_EDITABLE_SHORTCUTS)
+  shortcutEditorCaptureActionKey.value = ''
+  resetShortcutEditorDraftStatus(t('shortcut_editor_restored_pending'), 'info')
+}
+
+function saveShortcutEditorDraft() {
+  if (!shortcutEditorCanEdit.value) return
+  if (shortcutEditorHasConflicts.value) {
+    resetShortcutEditorDraftStatus(t('shortcut_editor_conflict'), 'error')
+    return
+  }
+  const normalized = normalizeEditableShortcutConfig(shortcutEditorDraft.value)
+  activeShortcutBindings.value = normalized
+  shortcutEditorDraft.value = { ...normalized }
+  persistShortcutBindingsForScope(normalized)
+  shortcutEditorCaptureActionKey.value = ''
+  resetShortcutEditorDraftStatus(t('shortcut_editor_saved'), 'success')
+  showFloatingToast(t('shortcut_editor_saved'), 'success')
+}
+
 function applyEnterprisePanelPreset(role = authCurrentRole.value, { silent = false } = {}) {
   const preset = enterprisePanelPreset(role)
   if (!preset) return false
@@ -5049,6 +5264,8 @@ async function openEnterpriseSettingsDialog(targetTab = '') {
 function closeEnterpriseSettingsDialog() {
   enterprisePageSettingsDialogOpen.value = false
   enterpriseShortcutPlannerDialogOpen.value = false
+  shortcutEditorCaptureActionKey.value = ''
+  resetShortcutEditorDraftStatus('', 'info')
   enterpriseMapEditorDialogOpen.value = false
   enterpriseSettingsDialogOpen.value = false
 }
@@ -5062,10 +5279,15 @@ function closeEnterprisePageSettingsDialog() {
 }
 
 function openEnterpriseShortcutPlannerDialog() {
+  shortcutEditorDraft.value = { ...activeShortcutBindings.value }
+  shortcutEditorCaptureActionKey.value = ''
+  resetShortcutEditorDraftStatus('', 'info')
   enterpriseShortcutPlannerDialogOpen.value = true
 }
 
 function closeEnterpriseShortcutPlannerDialog() {
+  shortcutEditorCaptureActionKey.value = ''
+  resetShortcutEditorDraftStatus('', 'info')
   enterpriseShortcutPlannerDialogOpen.value = false
 }
 
@@ -10825,18 +11047,37 @@ function onKeyDown(event) {
       target.isContentEditable)
   if (isTypingTarget) return
 
-  if (event.key === 'f' || event.key === 'F') {
+  const normalizedKey = normalizeShortcutKeyValue(event.key)
+
+  if (enterpriseShortcutPlannerDialogOpen.value && shortcutEditorCaptureActionKey.value) {
+    if (!normalizedKey || ['Shift', 'Control', 'Alt', 'Meta'].includes(normalizedKey)) return
+    event.preventDefault()
+    applyCapturedShortcutKey(shortcutEditorCaptureActionKey.value, normalizedKey)
+    return
+  }
+
+  if (enterpriseShortcutPlannerDialogOpen.value) return
+
+  if (normalizedKey && normalizedKey === normalizeShortcutKeyValue(activeShortcutBindings.value.selection_cancel)) {
+    event.preventDefault()
     cancelSelection()
     return
   }
 
-  if (event.key === 'r' || event.key === 'R') {
+  if (normalizedKey && normalizedKey === normalizeShortcutKeyValue(activeShortcutBindings.value.algorithm_toggle)) {
     event.preventDefault()
     toggleAlgorithmMode()
     return
   }
 
-  if (event.key === 'p' || event.key === 'P') {
+  if (normalizedKey && normalizedKey === normalizeShortcutKeyValue(activeShortcutBindings.value.context_cancel)) {
+    event.preventDefault()
+    clearPreview()
+    cancelTaskChainMapPick(false)
+    return
+  }
+
+  if (normalizedKey === 'P') {
     if (showEnterpriseWorkspaceBanner.value) {
       event.preventDefault()
       reopenEnterpriseWorkspacePopup()
@@ -10936,6 +11177,20 @@ watch(
     syncMapSizeResizeState()
   },
   { deep: true }
+)
+
+watch(
+  shortcutPreferenceScopeKey,
+  scopeKey => {
+    const nextBindings = loadShortcutBindingsForScope(scopeKey)
+    activeShortcutBindings.value = { ...nextBindings }
+    if (!enterpriseShortcutPlannerDialogOpen.value) {
+      shortcutEditorDraft.value = { ...nextBindings }
+      shortcutEditorCaptureActionKey.value = ''
+      resetShortcutEditorDraftStatus('', 'info')
+    }
+  },
+  { immediate: true }
 )
 
 onMounted(() => {
@@ -11858,6 +12113,7 @@ const guideCenterDialogBindings = {
   showGuideCenter,
   closeGuideCenter,
   guideCenterLocale,
+  shortcutGuideEntries,
   panelLocale
 }
 
@@ -11984,6 +12240,13 @@ const enterpriseSettingsDialogBindings = {
   compareDisplayPanelLabel,
   compareDisplayFloatingLabel,
   guideCenterLocale,
+  shortcutGuideEntries,
+  shortcutEditorRows,
+  shortcutEditorCanEdit,
+  shortcutEditorCaptureActionKey,
+  shortcutEditorStatus,
+  shortcutEditorStatusType,
+  shortcutEditorHasConflicts,
   openGuideCenter,
   showAutoPath,
   showMarkerIcons,
@@ -12118,6 +12381,10 @@ const enterpriseSettingsDialogBindings = {
   closeEnterprisePageSettingsDialog,
   openEnterpriseShortcutPlannerDialog,
   closeEnterpriseShortcutPlannerDialog,
+  startShortcutCapture,
+  stopShortcutCapture,
+  restoreShortcutEditorDefaults,
+  saveShortcutEditorDraft,
   openEnterpriseMapEditorDialog,
   closeEnterpriseMapEditorDialog,
   resetEnterpriseMapEditorDraft,

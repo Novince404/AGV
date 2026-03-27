@@ -19,9 +19,20 @@
         </div>
         <div class="guide-section">
           <div class="guide-section-title">{{ guideCenterLocale.shortcutsTitle }}</div>
-          <div class="guide-line">{{ guideCenterLocale.shortcutCancel }}</div>
-          <div class="guide-line">{{ guideCenterLocale.shortcutAlgorithm }}</div>
-          <div class="guide-line">{{ guideCenterLocale.shortcutContext }}</div>
+          <template v-if="Array.isArray(shortcutGuideEntries) && shortcutGuideEntries.length">
+            <div
+              v-for="entry in shortcutGuideEntries"
+              :key="`guide-shortcut-${entry}`"
+              class="guide-line"
+            >
+              {{ entry }}
+            </div>
+          </template>
+          <template v-else>
+            <div class="guide-line">{{ guideCenterLocale.shortcutCancel }}</div>
+            <div class="guide-line">{{ guideCenterLocale.shortcutAlgorithm }}</div>
+            <div class="guide-line">{{ guideCenterLocale.shortcutContext }}</div>
+          </template>
         </div>
         <div class="guide-section">
           <div class="guide-section-title">{{ guideCenterLocale.workflowTitle }}</div>
