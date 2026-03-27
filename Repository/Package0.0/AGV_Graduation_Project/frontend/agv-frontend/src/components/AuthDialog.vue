@@ -999,8 +999,8 @@
       </div>
       <aside class="auth-dialog-side-panel auth-dialog-side-panel-demo">
         <div class="auth-dialog-entry-shell auth-dialog-demo-shell">
-          <div class="auth-dialog-demo-label">{{ t('auth_side_guide_title') }}</div>
-          <p class="auth-dialog-hint">{{ t('auth_login_hint') }}</p>
+          <div class="auth-dialog-demo-label">{{ t('auth_demo_accounts') }}</div>
+          <p class="auth-dialog-hint">{{ t('auth_demo_accounts_hint') }}</p>
           <div class="auth-side-guide-list">
             <article
               v-for="item in authSideGuideItems"
