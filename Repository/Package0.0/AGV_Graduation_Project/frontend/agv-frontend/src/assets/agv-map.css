@@ -103,16 +103,16 @@ h2 {
 
 .enterprise-workspace-popup {
   position: fixed;
-  top: 8px;
+  top: 12px;
   right: 14px;
   z-index: 38;
-  width: min(360px, calc(100% - 28px));
+  width: min(332px, calc(100% - 28px));
   display: grid;
-  gap: 10px;
-  padding: 12px 14px;
+  gap: 8px;
+  padding: 10px 12px;
   border: 1px solid rgba(212, 201, 187, 0.94);
   border-radius: 16px;
-  background: rgba(255, 252, 247, 0.94);
+  background: rgba(255, 252, 247, 0.74);
   box-shadow: 0 12px 28px rgba(60, 45, 30, 0.12);
   backdrop-filter: blur(10px);
 }
@@ -167,9 +167,18 @@ h2 {
 }
 
 .enterprise-workspace-popup-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  display: grid;
+  gap: 5px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.enterprise-workspace-popup-action {
+  min-width: 0;
+  min-height: 32px;
+  padding: 0 6px;
+  font-size: 11px;
+  line-height: 1.2;
+  white-space: nowrap;
 }
 
 .top-compare-glance {
@@ -946,12 +955,21 @@ h2 {
   border: 1px solid #e2d8cb;
   border-radius: 18px;
   background: rgba(255, 255, 255, 0.9);
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   min-height: 0;
+  scrollbar-width: thin;
+}
+
+.enterprise-settings-sidebar > * {
+  min-width: 0;
 }
 
 .enterprise-settings-sidebar.is-collapsed {
-  padding: 12px 10px;
+  padding: 12px 8px;
+  overflow: hidden;
+  overflow: clip;
+  scrollbar-width: none;
 }
 
 .enterprise-settings-sidebar-head {
@@ -982,6 +1000,7 @@ h2 {
   font-size: 12px;
   font-weight: 700;
   cursor: pointer;
+  box-sizing: border-box;
 }
 
 .enterprise-settings-sidebar.is-collapsed .enterprise-settings-sidebar-toggle {
@@ -1006,6 +1025,7 @@ h2 {
   color: var(--strong-text);
   text-align: left;
   cursor: pointer;
+  box-sizing: border-box;
 }
 
 .enterprise-settings-sidebar.is-collapsed .enterprise-settings-tab {
@@ -1106,9 +1126,8 @@ h2 {
 }
 
 .enterprise-settings-sidebar-footer {
-  margin-top: auto;
-  padding-top: 12px;
   margin-top: 10px;
+  padding-top: 18px;
   border-top: 1px dashed rgba(216, 208, 197, 0.88);
 }
 
@@ -1125,6 +1144,7 @@ h2 {
   color: var(--strong-text);
   text-align: left;
   cursor: pointer;
+  box-sizing: border-box;
 }
 
 .enterprise-settings-sidebar-action-icon {
@@ -1153,7 +1173,7 @@ h2 {
 }
 
 .enterprise-settings-sidebar.is-collapsed .enterprise-settings-sidebar-footer {
-  padding-top: 10px;
+  padding-top: 18px;
 }
 
 .enterprise-settings-sidebar.is-collapsed .enterprise-settings-sidebar-action {
@@ -1161,6 +1181,10 @@ h2 {
   gap: 8px;
   padding: 10px 6px;
   text-align: center;
+}
+
+.enterprise-settings-sidebar.is-collapsed::-webkit-scrollbar {
+  display: none;
 }
 
 .enterprise-settings-overlay {
@@ -1267,7 +1291,7 @@ h2 {
 
 .enterprise-map-editor-grid {
   display: grid;
-  gap: 6px;
+  gap: 4px;
   min-width: max-content;
 }
 
@@ -1292,6 +1316,16 @@ h2 {
   border-color: rgba(194, 149, 79, 0.72);
 }
 
+.enterprise-map-editor-cell.is-void {
+  background: rgba(237, 232, 226, 0.58);
+  border-style: dashed;
+  color: #b09b86;
+}
+
+.enterprise-map-editor-cell.is-valid {
+  background: rgba(255, 255, 255, 0.98);
+}
+
 .enterprise-map-editor-cell.is-blocked {
   border-color: rgba(168, 92, 45, 0.65);
   background: rgba(225, 175, 135, 0.54);
@@ -1299,6 +1333,7 @@ h2 {
 }
 
 .enterprise-map-editor-cell.is-occupied,
+.enterprise-map-editor-cell.is-locked,
 .enterprise-map-editor-cell:disabled {
   border-style: dashed;
   background: rgba(233, 230, 225, 0.95);
@@ -1929,10 +1964,24 @@ h2 {
   will-change: transform;
 }
 
+.void-cell,
 .blocked-cell,
 .minimap-blocked-cell {
   position: absolute;
   pointer-events: none;
+}
+
+.void-cell,
+.minimap-void-cell {
+  position: absolute;
+  pointer-events: none;
+  background:
+    linear-gradient(180deg, rgba(247, 242, 235, 0.96), rgba(234, 227, 216, 0.96));
+  box-shadow: inset 0 0 0 1px rgba(210, 200, 188, 0.92);
+}
+
+.blocked-cell,
+.minimap-blocked-cell {
   background:
     linear-gradient(135deg, rgba(83, 70, 56, 0.92), rgba(122, 106, 84, 0.92));
 }
@@ -1989,6 +2038,11 @@ h2 {
 .minimap-blocked-cell {
   z-index: 0;
   opacity: 0.92;
+}
+
+.minimap-void-cell {
+  z-index: 0;
+  opacity: 0.96;
 }
 
 .path-layer {

@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from app.repositories.map_repository import get_layout_state as get_runtime_layout_state
 from app.repositories.map_repository import set_layout_state as persist_runtime_layout_state
@@ -156,6 +156,14 @@ DEFAULT_MAP_PROFILES = {
 }
 
 
+def _build_full_grid_cells(grid_cols: int, grid_rows: int) -> set[tuple[int, int]]:
+    return {
+        (x, y)
+        for x in range(int(grid_cols))
+        for y in range(int(grid_rows))
+    }
+
+
 def _normalize_cells(cells, grid_cols: int, grid_rows: int) -> set[tuple[int, int]]:
     normalized = set()
     for cell in cells:
@@ -165,10 +173,27 @@ def _normalize_cells(cells, grid_cols: int, grid_rows: int) -> set[tuple[int, in
     return normalized
 
 
+def _normalize_valid_cells(
+    cells,
+    grid_cols: int,
+    grid_rows: int,
+) -> set[tuple[int, int]]:
+    if cells is None:
+        return _build_full_grid_cells(grid_cols, grid_rows)
+    normalized = _normalize_cells(cells, grid_cols, grid_rows)
+    return normalized or _build_full_grid_cells(grid_cols, grid_rows)
+
+
 def get_default_blocked_cells(
     grid_cols: int = DEFAULT_GRID_COLS, grid_rows: int = DEFAULT_GRID_ROWS
 ) -> set[tuple[int, int]]:
     return _normalize_cells(DEFAULT_BLOCKED_CELLS, grid_cols, grid_rows)
+
+
+def get_default_valid_cells(
+    grid_cols: int = DEFAULT_GRID_COLS, grid_rows: int = DEFAULT_GRID_ROWS
+) -> set[tuple[int, int]]:
+    return _build_full_grid_cells(grid_cols, grid_rows)
 
 
 def get_map_layout_state() -> dict[str, object]:
@@ -176,6 +201,7 @@ def get_map_layout_state() -> dict[str, object]:
         DEFAULT_GRID_COLS,
         DEFAULT_GRID_ROWS,
         get_default_blocked_cells(),
+        get_default_valid_cells(),
     )
 
 
@@ -184,9 +210,51 @@ def get_current_grid_size() -> tuple[int, int]:
     return int(state["grid_cols"]), int(state["grid_rows"])
 
 
+def get_valid_cells(grid_cols: int = DEFAULT_GRID_COLS, grid_rows: int = DEFAULT_GRID_ROWS) -> set[tuple[int, int]]:
+    state = get_map_layout_state()
+    return _normalize_valid_cells(state.get("valid_cells"), grid_cols, grid_rows)
+
+
 def get_blocked_cells(grid_cols: int = DEFAULT_GRID_COLS, grid_rows: int = DEFAULT_GRID_ROWS) -> set[tuple[int, int]]:
     state = get_map_layout_state()
-    return _normalize_cells(state["blocked_cells"], grid_cols, grid_rows)
+    valid_cells = _normalize_valid_cells(state.get("valid_cells"), grid_cols, grid_rows)
+    blocked_cells = _normalize_cells(state["blocked_cells"], grid_cols, grid_rows)
+    return blocked_cells & valid_cells
+
+
+def get_navigation_blocked_cells(
+    grid_cols: int = DEFAULT_GRID_COLS,
+    grid_rows: int = DEFAULT_GRID_ROWS,
+) -> set[tuple[int, int]]:
+    valid_cells = get_valid_cells(grid_cols, grid_rows)
+    blocked_cells = get_blocked_cells(grid_cols, grid_rows)
+    return blocked_cells | (_build_full_grid_cells(grid_cols, grid_rows) - valid_cells)
+
+
+def set_layout_cells(
+    blocked_cells: set[tuple[int, int]] | list[tuple[int, int]],
+    valid_cells: set[tuple[int, int]] | list[tuple[int, int]] | None,
+    grid_cols: int = DEFAULT_GRID_COLS,
+    grid_rows: int = DEFAULT_GRID_ROWS,
+) -> dict[str, object]:
+    normalized_valid = _normalize_valid_cells(valid_cells, grid_cols, grid_rows)
+    normalized_blocked = _normalize_cells(blocked_cells, grid_cols, grid_rows) & normalized_valid
+    updated = persist_runtime_layout_state(
+        normalized_blocked,
+        normalized_valid,
+        grid_cols,
+        grid_rows,
+        DEFAULT_GRID_COLS,
+        DEFAULT_GRID_ROWS,
+        get_default_blocked_cells(),
+        get_default_valid_cells(),
+    )
+    return {
+        "grid_cols": int(updated["grid_cols"]),
+        "grid_rows": int(updated["grid_rows"]),
+        "blocked_cells": _normalize_cells(updated["blocked_cells"], grid_cols, grid_rows),
+        "valid_cells": _normalize_valid_cells(updated.get("valid_cells"), grid_cols, grid_rows),
+    }
 
 
 def set_blocked_cells(
@@ -194,16 +262,7 @@ def set_blocked_cells(
     grid_cols: int = DEFAULT_GRID_COLS,
     grid_rows: int = DEFAULT_GRID_ROWS,
 ) -> set[tuple[int, int]]:
-    normalized = _normalize_cells(cells, grid_cols, grid_rows)
-    updated = persist_runtime_layout_state(
-        normalized,
-        grid_cols,
-        grid_rows,
-        DEFAULT_GRID_COLS,
-        DEFAULT_GRID_ROWS,
-        get_default_blocked_cells(),
-    )
-    return _normalize_cells(updated["blocked_cells"], grid_cols, grid_rows)
+    return set_layout_cells(cells, get_valid_cells(grid_cols, grid_rows), grid_cols, grid_rows)["blocked_cells"]
 
 
 def reset_blocked_cells(
@@ -223,6 +282,17 @@ def get_map_preset_cells(
     return _normalize_cells(preset["cells"], grid_cols, grid_rows)
 
 
+def get_map_preset_valid_cells(
+    preset_key: str,
+    grid_cols: int = DEFAULT_GRID_COLS,
+    grid_rows: int = DEFAULT_GRID_ROWS,
+) -> set[tuple[int, int]]:
+    preset = DEFAULT_MAP_PRESETS.get(preset_key)
+    if not preset:
+        raise KeyError(preset_key)
+    return _normalize_valid_cells(preset.get("valid_cells"), grid_cols, grid_rows)
+
+
 def apply_map_preset(
     preset_key: str,
     grid_cols: int = DEFAULT_GRID_COLS,
@@ -237,6 +307,13 @@ def get_blocked_cell_payload(
     return [{"x": x, "y": y} for x, y in sorted(get_blocked_cells(grid_cols, grid_rows))]
 
 
+def get_valid_cell_payload(
+    grid_cols: int = DEFAULT_GRID_COLS,
+    grid_rows: int = DEFAULT_GRID_ROWS,
+) -> list[dict[str, int]]:
+    return [{"x": x, "y": y} for x, y in sorted(get_valid_cells(grid_cols, grid_rows))]
+
+
 def build_map_preset_payload(
     key: str,
     name,
@@ -247,13 +324,19 @@ def build_map_preset_payload(
     grid_cols: int = DEFAULT_GRID_COLS,
     grid_rows: int = DEFAULT_GRID_ROWS,
     profile_key: str | None = DEFAULT_MAP_PROFILE_KEY,
+    valid_cells: set[tuple[int, int]] | None = None,
 ) -> dict:
+    normalized_valid_cells = _normalize_valid_cells(valid_cells, grid_cols, grid_rows)
+    normalized_cells = _normalize_cells(cells, grid_cols, grid_rows) & normalized_valid_cells
     return {
         "key": key,
         "name": name,
         "description": description,
-        "blocked_count": len(cells),
-        "blocked_cells": [{"x": x, "y": y} for x, y in sorted(cells)],
+        "blocked_count": len(normalized_cells),
+        "valid_count": len(normalized_valid_cells),
+        "blocked_cells": [{"x": x, "y": y} for x, y in sorted(normalized_cells)],
+        "valid_cells": [{"x": x, "y": y} for x, y in sorted(normalized_valid_cells)],
+        "is_irregular": len(normalized_valid_cells) != int(grid_cols) * int(grid_rows),
         "custom": custom,
         "deletable": deletable,
         "grid_cols": int(grid_cols),
@@ -272,13 +355,18 @@ def build_map_profile_payload(
     custom: bool,
     editable: bool,
     deletable: bool = False,
+    valid_cells: set[tuple[int, int]] | None = None,
 ) -> dict:
+    normalized_valid_cells = _normalize_valid_cells(valid_cells, grid_cols, grid_rows)
     return {
         "key": key,
         "name": name,
         "description": description,
         "grid_cols": int(grid_cols),
         "grid_rows": int(grid_rows),
+        "valid_count": len(normalized_valid_cells),
+        "valid_cells": [{"x": x, "y": y} for x, y in sorted(normalized_valid_cells)],
+        "is_irregular": len(normalized_valid_cells) != int(grid_cols) * int(grid_rows),
         "custom": custom,
         "editable": editable,
         "deletable": deletable,
@@ -289,13 +377,16 @@ def get_map_profile_definition(profile_key: str) -> dict | None:
     profile = DEFAULT_MAP_PROFILES.get(profile_key)
     if profile is None:
         return None
+    grid_cols = int(profile["grid_cols"])
+    grid_rows = int(profile["grid_rows"])
     return {
         "key": profile_key,
         "name": profile["name"],
         "description": profile["description"],
-        "grid_cols": int(profile["grid_cols"]),
-        "grid_rows": int(profile["grid_rows"]),
-        "cells": _normalize_cells(profile.get("cells", set()), int(profile["grid_cols"]), int(profile["grid_rows"])),
+        "grid_cols": grid_cols,
+        "grid_rows": grid_rows,
+        "cells": _normalize_cells(profile.get("cells", set()), grid_cols, grid_rows),
+        "valid_cells": _normalize_valid_cells(profile.get("valid_cells"), grid_cols, grid_rows),
         "custom": bool(profile.get("custom", False)),
     }
 
@@ -307,6 +398,13 @@ def get_map_profile_cells(profile_key: str) -> set[tuple[int, int]]:
     return set(profile["cells"])
 
 
+def get_map_profile_valid_cells(profile_key: str) -> set[tuple[int, int]]:
+    profile = get_map_profile_definition(profile_key)
+    if profile is None:
+        raise KeyError(profile_key)
+    return set(profile["valid_cells"])
+
+
 def get_map_presets_payload(
     grid_cols: int = DEFAULT_GRID_COLS, grid_rows: int = DEFAULT_GRID_ROWS
 ) -> list[dict]:
@@ -314,12 +412,14 @@ def get_map_presets_payload(
     payload = []
     for key, preset in DEFAULT_MAP_PRESETS.items():
         cells = _normalize_cells(preset["cells"], grid_cols, grid_rows)
+        valid_cells = _normalize_valid_cells(preset.get("valid_cells"), grid_cols, grid_rows)
         payload.append(
             build_map_preset_payload(
                 key=key,
                 name=preset["name"],
                 description=preset["description"],
                 cells=cells,
+                valid_cells=valid_cells,
                 custom=False,
                 deletable=False,
                 grid_cols=grid_cols,
@@ -340,6 +440,7 @@ def get_map_profiles_payload() -> list[dict]:
                 description=profile["description"],
                 grid_cols=int(profile["grid_cols"]),
                 grid_rows=int(profile["grid_rows"]),
+                valid_cells=_normalize_valid_cells(profile.get("valid_cells"), int(profile["grid_cols"]), int(profile["grid_rows"])),
                 custom=bool(profile.get("custom", False)),
                 editable=False,
                 deletable=False,
@@ -360,6 +461,7 @@ def get_current_map_profile_payload(
                 description=profile["description"],
                 grid_cols=grid_cols,
                 grid_rows=grid_rows,
+                valid_cells=_normalize_valid_cells(profile.get("valid_cells"), grid_cols, grid_rows),
                 custom=bool(profile.get("custom", False)),
                 editable=False,
                 deletable=False,
@@ -379,6 +481,7 @@ def get_current_map_profile_payload(
         },
         grid_cols=grid_cols,
         grid_rows=grid_rows,
+        valid_cells=get_valid_cells(grid_cols, grid_rows),
         custom=True,
         editable=False,
         deletable=False,

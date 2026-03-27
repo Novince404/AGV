@@ -14,11 +14,15 @@ class MapProfile(TrackedModel):
     description: str | None = None
     grid_cols: int
     grid_rows: int
+    valid_cells: list[MapProfileCell] = []
     blocked_cells: list[MapProfileCell] = []
     custom: bool = True
 
     def bind_on_change(self, callback):
         super().bind_on_change(callback)
+        for cell in self.valid_cells:
+            if hasattr(cell, "bind_on_change"):
+                cell.bind_on_change(self._notify_change)
         for cell in self.blocked_cells:
             if hasattr(cell, "bind_on_change"):
                 cell.bind_on_change(self._notify_change)

@@ -6,7 +6,7 @@ from sqlalchemy.orm import selectinload
 from app.core.database import get_db_session
 from app.models.map_preset import MapPreset, MapPresetCell
 from app.repositories.db_init import create_all_tables
-from app.repositories.sql_models import MapPresetCellEntity, MapPresetEntity
+from app.repositories.sql_models import MapPresetCellEntity, MapPresetEntity, MapPresetValidCellEntity
 
 
 map_presets: list[MapPreset] = []
@@ -19,15 +19,20 @@ def _bind_preset(preset: MapPreset) -> MapPreset:
 
 
 def _query_presets():
-    return select(MapPresetEntity).options(selectinload(MapPresetEntity.blocked_cells)).order_by(MapPresetEntity.id)
+    return select(MapPresetEntity).options(
+        selectinload(MapPresetEntity.blocked_cells),
+        selectinload(MapPresetEntity.valid_cells),
+    ).order_by(MapPresetEntity.id)
 
 
 def _entity_to_model(entity: MapPresetEntity) -> MapPreset:
     cells = [MapPresetCell(x=int(cell.x), y=int(cell.y)) for cell in entity.blocked_cells]
+    valid_cells = [MapPresetCell(x=int(cell.x), y=int(cell.y)) for cell in entity.valid_cells]
     return MapPreset(
         key=entity.id,
         custom_name=entity.custom_name,
         description=entity.description,
+        valid_cells=valid_cells,
         blocked_cells=cells,
         custom=entity.custom,
     )
@@ -38,6 +43,10 @@ def _model_to_entity(preset: MapPreset, entity: MapPresetEntity | None = None) -
     entity.custom_name = preset.custom_name
     entity.description = preset.description
     entity.custom = preset.custom
+    entity.valid_cells = [
+        MapPresetValidCellEntity(x=int(cell.x), y=int(cell.y))
+        for cell in preset.valid_cells
+    ]
     entity.blocked_cells = [
         MapPresetCellEntity(x=int(cell.x), y=int(cell.y))
         for cell in preset.blocked_cells

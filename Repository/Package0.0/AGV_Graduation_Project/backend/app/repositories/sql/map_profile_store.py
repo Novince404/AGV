@@ -6,7 +6,7 @@ from sqlalchemy.orm import selectinload
 from app.core.database import get_db_session
 from app.models.map_profile import MapProfile, MapProfileCell
 from app.repositories.db_init import create_all_tables
-from app.repositories.sql_models import MapProfileCellEntity, MapProfileEntity
+from app.repositories.sql_models import MapProfileCellEntity, MapProfileEntity, MapProfileValidCellEntity
 
 
 map_profiles: list[MapProfile] = []
@@ -19,17 +19,22 @@ def _bind_profile(profile: MapProfile) -> MapProfile:
 
 
 def _query_profiles():
-    return select(MapProfileEntity).options(selectinload(MapProfileEntity.blocked_cells)).order_by(MapProfileEntity.id)
+    return select(MapProfileEntity).options(
+        selectinload(MapProfileEntity.blocked_cells),
+        selectinload(MapProfileEntity.valid_cells),
+    ).order_by(MapProfileEntity.id)
 
 
 def _entity_to_model(entity: MapProfileEntity) -> MapProfile:
     cells = [MapProfileCell(x=int(cell.x), y=int(cell.y)) for cell in entity.blocked_cells]
+    valid_cells = [MapProfileCell(x=int(cell.x), y=int(cell.y)) for cell in entity.valid_cells]
     return MapProfile(
         key=entity.id,
         custom_name=entity.custom_name,
         description=entity.description,
         grid_cols=int(entity.grid_cols),
         grid_rows=int(entity.grid_rows),
+        valid_cells=valid_cells,
         blocked_cells=cells,
         custom=entity.custom,
     )
@@ -42,6 +47,10 @@ def _model_to_entity(profile: MapProfile, entity: MapProfileEntity | None = None
     entity.grid_cols = int(profile.grid_cols)
     entity.grid_rows = int(profile.grid_rows)
     entity.custom = profile.custom
+    entity.valid_cells = [
+        MapProfileValidCellEntity(x=int(cell.x), y=int(cell.y))
+        for cell in profile.valid_cells
+    ]
     entity.blocked_cells = [
         MapProfileCellEntity(x=int(cell.x), y=int(cell.y))
         for cell in profile.blocked_cells

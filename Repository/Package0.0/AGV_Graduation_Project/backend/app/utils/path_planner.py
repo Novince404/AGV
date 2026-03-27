@@ -1,6 +1,6 @@
 import heapq
 
-from app.utils.warehouse_map import get_blocked_cells
+from app.utils.warehouse_map import get_navigation_blocked_cells
 
 
 def _trace_simple_candidate(
@@ -137,7 +137,7 @@ def plan_path(
     blocked: set[tuple[int, int]] | None = None,
 ):
     if blocked is None:
-        blocked = get_blocked_cells(grid_cols, grid_rows)
+        blocked = get_navigation_blocked_cells(grid_cols, grid_rows)
 
     if algorithm == "astar":
         return generate_astar_path(sx, sy, ex, ey, grid_cols, grid_rows, blocked)

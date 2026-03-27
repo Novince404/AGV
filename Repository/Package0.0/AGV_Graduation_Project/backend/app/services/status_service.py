@@ -31,18 +31,22 @@ from app.utils.warehouse_map import (
     DEFAULT_MAP_PRESETS,
     build_map_profile_payload,
     build_map_preset_payload,
-    get_current_map_profile_payload,
     get_blocked_cell_payload,
     get_blocked_cells,
     get_current_grid_size,
     get_default_blocked_cells,
+    get_default_valid_cells,
     get_map_layout_state,
     get_map_profile_cells,
     get_map_profile_definition,
+    get_map_profile_valid_cells,
     get_map_profiles_payload,
     get_map_preset_cells,
+    get_map_preset_valid_cells,
     get_map_presets_payload,
-    set_blocked_cells,
+    get_valid_cell_payload,
+    get_valid_cells,
+    set_layout_cells,
 )
 
 
@@ -84,6 +88,36 @@ def _normalize_requested_cells(cells: list, grid_cols: int, grid_rows: int) -> s
         if 0 <= x < grid_cols and 0 <= y < grid_rows:
             normalized.add((x, y))
     return normalized
+
+
+def _build_full_grid_cells(grid_cols: int, grid_rows: int) -> set[tuple[int, int]]:
+    return {
+        (x, y)
+        for x in range(int(grid_cols))
+        for y in range(int(grid_rows))
+    }
+
+
+def _normalize_requested_valid_cells(
+    cells: list | None,
+    grid_cols: int,
+    grid_rows: int,
+) -> set[tuple[int, int]]:
+    if cells is None:
+        return get_default_valid_cells(grid_cols, grid_rows)
+    normalized = _normalize_requested_cells(cells, grid_cols, grid_rows)
+    return normalized or get_default_valid_cells(grid_cols, grid_rows)
+
+
+def _normalize_blocked_for_valid_cells(
+    blocked_cells: set[tuple[int, int]],
+    valid_cells: set[tuple[int, int]],
+) -> set[tuple[int, int]]:
+    return {(int(x), int(y)) for x, y in blocked_cells if (int(x), int(y)) in valid_cells}
+
+
+def _cells_to_payload(cells: set[tuple[int, int]]) -> list[dict[str, int]]:
+    return [{"x": int(x), "y": int(y)} for x, y in sorted(cells)]
 
 
 def _is_within_grid(x: int, y: int, grid_cols: int, grid_rows: int) -> bool:
@@ -147,11 +181,35 @@ def _get_custom_map_preset_cells(
     }
 
 
+def _get_custom_map_preset_valid_cells(
+    preset_key: str,
+    grid_cols: int,
+    grid_rows: int,
+) -> set[tuple[int, int]]:
+    preset = get_map_preset_by_key(preset_key)
+    if preset is None:
+        raise KeyError(preset_key)
+    cells = {
+        (int(cell.x), int(cell.y))
+        for cell in preset.valid_cells
+        if 0 <= int(cell.x) < grid_cols and 0 <= int(cell.y) < grid_rows
+    }
+    return cells or get_default_valid_cells(grid_cols, grid_rows)
+
+
 def _get_custom_map_profile_cells(profile_key: str) -> set[tuple[int, int]]:
     profile = get_map_profile_by_key(profile_key)
     if profile is None:
         raise KeyError(profile_key)
     return {(int(cell.x), int(cell.y)) for cell in profile.blocked_cells}
+
+
+def _get_custom_map_profile_valid_cells(profile_key: str) -> set[tuple[int, int]]:
+    profile = get_map_profile_by_key(profile_key)
+    if profile is None:
+        raise KeyError(profile_key)
+    cells = {(int(cell.x), int(cell.y)) for cell in profile.valid_cells}
+    return cells or get_default_valid_cells(int(profile.grid_cols), int(profile.grid_rows))
 
 
 def _normalize_cells_signature(cells: set[tuple[int, int]] | list[tuple[int, int]]) -> tuple[tuple[int, int], ...]:
@@ -235,17 +293,23 @@ def _relocate_out_of_bounds_agvs_for_force_apply(
 
 def _build_custom_profile_payload(profile: MapProfile) -> dict:
     cells = {(int(cell.x), int(cell.y)) for cell in profile.blocked_cells}
+    valid_cells = {(int(cell.x), int(cell.y)) for cell in profile.valid_cells} or get_default_valid_cells(
+        int(profile.grid_cols),
+        int(profile.grid_rows),
+    )
     payload = build_map_profile_payload(
         key=profile.key,
         name=profile.custom_name,
         description=profile.description,
         grid_cols=int(profile.grid_cols),
         grid_rows=int(profile.grid_rows),
+        valid_cells=valid_cells,
         custom=True,
         editable=True,
         deletable=True,
     ) | {
         "blocked_count": len(cells),
+        "blocked_cells": _cells_to_payload(cells),
     }
     return _attach_map_profile_audit(payload)
 
@@ -254,15 +318,22 @@ def _resolve_current_profile_payload(
     grid_cols: int,
     grid_rows: int,
     blocked_cells: set[tuple[int, int]] | None = None,
+    valid_cells: set[tuple[int, int]] | None = None,
 ) -> dict:
     normalized_cells = _normalize_cells_signature(blocked_cells or get_blocked_cells(grid_cols, grid_rows))
+    normalized_valid_cells = _normalize_cells_signature(valid_cells or get_valid_cells(grid_cols, grid_rows))
 
     for profile in list_map_profiles():
         profile_cells = {(int(cell.x), int(cell.y)) for cell in profile.blocked_cells}
+        profile_valid_cells = {(int(cell.x), int(cell.y)) for cell in profile.valid_cells} or get_default_valid_cells(
+            int(profile.grid_cols),
+            int(profile.grid_rows),
+        )
         if (
             int(profile.grid_cols) == int(grid_cols)
             and int(profile.grid_rows) == int(grid_rows)
             and _normalize_cells_signature(profile_cells) == normalized_cells
+            and _normalize_cells_signature(profile_valid_cells) == normalized_valid_cells
         ):
             return _build_custom_profile_payload(profile)
 
@@ -274,10 +345,33 @@ def _resolve_current_profile_payload(
             int(definition["grid_cols"]) == int(grid_cols)
             and int(definition["grid_rows"]) == int(grid_rows)
             and _normalize_cells_signature(definition["cells"]) == normalized_cells
+            and _normalize_cells_signature(definition["valid_cells"]) == normalized_valid_cells
         ):
             return profile_payload
 
-    return get_current_map_profile_payload(grid_cols, grid_rows)
+    runtime_valid_cells = valid_cells or get_valid_cells(grid_cols, grid_rows)
+    return build_map_profile_payload(
+        key=f"runtime_{int(grid_cols)}x{int(grid_rows)}",
+        name={
+            "zh": "运行时地图方案",
+            "ja": "実行時マップ構成",
+            "en": "Runtime Map Profile",
+        },
+        description={
+            "zh": "当前运行中的地图布局与内置方案不完全一致，可作为后续异形地图与自定义方案的过渡状态。",
+            "ja": "現在の実行中マップは内蔵プロファイルと完全には一致しておらず、今後の異形マップやカスタム構成への移行状態として扱います。",
+            "en": "The active map layout no longer matches a built-in profile exactly and is treated as a runtime transition state for custom or irregular layouts.",
+        },
+        grid_cols=grid_cols,
+        grid_rows=grid_rows,
+        valid_cells=runtime_valid_cells,
+        custom=True,
+        editable=False,
+        deletable=False,
+    ) | {
+        "blocked_count": len(normalized_cells),
+        "blocked_cells": _cells_to_payload(set(normalized_cells)),
+    }
 
 
 def _attach_map_profile_audit(payload: dict) -> dict:
@@ -311,10 +405,16 @@ def get_map_layout():
     state = get_map_layout_state()
     grid_cols = int(state["grid_cols"])
     grid_rows = int(state["grid_rows"])
+    valid_cells = get_valid_cells(grid_cols, grid_rows)
+    blocked_cells = get_blocked_cells(grid_cols, grid_rows)
     return {
         "grid_cols": grid_cols,
         "grid_rows": grid_rows,
         "blocked_cells": get_blocked_cell_payload(grid_cols, grid_rows),
+        "blocked_count": len(blocked_cells),
+        "valid_cells": get_valid_cell_payload(grid_cols, grid_rows),
+        "valid_count": len(valid_cells),
+        "is_irregular": len(valid_cells) != grid_cols * grid_rows,
     }
 
 
@@ -366,7 +466,12 @@ def update_ui_settings(payload):
 
 def get_map_presets():
     grid_cols, grid_rows = get_current_grid_size()
-    current_profile = _resolve_current_profile_payload(grid_cols, grid_rows)
+    current_profile = _resolve_current_profile_payload(
+        grid_cols,
+        grid_rows,
+        get_blocked_cells(grid_cols, grid_rows),
+        get_valid_cells(grid_cols, grid_rows),
+    )
     builtin_presets = get_map_presets_payload(grid_cols, grid_rows)
     custom_presets = []
     for preset in list_map_presets():
@@ -375,12 +480,18 @@ def get_map_presets():
             for cell in preset.blocked_cells
             if 0 <= int(cell.x) < grid_cols and 0 <= int(cell.y) < grid_rows
         }
+        valid_cells = {
+            (int(cell.x), int(cell.y))
+            for cell in preset.valid_cells
+            if 0 <= int(cell.x) < grid_cols and 0 <= int(cell.y) < grid_rows
+        } or get_default_valid_cells(grid_cols, grid_rows)
         custom_presets.append(
             build_map_preset_payload(
                 key=preset.key,
                 name=preset.custom_name,
                 description=preset.description,
                 cells=cells,
+                valid_cells=valid_cells,
                 custom=True,
                 deletable=True,
                 grid_cols=grid_cols,
@@ -398,6 +509,7 @@ def get_map_presets():
 def get_map_profiles():
     grid_cols, grid_rows = get_current_grid_size()
     blocked_cells = get_blocked_cells(grid_cols, grid_rows)
+    valid_cells = get_valid_cells(grid_cols, grid_rows)
     active_tasks = [
         task
         for task in list_tasks()
@@ -420,7 +532,9 @@ def get_map_profiles():
 
     custom_profiles = [_build_custom_profile_payload(profile) for profile in list_map_profiles()]
     return {
-        "current_profile": _attach_map_profile_audit(_resolve_current_profile_payload(grid_cols, grid_rows, blocked_cells)),
+        "current_profile": _attach_map_profile_audit(
+            _resolve_current_profile_payload(grid_cols, grid_rows, blocked_cells, valid_cells)
+        ),
         "profiles": [_attach_map_profile_audit(profile) for profile in get_map_profiles_payload()] + custom_profiles,
         "can_resize_now": can_resize_now,
         "resize_lock_reason": resize_lock_reason,
@@ -433,18 +547,23 @@ def get_map_profile_detail(profile_key: str):
     custom_profile = get_map_profile_by_key(profile_key)
     if custom_profile is not None:
         cells = {(int(cell.x), int(cell.y)) for cell in custom_profile.blocked_cells}
+        valid_cells = {(int(cell.x), int(cell.y)) for cell in custom_profile.valid_cells} or get_default_valid_cells(
+            int(custom_profile.grid_cols),
+            int(custom_profile.grid_rows),
+        )
         return _attach_map_profile_audit(build_map_profile_payload(
             key=custom_profile.key,
             name=custom_profile.custom_name,
             description=custom_profile.description,
             grid_cols=int(custom_profile.grid_cols),
             grid_rows=int(custom_profile.grid_rows),
+            valid_cells=valid_cells,
             custom=True,
             editable=True,
             deletable=True,
         ) | {
             "blocked_count": len(cells),
-            "blocked_cells": [{"x": x, "y": y} for x, y in sorted(cells)],
+            "blocked_cells": _cells_to_payload(cells),
         })
 
     profile_definition = get_map_profile_definition(profile_key)
@@ -452,18 +571,20 @@ def get_map_profile_detail(profile_key: str):
         raise_api_error(404, "profile_not_found")
 
     cells = {(int(x), int(y)) for x, y in profile_definition["cells"]}
+    valid_cells = set(profile_definition["valid_cells"])
     return _attach_map_profile_audit(build_map_profile_payload(
         key=profile_definition["key"],
         name=profile_definition["name"],
         description=profile_definition["description"],
         grid_cols=int(profile_definition["grid_cols"]),
         grid_rows=int(profile_definition["grid_rows"]),
+        valid_cells=valid_cells,
         custom=bool(profile_definition.get("custom", False)),
         editable=False,
         deletable=False,
     ) | {
         "blocked_count": len(cells),
-        "blocked_cells": [{"x": x, "y": y} for x, y in sorted(cells)],
+        "blocked_cells": _cells_to_payload(cells),
     })
 
 
@@ -590,7 +711,21 @@ def resize_map_layout(requested_grid_cols: int, requested_grid_rows: int, actor:
 
     current_grid_cols, current_grid_rows = get_current_grid_size()
     current_cells = get_blocked_cells(current_grid_cols, current_grid_rows)
-    updated = set_blocked_cells(current_cells, requested_grid_cols, requested_grid_rows)
+    current_valid_cells = get_valid_cells(current_grid_cols, current_grid_rows)
+    full_current_layout = _build_full_grid_cells(current_grid_cols, current_grid_rows)
+    if current_valid_cells == full_current_layout:
+        next_valid_cells = get_default_valid_cells(requested_grid_cols, requested_grid_rows)
+    else:
+        next_valid_cells = {
+            (x, y)
+            for x, y in current_valid_cells
+            if _is_within_grid(x, y, requested_grid_cols, requested_grid_rows)
+        }
+        if not next_valid_cells:
+            next_valid_cells = get_default_valid_cells(requested_grid_cols, requested_grid_rows)
+    updated_state = set_layout_cells(current_cells, next_valid_cells, requested_grid_cols, requested_grid_rows)
+    updated = updated_state["blocked_cells"]
+    updated_valid_cells = updated_state["valid_cells"]
     record_operation_audit(
         "map_layout",
         "global",
@@ -602,14 +737,24 @@ def resize_map_layout(requested_grid_cols: int, requested_grid_rows: int, actor:
             "grid_cols": int(requested_grid_cols),
             "grid_rows": int(requested_grid_rows),
             "blocked_count": len(updated),
+            "valid_count": len(updated_valid_cells),
         },
     )
     return {
         "message": "Map size updated",
         "grid_cols": int(requested_grid_cols),
         "grid_rows": int(requested_grid_rows),
-        "blocked_cells": [{"x": x, "y": y} for x, y in sorted(updated)],
-        "current_profile": _resolve_current_profile_payload(requested_grid_cols, requested_grid_rows, updated),
+        "blocked_cells": _cells_to_payload(updated),
+        "blocked_count": len(updated),
+        "valid_cells": _cells_to_payload(updated_valid_cells),
+        "valid_count": len(updated_valid_cells),
+        "is_irregular": len(updated_valid_cells) != int(requested_grid_cols) * int(requested_grid_rows),
+        "current_profile": _resolve_current_profile_payload(
+            requested_grid_cols,
+            requested_grid_rows,
+            updated,
+            updated_valid_cells,
+        ),
         "can_apply": True,
     }
 
@@ -627,6 +772,7 @@ def apply_map_profile(profile_key: str, force: bool = False, actor: dict | None 
             "grid_cols": int(custom_profile.grid_cols),
             "grid_rows": int(custom_profile.grid_rows),
             "cells": _get_custom_map_profile_cells(profile_key),
+            "valid_cells": _get_custom_map_profile_valid_cells(profile_key),
             "custom": True,
         }
 
@@ -638,21 +784,33 @@ def apply_map_profile(profile_key: str, force: bool = False, actor: dict | None 
         if force and force_apply_allowed:
             if profile.get("custom"):
                 raw_profile_cells = _get_custom_map_profile_cells(profile_key)
+                raw_profile_valid_cells = _get_custom_map_profile_valid_cells(profile_key)
             else:
                 raw_profile_cells = get_map_profile_cells(profile_key)
+                raw_profile_valid_cells = get_map_profile_valid_cells(profile_key)
+            in_bounds_profile_valid_cells = {
+                (int(x), int(y))
+                for x, y in raw_profile_valid_cells
+                if _is_within_grid(x, y, target_cols, target_rows)
+            } or get_default_valid_cells(target_cols, target_rows)
             in_bounds_profile_cells = {
                 (int(x), int(y))
                 for x, y in raw_profile_cells
                 if _is_within_grid(x, y, target_cols, target_rows)
-            }
+            } & in_bounds_profile_valid_cells
             trimmed_blocked_cells = sorted(raw_profile_cells - in_bounds_profile_cells)
             relocated_agvs = _relocate_out_of_bounds_agvs_for_force_apply(
                 requested_grid_cols=target_cols,
                 requested_grid_rows=target_rows,
-                blocked_cells=in_bounds_profile_cells,
+                blocked_cells=_normalize_blocked_for_valid_cells(
+                    in_bounds_profile_cells | (_build_full_grid_cells(target_cols, target_rows) - in_bounds_profile_valid_cells),
+                    _build_full_grid_cells(target_cols, target_rows),
+                ),
             )
             filtered, skipped = _filter_occupied_cells(in_bounds_profile_cells)
-            updated = set_blocked_cells(filtered, target_cols, target_rows)
+            updated_state = set_layout_cells(filtered, in_bounds_profile_valid_cells, target_cols, target_rows)
+            updated = updated_state["blocked_cells"]
+            updated_valid_cells = updated_state["valid_cells"]
             record_operation_audit(
                 "map_profile",
                 profile_key,
@@ -663,6 +821,7 @@ def apply_map_profile(profile_key: str, force: bool = False, actor: dict | None 
                     "grid_rows": target_rows,
                     "relocated_agv_count": len(relocated_agvs),
                     "trimmed_blocked_cells_count": len(trimmed_blocked_cells),
+                    "valid_count": len(updated_valid_cells),
                 },
             )
             return {
@@ -670,10 +829,16 @@ def apply_map_profile(profile_key: str, force: bool = False, actor: dict | None 
                 "profile_key": profile_key,
                 "grid_cols": target_cols,
                 "grid_rows": target_rows,
-                "blocked_cells": [{"x": x, "y": y} for x, y in sorted(updated)],
-                "skipped_occupied_cells": [{"x": x, "y": y} for x, y in skipped],
+                "blocked_cells": _cells_to_payload(updated),
+                "blocked_count": len(updated),
+                "valid_cells": _cells_to_payload(updated_valid_cells),
+                "valid_count": len(updated_valid_cells),
+                "is_irregular": len(updated_valid_cells) != target_cols * target_rows,
+                "skipped_occupied_cells": _cells_to_payload(set(skipped)),
                 "skipped_occupied_count": len(skipped),
-                "current_profile": _attach_map_profile_audit(_resolve_current_profile_payload(target_cols, target_rows, updated)),
+                "current_profile": _attach_map_profile_audit(
+                    _resolve_current_profile_payload(target_cols, target_rows, updated, updated_valid_cells)
+                ),
                 "can_apply": True,
                 "forced": True,
                 "force_apply_allowed": True,
@@ -702,10 +867,14 @@ def apply_map_profile(profile_key: str, force: bool = False, actor: dict | None 
 
     if profile.get("custom"):
         profile_cells = _get_custom_map_profile_cells(profile_key)
+        profile_valid_cells = _get_custom_map_profile_valid_cells(profile_key)
     else:
         profile_cells = get_map_profile_cells(profile_key)
+        profile_valid_cells = get_map_profile_valid_cells(profile_key)
     filtered, skipped = _filter_occupied_cells(profile_cells)
-    updated = set_blocked_cells(filtered, target_cols, target_rows)
+    updated_state = set_layout_cells(filtered, profile_valid_cells, target_cols, target_rows)
+    updated = updated_state["blocked_cells"]
+    updated_valid_cells = updated_state["valid_cells"]
     record_operation_audit(
         "map_profile",
         profile_key,
@@ -715,6 +884,7 @@ def apply_map_profile(profile_key: str, force: bool = False, actor: dict | None 
             "grid_cols": target_cols,
             "grid_rows": target_rows,
             "skipped_occupied_count": len(skipped),
+            "valid_count": len(updated_valid_cells),
         },
     )
     return {
@@ -722,10 +892,16 @@ def apply_map_profile(profile_key: str, force: bool = False, actor: dict | None 
         "profile_key": profile_key,
         "grid_cols": target_cols,
         "grid_rows": target_rows,
-        "blocked_cells": [{"x": x, "y": y} for x, y in sorted(updated)],
-        "skipped_occupied_cells": [{"x": x, "y": y} for x, y in skipped],
+        "blocked_cells": _cells_to_payload(updated),
+        "blocked_count": len(updated),
+        "valid_cells": _cells_to_payload(updated_valid_cells),
+        "valid_count": len(updated_valid_cells),
+        "is_irregular": len(updated_valid_cells) != target_cols * target_rows,
+        "skipped_occupied_cells": _cells_to_payload(set(skipped)),
         "skipped_occupied_count": len(skipped),
-        "current_profile": _attach_map_profile_audit(_resolve_current_profile_payload(target_cols, target_rows, updated)),
+        "current_profile": _attach_map_profile_audit(
+            _resolve_current_profile_payload(target_cols, target_rows, updated, updated_valid_cells)
+        ),
         "can_apply": True,
     }
 
@@ -739,13 +915,16 @@ def save_map_profile(payload, actor: dict | None = None):
     resolved_name, name_adjusted = _resolve_unique_profile_name(requested_name)
 
     requested = _normalize_requested_cells(payload.blocked_cells, grid_cols, grid_rows)
+    requested_valid_cells = _normalize_requested_valid_cells(payload.valid_cells, grid_cols, grid_rows)
+    filtered_blocked = _normalize_blocked_for_valid_cells(requested, requested_valid_cells)
     profile = MapProfile(
         key=_build_custom_profile_key(resolved_name),
         custom_name=resolved_name,
         description=(payload.description or "").strip() or None,
         grid_cols=grid_cols,
         grid_rows=grid_rows,
-        blocked_cells=[MapProfileCell(x=x, y=y) for x, y in sorted(requested)],
+        blocked_cells=[MapProfileCell(x=x, y=y) for x, y in sorted(filtered_blocked)],
+        valid_cells=[MapProfileCell(x=x, y=y) for x, y in sorted(requested_valid_cells)],
         custom=True,
     )
     upsert_map_profile(profile)
@@ -760,6 +939,7 @@ def save_map_profile(payload, actor: dict | None = None):
             "resolved_name": resolved_name,
             "grid_cols": grid_cols,
             "grid_rows": grid_rows,
+            "valid_count": len(requested_valid_cells),
         },
     )
     return {
@@ -787,10 +967,19 @@ def delete_map_profile(profile_key: str, actor: dict | None = None):
     }
 
 
-def update_map_layout(blocked_cells: list, grid_cols: int, grid_rows: int, actor: dict | None = None):
+def update_map_layout(
+    blocked_cells: list,
+    valid_cells: list | None,
+    grid_cols: int,
+    grid_rows: int,
+    actor: dict | None = None,
+):
     requested = {(cell.x, cell.y) for cell in blocked_cells}
+    requested_valid_cells = _normalize_requested_valid_cells(valid_cells, grid_cols, grid_rows)
     filtered, skipped = _filter_occupied_cells(requested)
-    updated = set_blocked_cells(filtered, grid_cols, grid_rows)
+    updated_state = set_layout_cells(filtered, requested_valid_cells, grid_cols, grid_rows)
+    updated = updated_state["blocked_cells"]
+    updated_valid_cells = updated_state["valid_cells"]
     record_operation_audit(
         "map_layout",
         "global",
@@ -800,6 +989,7 @@ def update_map_layout(blocked_cells: list, grid_cols: int, grid_rows: int, actor
             "grid_cols": int(grid_cols),
             "grid_rows": int(grid_rows),
             "blocked_count": len(updated),
+            "valid_count": len(updated_valid_cells),
             "skipped_occupied_count": len(skipped),
         },
     )
@@ -807,9 +997,14 @@ def update_map_layout(blocked_cells: list, grid_cols: int, grid_rows: int, actor
         "message": "Map layout updated",
         "grid_cols": grid_cols,
         "grid_rows": grid_rows,
-        "blocked_cells": [{"x": x, "y": y} for x, y in sorted(updated)],
-        "skipped_occupied_cells": [{"x": x, "y": y} for x, y in skipped],
+        "blocked_cells": _cells_to_payload(updated),
+        "blocked_count": len(updated),
+        "valid_cells": _cells_to_payload(updated_valid_cells),
+        "valid_count": len(updated_valid_cells),
+        "is_irregular": len(updated_valid_cells) != int(grid_cols) * int(grid_rows),
+        "skipped_occupied_cells": _cells_to_payload(set(skipped)),
         "skipped_occupied_count": len(skipped),
+        "current_profile": _resolve_current_profile_payload(grid_cols, grid_rows, updated, updated_valid_cells),
     }
 
 
@@ -817,14 +1012,18 @@ def apply_map_layout_preset(preset_key: str, actor: dict | None = None):
     grid_cols, grid_rows = get_current_grid_size()
     try:
         preset_cells = get_map_preset_cells(preset_key, grid_cols, grid_rows)
+        preset_valid_cells = get_map_preset_valid_cells(preset_key, grid_cols, grid_rows)
     except KeyError:
         try:
             preset_cells = _get_custom_map_preset_cells(preset_key, grid_cols, grid_rows)
+            preset_valid_cells = _get_custom_map_preset_valid_cells(preset_key, grid_cols, grid_rows)
         except KeyError:
             raise_api_error(404, "preset_not_found")
 
     filtered, skipped = _filter_occupied_cells(preset_cells)
-    updated = set_blocked_cells(filtered, grid_cols, grid_rows)
+    updated_state = set_layout_cells(filtered, preset_valid_cells, grid_cols, grid_rows)
+    updated = updated_state["blocked_cells"]
+    updated_valid_cells = updated_state["valid_cells"]
     record_operation_audit(
         "map_preset",
         preset_key,
@@ -834,6 +1033,7 @@ def apply_map_layout_preset(preset_key: str, actor: dict | None = None):
             "grid_cols": grid_cols,
             "grid_rows": grid_rows,
             "blocked_count": len(updated),
+            "valid_count": len(updated_valid_cells),
             "skipped_occupied_count": len(skipped),
         },
     )
@@ -841,10 +1041,15 @@ def apply_map_layout_preset(preset_key: str, actor: dict | None = None):
         "message": "Map preset applied",
         "grid_cols": grid_cols,
         "grid_rows": grid_rows,
-        "blocked_cells": [{"x": x, "y": y} for x, y in sorted(updated)],
+        "blocked_cells": _cells_to_payload(updated),
+        "blocked_count": len(updated),
+        "valid_cells": _cells_to_payload(updated_valid_cells),
+        "valid_count": len(updated_valid_cells),
+        "is_irregular": len(updated_valid_cells) != grid_cols * grid_rows,
         "preset_key": preset_key,
-        "skipped_occupied_cells": [{"x": x, "y": y} for x, y in skipped],
+        "skipped_occupied_cells": _cells_to_payload(set(skipped)),
         "skipped_occupied_count": len(skipped),
+        "current_profile": _resolve_current_profile_payload(grid_cols, grid_rows, updated, updated_valid_cells),
     }
 
 
@@ -856,12 +1061,15 @@ def save_map_layout_preset(payload, actor: dict | None = None):
         raise_api_error(400, "preset_name_required")
 
     requested = _normalize_requested_cells(payload.blocked_cells, grid_cols, grid_rows)
+    requested_valid_cells = _normalize_requested_valid_cells(payload.valid_cells, grid_cols, grid_rows)
     filtered, skipped = _filter_occupied_cells(requested)
+    filtered = _normalize_blocked_for_valid_cells(filtered, requested_valid_cells)
     preset = MapPreset(
         key=_build_custom_preset_key(custom_name),
         custom_name=custom_name,
         description=(payload.description or "").strip() or None,
         blocked_cells=[MapPresetCell(x=x, y=y) for x, y in sorted(filtered)],
+        valid_cells=[MapPresetCell(x=x, y=y) for x, y in sorted(requested_valid_cells)],
         custom=True,
     )
     upsert_map_preset(preset)
@@ -875,6 +1083,7 @@ def save_map_layout_preset(payload, actor: dict | None = None):
             "grid_cols": grid_cols,
             "grid_rows": grid_rows,
             "blocked_count": len(filtered),
+            "valid_count": len(requested_valid_cells),
             "skipped_occupied_count": len(skipped),
         },
     )
@@ -885,10 +1094,13 @@ def save_map_layout_preset(payload, actor: dict | None = None):
             name=preset.custom_name,
             description=preset.description,
             cells=filtered,
+            valid_cells=requested_valid_cells,
             custom=True,
             deletable=True,
+            grid_cols=grid_cols,
+            grid_rows=grid_rows,
         ),
-        "skipped_occupied_cells": [{"x": x, "y": y} for x, y in skipped],
+        "skipped_occupied_cells": _cells_to_payload(set(skipped)),
         "skipped_occupied_count": len(skipped),
     }
 
@@ -912,8 +1124,11 @@ def delete_map_layout_preset(preset_key: str, actor: dict | None = None):
 def reset_map_layout(actor: dict | None = None):
     grid_cols, grid_rows = get_current_grid_size()
     default_cells = get_default_blocked_cells(grid_cols, grid_rows)
+    default_valid_cells = get_default_valid_cells(grid_cols, grid_rows)
     filtered, skipped = _filter_occupied_cells(default_cells)
-    updated = set_blocked_cells(filtered, grid_cols, grid_rows)
+    updated_state = set_layout_cells(filtered, default_valid_cells, grid_cols, grid_rows)
+    updated = updated_state["blocked_cells"]
+    updated_valid_cells = updated_state["valid_cells"]
     record_operation_audit(
         "map_layout",
         "global",
@@ -923,6 +1138,7 @@ def reset_map_layout(actor: dict | None = None):
             "grid_cols": grid_cols,
             "grid_rows": grid_rows,
             "blocked_count": len(updated),
+            "valid_count": len(updated_valid_cells),
             "skipped_occupied_count": len(skipped),
         },
     )
@@ -930,7 +1146,12 @@ def reset_map_layout(actor: dict | None = None):
         "message": "Map layout reset",
         "grid_cols": grid_cols,
         "grid_rows": grid_rows,
-        "blocked_cells": [{"x": x, "y": y} for x, y in sorted(updated)],
-        "skipped_occupied_cells": [{"x": x, "y": y} for x, y in skipped],
+        "blocked_cells": _cells_to_payload(updated),
+        "blocked_count": len(updated),
+        "valid_cells": _cells_to_payload(updated_valid_cells),
+        "valid_count": len(updated_valid_cells),
+        "is_irregular": False,
+        "skipped_occupied_cells": _cells_to_payload(set(skipped)),
         "skipped_occupied_count": len(skipped),
+        "current_profile": _resolve_current_profile_payload(grid_cols, grid_rows, updated, updated_valid_cells),
     }

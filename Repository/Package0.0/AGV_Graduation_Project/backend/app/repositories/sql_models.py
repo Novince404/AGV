@@ -111,6 +111,11 @@ class MapLayoutEntity(Base):
         cascade="all, delete-orphan",
         order_by="MapBlockedCellEntity.id",
     )
+    valid_cells: Mapped[list["MapValidCellEntity"]] = relationship(
+        back_populates="layout",
+        cascade="all, delete-orphan",
+        order_by="MapValidCellEntity.id",
+    )
 
 
 class MapBlockedCellEntity(Base):
@@ -122,6 +127,17 @@ class MapBlockedCellEntity(Base):
     y: Mapped[int] = mapped_column(Integer, nullable=False)
 
     layout: Mapped["MapLayoutEntity"] = relationship(back_populates="blocked_cells")
+
+
+class MapValidCellEntity(Base):
+    __tablename__ = "map_valid_cell"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    layout_id: Mapped[int] = mapped_column(ForeignKey("map_layout.id"), nullable=False, index=True)
+    x: Mapped[int] = mapped_column(Integer, nullable=False)
+    y: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    layout: Mapped["MapLayoutEntity"] = relationship(back_populates="valid_cells")
 
 
 class MapPresetEntity(Base):
@@ -137,6 +153,11 @@ class MapPresetEntity(Base):
         cascade="all, delete-orphan",
         order_by="MapPresetCellEntity.id",
     )
+    valid_cells: Mapped[list["MapPresetValidCellEntity"]] = relationship(
+        back_populates="preset",
+        cascade="all, delete-orphan",
+        order_by="MapPresetValidCellEntity.id",
+    )
 
 
 class MapPresetCellEntity(Base):
@@ -148,6 +169,17 @@ class MapPresetCellEntity(Base):
     y: Mapped[int] = mapped_column(Integer, nullable=False)
 
     preset: Mapped["MapPresetEntity"] = relationship(back_populates="blocked_cells")
+
+
+class MapPresetValidCellEntity(Base):
+    __tablename__ = "map_preset_valid_cell"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    preset_id: Mapped[str] = mapped_column(ForeignKey("map_preset.id"), nullable=False, index=True)
+    x: Mapped[int] = mapped_column(Integer, nullable=False)
+    y: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    preset: Mapped["MapPresetEntity"] = relationship(back_populates="valid_cells")
 
 
 class MapProfileEntity(Base):
@@ -165,6 +197,11 @@ class MapProfileEntity(Base):
         cascade="all, delete-orphan",
         order_by="MapProfileCellEntity.id",
     )
+    valid_cells: Mapped[list["MapProfileValidCellEntity"]] = relationship(
+        back_populates="profile",
+        cascade="all, delete-orphan",
+        order_by="MapProfileValidCellEntity.id",
+    )
 
 
 class MapProfileCellEntity(Base):
@@ -176,6 +213,17 @@ class MapProfileCellEntity(Base):
     y: Mapped[int] = mapped_column(Integer, nullable=False)
 
     profile: Mapped["MapProfileEntity"] = relationship(back_populates="blocked_cells")
+
+
+class MapProfileValidCellEntity(Base):
+    __tablename__ = "map_profile_valid_cell"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    profile_id: Mapped[str] = mapped_column(ForeignKey("map_profile.id"), nullable=False, index=True)
+    x: Mapped[int] = mapped_column(Integer, nullable=False)
+    y: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    profile: Mapped["MapProfileEntity"] = relationship(back_populates="valid_cells")
 
 
 class UiSettingsEntity(Base):

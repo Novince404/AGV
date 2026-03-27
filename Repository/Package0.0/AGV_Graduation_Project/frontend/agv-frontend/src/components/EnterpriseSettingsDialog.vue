@@ -1704,7 +1704,11 @@
                 <div class="map-settings-info-grid enterprise-settings-grid">
                   <div class="map-settings-info-card">
                     <div class="map-settings-info-label">{{ settingsLocale.mapInfoSize }}</div>
-                    <div class="map-settings-info-value">{{ currentGridCols }} x {{ currentGridRows }}</div>
+                    <div class="map-settings-info-value">{{ mapSizeLabel }}</div>
+                  </div>
+                  <div class="map-settings-info-card">
+                    <div class="map-settings-info-label">{{ t('enterprise_settings_map_editor_valid_count') }}</div>
+                    <div class="map-settings-info-value">{{ enterpriseMapEditorValidCount }}</div>
                   </div>
                   <div class="map-settings-info-card">
                     <div class="map-settings-info-label">{{ t('enterprise_settings_map_editor_blocked_count') }}</div>
@@ -1722,6 +1726,12 @@
                 <div class="enterprise-settings-chip-list">
                   <span class="point-badge enterprise-settings-chip">{{ t('enterprise_settings_map_editor_help_add') }}</span>
                   <span class="point-badge enterprise-settings-chip enterprise-settings-chip-muted">{{ t('enterprise_settings_map_editor_help_remove') }}</span>
+                  <span
+                    class="point-badge enterprise-settings-chip"
+                    :class="{ 'enterprise-settings-chip-muted': !enterpriseMapEditorIsIrregular }"
+                  >
+                    {{ enterpriseMapEditorIsIrregular ? t('map_shape_irregular') : `${currentGridCols} x ${currentGridRows}` }}
+                  </span>
                   <span class="point-badge enterprise-settings-chip enterprise-settings-chip-muted">{{ t('enterprise_settings_map_editor_help_locked') }}</span>
                 </div>
               </section>
@@ -1740,15 +1750,19 @@
                         type="button"
                         class="enterprise-map-editor-cell"
                         :class="{
+                          'is-valid': isEnterpriseMapEditorCellValid(col, row),
+                          'is-void': !isEnterpriseMapEditorCellValid(col, row),
                           'is-blocked': isEnterpriseMapEditorCellBlocked(col, row),
-                          'is-occupied': isCellOccupied(col, row)
+                          'is-occupied': isCellOccupied(col, row),
+                          'is-locked': isEnterpriseMapEditorCellLocked(col, row)
                         }"
-                        :disabled="isCellOccupied(col, row)"
+                        :disabled="isEnterpriseMapEditorCellLocked(col, row)"
                         :title="`(${col}, ${row})`"
                         @click="applyEnterpriseMapEditorCell({ x: col, y: row }, $event)"
                       >
-                        <span v-if="isCellOccupied(col, row)">×</span>
+                        <span v-if="isEnterpriseMapEditorCellLocked(col, row)">×</span>
                         <span v-else-if="isEnterpriseMapEditorCellBlocked(col, row)">■</span>
+                        <span v-else-if="isEnterpriseMapEditorCellValid(col, row)">□</span>
                       </button>
                     </template>
                   </div>

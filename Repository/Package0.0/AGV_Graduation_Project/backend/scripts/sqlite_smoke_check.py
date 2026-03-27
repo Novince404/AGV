@@ -104,6 +104,7 @@ def main() -> None:
 
     updated_map = status_service.update_map_layout(
         [BlockedCellPayload(x=0, y=0), BlockedCellPayload(x=9, y=7)],
+        None,
         10,
         8,
     )

@@ -130,10 +130,21 @@ const DEFAULT_BLOCKED_CELLS = [
   { x: 6, y: 7 }
 ]
 
+function buildFullValidCellList(gridCols = GRID_COLS, gridRows = GRID_ROWS) {
+  const cells = []
+  for (let y = 0; y < Number(gridRows || GRID_ROWS); y += 1) {
+    for (let x = 0; x < Number(gridCols || GRID_COLS); x += 1) {
+      cells.push({ x, y })
+    }
+  }
+  return cells
+}
+
 const agvs = ref([])
 const localAgvs = ref([])
 const tasks = ref([])
 const blockedCells = ref([...DEFAULT_BLOCKED_CELLS])
+const validCells = ref(buildFullValidCellList(GRID_COLS, GRID_ROWS))
 const currentGridCols = ref(GRID_COLS)
 const currentGridRows = ref(GRID_ROWS)
 const mapWidth = computed(() => currentGridCols.value * CELL_SIZE)
@@ -165,6 +176,29 @@ function isWithinCurrentGrid(point) {
     Number(point.y) >= 0 &&
     Number(point.y) < gridRowsValue()
   )
+}
+
+function normalizeValidCellList(cells, gridCols = gridColsValue(), gridRows = gridRowsValue()) {
+  const fallback = buildFullValidCellList(gridCols, gridRows)
+  if (!Array.isArray(cells)) return fallback
+
+  const normalized = Array.from(new Set(
+    cells
+      .filter(cell => Number.isFinite(Number(cell?.x)) && Number.isFinite(Number(cell?.y)))
+      .map(cell => `${Math.round(Number(cell.x))},${Math.round(Number(cell.y))}`)
+  ))
+    .map(key => {
+      const [x, y] = key.split(',').map(Number)
+      return { x, y }
+    })
+    .filter(cell => cell.x >= 0 && cell.x < gridCols && cell.y >= 0 && cell.y < gridRows)
+    .sort((a, b) => a.y - b.y || a.x - b.x)
+
+  return normalized.length ? normalized : fallback
+}
+
+function isValidMapCell(x, y) {
+  return validCellSet.value.has(blockedCellKey(x, y))
 }
 
 function sanitizeGridDimensionInput(value, fallback) {
@@ -335,6 +369,7 @@ const showMinimap = ref(true)
 const obstacleEditMode = ref(false)
 const obstacleMapSaving = ref(false)
 const syncedBlockedCells = ref([...DEFAULT_BLOCKED_CELLS])
+const syncedValidCells = ref(buildFullValidCellList(GRID_COLS, GRID_ROWS))
 const obstaclePresets = ref([])
 const mapProfiles = ref([])
 const mapProfileApplyingKey = ref('')
@@ -681,6 +716,7 @@ const enterpriseShortcutPlannerDialogOpen = ref(false)
 const enterpriseMapEditorDialogOpen = ref(false)
 const enterpriseMapEditorSaving = ref(false)
 const enterpriseMapEditorDraftBlockedCells = ref([])
+const enterpriseMapEditorDraftValidCells = ref(buildFullValidCellList(GRID_COLS, GRID_ROWS))
 const authRoleLabel = computed(() => t(`auth_role_${authCurrentRole.value}`))
 const authRoleBadgeClass = computed(() => `role-${authCurrentRole.value}`)
 const dashboardUnlocked = computed(() => authAuthenticated.value || authGuestAccepted.value)
@@ -1558,6 +1594,36 @@ const enterpriseRoleWorkspaceActionItems = computed(() => {
     }
   ]
 })
+const enterpriseWorkspacePopupActionItems = computed(() => {
+  if (!showEnterpriseWorkspaceBanner.value) return []
+
+  const shortLabelMap = {
+    apply: t('enterprise_settings_apply_workspace_preset_short'),
+    'open-runtime': t('enterprise_settings_tab_runtime_short'),
+    'jump-control': t('enterprise_settings_open_dispatch_short'),
+    'jump-queue': t('enterprise_settings_open_queue_short'),
+    'open-map-profiles': t('enterprise_settings_tab_map_profiles_short'),
+    'jump-points': t('enterprise_settings_open_points_short'),
+    'jump-templates': t('enterprise_settings_open_templates_short'),
+    'open-audit': t('enterprise_settings_tab_audit_short'),
+    'jump-audit': t('enterprise_settings_open_audit_short'),
+    'jump-ai': t('enterprise_settings_open_ai_short'),
+  }
+
+  return [
+    {
+      key: 'apply-workspace',
+      label: shortLabelMap.apply,
+      tone: 'secondary',
+      handler: applyCurrentEnterpriseWorkspacePreset,
+    },
+    ...enterpriseRoleWorkspaceActionItems.value.map(action => ({
+      ...action,
+      label: shortLabelMap[action.key] || action.label,
+      handler: () => runEnterpriseWorkspaceAction(action.key),
+    })),
+  ]
+})
 const showEnterpriseWorkspaceBanner = computed(() =>
   authIsEnterpriseRole.value && authCurrentAccountStatus.value === 'approved'
 )
@@ -1575,11 +1641,15 @@ const enterpriseWorkspacePopupStyle = computed(() => {
   return {
     left: `${enterpriseWorkspacePopupX.value}px`,
     top: `${enterpriseWorkspacePopupY.value}px`,
-    right: 'auto'
+    right: 'auto',
+    opacity: 0.82
   }
 })
 const enterpriseMapEditorDraftBlockedCellSet = computed(() =>
   new Set((enterpriseMapEditorDraftBlockedCells.value || []).map(cell => blockedCellKey(cell.x, cell.y)))
+)
+const enterpriseMapEditorDraftValidCellSet = computed(() =>
+  new Set((enterpriseMapEditorDraftValidCells.value || []).map(cell => blockedCellKey(cell.x, cell.y)))
 )
 const enterpriseMapEditorRows = computed(() =>
   Array.from({ length: gridRowsValue() }, (_, index) => index)
@@ -1588,6 +1658,10 @@ const enterpriseMapEditorCols = computed(() =>
   Array.from({ length: gridColsValue() }, (_, index) => index)
 )
 const enterpriseMapEditorBlockedCount = computed(() => enterpriseMapEditorDraftBlockedCells.value.length)
+const enterpriseMapEditorValidCount = computed(() => enterpriseMapEditorDraftValidCells.value.length)
+const enterpriseMapEditorIsIrregular = computed(() =>
+  enterpriseMapEditorValidCount.value !== gridColsValue() * gridRowsValue()
+)
 const authCapabilityCards = computed(() => [
   {
     key: 'dispatch',
@@ -2483,9 +2557,24 @@ const mapZoomLabel = computed(() => `${Math.round(mapZoom.value * 100)}%`)
 const minimapScale = computed(() => (mapWidth.value > 0 ? MINIMAP_WIDTH / mapWidth.value : 1))
 const minimapHeight = computed(() => mapHeight.value * minimapScale.value)
 const minimapCellSize = computed(() => CELL_SIZE * minimapScale.value)
+const validCellSet = computed(
+  () => new Set(validCells.value.map(cell => blockedCellKey(cell.x, cell.y)))
+)
 const blockedCellSet = computed(
   () => new Set(blockedCells.value.map(cell => `${cell.x},${cell.y}`))
 )
+const navigationBlockedCellSet = computed(() => {
+  const blocked = new Set(blockedCellSet.value)
+  for (let y = 0; y < gridRowsValue(); y += 1) {
+    for (let x = 0; x < gridColsValue(); x += 1) {
+      const key = blockedCellKey(x, y)
+      if (!validCellSet.value.has(key)) {
+        blocked.add(key)
+      }
+    }
+  }
+  return blocked
+})
 const occupiedCellSet = computed(() => {
   const keys = new Set()
   for (const agv of displayAgvs.value) {
@@ -2499,9 +2588,25 @@ const obstacleMutationLocked = computed(
   () =>
     agvs.value.some(agv => ['running', 'relocating'].includes(agv.status)) ||
     tasks.value.some(task => ['assigned', 'running'].includes(task.status))
-)
+  )
 const blockedCellCount = computed(() => blockedCells.value.length)
-const mapSizeLabel = computed(() => `${currentGridCols.value} x ${currentGridRows.value}`)
+const validCellCount = computed(() => validCells.value.length)
+const mapIsIrregular = computed(() => validCellCount.value !== gridColsValue() * gridRowsValue())
+const mapSizeLabel = computed(() =>
+  mapIsIrregular.value ? t('map_shape_irregular') : `${currentGridCols.value} x ${currentGridRows.value}`
+)
+const mapVoidCells = computed(() => {
+  if (!mapIsIrregular.value) return []
+  const cells = []
+  for (let y = 0; y < gridRowsValue(); y += 1) {
+    for (let x = 0; x < gridColsValue(); x += 1) {
+      if (!validCellSet.value.has(blockedCellKey(x, y))) {
+        cells.push({ x, y })
+      }
+    }
+  }
+  return cells
+})
 const selectedObstaclePresetInfo = computed(
   () => obstaclePresets.value.find(preset => preset.key === selectedObstaclePreset.value) ?? null
 )
@@ -2753,10 +2858,17 @@ const selectedObstaclePresetDeletable = computed(() => Boolean(selectedObstacleP
 const syncedBlockedCellSet = computed(
   () => new Set(syncedBlockedCells.value.map(cell => `${cell.x},${cell.y}`))
 )
+const syncedValidCellSet = computed(
+  () => new Set(syncedValidCells.value.map(cell => `${cell.x},${cell.y}`))
+)
 const obstacleLayoutDirty = computed(() => {
   if (blockedCellCount.value !== syncedBlockedCells.value.length) return true
   for (const key of blockedCellSet.value) {
     if (!syncedBlockedCellSet.value.has(key)) return true
+  }
+  if (validCellCount.value !== syncedValidCells.value.length) return true
+  for (const key of validCellSet.value) {
+    if (!syncedValidCellSet.value.has(key)) return true
   }
   return false
 })
@@ -3614,7 +3726,7 @@ const taskGroups = computed(() => {
 const orphanedTaskCount = computed(() => tasks.value.filter(task => isTaskOrphaned(task)).length)
 
 function isBlockedCell(x, y) {
-  return blockedCellSet.value.has(blockedCellKey(x, y))
+  return navigationBlockedCellSet.value.has(blockedCellKey(x, y))
 }
 
 function isTaskOrphaned(task) {
@@ -5530,13 +5642,13 @@ function resetEnterpriseWorkspacePopupPosition() {
   const popupEl = enterpriseWorkspacePopupRef.value
   if (!paneEl || !popupEl) {
     enterpriseWorkspacePopupX.value = null
-    enterpriseWorkspacePopupY.value = 8
+    enterpriseWorkspacePopupY.value = 12
     return
   }
   const paneRect = paneEl.getBoundingClientRect()
   const popupRect = popupEl.getBoundingClientRect()
   enterpriseWorkspacePopupX.value = Math.max(14, paneRect.left + paneRect.width - popupRect.width - 14)
-  enterpriseWorkspacePopupY.value = 8
+  enterpriseWorkspacePopupY.value = 12
 }
 
 async function ensureEnterpriseWorkspacePopupPosition() {
@@ -5577,9 +5689,9 @@ function syncEnterpriseWorkspacePopupDrag(event) {
   const nextX = event.clientX - enterpriseWorkspacePopupDragOffsetX
   const nextY = event.clientY - enterpriseWorkspacePopupDragOffsetY
   const maxX = Math.max(14, window.innerWidth - popupRect.width - 14)
-  const maxY = Math.max(8, window.innerHeight - popupRect.height - 14)
+  const maxY = Math.max(12, window.innerHeight - popupRect.height - 14)
   enterpriseWorkspacePopupX.value = clampValue(nextX, 14, maxX)
-  enterpriseWorkspacePopupY.value = clampValue(nextY, 8, maxY)
+  enterpriseWorkspacePopupY.value = clampValue(nextY, 12, maxY)
   return true
 }
 
@@ -5588,6 +5700,7 @@ function stopEnterpriseWorkspacePopupDrag() {
 }
 
 function openEnterpriseMapEditorDialog() {
+  enterpriseMapEditorDraftValidCells.value = normalizeValidCellList(validCells.value)
   enterpriseMapEditorDraftBlockedCells.value = normalizeBlockedCellList(blockedCells.value)
   enterpriseMapEditorDialogOpen.value = true
 }
@@ -5597,29 +5710,54 @@ function closeEnterpriseMapEditorDialog() {
 }
 
 function resetEnterpriseMapEditorDraft() {
+  enterpriseMapEditorDraftValidCells.value = normalizeValidCellList(validCells.value)
   enterpriseMapEditorDraftBlockedCells.value = normalizeBlockedCellList(blockedCells.value)
+}
+
+function isEnterpriseMapEditorCellValid(x, y) {
+  return enterpriseMapEditorDraftValidCellSet.value.has(blockedCellKey(x, y))
 }
 
 function isEnterpriseMapEditorCellBlocked(x, y) {
   return enterpriseMapEditorDraftBlockedCellSet.value.has(blockedCellKey(x, y))
 }
 
+function isEnterpriseMapEditorCellLocked(x, y) {
+  return isProtectedMapCell(x, y)
+}
+
 function applyEnterpriseMapEditorCell(cell, event) {
   if (!cell) return
   const { x, y } = cell
-  if (isCellOccupied(x, y)) return
+  if (isEnterpriseMapEditorCellLocked(x, y)) return
 
   const key = blockedCellKey(x, y)
+  const valid = enterpriseMapEditorDraftValidCellSet.value.has(key)
+
   if (event?.ctrlKey || event?.metaKey) {
-    if (!enterpriseMapEditorDraftBlockedCellSet.value.has(key)) return
+    if (!valid) return
+    if (enterpriseMapEditorDraftBlockedCellSet.value.has(key)) {
+      enterpriseMapEditorDraftBlockedCells.value = enterpriseMapEditorDraftBlockedCells.value
+        .filter(item => blockedCellKey(item.x, item.y) !== key)
+      return
+    }
+    enterpriseMapEditorDraftBlockedCells.value = normalizeBlockedCellList([
+      ...enterpriseMapEditorDraftBlockedCells.value,
+      { x, y }
+    ])
+    return
+  }
+
+  if (valid) {
+    enterpriseMapEditorDraftValidCells.value = enterpriseMapEditorDraftValidCells.value
+      .filter(item => blockedCellKey(item.x, item.y) !== key)
     enterpriseMapEditorDraftBlockedCells.value = enterpriseMapEditorDraftBlockedCells.value
       .filter(item => blockedCellKey(item.x, item.y) !== key)
     return
   }
 
-  if (enterpriseMapEditorDraftBlockedCellSet.value.has(key)) return
-  enterpriseMapEditorDraftBlockedCells.value = normalizeBlockedCellList([
-    ...enterpriseMapEditorDraftBlockedCells.value,
+  enterpriseMapEditorDraftValidCells.value = normalizeValidCellList([
+    ...enterpriseMapEditorDraftValidCells.value,
     { x, y }
   ])
 }
@@ -5628,10 +5766,17 @@ async function saveEnterpriseMapEditorDraft() {
   if (enterpriseMapEditorSaving.value) return
   if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'map.write', buildCapabilityDeniedMessage('map'))) return
   if (!ensureObstacleMutationAllowed()) return
+  if (!enterpriseMapEditorDraftValidCells.value.length) {
+    showFloatingToast(t('enterprise_settings_map_editor_shape_required'), 'error')
+    return
+  }
 
   enterpriseMapEditorSaving.value = true
   try {
-    const ok = await saveBlockedCells(enterpriseMapEditorDraftBlockedCells.value)
+    const ok = await saveBlockedCells(
+      enterpriseMapEditorDraftBlockedCells.value,
+      enterpriseMapEditorDraftValidCells.value
+    )
     if (ok) {
       closeEnterpriseMapEditorDialog()
       showFloatingToast(t('enterprise_settings_map_editor_saved'), 'success')
@@ -7355,6 +7500,52 @@ function isCellOccupied(x, y) {
   return displayAgvs.value.some(agv => agv.x === x && agv.y === y)
 }
 
+const protectedMapCellSet = computed(() => {
+  const keys = new Set()
+
+  for (const agv of displayAgvs.value) {
+    if (Number.isInteger(agv?.x) && Number.isInteger(agv?.y)) {
+      keys.add(blockedCellKey(agv.x, agv.y))
+    }
+  }
+
+  for (const point of pointLibrary.value) {
+    if (Number.isInteger(point?.x) && Number.isInteger(point?.y)) {
+      keys.add(blockedCellKey(point.x, point.y))
+    }
+  }
+
+  for (const task of tasks.value) {
+    const stages = Array.isArray(task?.stages) && task.stages.length ? task.stages : [task]
+    for (const stage of stages) {
+      if (Number.isInteger(stage?.start_x) && Number.isInteger(stage?.start_y)) {
+        keys.add(blockedCellKey(stage.start_x, stage.start_y))
+      }
+      if (Number.isInteger(stage?.end_x) && Number.isInteger(stage?.end_y)) {
+        keys.add(blockedCellKey(stage.end_x, stage.end_y))
+      }
+    }
+  }
+
+  for (const template of taskTemplates.value) {
+    const stages = Array.isArray(template?.stages) && template.stages.length ? template.stages : [template]
+    for (const stage of stages) {
+      if (Number.isInteger(stage?.start_x) && Number.isInteger(stage?.start_y)) {
+        keys.add(blockedCellKey(stage.start_x, stage.start_y))
+      }
+      if (Number.isInteger(stage?.end_x) && Number.isInteger(stage?.end_y)) {
+        keys.add(blockedCellKey(stage.end_x, stage.end_y))
+      }
+    }
+  }
+
+  return keys
+})
+
+function isProtectedMapCell(x, y) {
+  return protectedMapCellSet.value.has(blockedCellKey(x, y))
+}
+
 const {
   syncPanelWidth,
   resetMapView,
@@ -7425,9 +7616,9 @@ const {
 const minimapPreviewPathPoints = computed(() => toSvgPoints(previewPath.value, minimapCellSize.value))
 
 function blockedCellAlertText() {
-  if (locale.value === 'ja') return '障害セルは始点・終点・中継点に設定できません。'
-  if (locale.value === 'zh') return '障碍格不能作为起点、终点或中转点。'
-  return 'Blocked cells cannot be used as start, end, or transfer points.'
+  if (locale.value === 'ja') return '障害セルまたは無効セルは始点・終点・中継点に設定できません。'
+  if (locale.value === 'zh') return '障碍格或无效网格不能作为起点、终点或中转点。'
+  return 'Blocked or inactive cells cannot be used as start, end, or transfer points.'
 }
 
 function onAgvClick(agv, event) {
@@ -7451,7 +7642,8 @@ function onMapMouseDown(event) {
     event.preventDefault()
     const cell = getCellFromEvent(event)
     if (!cell) return
-    obstaclePaintMode = isBlockedCell(cell.x, cell.y) ? 'remove' : 'add'
+    if (!isValidMapCell(cell.x, cell.y)) return
+    obstaclePaintMode = blockedCellSet.value.has(blockedCellKey(cell.x, cell.y)) ? 'remove' : 'add'
     obstaclePaintActive = true
     obstaclePaintLastKey = ''
     applyObstaclePaintAt(cell.x, cell.y, obstaclePaintMode)
@@ -8883,6 +9075,18 @@ function applyGridSizeFromPayload(payload) {
   if (Number.isInteger(Number(payload?.grid_rows))) {
     currentGridRows.value = Number(payload.grid_rows)
   }
+  if (Array.isArray(payload?.valid_cells)) {
+    const normalizedValidCells = normalizeValidCellList(
+      payload.valid_cells.map(cell => ({
+        x: Number(cell?.x),
+        y: Number(cell?.y)
+      })),
+      gridColsValue(),
+      gridRowsValue()
+    )
+    validCells.value = normalizedValidCells
+    syncedValidCells.value = normalizedValidCells
+  }
   if (!mapResizePreview.value && !mapResizePreviewDirty.value) {
     setMapResizePreviewDraft(currentGridCols.value, currentGridRows.value)
   }
@@ -9262,6 +9466,7 @@ async function saveCurrentMapProfile() {
       body: JSON.stringify({
         name: profileName,
         blocked_cells: blockedCells.value,
+        valid_cells: validCells.value,
         grid_cols: gridColsValue(),
         grid_rows: gridRowsValue(),
       })
@@ -9307,7 +9512,9 @@ async function exportMapProfile(profile) {
         grid_rows: Number(data.grid_rows),
         custom: Boolean(data.custom),
         blocked_count: Number(data.blocked_count ?? 0),
-        blocked_cells: Array.isArray(data.blocked_cells) ? data.blocked_cells : []
+        blocked_cells: Array.isArray(data.blocked_cells) ? data.blocked_cells : [],
+        valid_count: Number(data.valid_count ?? 0),
+        valid_cells: Array.isArray(data.valid_cells) ? data.valid_cells : []
       }
     }
     downloadJsonFile(`agv-map-profile-${data.key}.json`, JSON.stringify(payload, null, 2))
@@ -9334,6 +9541,7 @@ function normalizeImportedMapProfilePayload(payload) {
   const gridCols = sanitizeGridDimensionInput(profile.grid_cols, gridColsValue())
   const gridRows = sanitizeGridDimensionInput(profile.grid_rows, gridRowsValue())
   const rawCells = Array.isArray(profile.blocked_cells) ? profile.blocked_cells : []
+  const rawValidCells = Array.isArray(profile.valid_cells) ? profile.valid_cells : null
   const blockedCells = normalizeBlockedCellList(
     rawCells
       .filter(cell => Number.isFinite(Number(cell?.x)) && Number.isFinite(Number(cell?.y)))
@@ -9342,13 +9550,22 @@ function normalizeImportedMapProfilePayload(payload) {
         y: Math.round(Number(cell.y))
       }))
   )
+  const validCells = normalizeValidCellList(
+    rawValidCells?.map(cell => ({
+      x: Math.round(Number(cell?.x)),
+      y: Math.round(Number(cell?.y))
+    })),
+    gridCols,
+    gridRows
+  )
 
   return {
     name,
     description: String(profile.description ?? '').trim() || null,
     grid_cols: gridCols,
     grid_rows: gridRows,
-    blocked_cells: blockedCells
+    blocked_cells: filterBlockedCellsAgainstValid(blockedCells, validCells),
+    valid_cells: validCells
   }
 }
 
@@ -9515,9 +9732,12 @@ async function applyMapProfile(profile) {
     applyGridSizeFromPayload(data)
     mapResizePreviewDirty.value = false
     const normalized = normalizeBlockedCellList(data?.blocked_cells ?? blockedCells.value)
+    const normalizedValidCells = normalizeValidCellList(data?.valid_cells, requestedCols, requestedRows)
     blockedCells.value = normalized
+    validCells.value = normalizedValidCells
     syncedBlockedCells.value = normalized
-    appliedObstacleSceneKey.value = detectObstacleSceneKey(normalized)
+    syncedValidCells.value = normalizedValidCells
+    appliedObstacleSceneKey.value = detectObstacleSceneKey(normalized, normalizedValidCells)
     if (appliedObstacleSceneKey.value !== 'custom') {
       selectedObstaclePreset.value = appliedObstacleSceneKey.value
     }
@@ -9670,9 +9890,12 @@ async function applyMapResize() {
     applyGridSizeFromPayload(data)
     mapResizePreviewDirty.value = false
     const normalized = normalizeBlockedCellList(data?.blocked_cells ?? blockedCells.value)
+    const normalizedValidCells = normalizeValidCellList(data?.valid_cells, requestedCols, requestedRows)
     blockedCells.value = normalized
+    validCells.value = normalizedValidCells
     syncedBlockedCells.value = normalized
-    appliedObstacleSceneKey.value = detectObstacleSceneKey(normalized)
+    syncedValidCells.value = normalizedValidCells
+    appliedObstacleSceneKey.value = detectObstacleSceneKey(normalized, normalizedValidCells)
     if (appliedObstacleSceneKey.value !== 'custom') {
       selectedObstaclePreset.value = appliedObstacleSceneKey.value
     }
@@ -9695,16 +9918,25 @@ async function applyMapResize() {
   }
 }
 
-function detectObstacleSceneKey(cells) {
+function detectObstacleSceneKey(cells, nextValidCells = validCells.value) {
   const normalizedCells = normalizeBlockedCellList(cells)
   const currentKeys = normalizedCells.map(cell => blockedCellKey(cell.x, cell.y))
+  const currentValidKeys = normalizeValidCellList(nextValidCells).map(cell => blockedCellKey(cell.x, cell.y))
 
   for (const preset of obstaclePresets.value) {
     const presetCells = normalizeBlockedCellList(preset.blocked_cells ?? [])
     const presetKeys = presetCells.map(cell => blockedCellKey(cell.x, cell.y))
+    const presetValidKeys = normalizeValidCellList(
+      preset.valid_cells,
+      Number(preset.grid_cols || gridColsValue()),
+      Number(preset.grid_rows || gridRowsValue())
+    ).map(cell => blockedCellKey(cell.x, cell.y))
     if (presetKeys.length !== currentKeys.length) continue
+    if (presetValidKeys.length !== currentValidKeys.length) continue
     if (presetKeys.every((key, index) => key === currentKeys[index])) {
-      return preset.key
+      if (presetValidKeys.every((key, index) => key === currentValidKeys[index])) {
+        return preset.key
+      }
     }
   }
 
@@ -9722,6 +9954,13 @@ function normalizeBlockedCellList(cells) {
       return { x, y }
     })
     .sort((a, b) => a.x - b.x || a.y - b.y)
+}
+
+function filterBlockedCellsAgainstValid(cells, nextValidCells = validCells.value) {
+  const validKeySet = new Set(
+    normalizeValidCellList(nextValidCells).map(cell => blockedCellKey(cell.x, cell.y))
+  )
+  return normalizeBlockedCellList(cells).filter(cell => validKeySet.has(blockedCellKey(cell.x, cell.y)))
 }
 
 function filterBlockedCellsAgainstOccupied(cells) {
@@ -9764,7 +10003,7 @@ function toggleObstacleEditMode() {
 }
 
 function toggleBlockedCellAt(x, y) {
-  if (isCellOccupied(x, y)) return
+  if (isCellOccupied(x, y) || !isValidMapCell(x, y)) return
   const key = blockedCellKey(x, y)
   if (blockedCellSet.value.has(key)) {
     blockedCells.value = blockedCells.value.filter(cell => blockedCellKey(cell.x, cell.y) !== key)
@@ -9774,7 +10013,7 @@ function toggleBlockedCellAt(x, y) {
 }
 
 function applyObstaclePaintAt(x, y, mode) {
-  if (isCellOccupied(x, y)) return
+  if (isCellOccupied(x, y) || !isValidMapCell(x, y)) return
 
   const key = blockedCellKey(x, y)
   if (obstaclePaintLastKey === key) return
@@ -9795,19 +10034,23 @@ function stopObstaclePaint() {
   obstaclePaintLastKey = ''
 }
 
-async function saveBlockedCells(nextBlockedCells = blockedCells.value) {
+async function saveBlockedCells(nextBlockedCells = blockedCells.value, nextValidCells = validCells.value) {
   if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'map.write', buildCapabilityDeniedMessage('map'))) return false
   if (!ensureObstacleMutationAllowed()) {
     return false
   }
   obstacleMapSaving.value = true
   try {
-    const { filtered, skipped } = filterBlockedCellsAgainstOccupied(nextBlockedCells)
+    const normalizedValidCells = normalizeValidCellList(nextValidCells, gridColsValue(), gridRowsValue())
+    const { filtered, skipped } = filterBlockedCellsAgainstOccupied(
+      filterBlockedCellsAgainstValid(nextBlockedCells, normalizedValidCells)
+    )
     const res = await fetch(`${API_BASE}/status/map`, {
       method: 'PUT',
       headers: buildAuthorizedJsonHeaders(),
       body: JSON.stringify({
         blocked_cells: filtered,
+        valid_cells: normalizedValidCells,
         grid_cols: gridColsValue(),
         grid_rows: gridRowsValue()
       })
@@ -9818,9 +10061,12 @@ async function saveBlockedCells(nextBlockedCells = blockedCells.value) {
     }
     applyGridSizeFromPayload(data)
     const normalized = normalizeBlockedCellList(data.blocked_cells ?? filtered)
+    const syncedValid = normalizeValidCellList(data?.valid_cells, gridColsValue(), gridRowsValue())
     blockedCells.value = normalized
+    validCells.value = syncedValid
     syncedBlockedCells.value = normalized
-    appliedObstacleSceneKey.value = detectObstacleSceneKey(normalized)
+    syncedValidCells.value = syncedValid
+    appliedObstacleSceneKey.value = detectObstacleSceneKey(normalized, syncedValid)
     if (appliedObstacleSceneKey.value !== 'custom') {
       selectedObstaclePreset.value = appliedObstacleSceneKey.value
     }
@@ -9862,6 +10108,7 @@ async function saveCurrentObstaclePreset(defaultName = '') {
       body: JSON.stringify({
         name: presetName,
         blocked_cells: filtered,
+        valid_cells: validCells.value,
         grid_cols: gridColsValue(),
         grid_rows: gridRowsValue()
       })
@@ -9877,7 +10124,7 @@ async function saveCurrentObstaclePreset(defaultName = '') {
     if (newPresetKey && obstaclePresets.value.some(preset => preset.key === newPresetKey)) {
       selectedObstaclePreset.value = newPresetKey
     }
-    appliedObstacleSceneKey.value = detectObstacleSceneKey(blockedCells.value)
+    appliedObstacleSceneKey.value = detectObstacleSceneKey(blockedCells.value, validCells.value)
     setObstacleLayoutStatus(
       'success',
       mergeObstacleStatusMessage(
@@ -9922,7 +10169,7 @@ async function deleteSelectedObstaclePreset() {
     }
 
     await fetchMapPresets()
-    appliedObstacleSceneKey.value = detectObstacleSceneKey(blockedCells.value)
+    appliedObstacleSceneKey.value = detectObstacleSceneKey(blockedCells.value, validCells.value)
     if (appliedObstacleSceneKey.value !== 'custom') {
       selectedObstaclePreset.value = appliedObstacleSceneKey.value
     }
@@ -9958,10 +10205,13 @@ async function resetBlockedCellsToDefault() {
     }
     applyGridSizeFromPayload(data)
     const normalized = normalizeBlockedCellList(data.blocked_cells ?? [])
+    const normalizedValidCells = normalizeValidCellList(data?.valid_cells, gridColsValue(), gridRowsValue())
     const { filtered, skipped } = filterBlockedCellsAgainstOccupied(normalized)
     blockedCells.value = filtered
+    validCells.value = normalizedValidCells
     syncedBlockedCells.value = filtered
-    appliedObstacleSceneKey.value = detectObstacleSceneKey(filtered)
+    syncedValidCells.value = normalizedValidCells
+    appliedObstacleSceneKey.value = detectObstacleSceneKey(filtered, normalizedValidCells)
     if (appliedObstacleSceneKey.value !== 'custom') {
       selectedObstaclePreset.value = appliedObstacleSceneKey.value
     }
@@ -10007,7 +10257,7 @@ async function fetchMapPresets() {
     ) {
       selectedObstaclePreset.value = obstaclePresets.value[0].key
     }
-    appliedObstacleSceneKey.value = detectObstacleSceneKey(blockedCells.value)
+    appliedObstacleSceneKey.value = detectObstacleSceneKey(blockedCells.value, validCells.value)
   } catch (error) {
     console.error('Fetch map presets error:', error)
     obstaclePresets.value = []
@@ -10064,7 +10314,9 @@ async function fetchMapLayout() {
     if (!Array.isArray(data?.blocked_cells)) {
       applyGridSizeFromPayload(data)
       blockedCells.value = [...DEFAULT_BLOCKED_CELLS]
+      validCells.value = buildFullValidCellList(gridColsValue(), gridRowsValue())
       syncedBlockedCells.value = [...DEFAULT_BLOCKED_CELLS]
+      syncedValidCells.value = buildFullValidCellList(gridColsValue(), gridRowsValue())
       appliedObstacleSceneKey.value = 'default_shelves'
       selectedObstaclePreset.value = 'default_shelves'
       clearImportedObstacleLayoutPreset()
@@ -10078,10 +10330,13 @@ async function fetchMapLayout() {
         y: Number(cell.y)
       }))
     )
+    const normalizedValidCells = normalizeValidCellList(data?.valid_cells, gridColsValue(), gridRowsValue())
     const { filtered, skipped } = filterBlockedCellsAgainstOccupied(normalized)
     blockedCells.value = filtered
+    validCells.value = normalizedValidCells
     syncedBlockedCells.value = filtered
-    appliedObstacleSceneKey.value = detectObstacleSceneKey(filtered)
+    syncedValidCells.value = normalizedValidCells
+    appliedObstacleSceneKey.value = detectObstacleSceneKey(filtered, normalizedValidCells)
     if (appliedObstacleSceneKey.value !== 'custom') {
       selectedObstaclePreset.value = appliedObstacleSceneKey.value
     }
@@ -10092,7 +10347,9 @@ async function fetchMapLayout() {
   } catch (error) {
     console.error('Fetch map layout error:', error)
     blockedCells.value = [...DEFAULT_BLOCKED_CELLS]
+    validCells.value = buildFullValidCellList(gridColsValue(), gridRowsValue())
     syncedBlockedCells.value = [...DEFAULT_BLOCKED_CELLS]
+    syncedValidCells.value = buildFullValidCellList(gridColsValue(), gridRowsValue())
     appliedObstacleSceneKey.value = 'default_shelves'
     selectedObstaclePreset.value = 'default_shelves'
     clearImportedObstacleLayoutPreset()
@@ -10124,10 +10381,13 @@ async function applyObstaclePreset() {
     }
     applyGridSizeFromPayload(data)
     const normalized = normalizeBlockedCellList(data.blocked_cells ?? [])
+    const normalizedValidCells = normalizeValidCellList(data?.valid_cells, gridColsValue(), gridRowsValue())
     const { filtered, skipped } = filterBlockedCellsAgainstOccupied(normalized)
     blockedCells.value = filtered
+    validCells.value = normalizedValidCells
     syncedBlockedCells.value = filtered
-    appliedObstacleSceneKey.value = detectObstacleSceneKey(filtered)
+    syncedValidCells.value = normalizedValidCells
+    appliedObstacleSceneKey.value = detectObstacleSceneKey(filtered, normalizedValidCells)
     if (appliedObstacleSceneKey.value !== 'custom') {
       selectedObstaclePreset.value = appliedObstacleSceneKey.value
     }
@@ -10156,7 +10416,8 @@ function downloadObstacleLayout() {
   const payload = {
     grid_cols: gridColsValue(),
     grid_rows: gridRowsValue(),
-    blocked_cells: normalizeBlockedCellList(blockedCells.value)
+    blocked_cells: normalizeBlockedCellList(blockedCells.value),
+    valid_cells: normalizeValidCellList(validCells.value)
   }
   downloadJsonFile('agv-obstacle-layout.json', JSON.stringify(payload, null, 2))
 }
@@ -10182,6 +10443,7 @@ async function importObstacleLayout(rawText, sourceName = '') {
       : Array.isArray(parsed?.blocked_cells)
         ? parsed.blocked_cells
         : null
+    const rawValidCells = Array.isArray(parsed?.valid_cells) ? parsed.valid_cells : null
     if (!rawCells) {
       throw new Error(invalidObstacleLayoutText())
     }
@@ -10192,9 +10454,13 @@ async function importObstacleLayout(rawText, sourceName = '') {
         y: Number(cell?.y)
       }))
     )
-    const { filtered, skipped } = filterBlockedCellsAgainstOccupied(normalized)
+    const normalizedValidCells = normalizeValidCellList(rawValidCells, gridColsValue(), gridRowsValue())
+    const { filtered, skipped } = filterBlockedCellsAgainstOccupied(
+      filterBlockedCellsAgainstValid(normalized, normalizedValidCells)
+    )
     blockedCells.value = filtered
-    appliedObstacleSceneKey.value = detectObstacleSceneKey(filtered)
+    validCells.value = normalizedValidCells
+    appliedObstacleSceneKey.value = detectObstacleSceneKey(filtered, normalizedValidCells)
     if (appliedObstacleSceneKey.value !== 'custom') {
       selectedObstaclePreset.value = appliedObstacleSceneKey.value
     }
@@ -11641,7 +11907,9 @@ const enterpriseSettingsDialogBindings = {
   blockedCellCount,
   enterpriseMapEditorRows,
   enterpriseMapEditorCols,
+  enterpriseMapEditorValidCount,
   enterpriseMapEditorBlockedCount,
+  enterpriseMapEditorIsIrregular,
   mapProfiles,
   mapProfileActionSummary,
   pointLibrary,
@@ -11788,7 +12056,9 @@ const enterpriseSettingsDialogBindings = {
   isMapProfileApplying,
   canApplyMapProfileWithCapability,
   buildMapProfileApplyTitle,
+  isEnterpriseMapEditorCellValid,
   isEnterpriseMapEditorCellBlocked,
+  isEnterpriseMapEditorCellLocked,
   applyEnterpriseMapEditorCell,
   saveEnterpriseMapEditorDraft,
   isCellOccupied,
@@ -12050,16 +12320,16 @@ onBeforeUnmount(() => {
               {{ label }}
             </span>
           </div>
-          <div class="enterprise-workspace-popup-actions">
-            <button class="btn-secondary" type="button" @click="applyCurrentEnterpriseWorkspacePreset">
-              {{ t('enterprise_settings_apply_workspace_preset') }}
-            </button>
+          <div
+            class="enterprise-workspace-popup-actions"
+            :style="{ gridTemplateColumns: `repeat(${enterpriseWorkspacePopupActionItems.length || 1}, minmax(0, 1fr))` }"
+          >
             <button
-              v-for="action in enterpriseRoleWorkspaceActionItems"
+              v-for="action in enterpriseWorkspacePopupActionItems"
               :key="`enterprise-workspace-popup-action-${action.key}`"
-              :class="action.tone === 'ghost' ? 'btn-ghost' : 'btn-secondary'"
+              :class="['enterprise-workspace-popup-action', action.tone === 'ghost' ? 'btn-ghost' : 'btn-secondary']"
               type="button"
-              @click="runEnterpriseWorkspaceAction(action.key)"
+              @click="action.handler()"
             >
               {{ action.label }}
             </button>
@@ -12110,6 +12380,17 @@ onBeforeUnmount(() => {
           </div>
 
           <div class="map-stage" :style="mapStageStyle">
+            <div
+              v-for="cell in mapVoidCells"
+              :key="`void-${cell.x}-${cell.y}`"
+              class="void-cell"
+              :style="{
+                left: `${cell.x * CELL_SIZE}px`,
+                top: `${cell.y * CELL_SIZE}px`,
+                width: `${CELL_SIZE}px`,
+                height: `${CELL_SIZE}px`
+              }"
+            ></div>
             <div
               v-for="cell in blockedCells"
               :key="`blocked-${cell.x}-${cell.y}`"
@@ -12362,6 +12643,17 @@ onBeforeUnmount(() => {
               class="minimap-grid"
               :style="{
                 backgroundSize: `${CELL_SIZE * minimapScale}px ${CELL_SIZE * minimapScale}px`
+              }"
+            ></div>
+            <div
+              v-for="cell in mapVoidCells"
+              :key="`mini-void-${cell.x}-${cell.y}`"
+              class="minimap-void-cell"
+              :style="{
+                left: `${cell.x * CELL_SIZE * minimapScale}px`,
+                top: `${cell.y * CELL_SIZE * minimapScale}px`,
+                width: `${CELL_SIZE * minimapScale}px`,
+                height: `${CELL_SIZE * minimapScale}px`
               }"
             ></div>
             <div

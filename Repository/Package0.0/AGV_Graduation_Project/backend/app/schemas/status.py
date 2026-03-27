@@ -12,6 +12,7 @@ class BlockedCellPayload(BaseModel):
 
 class MapLayoutUpdateRequest(BaseModel):
     blocked_cells: list[BlockedCellPayload]
+    valid_cells: list[BlockedCellPayload] | None = None
     grid_cols: int = DEFAULT_GRID_COLS
     grid_rows: int = DEFAULT_GRID_ROWS
 
@@ -25,6 +26,7 @@ class MapPresetCreateRequest(BaseModel):
     name: str
     description: str | None = None
     blocked_cells: list[BlockedCellPayload]
+    valid_cells: list[BlockedCellPayload] | None = None
     grid_cols: int = DEFAULT_GRID_COLS
     grid_rows: int = DEFAULT_GRID_ROWS
 
@@ -33,6 +35,7 @@ class MapProfileCreateRequest(BaseModel):
     name: str
     description: str | None = None
     blocked_cells: list[BlockedCellPayload]
+    valid_cells: list[BlockedCellPayload] | None = None
     grid_cols: int = DEFAULT_GRID_COLS
     grid_rows: int = DEFAULT_GRID_ROWS
     import_source: str | None = None

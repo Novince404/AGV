@@ -12,25 +12,34 @@ else:
     from app.repositories.memory import map_store as _store
 
 
-def get_layout_state(default_grid_cols: int, default_grid_rows: int, default_cells: set[tuple[int, int]]):
-    return _store.get_layout_state(default_grid_cols, default_grid_rows, default_cells)
+def get_layout_state(
+    default_grid_cols: int,
+    default_grid_rows: int,
+    default_blocked_cells: set[tuple[int, int]],
+    default_valid_cells: set[tuple[int, int]],
+):
+    return _store.get_layout_state(default_grid_cols, default_grid_rows, default_blocked_cells, default_valid_cells)
 
 
 def set_layout_state(
-    cells: set[tuple[int, int]],
+    blocked_cells: set[tuple[int, int]],
+    valid_cells: set[tuple[int, int]],
     grid_cols: int,
     grid_rows: int,
     default_grid_cols: int,
     default_grid_rows: int,
-    default_cells: set[tuple[int, int]],
+    default_blocked_cells: set[tuple[int, int]],
+    default_valid_cells: set[tuple[int, int]],
 ):
     return _store.set_layout_state(
-        cells,
+        blocked_cells,
+        valid_cells,
         grid_cols,
         grid_rows,
         default_grid_cols,
         default_grid_rows,
-        default_cells,
+        default_blocked_cells,
+        default_valid_cells,
     )
 
 

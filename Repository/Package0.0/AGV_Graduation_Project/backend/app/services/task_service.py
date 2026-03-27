@@ -17,7 +17,12 @@ from app.repositories.task_repository import (
 )
 from app.utils.api_error import raise_api_error
 from app.utils.task_chain import build_stage_models, sync_task_stage_fields
-from app.utils.warehouse_map import DEFAULT_GRID_COLS, DEFAULT_GRID_ROWS, get_blocked_cells, get_current_grid_size
+from app.utils.warehouse_map import (
+    DEFAULT_GRID_COLS,
+    DEFAULT_GRID_ROWS,
+    get_current_grid_size,
+    get_navigation_blocked_cells,
+)
 from app.services.operation_audit_service import (
     build_first_audit_map,
     build_latest_audit_map,
@@ -46,7 +51,7 @@ def _get_field(item: Any, field_name: str):
 
 
 def _validate_task_stages(stages, grid_cols: int = DEFAULT_GRID_COLS, grid_rows: int = DEFAULT_GRID_ROWS):
-    blocked = get_blocked_cells(grid_cols, grid_rows)
+    blocked = get_navigation_blocked_cells(grid_cols, grid_rows)
     for index, stage in enumerate(stages):
         points = (
             (stage.start_x, stage.start_y, "start"),
