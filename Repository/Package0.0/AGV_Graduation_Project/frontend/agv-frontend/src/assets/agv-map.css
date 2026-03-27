@@ -325,12 +325,14 @@ h2 {
 }
 
 .auth-dialog-stage {
-  width: min(1600px, calc(100vw - 32px));
+  width: min(1660px, calc(100vw - 32px));
   display: grid;
-  grid-template-columns: minmax(248px, 292px) minmax(0, 820px) minmax(300px, 360px);
-  gap: 28px;
+  grid-template-columns: minmax(248px, 292px) minmax(0, 840px) minmax(320px, 380px);
+  gap: 40px;
   align-items: start;
+  justify-content: center;
   margin: 0;
+  box-sizing: border-box;
 }
 
 .auth-dialog-side-panel {
@@ -340,9 +342,9 @@ h2 {
 }
 
 .auth-dialog-side-panel-demo {
-  justify-self: end;
-  width: 100%;
-  padding-left: 6px;
+  justify-self: start;
+  width: min(100%, 360px);
+  margin-left: 10px;
 }
 
 .auth-side-preview-title {
