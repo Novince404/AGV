@@ -745,6 +745,15 @@
                 </div>
               </div>
               <div class="enterprise-settings-actions">
+                <button
+                  class="btn-primary"
+                  type="button"
+                  :disabled="!authCanMapWrite || enterpriseMapEditorSaving"
+                  :title="buildCapabilityLockedTitle('map', authCanMapWrite)"
+                  @click="openEnterpriseMapEditorDialog"
+                >
+                  {{ t('enterprise_settings_map_editor_open') }}
+                </button>
                 <button class="btn-secondary" type="button" @click="openPageSettingsFromEnterpriseSettings">
                   {{ t('enterprise_settings_open_page_settings') }}
                 </button>
@@ -1669,6 +1678,104 @@
                   <li>{{ t('enterprise_settings_shortcuts_plan_item_three') }}</li>
                 </ul>
               </section>
+            </div>
+          </section>
+        </div>
+
+        <div
+          v-if="enterpriseMapEditorDialogOpen"
+          class="enterprise-settings-overlay"
+          @click.self="closeEnterpriseMapEditorDialog"
+        >
+          <section class="enterprise-settings-overlay-card enterprise-settings-overlay-card-wide" role="dialog" aria-modal="true">
+            <header class="enterprise-settings-overlay-header">
+              <div>
+                <div class="auth-dialog-kicker">{{ t('enterprise_settings_tab_map_profiles') }}</div>
+                <h3 class="auth-dialog-title">{{ t('enterprise_settings_map_editor_title') }}</h3>
+                <p class="auth-dialog-hint">{{ t('enterprise_settings_map_editor_hint') }}</p>
+              </div>
+              <button class="auth-dialog-close" type="button" @click="closeEnterpriseMapEditorDialog">
+                ×
+              </button>
+            </header>
+
+            <div class="enterprise-settings-overlay-body">
+              <section class="enterprise-settings-subsection enterprise-page-settings-group">
+                <div class="map-settings-info-grid enterprise-settings-grid">
+                  <div class="map-settings-info-card">
+                    <div class="map-settings-info-label">{{ settingsLocale.mapInfoSize }}</div>
+                    <div class="map-settings-info-value">{{ currentGridCols }} x {{ currentGridRows }}</div>
+                  </div>
+                  <div class="map-settings-info-card">
+                    <div class="map-settings-info-label">{{ t('enterprise_settings_map_editor_blocked_count') }}</div>
+                    <div class="map-settings-info-value">{{ enterpriseMapEditorBlockedCount }}</div>
+                  </div>
+                  <div class="map-settings-info-card">
+                    <div class="map-settings-info-label">{{ t('enterprise_settings_map_editor_help_add_title') }}</div>
+                    <div class="map-settings-info-value">{{ t('enterprise_settings_map_editor_help_add') }}</div>
+                  </div>
+                  <div class="map-settings-info-card">
+                    <div class="map-settings-info-label">{{ t('enterprise_settings_map_editor_help_remove_title') }}</div>
+                    <div class="map-settings-info-value">{{ t('enterprise_settings_map_editor_help_remove') }}</div>
+                  </div>
+                </div>
+                <div class="enterprise-settings-chip-list">
+                  <span class="point-badge enterprise-settings-chip">{{ t('enterprise_settings_map_editor_help_add') }}</span>
+                  <span class="point-badge enterprise-settings-chip enterprise-settings-chip-muted">{{ t('enterprise_settings_map_editor_help_remove') }}</span>
+                  <span class="point-badge enterprise-settings-chip enterprise-settings-chip-muted">{{ t('enterprise_settings_map_editor_help_locked') }}</span>
+                </div>
+              </section>
+
+              <section class="enterprise-settings-subsection enterprise-page-settings-group">
+                <div class="enterprise-settings-subtitle">{{ t('enterprise_settings_map_editor_grid_title') }}</div>
+                <div class="enterprise-map-editor-grid-shell">
+                  <div
+                    class="enterprise-map-editor-grid"
+                    :style="{ gridTemplateColumns: `repeat(${enterpriseMapEditorCols.length}, minmax(30px, 1fr))` }"
+                  >
+                    <template v-for="row in enterpriseMapEditorRows" :key="`enterprise-map-editor-row-${row}`">
+                      <button
+                        v-for="col in enterpriseMapEditorCols"
+                        :key="`enterprise-map-editor-cell-${col}-${row}`"
+                        type="button"
+                        class="enterprise-map-editor-cell"
+                        :class="{
+                          'is-blocked': isEnterpriseMapEditorCellBlocked(col, row),
+                          'is-occupied': isCellOccupied(col, row)
+                        }"
+                        :disabled="isCellOccupied(col, row)"
+                        :title="`(${col}, ${row})`"
+                        @click="applyEnterpriseMapEditorCell({ x: col, y: row }, $event)"
+                      >
+                        <span v-if="isCellOccupied(col, row)">×</span>
+                        <span v-else-if="isEnterpriseMapEditorCellBlocked(col, row)">■</span>
+                      </button>
+                    </template>
+                  </div>
+                </div>
+              </section>
+
+              <div class="enterprise-settings-actions">
+                <button class="btn-ghost" type="button" @click="resetEnterpriseMapEditorDraft">
+                  {{ t('enterprise_settings_map_editor_reset') }}
+                </button>
+                <button class="btn-secondary" type="button" @click="closeEnterpriseMapEditorDialog">
+                  {{ t('enterprise_settings_map_editor_cancel') }}
+                </button>
+                <button
+                  class="btn-primary"
+                  type="button"
+                  :disabled="enterpriseMapEditorSaving || !authCanMapWrite"
+                  :title="buildCapabilityLockedTitle('map', authCanMapWrite)"
+                  @click="saveEnterpriseMapEditorDraft"
+                >
+                  {{
+                    enterpriseMapEditorSaving
+                      ? `${t('enterprise_settings_map_editor_save')}...`
+                      : t('enterprise_settings_map_editor_save')
+                  }}
+                </button>
+              </div>
             </div>
           </section>
         </div>

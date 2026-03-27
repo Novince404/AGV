@@ -300,9 +300,11 @@ const autoPathToEnd = ref([])
 const layoutRef = ref(null)
 const mapSettingsPanelRef = ref(null)
 const mapViewportRef = ref(null)
+const mapPaneRef = ref(null)
 const minimapRef = ref(null)
 const panelRef = ref(null)
 const compareEntryButtonRef = ref(null)
+const enterpriseWorkspacePopupRef = ref(null)
 const controlSectionRef = ref(null)
 const taskBuilderRef = ref(null)
 const comparePanelRef = ref(null)
@@ -676,6 +678,9 @@ const enterpriseSettingsActiveTab = ref('overview')
 const enterpriseSettingsSidebarCollapsed = ref(false)
 const enterprisePageSettingsDialogOpen = ref(false)
 const enterpriseShortcutPlannerDialogOpen = ref(false)
+const enterpriseMapEditorDialogOpen = ref(false)
+const enterpriseMapEditorSaving = ref(false)
+const enterpriseMapEditorDraftBlockedCells = ref([])
 const authRoleLabel = computed(() => t(`auth_role_${authCurrentRole.value}`))
 const authRoleBadgeClass = computed(() => `role-${authCurrentRole.value}`)
 const dashboardUnlocked = computed(() => authAuthenticated.value || authGuestAccepted.value)
@@ -1557,9 +1562,32 @@ const showEnterpriseWorkspaceBanner = computed(() =>
   authIsEnterpriseRole.value && authCurrentAccountStatus.value === 'approved'
 )
 const enterpriseWorkspacePopupDismissed = ref(false)
+const enterpriseWorkspacePopupX = ref(null)
+const enterpriseWorkspacePopupY = ref(10)
+let enterpriseWorkspacePopupDragging = false
+let enterpriseWorkspacePopupDragOffsetX = 0
+let enterpriseWorkspacePopupDragOffsetY = 0
 const showEnterpriseWorkspacePopup = computed(() =>
   showEnterpriseWorkspaceBanner.value && !enterpriseWorkspacePopupDismissed.value
 )
+const enterpriseWorkspacePopupStyle = computed(() => {
+  if (!showEnterpriseWorkspacePopup.value || enterpriseWorkspacePopupX.value == null) return {}
+  return {
+    left: `${enterpriseWorkspacePopupX.value}px`,
+    top: `${enterpriseWorkspacePopupY.value}px`,
+    right: 'auto'
+  }
+})
+const enterpriseMapEditorDraftBlockedCellSet = computed(() =>
+  new Set((enterpriseMapEditorDraftBlockedCells.value || []).map(cell => blockedCellKey(cell.x, cell.y)))
+)
+const enterpriseMapEditorRows = computed(() =>
+  Array.from({ length: gridRowsValue() }, (_, index) => index)
+)
+const enterpriseMapEditorCols = computed(() =>
+  Array.from({ length: gridColsValue() }, (_, index) => index)
+)
+const enterpriseMapEditorBlockedCount = computed(() => enterpriseMapEditorDraftBlockedCells.value.length)
 const authCapabilityCards = computed(() => [
   {
     key: 'dispatch',
@@ -2367,6 +2395,14 @@ watch(operationAudits, entries => {
 watch([authCurrentRole, authCurrentAccountStatus], ([nextRole, nextStatus], [prevRole, prevStatus]) => {
   if (nextRole !== prevRole || nextStatus !== prevStatus) {
     enterpriseWorkspacePopupDismissed.value = false
+  }
+})
+
+watch(showEnterpriseWorkspacePopup, visible => {
+  if (visible) {
+    void ensureEnterpriseWorkspacePopupPosition()
+  } else {
+    stopEnterpriseWorkspacePopupDrag()
   }
 })
 
@@ -4875,6 +4911,7 @@ async function openEnterpriseSettingsDialog(targetTab = '') {
 function closeEnterpriseSettingsDialog() {
   enterprisePageSettingsDialogOpen.value = false
   enterpriseShortcutPlannerDialogOpen.value = false
+  enterpriseMapEditorDialogOpen.value = false
   enterpriseSettingsDialogOpen.value = false
 }
 
@@ -5485,6 +5522,130 @@ function resetOperationAuditFilters() {
 
 function dismissEnterpriseWorkspacePopup() {
   enterpriseWorkspacePopupDismissed.value = true
+  showFloatingToast(t('enterprise_workspace_popup_reopen_hint'), 'info')
+}
+
+function resetEnterpriseWorkspacePopupPosition() {
+  const paneEl = mapPaneRef.value
+  const popupEl = enterpriseWorkspacePopupRef.value
+  if (!paneEl || !popupEl) {
+    enterpriseWorkspacePopupX.value = null
+    enterpriseWorkspacePopupY.value = 10
+    return
+  }
+  const paneRect = paneEl.getBoundingClientRect()
+  const popupRect = popupEl.getBoundingClientRect()
+  enterpriseWorkspacePopupX.value = Math.max(14, paneRect.width - popupRect.width - 14)
+  enterpriseWorkspacePopupY.value = 10
+}
+
+async function ensureEnterpriseWorkspacePopupPosition() {
+  await nextTick()
+  resetEnterpriseWorkspacePopupPosition()
+}
+
+function reopenEnterpriseWorkspacePopup() {
+  if (!showEnterpriseWorkspaceBanner.value) return
+  enterpriseWorkspacePopupDismissed.value = false
+  void ensureEnterpriseWorkspacePopupPosition()
+}
+
+function startEnterpriseWorkspacePopupDrag(event) {
+  if (!showEnterpriseWorkspacePopup.value) return
+  if (event.button !== 0) return
+  if (event.target.closest('button')) return
+
+  const paneEl = mapPaneRef.value
+  const popupEl = enterpriseWorkspacePopupRef.value
+  if (!paneEl || !popupEl) return
+
+  if (enterpriseWorkspacePopupX.value == null) {
+    const paneRect = paneEl.getBoundingClientRect()
+    const popupRect = popupEl.getBoundingClientRect()
+    enterpriseWorkspacePopupX.value = Math.max(14, paneRect.width - popupRect.width - 14)
+    enterpriseWorkspacePopupY.value = 10
+  }
+
+  const paneRect = paneEl.getBoundingClientRect()
+  enterpriseWorkspacePopupDragging = true
+  enterpriseWorkspacePopupDragOffsetX = event.clientX - paneRect.left - (enterpriseWorkspacePopupX.value ?? 14)
+  enterpriseWorkspacePopupDragOffsetY = event.clientY - paneRect.top - enterpriseWorkspacePopupY.value
+  event.preventDefault()
+}
+
+function syncEnterpriseWorkspacePopupDrag(event) {
+  if (!enterpriseWorkspacePopupDragging) return false
+  const paneEl = mapPaneRef.value
+  const popupEl = enterpriseWorkspacePopupRef.value
+  if (!paneEl || !popupEl) return false
+
+  const paneRect = paneEl.getBoundingClientRect()
+  const popupRect = popupEl.getBoundingClientRect()
+  const nextX = event.clientX - paneRect.left - enterpriseWorkspacePopupDragOffsetX
+  const nextY = event.clientY - paneRect.top - enterpriseWorkspacePopupDragOffsetY
+  const maxX = Math.max(14, paneRect.width - popupRect.width - 14)
+  const maxY = Math.max(14, paneRect.height - popupRect.height - 14)
+  enterpriseWorkspacePopupX.value = clampValue(nextX, 14, maxX)
+  enterpriseWorkspacePopupY.value = clampValue(nextY, 14, maxY)
+  return true
+}
+
+function stopEnterpriseWorkspacePopupDrag() {
+  enterpriseWorkspacePopupDragging = false
+}
+
+function openEnterpriseMapEditorDialog() {
+  enterpriseMapEditorDraftBlockedCells.value = normalizeBlockedCellList(blockedCells.value)
+  enterpriseMapEditorDialogOpen.value = true
+}
+
+function closeEnterpriseMapEditorDialog() {
+  enterpriseMapEditorDialogOpen.value = false
+}
+
+function resetEnterpriseMapEditorDraft() {
+  enterpriseMapEditorDraftBlockedCells.value = normalizeBlockedCellList(blockedCells.value)
+}
+
+function isEnterpriseMapEditorCellBlocked(x, y) {
+  return enterpriseMapEditorDraftBlockedCellSet.value.has(blockedCellKey(x, y))
+}
+
+function applyEnterpriseMapEditorCell(cell, event) {
+  if (!cell) return
+  const { x, y } = cell
+  if (isCellOccupied(x, y)) return
+
+  const key = blockedCellKey(x, y)
+  if (event?.ctrlKey || event?.metaKey) {
+    if (!enterpriseMapEditorDraftBlockedCellSet.value.has(key)) return
+    enterpriseMapEditorDraftBlockedCells.value = enterpriseMapEditorDraftBlockedCells.value
+      .filter(item => blockedCellKey(item.x, item.y) !== key)
+    return
+  }
+
+  if (enterpriseMapEditorDraftBlockedCellSet.value.has(key)) return
+  enterpriseMapEditorDraftBlockedCells.value = normalizeBlockedCellList([
+    ...enterpriseMapEditorDraftBlockedCells.value,
+    { x, y }
+  ])
+}
+
+async function saveEnterpriseMapEditorDraft() {
+  if (enterpriseMapEditorSaving.value) return
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'map.write', buildCapabilityDeniedMessage('map'))) return
+  if (!ensureObstacleMutationAllowed()) return
+
+  enterpriseMapEditorSaving.value = true
+  try {
+    const ok = await saveBlockedCells(enterpriseMapEditorDraftBlockedCells.value)
+    if (ok) {
+      closeEnterpriseMapEditorDialog()
+      showFloatingToast(t('enterprise_settings_map_editor_saved'), 'success')
+    }
+  } finally {
+    enterpriseMapEditorSaving.value = false
+  }
 }
 
 function normalizeOperationAuditEntryIds(entries = []) {
@@ -7692,6 +7853,10 @@ function scrollPanelToTop() {
 }
 
 function onGlobalMouseMove(event) {
+  if (syncEnterpriseWorkspacePopupDrag(event)) {
+    return
+  }
+
   if (compareFloatingDragging) {
     compareFloatingX.value = Math.max(event.clientX - compareFloatingDragOffsetX, 12)
     compareFloatingY.value = Math.max(event.clientY - compareFloatingDragOffsetY, 12)
@@ -7723,6 +7888,8 @@ function onGlobalMouseMove(event) {
 }
 
 function onGlobalMouseUp() {
+  stopEnterpriseWorkspacePopupDrag()
+
   if (compareFloatingDragging) {
     compareFloatingDragging = false
   }
@@ -9635,14 +9802,14 @@ function stopObstaclePaint() {
   obstaclePaintLastKey = ''
 }
 
-async function saveBlockedCells() {
+async function saveBlockedCells(nextBlockedCells = blockedCells.value) {
   if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'map.write', buildCapabilityDeniedMessage('map'))) return false
   if (!ensureObstacleMutationAllowed()) {
     return false
   }
   obstacleMapSaving.value = true
   try {
-    const { filtered, skipped } = filterBlockedCellsAgainstOccupied(blockedCells.value)
+    const { filtered, skipped } = filterBlockedCellsAgainstOccupied(nextBlockedCells)
     const res = await fetch(`${API_BASE}/status/map`, {
       method: 'PUT',
       headers: buildAuthorizedJsonHeaders(),
@@ -10300,6 +10467,14 @@ function onKeyDown(event) {
   if (event.key === 'r' || event.key === 'R') {
     event.preventDefault()
     toggleAlgorithmMode()
+    return
+  }
+
+  if (event.key === 'p' || event.key === 'P') {
+    if (showEnterpriseWorkspaceBanner.value) {
+      event.preventDefault()
+      reopenEnterpriseWorkspacePopup()
+    }
   }
 }
 
@@ -11399,6 +11574,8 @@ const enterpriseSettingsDialogBindings = {
   enterpriseSettingsSidebarCollapsed,
   enterprisePageSettingsDialogOpen,
   enterpriseShortcutPlannerDialogOpen,
+  enterpriseMapEditorDialogOpen,
+  enterpriseMapEditorSaving,
   enterpriseActiveTabModeLabel,
   enterpriseActiveTabAccessLabel,
   enterpriseActiveTabAccessHint,
@@ -11469,6 +11646,9 @@ const enterpriseSettingsDialogBindings = {
   enterpriseAiActionScope,
   mapSizeLabel,
   blockedCellCount,
+  enterpriseMapEditorRows,
+  enterpriseMapEditorCols,
+  enterpriseMapEditorBlockedCount,
   mapProfiles,
   mapProfileActionSummary,
   pointLibrary,
@@ -11564,6 +11744,9 @@ const enterpriseSettingsDialogBindings = {
   closeEnterprisePageSettingsDialog,
   openEnterpriseShortcutPlannerDialog,
   closeEnterpriseShortcutPlannerDialog,
+  openEnterpriseMapEditorDialog,
+  closeEnterpriseMapEditorDialog,
+  resetEnterpriseMapEditorDraft,
   switchEnterpriseSettingsTab,
   toggleEnterpriseSettingsSidebar,
   enterpriseTabAccessLabel,
@@ -11612,6 +11795,10 @@ const enterpriseSettingsDialogBindings = {
   isMapProfileApplying,
   canApplyMapProfileWithCapability,
   buildMapProfileApplyTitle,
+  isEnterpriseMapEditorCellBlocked,
+  applyEnterpriseMapEditorCell,
+  saveEnterpriseMapEditorDraft,
+  isCellOccupied,
   applyMapProfile,
   isMapProfilePreviewing,
   previewMapProfile,
@@ -11837,12 +12024,14 @@ onBeforeUnmount(() => {
     </div>
 
     <div ref="layoutRef" class="layout" :style="layoutStyle">
-      <div class="map-pane">
+      <div ref="mapPaneRef" class="map-pane">
         <div
           v-if="showEnterpriseWorkspacePopup"
+          ref="enterpriseWorkspacePopupRef"
           class="enterprise-workspace-popup"
+          :style="enterpriseWorkspacePopupStyle"
         >
-          <div class="enterprise-workspace-popup-head">
+          <div class="enterprise-workspace-popup-head" @mousedown="startEnterpriseWorkspacePopupDrag">
             <div class="enterprise-workspace-popup-copy">
               <div class="enterprise-workspace-popup-title-row">
                 <strong>{{ enterpriseRoleFocus.title }}</strong>

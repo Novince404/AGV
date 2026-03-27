@@ -103,7 +103,7 @@ h2 {
 
 .enterprise-workspace-popup {
   position: absolute;
-  top: 14px;
+  top: 10px;
   right: 14px;
   z-index: 24;
   width: min(360px, calc(100% - 28px));
@@ -122,6 +122,8 @@ h2 {
   align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
+  cursor: move;
+  user-select: none;
 }
 
 .enterprise-workspace-popup-copy {
@@ -1189,6 +1191,10 @@ h2 {
   width: min(620px, calc(100vw - 96px));
 }
 
+.enterprise-settings-overlay-card-wide {
+  width: min(920px, calc(100vw - 72px));
+}
+
 .enterprise-settings-overlay-header {
   display: flex;
   align-items: flex-start;
@@ -1248,6 +1254,55 @@ h2 {
   display: grid;
   gap: 8px;
   line-height: 1.55;
+}
+
+.enterprise-map-editor-grid-shell {
+  padding: 12px;
+  border: 1px solid #e2d8cb;
+  border-radius: 18px;
+  background: rgba(255, 252, 247, 0.92);
+  overflow: auto;
+}
+
+.enterprise-map-editor-grid {
+  display: grid;
+  gap: 6px;
+  min-width: max-content;
+}
+
+.enterprise-map-editor-cell {
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #ddcfbf;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.96);
+  color: #9a7a55;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  transition: transform 120ms ease, background-color 120ms ease, border-color 120ms ease;
+}
+
+.enterprise-map-editor-cell:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: rgba(194, 149, 79, 0.72);
+}
+
+.enterprise-map-editor-cell.is-blocked {
+  border-color: rgba(168, 92, 45, 0.65);
+  background: rgba(225, 175, 135, 0.54);
+  color: #7a3f1a;
+}
+
+.enterprise-map-editor-cell.is-occupied,
+.enterprise-map-editor-cell:disabled {
+  border-style: dashed;
+  background: rgba(233, 230, 225, 0.95);
+  color: #9c8f80;
+  cursor: not-allowed;
 }
 
 .enterprise-settings-content {
