@@ -1149,9 +1149,9 @@ export default defineComponent({
           const matched = demoAccounts.find(account => account.role === role)
           if (!matched) return null
           return {
+            ...matched,
             key: role,
             role,
-            username: matched.username,
             label: t(`auth_role_${role}`),
             meta: matched.username
           }
