@@ -717,6 +717,8 @@ const enterpriseMapEditorDialogOpen = ref(false)
 const enterpriseMapEditorSaving = ref(false)
 const enterpriseMapEditorDraftBlockedCells = ref([])
 const enterpriseMapEditorDraftValidCells = ref(buildFullValidCellList(GRID_COLS, GRID_ROWS))
+const enterpriseMapEditorDraftCols = ref(GRID_COLS)
+const enterpriseMapEditorDraftRows = ref(GRID_ROWS)
 const authRoleLabel = computed(() => t(`auth_role_${authCurrentRole.value}`))
 const authRoleBadgeClass = computed(() => `role-${authCurrentRole.value}`)
 const dashboardUnlocked = computed(() => authAuthenticated.value || authGuestAccepted.value)
@@ -1652,15 +1654,23 @@ const enterpriseMapEditorDraftValidCellSet = computed(() =>
   new Set((enterpriseMapEditorDraftValidCells.value || []).map(cell => blockedCellKey(cell.x, cell.y)))
 )
 const enterpriseMapEditorRows = computed(() =>
-  Array.from({ length: gridRowsValue() }, (_, index) => index)
+  Array.from({ length: Number(enterpriseMapEditorDraftRows.value || gridRowsValue()) }, (_, index) => index)
 )
 const enterpriseMapEditorCols = computed(() =>
-  Array.from({ length: gridColsValue() }, (_, index) => index)
+  Array.from({ length: Number(enterpriseMapEditorDraftCols.value || gridColsValue()) }, (_, index) => index)
 )
 const enterpriseMapEditorBlockedCount = computed(() => enterpriseMapEditorDraftBlockedCells.value.length)
 const enterpriseMapEditorValidCount = computed(() => enterpriseMapEditorDraftValidCells.value.length)
 const enterpriseMapEditorIsIrregular = computed(() =>
-  enterpriseMapEditorValidCount.value !== gridColsValue() * gridRowsValue()
+  enterpriseMapEditorValidCount.value !== Number(enterpriseMapEditorDraftCols.value || gridColsValue()) * Number(enterpriseMapEditorDraftRows.value || gridRowsValue())
+)
+const enterpriseMapEditorFootprintLabel = computed(() =>
+  `${Number(enterpriseMapEditorDraftCols.value || gridColsValue())} x ${Number(enterpriseMapEditorDraftRows.value || gridRowsValue())}`
+)
+const enterpriseMapEditorSizeLabel = computed(() =>
+  enterpriseMapEditorIsIrregular.value
+    ? `${t('map_shape_irregular')} · ${enterpriseMapEditorFootprintLabel.value}`
+    : enterpriseMapEditorFootprintLabel.value
 )
 const authCapabilityCards = computed(() => [
   {
@@ -5700,6 +5710,8 @@ function stopEnterpriseWorkspacePopupDrag() {
 }
 
 function openEnterpriseMapEditorDialog() {
+  enterpriseMapEditorDraftCols.value = gridColsValue()
+  enterpriseMapEditorDraftRows.value = gridRowsValue()
   enterpriseMapEditorDraftValidCells.value = normalizeValidCellList(validCells.value)
   enterpriseMapEditorDraftBlockedCells.value = normalizeBlockedCellList(blockedCells.value)
   enterpriseMapEditorDialogOpen.value = true
@@ -5710,8 +5722,45 @@ function closeEnterpriseMapEditorDialog() {
 }
 
 function resetEnterpriseMapEditorDraft() {
+  enterpriseMapEditorDraftCols.value = gridColsValue()
+  enterpriseMapEditorDraftRows.value = gridRowsValue()
   enterpriseMapEditorDraftValidCells.value = normalizeValidCellList(validCells.value)
   enterpriseMapEditorDraftBlockedCells.value = normalizeBlockedCellList(blockedCells.value)
+}
+
+function canResizeEnterpriseMapEditorTo(nextCols, nextRows) {
+  const cols = Math.max(1, Math.round(Number(nextCols) || 1))
+  const rows = Math.max(1, Math.round(Number(nextRows) || 1))
+  if (cols > 30 || rows > 24) return false
+
+  const protectedCells = Array.from(protectedMapCellSet.value).map(key => {
+    const [x, y] = key.split(',').map(Number)
+    return { x, y }
+  })
+  const requiredCells = [
+    ...enterpriseMapEditorDraftValidCells.value,
+    ...protectedCells
+  ]
+
+  return requiredCells.every(cell => cell.x < cols && cell.y < rows)
+}
+
+function resizeEnterpriseMapEditorDraft(axis, delta) {
+  const nextCols = axis === 'cols'
+    ? Number(enterpriseMapEditorDraftCols.value || gridColsValue()) + Number(delta || 0)
+    : Number(enterpriseMapEditorDraftCols.value || gridColsValue())
+  const nextRows = axis === 'rows'
+    ? Number(enterpriseMapEditorDraftRows.value || gridRowsValue()) + Number(delta || 0)
+    : Number(enterpriseMapEditorDraftRows.value || gridRowsValue())
+
+  if (!canResizeEnterpriseMapEditorTo(nextCols, nextRows)) return
+
+  enterpriseMapEditorDraftCols.value = Math.max(1, Math.round(nextCols))
+  enterpriseMapEditorDraftRows.value = Math.max(1, Math.round(nextRows))
+  enterpriseMapEditorDraftValidCells.value = enterpriseMapEditorDraftValidCells.value
+    .filter(cell => cell.x < enterpriseMapEditorDraftCols.value && cell.y < enterpriseMapEditorDraftRows.value)
+  enterpriseMapEditorDraftBlockedCells.value = enterpriseMapEditorDraftBlockedCells.value
+    .filter(cell => cell.x < enterpriseMapEditorDraftCols.value && cell.y < enterpriseMapEditorDraftRows.value)
 }
 
 function isEnterpriseMapEditorCellValid(x, y) {
@@ -5759,7 +5808,7 @@ function applyEnterpriseMapEditorCell(cell, event) {
   enterpriseMapEditorDraftValidCells.value = normalizeValidCellList([
     ...enterpriseMapEditorDraftValidCells.value,
     { x, y }
-  ])
+  ], enterpriseMapEditorDraftCols.value, enterpriseMapEditorDraftRows.value)
 }
 
 async function saveEnterpriseMapEditorDraft() {
@@ -5775,7 +5824,9 @@ async function saveEnterpriseMapEditorDraft() {
   try {
     const ok = await saveBlockedCells(
       enterpriseMapEditorDraftBlockedCells.value,
-      enterpriseMapEditorDraftValidCells.value
+      enterpriseMapEditorDraftValidCells.value,
+      enterpriseMapEditorDraftCols.value,
+      enterpriseMapEditorDraftRows.value
     )
     if (ok) {
       closeEnterpriseMapEditorDialog()
@@ -10034,14 +10085,21 @@ function stopObstaclePaint() {
   obstaclePaintLastKey = ''
 }
 
-async function saveBlockedCells(nextBlockedCells = blockedCells.value, nextValidCells = validCells.value) {
+async function saveBlockedCells(
+  nextBlockedCells = blockedCells.value,
+  nextValidCells = validCells.value,
+  nextGridCols = gridColsValue(),
+  nextGridRows = gridRowsValue()
+) {
   if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'map.write', buildCapabilityDeniedMessage('map'))) return false
   if (!ensureObstacleMutationAllowed()) {
     return false
   }
   obstacleMapSaving.value = true
   try {
-    const normalizedValidCells = normalizeValidCellList(nextValidCells, gridColsValue(), gridRowsValue())
+    const targetGridCols = sanitizeGridDimensionInput(nextGridCols, gridColsValue())
+    const targetGridRows = sanitizeGridDimensionInput(nextGridRows, gridRowsValue())
+    const normalizedValidCells = normalizeValidCellList(nextValidCells, targetGridCols, targetGridRows)
     const { filtered, skipped } = filterBlockedCellsAgainstOccupied(
       filterBlockedCellsAgainstValid(nextBlockedCells, normalizedValidCells)
     )
@@ -10051,8 +10109,8 @@ async function saveBlockedCells(nextBlockedCells = blockedCells.value, nextValid
       body: JSON.stringify({
         blocked_cells: filtered,
         valid_cells: normalizedValidCells,
-        grid_cols: gridColsValue(),
-        grid_rows: gridRowsValue()
+        grid_cols: targetGridCols,
+        grid_rows: targetGridRows
       })
     })
     const data = await res.json()
@@ -10060,8 +10118,11 @@ async function saveBlockedCells(nextBlockedCells = blockedCells.value, nextValid
       throw createApiError(data, 'Save blocked cells failed')
     }
     applyGridSizeFromPayload(data)
+    const appliedCols = Number(data?.grid_cols || targetGridCols)
+    const appliedRows = Number(data?.grid_rows || targetGridRows)
     const normalized = normalizeBlockedCellList(data.blocked_cells ?? filtered)
-    const syncedValid = normalizeValidCellList(data?.valid_cells, gridColsValue(), gridRowsValue())
+      .filter(cell => cell.x < appliedCols && cell.y < appliedRows)
+    const syncedValid = normalizeValidCellList(data?.valid_cells, appliedCols, appliedRows)
     blockedCells.value = normalized
     validCells.value = syncedValid
     syncedBlockedCells.value = normalized
@@ -11907,9 +11968,13 @@ const enterpriseSettingsDialogBindings = {
   blockedCellCount,
   enterpriseMapEditorRows,
   enterpriseMapEditorCols,
+  enterpriseMapEditorDraftCols,
+  enterpriseMapEditorDraftRows,
   enterpriseMapEditorValidCount,
   enterpriseMapEditorBlockedCount,
   enterpriseMapEditorIsIrregular,
+  enterpriseMapEditorFootprintLabel,
+  enterpriseMapEditorSizeLabel,
   mapProfiles,
   mapProfileActionSummary,
   pointLibrary,
@@ -12059,6 +12124,8 @@ const enterpriseSettingsDialogBindings = {
   isEnterpriseMapEditorCellValid,
   isEnterpriseMapEditorCellBlocked,
   isEnterpriseMapEditorCellLocked,
+  canResizeEnterpriseMapEditorTo,
+  resizeEnterpriseMapEditorDraft,
   applyEnterpriseMapEditorCell,
   saveEnterpriseMapEditorDraft,
   isCellOccupied,

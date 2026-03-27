@@ -1704,7 +1704,7 @@
                 <div class="map-settings-info-grid enterprise-settings-grid">
                   <div class="map-settings-info-card">
                     <div class="map-settings-info-label">{{ settingsLocale.mapInfoSize }}</div>
-                    <div class="map-settings-info-value">{{ mapSizeLabel }}</div>
+                    <div class="map-settings-info-value">{{ enterpriseMapEditorSizeLabel }}</div>
                   </div>
                   <div class="map-settings-info-card">
                     <div class="map-settings-info-label">{{ t('enterprise_settings_map_editor_valid_count') }}</div>
@@ -1730,7 +1730,7 @@
                     class="point-badge enterprise-settings-chip"
                     :class="{ 'enterprise-settings-chip-muted': !enterpriseMapEditorIsIrregular }"
                   >
-                    {{ enterpriseMapEditorIsIrregular ? t('map_shape_irregular') : `${currentGridCols} x ${currentGridRows}` }}
+                    {{ enterpriseMapEditorIsIrregular ? t('map_shape_irregular') : enterpriseMapEditorFootprintLabel }}
                   </span>
                   <span class="point-badge enterprise-settings-chip enterprise-settings-chip-muted">{{ t('enterprise_settings_map_editor_help_locked') }}</span>
                 </div>
@@ -1738,6 +1738,59 @@
 
               <section class="enterprise-settings-subsection enterprise-page-settings-group">
                 <div class="enterprise-settings-subtitle">{{ t('enterprise_settings_map_editor_grid_title') }}</div>
+                <div class="enterprise-map-editor-draft-controls">
+                  <div class="enterprise-map-editor-draft-card">
+                    <div class="map-settings-info-label">{{ t('enterprise_settings_map_editor_bounds_title') }}</div>
+                    <div class="enterprise-map-editor-draft-summary">{{ enterpriseMapEditorFootprintLabel }}</div>
+                    <p class="panel-hint enterprise-map-editor-draft-hint">
+                      {{ t('enterprise_settings_map_editor_bounds_hint') }}
+                    </p>
+                  </div>
+                  <div class="enterprise-map-editor-stepper-card">
+                    <div class="map-settings-info-label">{{ t('enterprise_settings_map_editor_bounds_cols') }}</div>
+                    <div class="enterprise-map-editor-stepper">
+                      <button
+                        class="btn-ghost enterprise-map-editor-stepper-button"
+                        type="button"
+                        :disabled="!canResizeEnterpriseMapEditorTo(enterpriseMapEditorDraftCols - 1, enterpriseMapEditorDraftRows)"
+                        @click="resizeEnterpriseMapEditorDraft('cols', -1)"
+                      >
+                        -
+                      </button>
+                      <strong>{{ enterpriseMapEditorDraftCols }}</strong>
+                      <button
+                        class="btn-ghost enterprise-map-editor-stepper-button"
+                        type="button"
+                        :disabled="!canResizeEnterpriseMapEditorTo(enterpriseMapEditorDraftCols + 1, enterpriseMapEditorDraftRows)"
+                        @click="resizeEnterpriseMapEditorDraft('cols', 1)"
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
+                  <div class="enterprise-map-editor-stepper-card">
+                    <div class="map-settings-info-label">{{ t('enterprise_settings_map_editor_bounds_rows') }}</div>
+                    <div class="enterprise-map-editor-stepper">
+                      <button
+                        class="btn-ghost enterprise-map-editor-stepper-button"
+                        type="button"
+                        :disabled="!canResizeEnterpriseMapEditorTo(enterpriseMapEditorDraftCols, enterpriseMapEditorDraftRows - 1)"
+                        @click="resizeEnterpriseMapEditorDraft('rows', -1)"
+                      >
+                        -
+                      </button>
+                      <strong>{{ enterpriseMapEditorDraftRows }}</strong>
+                      <button
+                        class="btn-ghost enterprise-map-editor-stepper-button"
+                        type="button"
+                        :disabled="!canResizeEnterpriseMapEditorTo(enterpriseMapEditorDraftCols, enterpriseMapEditorDraftRows + 1)"
+                        @click="resizeEnterpriseMapEditorDraft('rows', 1)"
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
+                </div>
                 <div class="enterprise-map-editor-grid-shell">
                   <div
                     class="enterprise-map-editor-grid"
