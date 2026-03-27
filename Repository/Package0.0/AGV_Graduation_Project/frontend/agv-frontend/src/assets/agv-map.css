@@ -325,18 +325,23 @@ h2 {
 }
 
 .auth-dialog-stage {
-  width: min(1440px, calc(100vw - 32px));
+  width: min(1520px, calc(100vw - 32px));
   display: grid;
-  grid-template-columns: minmax(240px, 300px) minmax(0, 820px) minmax(240px, 300px);
+  grid-template-columns: minmax(240px, 280px) minmax(0, 820px) minmax(280px, 340px);
   gap: 16px;
   align-items: start;
-  margin: auto 0;
+  margin: 0;
 }
 
 .auth-dialog-side-panel {
   display: grid;
   gap: 12px;
   align-self: start;
+}
+
+.auth-dialog-side-panel-demo {
+  justify-self: end;
+  width: 100%;
 }
 
 .auth-dialog-header {
@@ -584,6 +589,10 @@ h2 {
   gap: 10px;
 }
 
+.auth-dialog-side-panel-capabilities .auth-capability-grid {
+  grid-template-columns: 1fr;
+}
+
 .auth-capability-card {
   display: grid;
   gap: 6px;
@@ -632,6 +641,10 @@ h2 {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 10px;
+}
+
+.auth-dialog-choice-grid-identities {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .auth-dialog-choice {
@@ -1849,8 +1862,13 @@ h2 {
   align-self: stretch;
 }
 
+.auth-dialog-form > .auth-register-sidecard {
+  grid-column: 1 / -1;
+}
+
 .auth-register-sidecard {
   display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(240px, 0.85fr);
   gap: 12px;
   padding: 14px;
   border: 1px solid #e2d8cb;
@@ -1861,6 +1879,7 @@ h2 {
 .auth-register-sidecard-head {
   display: grid;
   gap: 6px;
+  grid-column: 1 / -1;
 }
 
 .auth-register-sidecard-state {
@@ -1901,6 +1920,7 @@ h2 {
 .auth-register-process {
   display: grid;
   gap: 8px;
+  align-content: start;
 }
 
 .auth-register-process ol {
@@ -5450,6 +5470,10 @@ h2 {
 
   .auth-dialog-side-panel.auth-dialog-side-panel-capabilities {
     order: 3;
+  }
+
+  .auth-register-sidecard {
+    grid-template-columns: 1fr;
   }
 
   .enterprise-settings-dialog-card {

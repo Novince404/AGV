@@ -585,6 +585,24 @@
         </div>
 
         <div class="auth-dialog-entry-shell">
+          <div class="auth-dialog-choice-grid auth-dialog-choice-grid-identities">
+            <button class="auth-dialog-choice guest" type="button" @click="enterGuestMode">
+              <strong>{{ t('auth_role_guest') }}</strong>
+              <span>{{ t('auth_enter_guest') }}</span>
+            </button>
+            <button
+              v-for="account in authPrimaryAccounts"
+              :key="account.role"
+              class="auth-dialog-choice"
+              type="button"
+              :disabled="authLoading"
+              @click="handleAuthQuickLogin(account)"
+            >
+              <strong>{{ t(`auth_role_${account.role}`) }}</strong>
+              <span>{{ account.username }}</span>
+            </button>
+          </div>
+
           <div class="auth-dialog-divider">{{ t('auth_manual_login') }}</div>
           <div class="auth-dialog-segmented">
             <button
@@ -1016,10 +1034,6 @@
         <div class="auth-dialog-entry-shell auth-dialog-demo-shell">
           <div class="auth-dialog-demo-label">{{ t('auth_demo_accounts') }}</div>
           <p class="auth-dialog-hint">{{ t('auth_login_hint') }}</p>
-          <button class="auth-dialog-choice guest" type="button" @click="enterGuestMode">
-            <strong>{{ t('auth_enter_guest') }}</strong>
-            <span>{{ t('auth_role_guest') }}</span>
-          </button>
           <div class="auth-dialog-demo-grid auth-dialog-demo-grid-prominent">
             <button
               v-for="account in authDemoAccounts"
