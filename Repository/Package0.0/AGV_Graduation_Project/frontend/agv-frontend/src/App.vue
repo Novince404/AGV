@@ -631,13 +631,20 @@ function formatShortcutKeyLabel(value) {
   return labels[normalized] || normalized
 }
 
-function normalizeEditableShortcutConfig(raw) {
+function normalizeEditableShortcutConfig(raw, { allowEmpty = false } = {}) {
   const source = raw && typeof raw === 'object' ? raw : {}
   return Object.fromEntries(
     EDITABLE_SHORTCUT_ACTION_KEYS.map(actionKey => {
+      const hasOwnValue = Object.prototype.hasOwnProperty.call(source, actionKey)
+      if (!hasOwnValue) {
+        return [actionKey, DEFAULT_EDITABLE_SHORTCUTS[actionKey]]
+      }
       const normalized = normalizeShortcutKeyValue(source[actionKey])
       const safeValue = normalized === 'P' ? '' : normalized
-      return [actionKey, safeValue || DEFAULT_EDITABLE_SHORTCUTS[actionKey]]
+      if (safeValue) {
+        return [actionKey, safeValue]
+      }
+      return [actionKey, allowEmpty ? '' : DEFAULT_EDITABLE_SHORTCUTS[actionKey]]
     })
   )
 }
@@ -841,13 +848,19 @@ const shortcutEditorConflictMap = computed(() => {
 const shortcutEditorHasConflicts = computed(() => Object.keys(shortcutEditorConflictMap.value).length > 0)
 const shortcutGuideEntries = computed(() => [
   formatInlineMessage(t('shortcut_editor_guide_selection_cancel'), {
-    key: formatShortcutKeyLabel(activeShortcutBindings.value.selection_cancel)
+    key: activeShortcutBindings.value.selection_cancel
+      ? formatShortcutKeyLabel(activeShortcutBindings.value.selection_cancel)
+      : t('shortcut_editor_unassigned_key')
   }),
   formatInlineMessage(t('shortcut_editor_guide_algorithm_toggle'), {
-    key: formatShortcutKeyLabel(activeShortcutBindings.value.algorithm_toggle)
+    key: activeShortcutBindings.value.algorithm_toggle
+      ? formatShortcutKeyLabel(activeShortcutBindings.value.algorithm_toggle)
+      : t('shortcut_editor_unassigned_key')
   }),
   formatInlineMessage(t('shortcut_editor_guide_context_cancel'), {
-    key: formatShortcutKeyLabel(activeShortcutBindings.value.context_cancel)
+    key: activeShortcutBindings.value.context_cancel
+      ? formatShortcutKeyLabel(activeShortcutBindings.value.context_cancel)
+      : t('shortcut_editor_unassigned_key')
   })
 ])
 const shortcutEditorActionDefinitions = computed(() => [
@@ -877,8 +890,12 @@ const shortcutEditorRows = computed(() =>
   shortcutEditorActionDefinitions.value.map(item => ({
     ...item,
     currentValue: normalizeShortcutKeyValue(shortcutEditorDraft.value?.[item.key]),
-    currentLabel: formatShortcutKeyLabel(shortcutEditorDraft.value?.[item.key]),
-    conflictKey: shortcutEditorConflictMap.value[item.key] || ''
+    currentLabel: normalizeShortcutKeyValue(shortcutEditorDraft.value?.[item.key])
+      ? formatShortcutKeyLabel(shortcutEditorDraft.value?.[item.key])
+      : t('shortcut_editor_unassigned_key'),
+    conflictKey: shortcutEditorConflictMap.value[item.key] || '',
+    isDefault: normalizeShortcutKeyValue(shortcutEditorDraft.value?.[item.key]) === DEFAULT_EDITABLE_SHORTCUTS[item.key],
+    isEmpty: !normalizeShortcutKeyValue(shortcutEditorDraft.value?.[item.key])
   }))
 )
 const authEnterpriseRegisterValidation = computed(() => {
@@ -5155,14 +5172,18 @@ function saveEnterpriseSettingsTabPreference(role = authCurrentRole.value, tab =
 
 function loadShortcutBindingsForScope(scopeKey = shortcutPreferenceScopeKey.value) {
   const payload = readShortcutPreferencePayload()
-  return normalizeEditableShortcutConfig(payload?.[String(scopeKey || 'guest')])
+  const normalizedScope = String(scopeKey || 'guest')
+  if (!Object.prototype.hasOwnProperty.call(payload, normalizedScope)) {
+    return normalizeEditableShortcutConfig(DEFAULT_EDITABLE_SHORTCUTS)
+  }
+  return normalizeEditableShortcutConfig(payload?.[normalizedScope], { allowEmpty: true })
 }
 
 function persistShortcutBindingsForScope(config, scopeKey = shortcutPreferenceScopeKey.value) {
   if (typeof window === 'undefined' || !window.localStorage) return
   try {
     const payload = readShortcutPreferencePayload()
-    payload[String(scopeKey || 'guest')] = normalizeEditableShortcutConfig(config)
+    payload[String(scopeKey || 'guest')] = normalizeEditableShortcutConfig(config, { allowEmpty: true })
     window.localStorage.setItem(SHORTCUT_PREFERENCES_STORAGE_KEY, JSON.stringify(payload))
   } catch (error) {
     console.error('Save shortcut preferences error:', error)
@@ -5201,6 +5222,32 @@ function applyCapturedShortcutKey(actionKey, keyValue) {
   resetShortcutEditorDraftStatus('', 'info')
 }
 
+function restoreShortcutEditorActionDefault(actionKey) {
+  const normalizedActionKey = String(actionKey || '')
+  if (!normalizedActionKey) return
+  shortcutEditorDraft.value = {
+    ...shortcutEditorDraft.value,
+    [normalizedActionKey]: DEFAULT_EDITABLE_SHORTCUTS[normalizedActionKey] || ''
+  }
+  if (shortcutEditorCaptureActionKey.value === normalizedActionKey) {
+    shortcutEditorCaptureActionKey.value = ''
+  }
+  resetShortcutEditorDraftStatus(t('shortcut_editor_item_restored'), 'info')
+}
+
+function clearShortcutEditorActionBinding(actionKey) {
+  const normalizedActionKey = String(actionKey || '')
+  if (!normalizedActionKey) return
+  shortcutEditorDraft.value = {
+    ...shortcutEditorDraft.value,
+    [normalizedActionKey]: ''
+  }
+  if (shortcutEditorCaptureActionKey.value === normalizedActionKey) {
+    shortcutEditorCaptureActionKey.value = ''
+  }
+  resetShortcutEditorDraftStatus(t('shortcut_editor_item_cleared'), 'info')
+}
+
 function restoreShortcutEditorDefaults() {
   shortcutEditorDraft.value = normalizeEditableShortcutConfig(DEFAULT_EDITABLE_SHORTCUTS)
   shortcutEditorCaptureActionKey.value = ''
@@ -5213,7 +5260,7 @@ function saveShortcutEditorDraft() {
     resetShortcutEditorDraftStatus(t('shortcut_editor_conflict'), 'error')
     return
   }
-  const normalized = normalizeEditableShortcutConfig(shortcutEditorDraft.value)
+  const normalized = normalizeEditableShortcutConfig(shortcutEditorDraft.value, { allowEmpty: true })
   activeShortcutBindings.value = normalized
   shortcutEditorDraft.value = { ...normalized }
   persistShortcutBindingsForScope(normalized)
@@ -12383,6 +12430,8 @@ const enterpriseSettingsDialogBindings = {
   closeEnterpriseShortcutPlannerDialog,
   startShortcutCapture,
   stopShortcutCapture,
+  restoreShortcutEditorActionDefault,
+  clearShortcutEditorActionBinding,
   restoreShortcutEditorDefaults,
   saveShortcutEditorDraft,
   openEnterpriseMapEditorDialog,

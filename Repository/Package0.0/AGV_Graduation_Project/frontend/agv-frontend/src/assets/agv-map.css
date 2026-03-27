@@ -1277,6 +1277,20 @@ h2 {
   gap: 10px;
 }
 
+.enterprise-shortcut-editor-grid-shell {
+  display: grid;
+  gap: 10px;
+}
+
+.enterprise-shortcut-editor-banner {
+  border: 1px solid rgba(191, 84, 58, 0.42);
+  border-radius: 12px;
+  background: rgba(255, 240, 236, 0.9);
+  color: #9a4026;
+  padding: 10px 12px;
+  font-weight: 600;
+}
+
 .enterprise-shortcut-editor-card {
   border: 1px solid #e5ddd1;
   border-radius: 14px;
@@ -1312,6 +1326,12 @@ h2 {
 .enterprise-shortcut-key-badge {
   white-space: nowrap;
   font-weight: 700;
+}
+
+.enterprise-shortcut-key-badge.is-conflict {
+  background: rgba(191, 84, 58, 0.14);
+  color: #9a4026;
+  border-color: rgba(191, 84, 58, 0.3);
 }
 
 .enterprise-shortcut-editor-meta {

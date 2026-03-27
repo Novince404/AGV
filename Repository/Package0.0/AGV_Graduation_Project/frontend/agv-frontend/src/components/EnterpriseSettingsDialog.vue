@@ -1699,7 +1699,11 @@
                 <div v-if="!shortcutEditorCanEdit" class="permission-gate-card compact">
                   <div class="empty-note">{{ t('shortcut_editor_readonly_hint') }}</div>
                 </div>
-                <div v-else class="enterprise-shortcut-editor-grid">
+                <div v-else class="enterprise-shortcut-editor-grid-shell">
+                  <div v-if="shortcutEditorHasConflicts" class="enterprise-shortcut-editor-banner">
+                    {{ t('shortcut_editor_conflict') }}
+                  </div>
+                  <div class="enterprise-shortcut-editor-grid">
                   <article
                     v-for="item in shortcutEditorRows"
                     :key="item.key"
@@ -1711,7 +1715,12 @@
                         <strong>{{ item.label }}</strong>
                         <p>{{ item.hint }}</p>
                       </div>
-                      <span class="point-badge enterprise-shortcut-key-badge">{{ item.currentLabel }}</span>
+                      <span
+                        class="point-badge enterprise-shortcut-key-badge"
+                        :class="{ 'is-conflict': item.conflictKey }"
+                      >
+                        {{ item.currentLabel }}
+                      </span>
                     </div>
                     <div class="enterprise-shortcut-editor-meta">
                       <span>{{ t('shortcut_editor_current_key') }}{{ item.currentLabel }}</span>
@@ -1734,6 +1743,22 @@
                         }}
                       </button>
                       <button
+                        class="btn-ghost"
+                        type="button"
+                        :disabled="item.isEmpty"
+                        @click="clearShortcutEditorActionBinding(item.key)"
+                      >
+                        {{ t('shortcut_editor_clear_binding') }}
+                      </button>
+                      <button
+                        class="btn-ghost"
+                        type="button"
+                        :disabled="item.isDefault"
+                        @click="restoreShortcutEditorActionDefault(item.key)"
+                      >
+                        {{ t('shortcut_editor_restore_item') }}
+                      </button>
+                      <button
                         v-if="shortcutEditorCaptureActionKey === item.key"
                         class="btn-ghost"
                         type="button"
@@ -1743,6 +1768,7 @@
                       </button>
                     </div>
                   </article>
+                </div>
                 </div>
               </section>
 
