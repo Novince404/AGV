@@ -560,63 +560,68 @@
           </div>
         </div>
 
-        <div class="auth-capability-panel">
-          <div class="auth-dialog-divider">{{ t('auth_capabilities_title') }}</div>
-          <p class="auth-dialog-hint">
-            {{ authAuthenticated ? t('auth_capabilities_hint') : t('auth_capabilities_guest_hint') }}
-          </p>
-          <div class="auth-capability-grid">
-            <article
-              v-for="item in authCapabilityCards"
-              :key="item.key"
-              class="auth-capability-card"
-              :class="{ enabled: item.enabled, disabled: !item.enabled }"
-            >
-              <div class="auth-capability-label-row">
-                <strong>{{ item.label }}</strong>
-                <span class="auth-capability-state">{{ buildAuthCapabilityStateText(item.enabled) }}</span>
-              </div>
-              <span>{{ item.hint }}</span>
-            </article>
-          </div>
-        </div>
-
-        <div class="auth-dialog-entry-shell">
-          <div class="auth-dialog-choice-grid">
-            <button class="auth-dialog-choice guest" type="button" @click="enterGuestMode">
-              <strong>{{ t('auth_enter_guest') }}</strong>
-              <span>{{ t('auth_role_guest') }}</span>
-            </button>
-            <button
-              v-for="account in authPrimaryAccounts"
-              :key="account.role"
-              class="auth-dialog-choice"
-              type="button"
-              :disabled="authLoading"
-              @click="handleAuthQuickLogin(account)"
-            >
-              <strong>{{ t(`auth_role_${account.role}`) }}</strong>
-              <span>{{ account.username }}</span>
-            </button>
+        <div class="auth-dialog-overview-grid">
+          <div class="auth-capability-panel">
+            <div class="auth-dialog-divider">{{ t('auth_capabilities_title') }}</div>
+            <p class="auth-dialog-hint">
+              {{ authAuthenticated ? t('auth_capabilities_hint') : t('auth_capabilities_guest_hint') }}
+            </p>
+            <div class="auth-capability-grid">
+              <article
+                v-for="item in authCapabilityCards"
+                :key="item.key"
+                class="auth-capability-card"
+                :class="{ enabled: item.enabled, disabled: !item.enabled }"
+              >
+                <div class="auth-capability-label-row">
+                  <strong>{{ item.label }}</strong>
+                  <span class="auth-capability-state">{{ buildAuthCapabilityStateText(item.enabled) }}</span>
+                </div>
+                <span>{{ item.hint }}</span>
+              </article>
+            </div>
           </div>
 
-          <div class="auth-dialog-segmented">
-            <button
-              class="auth-dialog-segment"
-              :class="{ active: authDialogView === 'login' }"
-              type="button"
-              @click="switchAuthDialogView('login')"
-            >
-              {{ t('auth_manual_login') }}
-            </button>
-            <button
-              class="auth-dialog-segment"
-              :class="{ active: authDialogView === 'enterprise-register' }"
-              type="button"
-              @click="switchAuthDialogView('enterprise-register')"
-            >
-              {{ t('auth_enterprise_register') }}
-            </button>
+          <div class="auth-dialog-entry-shell">
+            <div class="auth-dialog-demo-label">{{ t('auth_demo_accounts') }}</div>
+            <p class="auth-dialog-hint">{{ t('auth_login_hint') }}</p>
+            <div class="auth-dialog-choice-grid">
+              <button class="auth-dialog-choice guest" type="button" @click="enterGuestMode">
+                <strong>{{ t('auth_enter_guest') }}</strong>
+                <span>{{ t('auth_role_guest') }}</span>
+              </button>
+              <button
+                v-for="account in authPrimaryAccounts"
+                :key="account.role"
+                class="auth-dialog-choice"
+                type="button"
+                :disabled="authLoading"
+                @click="handleAuthQuickLogin(account)"
+              >
+                <strong>{{ t(`auth_role_${account.role}`) }}</strong>
+                <span>{{ account.username }}</span>
+              </button>
+            </div>
+
+            <div class="auth-dialog-divider">{{ t('auth_manual_login') }}</div>
+            <div class="auth-dialog-segmented">
+              <button
+                class="auth-dialog-segment"
+                :class="{ active: authDialogView === 'login' }"
+                type="button"
+                @click="switchAuthDialogView('login')"
+              >
+                {{ t('auth_manual_login') }}
+              </button>
+              <button
+                class="auth-dialog-segment"
+                :class="{ active: authDialogView === 'enterprise-register' }"
+                type="button"
+                @click="switchAuthDialogView('enterprise-register')"
+              >
+                {{ t('auth_enterprise_register') }}
+              </button>
+            </div>
           </div>
         </div>
 
@@ -768,18 +773,6 @@
               <button class="auth-dialog-submit" type="button" :disabled="authLoading" @click="handleAuthLogin">
                 {{ authLoading ? t('auth_signing_in') : t('auth_sign_in') }}
               </button>
-              <div class="auth-dialog-demo-label">{{ t('auth_demo_accounts') }}</div>
-              <div class="auth-dialog-demo-grid">
-                <button
-                  v-for="account in authDemoAccounts"
-                  :key="account.username"
-                  class="auth-dialog-demo-button"
-                  type="button"
-                  @click="handleAuthDemoFill(account)"
-                >
-                  {{ authDemoAccountLabel(account) }}
-                </button>
-              </div>
             </div>
           </div>
           </div>

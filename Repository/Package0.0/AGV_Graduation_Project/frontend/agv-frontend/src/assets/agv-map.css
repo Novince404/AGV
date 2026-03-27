@@ -312,7 +312,7 @@ h2 {
 }
 
 .auth-dialog-card {
-  width: min(920px, calc(100vw - 32px));
+  width: min(1040px, calc(100vw - 32px));
   display: grid;
   gap: 14px;
   padding: 20px;
@@ -378,6 +378,13 @@ h2 {
   border: 1px solid #e2d8cb;
   border-radius: 18px;
   background: linear-gradient(180deg, rgba(252, 250, 246, 0.96), rgba(255, 255, 255, 0.92));
+}
+
+.auth-dialog-overview-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(300px, 0.95fr);
+  gap: 14px;
+  align-items: start;
 }
 
 .auth-dialog-current.role-personal {
@@ -614,6 +621,10 @@ h2 {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 10px;
+}
+
+.auth-dialog-entry-shell .auth-dialog-choice-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .auth-dialog-choice {
@@ -5410,6 +5421,11 @@ h2 {
   .auth-dialog-choice-grid,
   .auth-dialog-form,
   .auth-capability-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .auth-dialog-overview-grid,
+  .auth-dialog-entry-shell .auth-dialog-choice-grid {
     grid-template-columns: 1fr;
   }
 
