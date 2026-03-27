@@ -372,6 +372,8 @@ const compareFloatingY = ref(140)
 const operationAudits = ref([])
 const operationAuditLoading = ref(false)
 const deletingOperationAuditId = ref(null)
+const operationAuditBulkDeleting = ref(false)
+const selectedOperationAuditIds = ref([])
 const operationAuditResourceFilter = ref('all')
 const operationAuditActionFilter = ref('all')
 const operationAuditLastFetchedAt = ref('')
@@ -1554,6 +1556,10 @@ const enterpriseRoleWorkspaceActionItems = computed(() => {
 const showEnterpriseWorkspaceBanner = computed(() =>
   authIsEnterpriseRole.value && authCurrentAccountStatus.value === 'approved'
 )
+const enterpriseWorkspacePopupDismissed = ref(false)
+const showEnterpriseWorkspacePopup = computed(() =>
+  showEnterpriseWorkspaceBanner.value && !enterpriseWorkspacePopupDismissed.value
+)
 const authCapabilityCards = computed(() => [
   {
     key: 'dispatch',
@@ -2345,6 +2351,24 @@ const filteredOperationAudits = computed(() =>
     return true
   })
 )
+const selectedOperationAuditIdSet = computed(() =>
+  new Set(selectedOperationAuditIds.value.map(id => Number(id)).filter(id => Number.isFinite(id) && id > 0))
+)
+
+watch([operationAuditResourceFilter, operationAuditActionFilter], () => {
+  selectedOperationAuditIds.value = []
+})
+
+watch(operationAudits, entries => {
+  const validIds = new Set((entries || []).map(entry => Number(entry.id)).filter(id => Number.isFinite(id) && id > 0))
+  selectedOperationAuditIds.value = selectedOperationAuditIds.value.filter(id => validIds.has(Number(id)))
+})
+
+watch([authCurrentRole, authCurrentAccountStatus], ([nextRole, nextStatus], [prevRole, prevStatus]) => {
+  if (nextRole !== prevRole || nextStatus !== prevStatus) {
+    enterpriseWorkspacePopupDismissed.value = false
+  }
+})
 
 const selectedAgv = computed(() => {
   if (!selectedAgvId.value) return null
@@ -2411,7 +2435,7 @@ const pageTopStyle = computed(() =>
     ? {}
     : {
         gridTemplateColumns: `minmax(0, 1fr) 10px ${panelWidth.value}px`,
-        '--page-top-height': showEnterpriseWorkspaceBanner.value ? '244px' : '156px'
+        '--page-top-height': '156px'
       }
 )
 const mapStageStyle = computed(() => ({
@@ -5459,6 +5483,55 @@ function resetOperationAuditFilters() {
   operationAuditActionFilter.value = 'all'
 }
 
+function dismissEnterpriseWorkspacePopup() {
+  enterpriseWorkspacePopupDismissed.value = true
+}
+
+function normalizeOperationAuditEntryIds(entries = []) {
+  return [...new Set(
+    (entries || [])
+      .map(entry => Number(entry?.id))
+      .filter(id => Number.isFinite(id) && id > 0)
+  )]
+}
+
+function isOperationAuditSelected(entry) {
+  return selectedOperationAuditIdSet.value.has(Number(entry?.id))
+}
+
+function toggleOperationAuditSelection(entry) {
+  const auditId = Number(entry?.id)
+  if (!Number.isFinite(auditId) || auditId <= 0) return
+  if (selectedOperationAuditIdSet.value.has(auditId)) {
+    selectedOperationAuditIds.value = selectedOperationAuditIds.value.filter(id => Number(id) !== auditId)
+    return
+  }
+  selectedOperationAuditIds.value = [...selectedOperationAuditIds.value, auditId]
+}
+
+function clearSelectedOperationAudits() {
+  selectedOperationAuditIds.value = []
+}
+
+function areAllVisibleOperationAuditsSelected(entries = []) {
+  const ids = normalizeOperationAuditEntryIds(entries)
+  return ids.length > 0 && ids.every(id => selectedOperationAuditIdSet.value.has(id))
+}
+
+function selectedVisibleOperationAuditCount(entries = []) {
+  return normalizeOperationAuditEntryIds(entries).filter(id => selectedOperationAuditIdSet.value.has(id)).length
+}
+
+function toggleSelectVisibleOperationAudits(entries = []) {
+  const ids = normalizeOperationAuditEntryIds(entries)
+  if (!ids.length) return
+  if (ids.every(id => selectedOperationAuditIdSet.value.has(id))) {
+    selectedOperationAuditIds.value = selectedOperationAuditIds.value.filter(id => !ids.includes(Number(id)))
+    return
+  }
+  selectedOperationAuditIds.value = [...new Set([...selectedOperationAuditIds.value, ...ids])]
+}
+
 function buildOperationAuditExportPayload(entries = filteredOperationAudits.value) {
   return (entries || []).map(entry => ({
     id: entry.id,
@@ -5608,21 +5681,75 @@ async function deleteOperationAuditWithAuth(entry) {
   const auditId = Number(entry.id)
   deletingOperationAuditId.value = auditId
   try {
-    const response = await fetch(`${API_BASE}/auth/operations/${auditId}`, {
-      method: 'DELETE',
-      headers: buildAuthorizedHeaders()
-    })
-    const data = await response.json()
-    if (!response.ok) {
-      throw createApiError(data, 'Delete operation audit failed')
-    }
+    await deleteOperationAuditRequest(auditId)
     operationAudits.value = operationAudits.value.filter(item => Number(item.id) !== auditId)
+    selectedOperationAuditIds.value = selectedOperationAuditIds.value.filter(id => Number(id) !== auditId)
     showFloatingToast(t('operations_delete_ok'), 'success')
   } catch (error) {
     console.error('Delete operation audit error:', error)
     showFloatingToast(error?.message || t('operations_delete_failed'), 'error')
   } finally {
     deletingOperationAuditId.value = null
+  }
+}
+
+async function deleteOperationAuditRequest(auditId) {
+  const response = await fetch(`${API_BASE}/auth/operations/${auditId}`, {
+    method: 'DELETE',
+    headers: buildAuthorizedHeaders()
+  })
+  const data = await response.json()
+  if (!response.ok) {
+    throw createApiError(data, 'Delete operation audit failed')
+  }
+  return data
+}
+
+async function deleteSelectedOperationAuditsWithAuth(entries = filteredOperationAudits.value) {
+  if (!authAuthenticated.value || !authCanViewAudit.value) {
+    openAuthDialog()
+    return
+  }
+  const targetIds = normalizeOperationAuditEntryIds(entries).filter(id => selectedOperationAuditIdSet.value.has(id))
+  if (!targetIds.length) {
+    showFloatingToast(t('operations_bulk_delete_empty'), 'info')
+    return
+  }
+  if (!window.confirm(formatInlineMessage(t('operations_bulk_delete_confirm'), { count: targetIds.length }))) return
+
+  operationAuditBulkDeleting.value = true
+  const deletedIds = []
+  let failedCount = 0
+  try {
+    for (const auditId of targetIds) {
+      try {
+        await deleteOperationAuditRequest(auditId)
+        deletedIds.push(auditId)
+      } catch (error) {
+        failedCount += 1
+        console.error(`Delete operation audit ${auditId} error:`, error)
+      }
+    }
+
+    if (deletedIds.length) {
+      operationAudits.value = operationAudits.value.filter(item => !deletedIds.includes(Number(item.id)))
+      selectedOperationAuditIds.value = selectedOperationAuditIds.value.filter(id => !deletedIds.includes(Number(id)))
+    }
+
+    if (failedCount > 0) {
+      showFloatingToast(
+        formatInlineMessage(t('operations_bulk_delete_partial'), {
+          deleted: deletedIds.length,
+          failed: failedCount
+        }),
+        deletedIds.length ? 'info' : 'error'
+      )
+      return
+    }
+
+    showFloatingToast(formatInlineMessage(t('operations_bulk_delete_ok'), { count: deletedIds.length }), 'success')
+  } finally {
+    operationAuditBulkDeleting.value = false
   }
 }
 
@@ -10733,15 +10860,23 @@ const operationsAuditPanelBindings = {
   operationAuditLastFetchedAt,
   operationAuditLoading,
   deletingOperationAuditId,
+  operationAuditBulkDeleting,
   operationAudits,
   filteredOperationAudits,
   matchedOperationAuditIds,
+  isOperationAuditSelected,
+  toggleOperationAuditSelection,
+  clearSelectedOperationAudits,
+  areAllVisibleOperationAuditsSelected,
+  selectedVisibleOperationAuditCount,
+  toggleSelectVisibleOperationAudits,
   buildOperationsHintText,
   formatInlineMessage,
   fetchOperationAudits,
   resetOperationAuditFilters,
   exportFilteredOperationAuditsJsonWithAuth,
   exportFilteredOperationAuditsCsvWithAuth,
+  deleteSelectedOperationAuditsWithAuth,
   deleteOperationAuditWithAuth,
   formatOperationAuditTitle,
   formatOperationAuditResourceRef,
@@ -11413,6 +11548,7 @@ const enterpriseSettingsDialogBindings = {
   operationAuditActionFilterLabel,
   operationAuditLoading,
   deletingOperationAuditId,
+  operationAuditBulkDeleting,
   enterpriseFilteredAuditEntries,
   matchedOperationAuditIds,
   settingsLocale,
@@ -11444,6 +11580,13 @@ const enterpriseSettingsDialogBindings = {
   resetOperationAuditFilters,
   exportFilteredOperationAuditsJsonWithAuth,
   exportFilteredOperationAuditsCsvWithAuth,
+  isOperationAuditSelected,
+  toggleOperationAuditSelection,
+  clearSelectedOperationAudits,
+  areAllVisibleOperationAuditsSelected,
+  selectedVisibleOperationAuditCount,
+  toggleSelectVisibleOperationAudits,
+  deleteSelectedOperationAuditsWithAuth,
   deleteOperationAuditWithAuth,
   refreshEnterpriseAccountStatus,
   runEnterpriseStatusFollowupAction,
@@ -11629,41 +11772,6 @@ onBeforeUnmount(() => {
 
     <p class="toolbar-hint">{{ t('hint') }}</p>
     <p class="toolbar-hint toolbar-hint-secondary">{{ toolbarGuideHintText }}</p>
-    <div
-      v-if="showEnterpriseWorkspaceBanner"
-      class="enterprise-toolbar-strip"
-    >
-      <div class="enterprise-toolbar-strip-copy">
-        <div class="enterprise-toolbar-strip-title-row">
-          <strong>{{ enterpriseRoleFocus.title }}</strong>
-          <span class="point-badge enterprise-settings-chip">{{ authRoleLabel }}</span>
-        </div>
-        <p>{{ enterpriseRoleScopeText }}</p>
-        <div class="enterprise-settings-chip-list">
-          <span
-            v-for="label in enterpriseWorkspaceSectionLabels"
-            :key="`enterprise-toolbar-workspace-${label}`"
-            class="point-badge enterprise-settings-chip enterprise-settings-chip-muted"
-          >
-            {{ label }}
-          </span>
-        </div>
-      </div>
-      <div class="enterprise-toolbar-strip-actions">
-        <button class="btn-secondary" type="button" @click="applyCurrentEnterpriseWorkspacePreset">
-          {{ t('enterprise_settings_apply_workspace_preset') }}
-        </button>
-        <button
-          v-for="action in enterpriseRoleWorkspaceActionItems"
-          :key="`enterprise-toolbar-action-${action.key}`"
-          :class="action.tone === 'ghost' ? 'btn-ghost' : 'btn-secondary'"
-          type="button"
-          @click="runEnterpriseWorkspaceAction(action.key)"
-        >
-          {{ action.label }}
-        </button>
-      </div>
-    </div>
       </div>
 
       <div class="page-top-spacer"></div>
@@ -11730,6 +11838,51 @@ onBeforeUnmount(() => {
 
     <div ref="layoutRef" class="layout" :style="layoutStyle">
       <div class="map-pane">
+        <div
+          v-if="showEnterpriseWorkspacePopup"
+          class="enterprise-workspace-popup"
+        >
+          <div class="enterprise-workspace-popup-head">
+            <div class="enterprise-workspace-popup-copy">
+              <div class="enterprise-workspace-popup-title-row">
+                <strong>{{ enterpriseRoleFocus.title }}</strong>
+                <span class="point-badge enterprise-settings-chip">{{ authRoleLabel }}</span>
+              </div>
+              <p>{{ enterpriseRoleScopeText }}</p>
+            </div>
+            <button
+              class="enterprise-workspace-popup-close"
+              type="button"
+              :title="t('auth_close')"
+              @click="dismissEnterpriseWorkspacePopup"
+            >
+              ×
+            </button>
+          </div>
+          <div class="enterprise-settings-chip-list">
+            <span
+              v-for="label in enterpriseWorkspaceSectionLabels"
+              :key="`enterprise-workspace-popup-${label}`"
+              class="point-badge enterprise-settings-chip enterprise-settings-chip-muted"
+            >
+              {{ label }}
+            </span>
+          </div>
+          <div class="enterprise-workspace-popup-actions">
+            <button class="btn-secondary" type="button" @click="applyCurrentEnterpriseWorkspacePreset">
+              {{ t('enterprise_settings_apply_workspace_preset') }}
+            </button>
+            <button
+              v-for="action in enterpriseRoleWorkspaceActionItems"
+              :key="`enterprise-workspace-popup-action-${action.key}`"
+              :class="action.tone === 'ghost' ? 'btn-ghost' : 'btn-secondary'"
+              type="button"
+              @click="runEnterpriseWorkspaceAction(action.key)"
+            >
+              {{ action.label }}
+            </button>
+          </div>
+        </div>
         <section
           ref="mapViewportRef"
           class="map"

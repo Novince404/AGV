@@ -37,6 +37,35 @@
           <div v-if="operationAuditLastFetchedAt" class="task-line operations-last-fetched">
             {{ formatInlineMessage(t('operations_last_updated'), { at: operationAuditLastFetchedAt }) }}
           </div>
+          <span
+            v-if="selectedVisibleOperationAuditCount(filteredOperationAudits)"
+            class="point-badge operations-selection-badge"
+          >
+            {{
+              formatInlineMessage(t('operations_selection_count'), {
+                count: selectedVisibleOperationAuditCount(filteredOperationAudits)
+              })
+            }}
+          </span>
+          <button class="btn-ghost" type="button" @click="toggleSelectVisibleOperationAudits(filteredOperationAudits)">
+            {{
+              areAllVisibleOperationAuditsSelected(filteredOperationAudits)
+                ? t('operations_clear_selection')
+                : t('operations_select_visible')
+            }}
+          </button>
+          <button
+            class="btn-delete"
+            type="button"
+            :disabled="operationAuditBulkDeleting"
+            @click="deleteSelectedOperationAuditsWithAuth(filteredOperationAudits)"
+          >
+            {{
+              operationAuditBulkDeleting
+                ? `${t('operations_bulk_delete')}...`
+                : t('operations_bulk_delete')
+            }}
+          </button>
           <button class="btn-ghost" type="button" @click="resetOperationAuditFilters">
             {{ t('operations_reset_filters') }}
           </button>
@@ -68,9 +97,18 @@
           :class="{ 'search-hit': matchedOperationAuditIds.includes(entry.id) }"
         >
           <div class="operations-card-head">
-            <div>
+            <div class="operations-card-head-main">
+              <label class="operations-card-select">
+                <input
+                  type="checkbox"
+                  :checked="isOperationAuditSelected(entry)"
+                  @change="toggleOperationAuditSelection(entry)"
+                />
+              </label>
+              <div>
               <strong>{{ formatOperationAuditTitle(entry) }}</strong>
               <div class="task-line">{{ formatOperationAuditResourceRef(entry) }}</div>
+              </div>
             </div>
             <span class="point-badge">{{ operationActionLabel(entry.action) }}</span>
           </div>
@@ -83,7 +121,7 @@
             <button
               class="btn-delete"
               type="button"
-              :disabled="Number(deletingOperationAuditId) === Number(entry.id)"
+              :disabled="operationAuditBulkDeleting || Number(deletingOperationAuditId) === Number(entry.id)"
               @click="deleteOperationAuditWithAuth(entry)"
             >
               {{

@@ -581,44 +581,47 @@
           </div>
         </div>
 
-        <div class="auth-dialog-choice-grid">
-          <button class="auth-dialog-choice guest" type="button" @click="enterGuestMode">
-            <strong>{{ t('auth_enter_guest') }}</strong>
-            <span>{{ t('auth_role_guest') }}</span>
-          </button>
-          <button
-            v-for="account in authPrimaryAccounts"
-            :key="account.role"
-            class="auth-dialog-choice"
-            type="button"
-            :disabled="authLoading"
-            @click="handleAuthQuickLogin(account)"
-          >
-            <strong>{{ t(`auth_role_${account.role}`) }}</strong>
-            <span>{{ account.username }}</span>
-          </button>
-        </div>
+        <div class="auth-dialog-entry-shell">
+          <div class="auth-dialog-choice-grid">
+            <button class="auth-dialog-choice guest" type="button" @click="enterGuestMode">
+              <strong>{{ t('auth_enter_guest') }}</strong>
+              <span>{{ t('auth_role_guest') }}</span>
+            </button>
+            <button
+              v-for="account in authPrimaryAccounts"
+              :key="account.role"
+              class="auth-dialog-choice"
+              type="button"
+              :disabled="authLoading"
+              @click="handleAuthQuickLogin(account)"
+            >
+              <strong>{{ t(`auth_role_${account.role}`) }}</strong>
+              <span>{{ account.username }}</span>
+            </button>
+          </div>
 
-        <div class="auth-dialog-segmented">
-          <button
-            class="auth-dialog-segment"
-            :class="{ active: authDialogView === 'login' }"
-            type="button"
-            @click="switchAuthDialogView('login')"
-          >
-            {{ t('auth_manual_login') }}
-          </button>
-          <button
-            class="auth-dialog-segment"
-            :class="{ active: authDialogView === 'enterprise-register' }"
-            type="button"
-            @click="switchAuthDialogView('enterprise-register')"
-          >
-            {{ t('auth_enterprise_register') }}
-          </button>
+          <div class="auth-dialog-segmented">
+            <button
+              class="auth-dialog-segment"
+              :class="{ active: authDialogView === 'login' }"
+              type="button"
+              @click="switchAuthDialogView('login')"
+            >
+              {{ t('auth_manual_login') }}
+            </button>
+            <button
+              class="auth-dialog-segment"
+              :class="{ active: authDialogView === 'enterprise-register' }"
+              type="button"
+              @click="switchAuthDialogView('enterprise-register')"
+            >
+              {{ t('auth_enterprise_register') }}
+            </button>
+          </div>
         </div>
 
         <template v-if="authDialogView === 'login'">
+          <div class="auth-dialog-workspace">
           <div class="auth-dialog-divider">{{ t('auth_manual_login') }}</div>
 
           <div v-if="authEnterpriseRegisterFollowup" class="auth-status-note tone-pending">
@@ -779,9 +782,11 @@
               </div>
             </div>
           </div>
+          </div>
         </template>
 
         <template v-else>
+          <div class="auth-dialog-workspace">
           <div class="auth-dialog-divider">{{ t('auth_enterprise_register') }}</div>
           <p class="auth-dialog-hint">{{ t('auth_enterprise_register_hint') }}</p>
           <div
@@ -1027,6 +1032,7 @@
                   <li>{{ t('auth_enterprise_register_process_step_review') }}</li>
                   <li>{{ t('auth_enterprise_register_process_step_unlock') }}</li>
                 </ol>
+              </div>
               </div>
             </div>
           </div>

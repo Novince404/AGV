@@ -101,42 +101,70 @@ h2 {
   opacity: 0.9;
 }
 
-.enterprise-toolbar-strip {
+.enterprise-workspace-popup {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 24;
+  width: min(360px, calc(100% - 28px));
   display: grid;
-  gap: 12px;
+  gap: 10px;
   padding: 12px 14px;
-  margin-bottom: 12px;
-  border: 1px solid rgba(212, 201, 187, 0.92);
+  border: 1px solid rgba(212, 201, 187, 0.94);
   border-radius: 16px;
-  background: rgba(255, 252, 247, 0.92);
-  overflow: hidden;
+  background: rgba(255, 252, 247, 0.94);
+  box-shadow: 0 12px 28px rgba(60, 45, 30, 0.12);
+  backdrop-filter: blur(10px);
 }
 
-.enterprise-toolbar-strip-copy {
+.enterprise-workspace-popup-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.enterprise-workspace-popup-copy {
   display: grid;
   gap: 8px;
+  min-width: 0;
 }
 
-.enterprise-toolbar-strip-title-row {
+.enterprise-workspace-popup-title-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
 }
 
-.enterprise-toolbar-strip-copy strong {
+.enterprise-workspace-popup-copy strong {
   color: var(--strong-text);
   font-size: 13px;
 }
 
-.enterprise-toolbar-strip-copy p {
+.enterprise-workspace-popup-copy p {
   margin: 0;
   color: var(--muted-text);
   font-size: 12px;
   line-height: 1.6;
 }
 
-.enterprise-toolbar-strip-actions {
+.enterprise-workspace-popup-close {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(216, 208, 197, 0.92);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.88);
+  color: var(--strong-text);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.enterprise-workspace-popup-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
@@ -273,7 +301,7 @@ h2 {
 }
 
 .auth-dialog-card {
-  width: min(720px, calc(100vw - 32px));
+  width: min(920px, calc(100vw - 32px));
   display: grid;
   gap: 14px;
   padding: 20px;
@@ -328,7 +356,17 @@ h2 {
   padding: 14px;
   border: 1px solid #ded4c6;
   border-radius: 16px;
-  background: rgba(255, 255, 255, 0.84);
+  background: linear-gradient(180deg, rgba(255, 250, 244, 0.94), rgba(255, 255, 255, 0.88));
+}
+
+.auth-dialog-entry-shell,
+.auth-dialog-workspace {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #e2d8cb;
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(252, 250, 246, 0.96), rgba(255, 255, 255, 0.92));
 }
 
 .auth-dialog-current.role-personal {
@@ -563,7 +601,7 @@ h2 {
 
 .auth-dialog-choice-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 10px;
 }
 
@@ -592,6 +630,10 @@ h2 {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
+}
+
+.auth-dialog-workspace .auth-dialog-divider {
+  margin-bottom: -2px;
 }
 
 .auth-dialog-segment {
@@ -1086,11 +1128,11 @@ h2 {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 34px;
-  height: 34px;
+  width: 42px;
+  height: 42px;
   border-radius: 12px;
   background: rgba(201, 168, 106, 0.12);
-  font-size: 17px;
+  font-size: 18px;
   line-height: 1;
 }
 
@@ -1113,7 +1155,9 @@ h2 {
 
 .enterprise-settings-sidebar.is-collapsed .enterprise-settings-sidebar-action {
   justify-items: center;
+  gap: 8px;
   padding: 10px 6px;
+  text-align: center;
 }
 
 .enterprise-settings-overlay {
@@ -1520,8 +1564,8 @@ h2 {
 
 .auth-dialog-form {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 220px;
-  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) minmax(240px, 280px);
+  gap: 12px;
   align-items: start;
 }
 
@@ -1550,6 +1594,11 @@ h2 {
 .auth-dialog-actions {
   display: grid;
   gap: 10px;
+}
+
+.auth-dialog-form > .auth-dialog-actions,
+.auth-dialog-form > .auth-register-sidecard {
+  align-self: stretch;
 }
 
 .auth-register-sidecard {
@@ -1780,6 +1829,7 @@ h2 {
   flex-direction: column;
   min-width: 0;
   padding-right: 18px;
+  position: relative;
 }
 
 .legend-row {
@@ -4164,11 +4214,42 @@ h2 {
   background: rgba(255, 255, 255, 0.74);
 }
 
+.operations-card-head-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+}
+
+.operations-card-head-main > div {
+  min-width: 0;
+}
+
+.operations-card-select {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.operations-card-select input {
+  width: 16px;
+  height: 16px;
+  accent-color: #1565c0;
+  cursor: pointer;
+}
+
 .operations-card-head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
+}
+
+.operations-selection-badge {
+  background: rgba(21, 101, 192, 0.12);
+  color: #1565c0;
 }
 
 .operations-summary {
@@ -5133,6 +5214,12 @@ h2 {
   .help-popover {
     left: 0;
     width: min(300px, calc(100vw - 64px));
+  }
+
+  .enterprise-workspace-popup {
+    left: 10px;
+    right: 10px;
+    width: auto;
   }
 
   .minimap {
