@@ -807,10 +807,19 @@ h2 {
 }
 
 .approval-history-title-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
   gap: 8px;
+}
+
+.approval-history-title-row strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.approval-history-title-row small {
+  justify-self: end;
 }
 
 .approval-history-card span,

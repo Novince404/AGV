@@ -2833,6 +2833,14 @@ function operationResourceLabel(resourceType) {
       return t('operations_resource_ai_render')
     case 'agv':
       return t('operations_resource_agv')
+    case 'enterprise_application':
+      return t('operations_resource_enterprise_application')
+    case 'user_account':
+      return t('operations_resource_user_account')
+    case 'enterprise_request':
+      return t('operations_resource_enterprise_request')
+    case 'platform_bug_feedback':
+      return t('operations_resource_platform_bug_feedback')
     default:
       return t('operations_resource_all')
   }
@@ -2880,9 +2888,66 @@ function operationActionLabel(action) {
       return t('operations_action_fault_interrupt')
     case 'render':
       return t('operations_action_render')
+    case 'approve':
+      return t('operations_action_approve')
+    case 'reject':
+      return t('operations_action_reject')
+    case 'status.update':
+      return t('operations_action_status_update')
+    case 'user.register.personal':
+      return t('operations_action_user_register_personal')
+    case 'user.export':
+      return t('operations_action_user_export')
+    case 'user.suspend':
+      return t('operations_action_user_suspend')
+    case 'user.unsuspend':
+      return t('operations_action_user_unsuspend')
+    case 'user.deactivate':
+      return t('operations_action_user_deactivate')
     default:
       return String(action || '')
   }
+}
+
+function optionalTranslation(key, fallback = '') {
+  const translated = t(key)
+  if (!translated || translated === key) return fallback || String(key || '')
+  return translated
+}
+
+function operationAuditRoleLabel(role) {
+  const normalizedRole = String(role || '').trim()
+  if (!normalizedRole) return ''
+  return optionalTranslation(`auth_role_${normalizedRole}`, normalizedRole)
+}
+
+function operationAuditCategoryLabel(resourceType, category) {
+  const normalizedResourceType = String(resourceType || '').toLowerCase()
+  const normalizedCategory = String(category || '').trim().toLowerCase()
+  if (!normalizedCategory || normalizedCategory === 'all') return ''
+  if (normalizedResourceType === 'enterprise_request') {
+    return optionalTranslation(`enterprise_request_category_${normalizedCategory}`, normalizedCategory)
+  }
+  if (normalizedResourceType === 'platform_bug_feedback') {
+    return optionalTranslation(`platform_bug_feedback_category_${normalizedCategory}`, normalizedCategory)
+  }
+  return normalizedCategory
+}
+
+function operationAuditStatusLabel(resourceType, status) {
+  const normalizedResourceType = String(resourceType || '').toLowerCase()
+  const normalizedStatus = String(status || '').trim().toLowerCase()
+  if (!normalizedStatus || normalizedStatus === 'all') return ''
+  if (normalizedResourceType === 'enterprise_application') {
+    return optionalTranslation(`enterprise_approval_status_${normalizedStatus}`, normalizedStatus)
+  }
+  if (normalizedResourceType === 'user_account') {
+    return optionalTranslation(`account_governance_status_${normalizedStatus}`, normalizedStatus)
+  }
+  if (normalizedResourceType === 'enterprise_request' || normalizedResourceType === 'platform_bug_feedback') {
+    return optionalTranslation(`feedback_status_${normalizedStatus}`, normalizedStatus)
+  }
+  return normalizedStatus
 }
 
 function formatOperationAuditTitle(entry) {
@@ -2896,16 +2961,90 @@ function formatOperationAuditOperator(entry) {
 }
 
 function formatOperationAuditResourceRef(entry) {
-  const resourceType = operationResourceLabel(entry?.resource_type)
+  const normalizedResourceType = String(entry?.resource_type || '').toLowerCase()
+  const metadata = entry?.metadata && typeof entry.metadata === 'object' ? entry.metadata : {}
+  const resourceType = operationResourceLabel(normalizedResourceType)
   const resourceId = entry?.resource_id ? `#${entry.resource_id}` : ''
+
+  if (normalizedResourceType === 'enterprise_application') {
+    const companyName = String(metadata.company_name || '').trim()
+    const username = String(metadata.username || '').trim()
+    return [companyName, username].filter(Boolean).join(' · ') || (resourceId ? `${resourceType} ${resourceId}` : resourceType)
+  }
+
+  if (normalizedResourceType === 'user_account') {
+    const username = String(metadata.target_username || metadata.username || entry?.resource_id || '').trim()
+    const role = operationAuditRoleLabel(metadata.target_role || metadata.role)
+    return [username, role].filter(Boolean).join(' · ') || (resourceId ? `${resourceType} ${resourceId}` : resourceType)
+  }
+
+  if (normalizedResourceType === 'enterprise_request' || normalizedResourceType === 'platform_bug_feedback') {
+    const category = operationAuditCategoryLabel(normalizedResourceType, metadata.category)
+    const status = operationAuditStatusLabel(normalizedResourceType, metadata.status)
+    const primary = resourceId ? `${resourceType} ${resourceId}` : resourceType
+    return [primary, category, status].filter(Boolean).join(' · ')
+  }
+
   return resourceId ? `${resourceType} ${resourceId}` : resourceType
 }
 
 function formatOperationAuditMetadata(entry) {
+  const normalizedResourceType = String(entry?.resource_type || '').toLowerCase()
   const metadata = entry?.metadata
   if (!metadata || typeof metadata !== 'object') return ''
 
   const parts = []
+  if (normalizedResourceType === 'enterprise_application') {
+    if (metadata.status) {
+      parts.push(`${t('enterprise_approval_status_label')}: ${operationAuditStatusLabel(normalizedResourceType, metadata.status)}`)
+    }
+    if (metadata.review_note) {
+      parts.push(`${t('enterprise_settings_application_review_note')}: ${metadata.review_note}`)
+    }
+  }
+  if (normalizedResourceType === 'user_account') {
+    const username = String(metadata.target_username || metadata.username || '').trim()
+    const role = operationAuditRoleLabel(metadata.target_role || metadata.role)
+    if (username) {
+      parts.push(`${t('account_governance_field_username')}: ${username}`)
+    }
+    if (role) {
+      parts.push(`${t('account_governance_field_role')}: ${role}`)
+    }
+    if (metadata.reason) {
+      parts.push(`${t('account_governance_suspension_reason')}: ${metadata.reason}`)
+    }
+    if (metadata.note) {
+      parts.push(`${t('account_governance_suspension_note')}: ${metadata.note}`)
+    }
+    if (metadata.permanent) {
+      parts.push(`${t('account_governance_suspend_duration')}: ${t('account_governance_suspend_duration_permanent')}`)
+    } else if (metadata.duration_days) {
+      parts.push(`${t('account_governance_suspend_duration')}: ${metadata.duration_days}`)
+    }
+  }
+  if (normalizedResourceType === 'enterprise_request' || normalizedResourceType === 'platform_bug_feedback') {
+    const category = operationAuditCategoryLabel(normalizedResourceType, metadata.category)
+    const status = operationAuditStatusLabel(normalizedResourceType, metadata.status)
+    if (category) {
+      const categoryLabelKey = normalizedResourceType === 'enterprise_request'
+        ? 'enterprise_request_field_category'
+        : 'platform_bug_feedback_field_category'
+      parts.push(`${t(categoryLabelKey)}: ${category}`)
+    }
+    if (status) {
+      parts.push(`${t('enterprise_approval_status_label')}: ${status}`)
+    }
+    if (metadata.target_username) {
+      parts.push(`${t('account_governance_field_username')}: ${metadata.target_username}`)
+    }
+    if (metadata.response_note) {
+      const noteLabelKey = normalizedResourceType === 'enterprise_request'
+        ? 'enterprise_request_field_response_note'
+        : 'account_governance_suspension_note'
+      parts.push(`${t(noteLabelKey)}: ${metadata.response_note}`)
+    }
+  }
   if (metadata.algorithm) {
     parts.push(`${t('algorithm')}: ${algorithmText(metadata.algorithm)}`)
   }
@@ -2956,7 +3095,11 @@ const operationAuditResourceOptions = computed(() => [
   { value: 'map_layout', label: t('operations_resource_map_layout') },
   { value: 'map_preset', label: t('operations_resource_map_preset') },
   { value: 'comfy_render_job', label: t('operations_resource_ai_render') },
-  { value: 'agv', label: t('operations_resource_agv') }
+  { value: 'agv', label: t('operations_resource_agv') },
+  { value: 'enterprise_application', label: t('operations_resource_enterprise_application') },
+  { value: 'user_account', label: t('operations_resource_user_account') },
+  { value: 'enterprise_request', label: t('operations_resource_enterprise_request') },
+  { value: 'platform_bug_feedback', label: t('operations_resource_platform_bug_feedback') }
 ])
 
 const operationAuditActionOptions = computed(() => [
@@ -2980,7 +3123,15 @@ const operationAuditActionOptions = computed(() => [
   { value: 'to_maintenance', label: t('operations_action_to_maintenance') },
   { value: 'return_to_service', label: t('operations_action_return_to_service') },
   { value: 'fault_interrupt', label: t('operations_action_fault_interrupt') },
-  { value: 'render', label: t('operations_action_render') }
+  { value: 'render', label: t('operations_action_render') },
+  { value: 'approve', label: t('operations_action_approve') },
+  { value: 'reject', label: t('operations_action_reject') },
+  { value: 'status.update', label: t('operations_action_status_update') },
+  { value: 'user.register.personal', label: t('operations_action_user_register_personal') },
+  { value: 'user.export', label: t('operations_action_user_export') },
+  { value: 'user.suspend', label: t('operations_action_user_suspend') },
+  { value: 'user.unsuspend', label: t('operations_action_user_unsuspend') },
+  { value: 'user.deactivate', label: t('operations_action_user_deactivate') }
 ])
 
 const filteredOperationAudits = computed(() =>
@@ -13720,6 +13871,7 @@ const platformAdminGovernanceHubBindings = {
   formatOperationAuditTitle,
   formatOperationAuditOperator,
   formatOperationAuditResourceRef,
+  formatOperationAuditMetadata,
   openEnterpriseApprovalDialog,
   openAccountGovernanceDialog,
   openPlatformBugFeedbackDialog,

@@ -128,6 +128,9 @@
           </div>
           <span>{{ formatOperationAuditOperator(entry) }}</span>
           <span>{{ formatOperationAuditResourceRef(entry) }}</span>
+          <span v-if="formatOperationAuditMetadata(entry)" class="task-line operations-summary">
+            {{ formatOperationAuditMetadata(entry) }}
+          </span>
         </article>
       </div>
       <div v-else class="approval-empty">
