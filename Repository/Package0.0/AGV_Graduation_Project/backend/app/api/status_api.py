@@ -88,10 +88,11 @@ def delete_map_profile(profile_key: str, request: Request):
 def update_map_layout(req: MapLayoutUpdateRequest, request: Request):
     actor = auth_service.require_actor_capability(request, "map.write")
     return status_service.update_map_layout(
-        req.blocked_cells,
-        req.valid_cells,
-        req.grid_cols,
-        req.grid_rows,
+        blocked_cells=req.blocked_cells,
+        valid_cells=req.valid_cells,
+        grid_cols=req.grid_cols,
+        grid_rows=req.grid_rows,
+        topology=req.topology,
         actor=actor,
     )
 

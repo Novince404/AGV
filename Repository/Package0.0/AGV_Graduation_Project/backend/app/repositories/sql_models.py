@@ -116,6 +116,16 @@ class MapLayoutEntity(Base):
         cascade="all, delete-orphan",
         order_by="MapValidCellEntity.id",
     )
+    topology_nodes: Mapped[list["MapLayoutTopologyNodeEntity"]] = relationship(
+        back_populates="layout",
+        cascade="all, delete-orphan",
+        order_by="MapLayoutTopologyNodeEntity.id",
+    )
+    topology_edges: Mapped[list["MapLayoutTopologyEdgeEntity"]] = relationship(
+        back_populates="layout",
+        cascade="all, delete-orphan",
+        order_by="MapLayoutTopologyEdgeEntity.id",
+    )
 
 
 class MapBlockedCellEntity(Base):
@@ -138,6 +148,36 @@ class MapValidCellEntity(Base):
     y: Mapped[int] = mapped_column(Integer, nullable=False)
 
     layout: Mapped["MapLayoutEntity"] = relationship(back_populates="valid_cells")
+
+
+class MapLayoutTopologyNodeEntity(Base):
+    __tablename__ = "map_layout_topology_node"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    layout_id: Mapped[int] = mapped_column(ForeignKey("map_layout.id"), nullable=False, index=True)
+    node_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    x: Mapped[int] = mapped_column(Integer, nullable=False)
+    y: Mapped[int] = mapped_column(Integer, nullable=False)
+    label: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    node_type: Mapped[str] = mapped_column(String(32), nullable=False, default="waypoint")
+
+    layout: Mapped["MapLayoutEntity"] = relationship(back_populates="topology_nodes")
+
+
+class MapLayoutTopologyEdgeEntity(Base):
+    __tablename__ = "map_layout_topology_edge"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    layout_id: Mapped[int] = mapped_column(ForeignKey("map_layout.id"), nullable=False, index=True)
+    edge_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    target_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    direction: Mapped[str] = mapped_column(String(16), nullable=False, default="bidirectional")
+    lane_type: Mapped[str] = mapped_column(String(32), nullable=False, default="main")
+    weight: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
+    speed_multiplier: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
+
+    layout: Mapped["MapLayoutEntity"] = relationship(back_populates="topology_edges")
 
 
 class MapPresetEntity(Base):
@@ -202,6 +242,16 @@ class MapProfileEntity(Base):
         cascade="all, delete-orphan",
         order_by="MapProfileValidCellEntity.id",
     )
+    topology_nodes: Mapped[list["MapProfileTopologyNodeEntity"]] = relationship(
+        back_populates="profile",
+        cascade="all, delete-orphan",
+        order_by="MapProfileTopologyNodeEntity.id",
+    )
+    topology_edges: Mapped[list["MapProfileTopologyEdgeEntity"]] = relationship(
+        back_populates="profile",
+        cascade="all, delete-orphan",
+        order_by="MapProfileTopologyEdgeEntity.id",
+    )
 
 
 class MapProfileCellEntity(Base):
@@ -224,6 +274,36 @@ class MapProfileValidCellEntity(Base):
     y: Mapped[int] = mapped_column(Integer, nullable=False)
 
     profile: Mapped["MapProfileEntity"] = relationship(back_populates="valid_cells")
+
+
+class MapProfileTopologyNodeEntity(Base):
+    __tablename__ = "map_profile_topology_node"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    profile_id: Mapped[str] = mapped_column(ForeignKey("map_profile.id"), nullable=False, index=True)
+    node_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    x: Mapped[int] = mapped_column(Integer, nullable=False)
+    y: Mapped[int] = mapped_column(Integer, nullable=False)
+    label: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    node_type: Mapped[str] = mapped_column(String(32), nullable=False, default="waypoint")
+
+    profile: Mapped["MapProfileEntity"] = relationship(back_populates="topology_nodes")
+
+
+class MapProfileTopologyEdgeEntity(Base):
+    __tablename__ = "map_profile_topology_edge"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    profile_id: Mapped[str] = mapped_column(ForeignKey("map_profile.id"), nullable=False, index=True)
+    edge_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    target_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    direction: Mapped[str] = mapped_column(String(16), nullable=False, default="bidirectional")
+    lane_type: Mapped[str] = mapped_column(String(32), nullable=False, default="main")
+    weight: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
+    speed_multiplier: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
+
+    profile: Mapped["MapProfileEntity"] = relationship(back_populates="topology_edges")
 
 
 class UiSettingsEntity(Base):

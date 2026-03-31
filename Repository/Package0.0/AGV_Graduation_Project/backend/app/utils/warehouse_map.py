@@ -155,6 +155,8 @@ DEFAULT_MAP_PROFILES = {
     },
 }
 
+_TOPOLOGY_KEEP = object()
+
 
 def _build_full_grid_cells(grid_cols: int, grid_rows: int) -> set[tuple[int, int]]:
     return {
@@ -184,6 +186,202 @@ def _normalize_valid_cells(
     return normalized or _build_full_grid_cells(grid_cols, grid_rows)
 
 
+def create_empty_map_topology() -> dict[str, object]:
+    return {
+        "topology_version": 1,
+        "nodes": [],
+        "edges": [],
+        "stations": [],
+        "parking_nodes": [],
+        "charge_nodes": [],
+    }
+
+
+def _coerce_topology_mapping(item) -> dict:
+    if item is None:
+        return {}
+    if hasattr(item, "model_dump"):
+        return item.model_dump()
+    if isinstance(item, dict):
+        return item
+    return {}
+
+
+def _normalize_topology_key(raw_value, fallback: str) -> str:
+    value = str(raw_value or "").strip()
+    return value or fallback
+
+
+def normalize_map_topology_payload(
+    topology,
+    grid_cols: int,
+    grid_rows: int,
+    valid_cells: set[tuple[int, int]] | list[tuple[int, int]] | None = None,
+) -> dict[str, object]:
+    normalized_valid_cells = _normalize_valid_cells(valid_cells, grid_cols, grid_rows)
+    payload = _coerce_topology_mapping(topology)
+    special_station_keys = {str(item).strip() for item in payload.get("stations", []) if str(item).strip()}
+    special_parking_keys = {str(item).strip() for item in payload.get("parking_nodes", []) if str(item).strip()}
+    special_charge_keys = {str(item).strip() for item in payload.get("charge_nodes", []) if str(item).strip()}
+
+    nodes = []
+    seen_node_keys: set[str] = set()
+    seen_positions: set[tuple[int, int]] = set()
+    for index, raw_node in enumerate(payload.get("nodes", []) or []):
+        item = _coerce_topology_mapping(raw_node)
+        try:
+            x = int(item.get("x"))
+            y = int(item.get("y"))
+        except (TypeError, ValueError):
+            continue
+        if not (0 <= x < int(grid_cols) and 0 <= y < int(grid_rows)):
+            continue
+        if (x, y) not in normalized_valid_cells:
+            continue
+        node_key = _normalize_topology_key(item.get("key"), f"node_{x}_{y}_{index + 1}")
+        if node_key in seen_node_keys or (x, y) in seen_positions:
+            continue
+        node_type = str(item.get("node_type") or "waypoint").strip().lower()
+        if node_key in special_charge_keys:
+            node_type = "charge"
+        elif node_key in special_parking_keys:
+            node_type = "parking"
+        elif node_key in special_station_keys:
+            node_type = "station"
+        if node_type not in {"waypoint", "station", "parking", "charge"}:
+            node_type = "waypoint"
+        label = str(item.get("label") or "").strip() or None
+        nodes.append(
+            {
+                "key": node_key,
+                "x": x,
+                "y": y,
+                "label": label,
+                "node_type": node_type,
+            }
+        )
+        seen_node_keys.add(node_key)
+        seen_positions.add((x, y))
+
+    node_keys = {node["key"] for node in nodes}
+    edges = []
+    seen_edge_keys: set[str] = set()
+    seen_edge_pairs: set[tuple[str, str]] = set()
+    for index, raw_edge in enumerate(payload.get("edges", []) or []):
+        item = _coerce_topology_mapping(raw_edge)
+        source = str(item.get("source") or "").strip()
+        target = str(item.get("target") or "").strip()
+        if not source or not target or source == target:
+            continue
+        if source not in node_keys or target not in node_keys:
+            continue
+        edge_key = _normalize_topology_key(item.get("key"), f"edge_{source}_{target}_{index + 1}")
+        if edge_key in seen_edge_keys or (source, target) in seen_edge_pairs:
+            continue
+        direction = str(item.get("direction") or "bidirectional").strip().lower()
+        if direction not in {"bidirectional", "forward", "reverse"}:
+            direction = "bidirectional"
+        lane_type = str(item.get("lane_type") or "main").strip().lower()
+        if lane_type not in {"main", "branch", "service"}:
+            lane_type = "main"
+        try:
+            weight = float(item.get("weight", 1.0))
+        except (TypeError, ValueError):
+            weight = 1.0
+        try:
+            speed_multiplier = float(item.get("speed_multiplier", 1.0))
+        except (TypeError, ValueError):
+            speed_multiplier = 1.0
+        edges.append(
+            {
+                "key": edge_key,
+                "source": source,
+                "target": target,
+                "direction": direction,
+                "lane_type": lane_type,
+                "weight": weight if weight > 0 else 1.0,
+                "speed_multiplier": speed_multiplier if speed_multiplier > 0 else 1.0,
+            }
+        )
+        seen_edge_keys.add(edge_key)
+        seen_edge_pairs.add((source, target))
+
+    stations = [node["key"] for node in nodes if node["node_type"] == "station"]
+    parking_nodes = [node["key"] for node in nodes if node["node_type"] == "parking"]
+    charge_nodes = [node["key"] for node in nodes if node["node_type"] == "charge"]
+    return {
+        "topology_version": 1,
+        "nodes": nodes,
+        "edges": edges,
+        "stations": stations,
+        "parking_nodes": parking_nodes,
+        "charge_nodes": charge_nodes,
+    }
+
+
+def build_map_topology_summary(
+    topology,
+    grid_cols: int | None = None,
+    grid_rows: int | None = None,
+    valid_cells: set[tuple[int, int]] | list[tuple[int, int]] | None = None,
+) -> dict[str, object]:
+    normalized = (
+        normalize_map_topology_payload(topology, int(grid_cols), int(grid_rows), valid_cells)
+        if grid_cols is not None and grid_rows is not None
+        else _coerce_topology_mapping(topology) or create_empty_map_topology()
+    )
+    node_count = len(normalized.get("nodes", []))
+    edge_count = len(normalized.get("edges", []))
+    station_count = len(normalized.get("stations", []))
+    parking_count = len(normalized.get("parking_nodes", []))
+    charge_count = len(normalized.get("charge_nodes", []))
+    return {
+        "enabled": bool(node_count or edge_count),
+        "node_count": node_count,
+        "edge_count": edge_count,
+        "station_count": station_count,
+        "parking_count": parking_count,
+        "charge_count": charge_count,
+    }
+
+
+def build_map_topology_signature(
+    topology,
+    grid_cols: int,
+    grid_rows: int,
+    valid_cells: set[tuple[int, int]] | list[tuple[int, int]] | None = None,
+) -> tuple:
+    normalized = normalize_map_topology_payload(topology, grid_cols, grid_rows, valid_cells)
+    return (
+        tuple(
+            sorted(
+                (
+                    str(node["key"]),
+                    int(node["x"]),
+                    int(node["y"]),
+                    str(node.get("label") or ""),
+                    str(node.get("node_type") or "waypoint"),
+                )
+                for node in normalized["nodes"]
+            )
+        ),
+        tuple(
+            sorted(
+                (
+                    str(edge["key"]),
+                    str(edge["source"]),
+                    str(edge["target"]),
+                    str(edge.get("direction") or "bidirectional"),
+                    str(edge.get("lane_type") or "main"),
+                    float(edge.get("weight") or 1.0),
+                    float(edge.get("speed_multiplier") or 1.0),
+                )
+                for edge in normalized["edges"]
+            )
+        ),
+    )
+
+
 def get_default_blocked_cells(
     grid_cols: int = DEFAULT_GRID_COLS, grid_rows: int = DEFAULT_GRID_ROWS
 ) -> set[tuple[int, int]]:
@@ -197,12 +395,22 @@ def get_default_valid_cells(
 
 
 def get_map_layout_state() -> dict[str, object]:
-    return get_runtime_layout_state(
+    state = get_runtime_layout_state(
         DEFAULT_GRID_COLS,
         DEFAULT_GRID_ROWS,
         get_default_blocked_cells(),
         get_default_valid_cells(),
     )
+    grid_cols = int(state["grid_cols"])
+    grid_rows = int(state["grid_rows"])
+    valid_cells = _normalize_valid_cells(state.get("valid_cells"), grid_cols, grid_rows)
+    return {
+        "grid_cols": grid_cols,
+        "grid_rows": grid_rows,
+        "blocked_cells": _normalize_cells(state["blocked_cells"], grid_cols, grid_rows),
+        "valid_cells": valid_cells,
+        "topology": normalize_map_topology_payload(state.get("topology"), grid_cols, grid_rows, valid_cells),
+    }
 
 
 def get_current_grid_size() -> tuple[int, int]:
@@ -236,12 +444,17 @@ def set_layout_cells(
     valid_cells: set[tuple[int, int]] | list[tuple[int, int]] | None,
     grid_cols: int = DEFAULT_GRID_COLS,
     grid_rows: int = DEFAULT_GRID_ROWS,
+    topology=_TOPOLOGY_KEEP,
 ) -> dict[str, object]:
     normalized_valid = _normalize_valid_cells(valid_cells, grid_cols, grid_rows)
     normalized_blocked = _normalize_cells(blocked_cells, grid_cols, grid_rows) & normalized_valid
+    current_state = get_map_layout_state()
+    topology_source = current_state.get("topology") if topology is _TOPOLOGY_KEEP else topology
+    normalized_topology = normalize_map_topology_payload(topology_source, grid_cols, grid_rows, normalized_valid)
     updated = persist_runtime_layout_state(
         normalized_blocked,
         normalized_valid,
+        normalized_topology,
         grid_cols,
         grid_rows,
         DEFAULT_GRID_COLS,
@@ -254,6 +467,7 @@ def set_layout_cells(
         "grid_rows": int(updated["grid_rows"]),
         "blocked_cells": _normalize_cells(updated["blocked_cells"], grid_cols, grid_rows),
         "valid_cells": _normalize_valid_cells(updated.get("valid_cells"), grid_cols, grid_rows),
+        "topology": normalize_map_topology_payload(updated.get("topology"), grid_cols, grid_rows, normalized_valid),
     }
 
 
@@ -356,8 +570,11 @@ def build_map_profile_payload(
     editable: bool,
     deletable: bool = False,
     valid_cells: set[tuple[int, int]] | None = None,
+    topology=None,
 ) -> dict:
     normalized_valid_cells = _normalize_valid_cells(valid_cells, grid_cols, grid_rows)
+    normalized_topology = normalize_map_topology_payload(topology, grid_cols, grid_rows, normalized_valid_cells)
+    topology_summary = build_map_topology_summary(normalized_topology)
     return {
         "key": key,
         "name": name,
@@ -370,6 +587,9 @@ def build_map_profile_payload(
         "custom": custom,
         "editable": editable,
         "deletable": deletable,
+        "topology": normalized_topology,
+        "topology_summary": topology_summary,
+        "has_topology": bool(topology_summary["enabled"]),
     }
 
 
@@ -387,6 +607,12 @@ def get_map_profile_definition(profile_key: str) -> dict | None:
         "grid_rows": grid_rows,
         "cells": _normalize_cells(profile.get("cells", set()), grid_cols, grid_rows),
         "valid_cells": _normalize_valid_cells(profile.get("valid_cells"), grid_cols, grid_rows),
+        "topology": normalize_map_topology_payload(
+            profile.get("topology"),
+            grid_cols,
+            grid_rows,
+            _normalize_valid_cells(profile.get("valid_cells"), grid_cols, grid_rows),
+        ),
         "custom": bool(profile.get("custom", False)),
     }
 
@@ -441,6 +667,7 @@ def get_map_profiles_payload() -> list[dict]:
                 grid_cols=int(profile["grid_cols"]),
                 grid_rows=int(profile["grid_rows"]),
                 valid_cells=_normalize_valid_cells(profile.get("valid_cells"), int(profile["grid_cols"]), int(profile["grid_rows"])),
+                topology=profile.get("topology"),
                 custom=bool(profile.get("custom", False)),
                 editable=False,
                 deletable=False,
@@ -452,6 +679,7 @@ def get_map_profiles_payload() -> list[dict]:
 def get_current_map_profile_payload(
     grid_cols: int = DEFAULT_GRID_COLS,
     grid_rows: int = DEFAULT_GRID_ROWS,
+    topology=None,
 ) -> dict:
     for key, profile in DEFAULT_MAP_PROFILES.items():
         if int(profile["grid_cols"]) == int(grid_cols) and int(profile["grid_rows"]) == int(grid_rows):
@@ -462,6 +690,7 @@ def get_current_map_profile_payload(
                 grid_cols=grid_cols,
                 grid_rows=grid_rows,
                 valid_cells=_normalize_valid_cells(profile.get("valid_cells"), grid_cols, grid_rows),
+                topology=profile.get("topology"),
                 custom=bool(profile.get("custom", False)),
                 editable=False,
                 deletable=False,
@@ -482,6 +711,7 @@ def get_current_map_profile_payload(
         grid_cols=grid_cols,
         grid_rows=grid_rows,
         valid_cells=get_valid_cells(grid_cols, grid_rows),
+        topology=topology,
         custom=True,
         editable=False,
         deletable=False,

@@ -546,6 +546,23 @@
                   <div class="map-settings-info-value">{{ mapProfiles.length }}</div>
                 </div>
               </div>
+              <div class="enterprise-settings-role-note">
+                <strong>{{ t('enterprise_settings_route_topology_title') }}</strong>
+                <p>{{ t('enterprise_settings_route_topology_hint') }}</p>
+                <div class="map-settings-info-grid enterprise-settings-grid">
+                  <div
+                    v-for="card in enterpriseRouteTopologyCards"
+                    :key="`enterprise-route-topology-${card.key}`"
+                    class="map-settings-info-card"
+                  >
+                    <div class="map-settings-info-label">{{ card.label }}</div>
+                    <div class="map-settings-info-value">{{ card.value }}</div>
+                  </div>
+                </div>
+                <div class="task-line operations-last-fetched">
+                  {{ enterpriseRouteTopologyMetaText }}
+                </div>
+              </div>
               <div
                 v-if="mapProfileActionSummary"
                 class="map-profile-summary-card"
@@ -641,6 +658,9 @@
                     </div>
                     <div class="map-profile-meta">
                       {{ profile.grid_cols }} x {{ profile.grid_rows }}
+                    </div>
+                    <div v-if="formatMapProfileTopologySummary(profile)" class="map-profile-operator">
+                      {{ formatMapProfileTopologySummary(profile) }}
                     </div>
                     <div class="map-profile-desc">
                       {{ localizedMapProfileField(profile.description) }}
@@ -756,6 +776,15 @@
                 </button>
                 <button class="btn-secondary" type="button" @click="openPageSettingsFromEnterpriseSettings">
                   {{ t('enterprise_settings_open_page_settings') }}
+                </button>
+                <button
+                  class="btn-secondary"
+                  type="button"
+                  :disabled="!authCanMapWrite"
+                  :title="buildCapabilityLockedTitle('map', authCanMapWrite)"
+                  @click="openEnterpriseTopologyEditorDialog"
+                >
+                  {{ t('enterprise_settings_route_topology_open') }}
                 </button>
               </div>
             </template>
@@ -1989,6 +2018,263 @@
                       ? `${t('enterprise_settings_map_editor_save')}...`
                       : t('enterprise_settings_map_editor_save')
                   }}
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <div
+          v-if="enterpriseTopologyEditorDialogOpen"
+          class="enterprise-settings-overlay"
+          @click.self="closeEnterpriseTopologyEditorDialog"
+        >
+          <section class="enterprise-settings-overlay-card enterprise-settings-overlay-card-wide" role="dialog" aria-modal="true">
+            <header class="enterprise-settings-overlay-header">
+              <div>
+                <div class="auth-dialog-kicker">{{ t('enterprise_settings_route_topology_title') }}</div>
+                <h3 class="auth-dialog-title">{{ t('enterprise_settings_route_topology_editor_title') }}</h3>
+                <p class="auth-dialog-hint">{{ t('enterprise_settings_route_topology_editor_hint') }}</p>
+              </div>
+              <button class="auth-dialog-close" type="button" @click="closeEnterpriseTopologyEditorDialog">
+                ×
+              </button>
+            </header>
+
+            <div class="enterprise-settings-overlay-body">
+              <section class="enterprise-settings-subsection enterprise-page-settings-group">
+                <div class="map-settings-info-grid enterprise-settings-grid">
+                  <div class="map-settings-info-card">
+                    <div class="map-settings-info-label">{{ t('enterprise_settings_route_topology_nodes') }}</div>
+                    <div class="map-settings-info-value">{{ enterpriseTopologyDraftSummary.node_count }}</div>
+                  </div>
+                  <div class="map-settings-info-card">
+                    <div class="map-settings-info-label">{{ t('enterprise_settings_route_topology_edges') }}</div>
+                    <div class="map-settings-info-value">{{ enterpriseTopologyDraftSummary.edge_count }}</div>
+                  </div>
+                  <div class="map-settings-info-card">
+                    <div class="map-settings-info-label">{{ t('enterprise_settings_route_topology_stations') }}</div>
+                    <div class="map-settings-info-value">{{ enterpriseTopologyDraftSummary.station_count }}</div>
+                  </div>
+                  <div class="map-settings-info-card">
+                    <div class="map-settings-info-label">{{ t('enterprise_settings_route_topology_parking') }}</div>
+                    <div class="map-settings-info-value">{{ enterpriseTopologyDraftSummary.parking_count }}</div>
+                  </div>
+                  <div class="map-settings-info-card">
+                    <div class="map-settings-info-label">{{ t('enterprise_settings_route_topology_charge') }}</div>
+                    <div class="map-settings-info-value">{{ enterpriseTopologyDraftSummary.charge_count }}</div>
+                  </div>
+                </div>
+                <div class="enterprise-settings-chip-list">
+                  <span class="point-badge enterprise-settings-chip">{{ t('enterprise_settings_route_topology_help_add') }}</span>
+                  <span class="point-badge enterprise-settings-chip enterprise-settings-chip-muted">{{ t('enterprise_settings_route_topology_help_connect') }}</span>
+                  <span class="point-badge enterprise-settings-chip enterprise-settings-chip-muted">{{ t('enterprise_settings_route_topology_help_select_edge') }}</span>
+                </div>
+              </section>
+
+              <section class="enterprise-settings-subsection enterprise-page-settings-group enterprise-route-topology-layout">
+                <div class="enterprise-route-topology-canvas">
+                  <div class="enterprise-map-editor-grid-shell">
+                    <div class="enterprise-route-topology-stage">
+                      <svg class="enterprise-route-topology-svg" :style="enterpriseTopologyEdgeSvgStyle" aria-hidden="true">
+                        <line
+                          v-for="edge in enterpriseTopologySvgEdges"
+                          :key="`enterprise-topology-svg-${edge.key}`"
+                          :x1="edge.x1"
+                          :y1="edge.y1"
+                          :x2="edge.x2"
+                          :y2="edge.y2"
+                          class="enterprise-route-topology-line"
+                          :class="{ 'is-selected': enterpriseTopologySelectedEdge && enterpriseTopologySelectedEdge.key === edge.key }"
+                        />
+                      </svg>
+                      <div class="enterprise-map-editor-grid" :style="enterpriseTopologyGridStyle">
+                        <template v-for="row in currentGridRows" :key="`enterprise-topology-row-${row}`">
+                          <button
+                            v-for="col in currentGridCols"
+                            :key="`enterprise-topology-cell-${col - 1}-${row - 1}`"
+                            type="button"
+                            class="enterprise-map-editor-cell enterprise-route-topology-cell"
+                            :class="{
+                              'is-valid': isEnterpriseMapEditorCellValid(col - 1, row - 1),
+                              'is-void': !isEnterpriseMapEditorCellValid(col - 1, row - 1),
+                              'has-node': !!enterpriseTopologyNodesByCell[`${col - 1},${row - 1}`],
+                              'is-link-source': enterpriseTopologyLinkSourceNode && enterpriseTopologyLinkSourceNode.key === enterpriseTopologyNodesByCell[`${col - 1},${row - 1}`]?.key,
+                              'is-selected': enterpriseTopologySelectedNode && enterpriseTopologySelectedNode.key === enterpriseTopologyNodesByCell[`${col - 1},${row - 1}`]?.key
+                            }"
+                            :disabled="!isEnterpriseMapEditorCellValid(col - 1, row - 1)"
+                            @click="applyEnterpriseTopologyCell({ x: col - 1, y: row - 1 })"
+                          >
+                            <span v-if="enterpriseTopologyNodesByCell[`${col - 1},${row - 1}`]" class="enterprise-route-topology-node-badge">
+                              {{ formatEnterpriseTopologyNodeBadge(enterpriseTopologyNodesByCell[`${col - 1},${row - 1}`]) }}
+                            </span>
+                          </button>
+                        </template>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="enterprise-route-topology-inspector">
+                  <div class="enterprise-map-editor-draft-card">
+                    <div class="map-settings-info-label">{{ t('enterprise_settings_route_topology_nodes') }}</div>
+                    <div v-if="enterpriseTopologyDraftSummary.node_count === 0" class="empty-note">
+                      {{ t('enterprise_settings_route_topology_empty_hint') }}
+                    </div>
+                    <div v-else class="enterprise-settings-chip-list">
+                      <button
+                        v-for="node in enterpriseTopologyEditorDraft.nodes"
+                        :key="`enterprise-topology-node-${node.key}`"
+                        type="button"
+                        class="btn-ghost enterprise-settings-action-chip"
+                        :class="{ 'is-active': enterpriseTopologySelectedNode && enterpriseTopologySelectedNode.key === node.key }"
+                        @click="selectEnterpriseTopologyNode(node.key)"
+                      >
+                        {{ node.label || node.key }}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div class="enterprise-map-editor-draft-card">
+                    <div class="map-settings-info-label">{{ t('enterprise_settings_route_topology_edges') }}</div>
+                    <div v-if="enterpriseTopologyDraftSummary.edge_count === 0" class="empty-note">
+                      {{ t('enterprise_settings_route_topology_edges_empty') }}
+                    </div>
+                    <div v-else class="enterprise-settings-chip-list">
+                      <button
+                        v-for="edge in enterpriseTopologyEditorDraft.edges"
+                        :key="`enterprise-topology-edge-${edge.key}`"
+                        type="button"
+                        class="btn-ghost enterprise-settings-action-chip"
+                        :class="{ 'is-active': enterpriseTopologySelectedEdge && enterpriseTopologySelectedEdge.key === edge.key }"
+                        @click="selectEnterpriseTopologyEdge(edge.key)"
+                      >
+                        {{ edge.source }} → {{ edge.target }}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div v-if="enterpriseTopologySelectedNode" class="enterprise-map-editor-draft-card">
+                    <div class="map-settings-info-label">{{ t('enterprise_settings_route_topology_node_editor') }}</div>
+                    <label class="auth-field">
+                      <span>{{ t('enterprise_settings_route_topology_node_label') }}</span>
+                      <input
+                        class="auth-input"
+                        :value="enterpriseTopologySelectedNode.label || ''"
+                        type="text"
+                        @input="updateEnterpriseTopologyNode({ label: $event.target.value })"
+                      />
+                    </label>
+                    <label class="auth-field">
+                      <span>{{ t('enterprise_settings_route_topology_node_type') }}</span>
+                      <select
+                        class="auth-input"
+                        :value="enterpriseTopologySelectedNode.node_type"
+                        @change="updateEnterpriseTopologyNode({ node_type: $event.target.value })"
+                      >
+                        <option
+                          v-for="option in enterpriseTopologyNodeTypeOptions"
+                          :key="`enterprise-topology-type-${option.value}`"
+                          :value="option.value"
+                        >
+                          {{ option.label }}
+                        </option>
+                      </select>
+                    </label>
+                    <div class="enterprise-settings-actions">
+                      <button class="btn-ghost" type="button" @click="toggleEnterpriseTopologyLinkSource">
+                        {{
+                          enterpriseTopologyLinkSourceNode && enterpriseTopologyLinkSourceNode.key === enterpriseTopologySelectedNode.key
+                            ? t('enterprise_settings_route_topology_cancel_connect')
+                            : t('enterprise_settings_route_topology_start_connect')
+                        }}
+                      </button>
+                      <button class="btn-delete" type="button" @click="removeSelectedEnterpriseTopologyNode">
+                        {{ t('enterprise_settings_route_topology_delete_node') }}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div v-if="enterpriseTopologySelectedEdge" class="enterprise-map-editor-draft-card">
+                    <div class="map-settings-info-label">{{ t('enterprise_settings_route_topology_edge_editor') }}</div>
+                    <label class="auth-field">
+                      <span>{{ t('enterprise_settings_route_topology_edge_direction') }}</span>
+                      <select
+                        class="auth-input"
+                        :value="enterpriseTopologySelectedEdge.direction"
+                        @change="updateEnterpriseTopologyEdge({ direction: $event.target.value })"
+                      >
+                        <option
+                          v-for="option in enterpriseTopologyEdgeDirectionOptions"
+                          :key="`enterprise-topology-direction-${option.value}`"
+                          :value="option.value"
+                        >
+                          {{ option.label }}
+                        </option>
+                      </select>
+                    </label>
+                    <label class="auth-field">
+                      <span>{{ t('enterprise_settings_route_topology_lane_type') }}</span>
+                      <select
+                        class="auth-input"
+                        :value="enterpriseTopologySelectedEdge.lane_type"
+                        @change="updateEnterpriseTopologyEdge({ lane_type: $event.target.value })"
+                      >
+                        <option
+                          v-for="option in enterpriseTopologyLaneTypeOptions"
+                          :key="`enterprise-topology-lane-${option.value}`"
+                          :value="option.value"
+                        >
+                          {{ option.label }}
+                        </option>
+                      </select>
+                    </label>
+                    <label class="auth-field">
+                      <span>{{ t('enterprise_settings_route_topology_edge_weight') }}</span>
+                      <input
+                        class="auth-input"
+                        :value="enterpriseTopologySelectedEdge.weight"
+                        min="0.1"
+                        step="0.1"
+                        type="number"
+                        @input="updateEnterpriseTopologyEdge({ weight: Number($event.target.value || 1) })"
+                      />
+                    </label>
+                    <label class="auth-field">
+                      <span>{{ t('enterprise_settings_route_topology_edge_speed_multiplier') }}</span>
+                      <input
+                        class="auth-input"
+                        :value="enterpriseTopologySelectedEdge.speed_multiplier"
+                        min="0.1"
+                        step="0.1"
+                        type="number"
+                        @input="updateEnterpriseTopologyEdge({ speed_multiplier: Number($event.target.value || 1) })"
+                      />
+                    </label>
+                    <div class="enterprise-settings-actions">
+                      <button class="btn-delete" type="button" @click="removeSelectedEnterpriseTopologyEdge">
+                        {{ t('enterprise_settings_route_topology_delete_edge') }}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <div class="enterprise-settings-actions">
+                <button class="btn-ghost" type="button" @click="resetEnterpriseTopologyEditorDraft">
+                  {{ t('enterprise_settings_route_topology_reset') }}
+                </button>
+                <button class="btn-secondary" type="button" @click="closeEnterpriseTopologyEditorDialog">
+                  {{ t('enterprise_settings_route_topology_cancel') }}
+                </button>
+                <button
+                  class="btn-primary"
+                  type="button"
+                  :disabled="!authCanMapWrite"
+                  :title="buildCapabilityLockedTitle('map', authCanMapWrite)"
+                  @click="saveEnterpriseTopologyEditorDraft"
+                >
+                  {{ t('enterprise_settings_route_topology_save') }}
                 </button>
               </div>
             </div>

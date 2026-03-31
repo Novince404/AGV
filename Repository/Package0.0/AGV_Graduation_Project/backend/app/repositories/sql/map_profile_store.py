@@ -5,8 +5,15 @@ from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db_session
 from app.models.map_profile import MapProfile, MapProfileCell
+from app.models.map_topology import MapTopology, MapTopologyEdge, MapTopologyNode
 from app.repositories.db_init import create_all_tables
-from app.repositories.sql_models import MapProfileCellEntity, MapProfileEntity, MapProfileValidCellEntity
+from app.repositories.sql_models import (
+    MapProfileCellEntity,
+    MapProfileEntity,
+    MapProfileTopologyEdgeEntity,
+    MapProfileTopologyNodeEntity,
+    MapProfileValidCellEntity,
+)
 
 
 map_profiles: list[MapProfile] = []
@@ -22,7 +29,44 @@ def _query_profiles():
     return select(MapProfileEntity).options(
         selectinload(MapProfileEntity.blocked_cells),
         selectinload(MapProfileEntity.valid_cells),
+        selectinload(MapProfileEntity.topology_nodes),
+        selectinload(MapProfileEntity.topology_edges),
     ).order_by(MapProfileEntity.id)
+
+
+def _entity_to_topology(entity: MapProfileEntity) -> MapTopology | None:
+    nodes = [
+        MapTopologyNode(
+            key=str(node.node_key),
+            x=int(node.x),
+            y=int(node.y),
+            label=node.label,
+            node_type=str(node.node_type or "waypoint"),
+        )
+        for node in entity.topology_nodes
+    ]
+    edges = [
+        MapTopologyEdge(
+            key=str(edge.edge_key),
+            source=str(edge.source_key),
+            target=str(edge.target_key),
+            direction=str(edge.direction or "bidirectional"),
+            lane_type=str(edge.lane_type or "main"),
+            weight=float(edge.weight or 1.0),
+            speed_multiplier=float(edge.speed_multiplier or 1.0),
+        )
+        for edge in entity.topology_edges
+    ]
+    if not nodes and not edges:
+        return None
+    return MapTopology(
+        topology_version=1,
+        nodes=nodes,
+        edges=edges,
+        stations=[node.key for node in nodes if node.node_type == "station"],
+        parking_nodes=[node.key for node in nodes if node.node_type == "parking"],
+        charge_nodes=[node.key for node in nodes if node.node_type == "charge"],
+    )
 
 
 def _entity_to_model(entity: MapProfileEntity) -> MapProfile:
@@ -36,6 +80,7 @@ def _entity_to_model(entity: MapProfileEntity) -> MapProfile:
         grid_rows=int(entity.grid_rows),
         valid_cells=valid_cells,
         blocked_cells=cells,
+        topology=_entity_to_topology(entity),
         custom=entity.custom,
     )
 
@@ -54,6 +99,29 @@ def _model_to_entity(profile: MapProfile, entity: MapProfileEntity | None = None
     entity.blocked_cells = [
         MapProfileCellEntity(x=int(cell.x), y=int(cell.y))
         for cell in profile.blocked_cells
+    ]
+    topology = profile.topology
+    entity.topology_nodes = [
+        MapProfileTopologyNodeEntity(
+            node_key=str(node.key),
+            x=int(node.x),
+            y=int(node.y),
+            label=node.label,
+            node_type=str(node.node_type or "waypoint"),
+        )
+        for node in (topology.nodes if topology is not None else [])
+    ]
+    entity.topology_edges = [
+        MapProfileTopologyEdgeEntity(
+            edge_key=str(edge.key),
+            source_key=str(edge.source),
+            target_key=str(edge.target),
+            direction=str(edge.direction or "bidirectional"),
+            lane_type=str(edge.lane_type or "main"),
+            weight=float(edge.weight or 1.0),
+            speed_multiplier=float(edge.speed_multiplier or 1.0),
+        )
+        for edge in (topology.edges if topology is not None else [])
     ]
     return entity
 

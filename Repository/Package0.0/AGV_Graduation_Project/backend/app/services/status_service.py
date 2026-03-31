@@ -1,10 +1,11 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import re
 import time
 
 from app.models.map_profile import MapProfile, MapProfileCell
 from app.models.map_preset import MapPreset, MapPresetCell
+from app.models.map_topology import MapTopology, MapTopologyEdge, MapTopologyNode
 from app.core.settings import get_settings
 from app.repositories.agv_repository import list_agvs
 from app.repositories.map_profile_repository import (
@@ -31,6 +32,9 @@ from app.utils.warehouse_map import (
     DEFAULT_MAP_PRESETS,
     build_map_profile_payload,
     build_map_preset_payload,
+    build_map_topology_signature,
+    build_map_topology_summary,
+    create_empty_map_topology,
     get_blocked_cell_payload,
     get_blocked_cells,
     get_current_grid_size,
@@ -46,6 +50,7 @@ from app.utils.warehouse_map import (
     get_map_presets_payload,
     get_valid_cell_payload,
     get_valid_cells,
+    normalize_map_topology_payload,
     set_layout_cells,
 )
 
@@ -216,6 +221,52 @@ def _normalize_cells_signature(cells: set[tuple[int, int]] | list[tuple[int, int
     return tuple(sorted((int(x), int(y)) for x, y in cells))
 
 
+def _topology_payload_to_model(topology_payload: dict[str, object] | None) -> MapTopology | None:
+    normalized = topology_payload or create_empty_map_topology()
+    if not normalized.get("nodes") and not normalized.get("edges"):
+        return None
+    return MapTopology(
+        topology_version=int(normalized.get("topology_version", 1)),
+        nodes=[
+            MapTopologyNode(
+                key=str(node["key"]),
+                x=int(node["x"]),
+                y=int(node["y"]),
+                label=node.get("label"),
+                node_type=str(node.get("node_type") or "waypoint"),
+            )
+            for node in normalized.get("nodes", [])
+        ],
+        edges=[
+            MapTopologyEdge(
+                key=str(edge["key"]),
+                source=str(edge["source"]),
+                target=str(edge["target"]),
+                direction=str(edge.get("direction") or "bidirectional"),
+                lane_type=str(edge.get("lane_type") or "main"),
+                weight=float(edge.get("weight") or 1.0),
+                speed_multiplier=float(edge.get("speed_multiplier") or 1.0),
+            )
+            for edge in normalized.get("edges", [])
+        ],
+        stations=list(normalized.get("stations", [])),
+        parking_nodes=list(normalized.get("parking_nodes", [])),
+        charge_nodes=list(normalized.get("charge_nodes", [])),
+    )
+
+
+def _get_custom_map_profile_topology(profile_key: str) -> dict[str, object]:
+    profile = get_map_profile_by_key(profile_key)
+    if profile is None:
+        raise KeyError(profile_key)
+    return normalize_map_topology_payload(
+        profile.topology,
+        int(profile.grid_cols),
+        int(profile.grid_rows),
+        _get_custom_map_profile_valid_cells(profile_key),
+    )
+
+
 def _is_force_apply_allowed(precheck: dict) -> bool:
     blockers = set(precheck.get("blockers") or [])
     if not blockers:
@@ -297,6 +348,12 @@ def _build_custom_profile_payload(profile: MapProfile) -> dict:
         int(profile.grid_cols),
         int(profile.grid_rows),
     )
+    topology = normalize_map_topology_payload(
+        profile.topology,
+        int(profile.grid_cols),
+        int(profile.grid_rows),
+        valid_cells,
+    )
     payload = build_map_profile_payload(
         key=profile.key,
         name=profile.custom_name,
@@ -304,6 +361,7 @@ def _build_custom_profile_payload(profile: MapProfile) -> dict:
         grid_cols=int(profile.grid_cols),
         grid_rows=int(profile.grid_rows),
         valid_cells=valid_cells,
+        topology=topology,
         custom=True,
         editable=True,
         deletable=True,
@@ -319,9 +377,16 @@ def _resolve_current_profile_payload(
     grid_rows: int,
     blocked_cells: set[tuple[int, int]] | None = None,
     valid_cells: set[tuple[int, int]] | None = None,
+    topology: dict[str, object] | None = None,
 ) -> dict:
     normalized_cells = _normalize_cells_signature(blocked_cells or get_blocked_cells(grid_cols, grid_rows))
     normalized_valid_cells = _normalize_cells_signature(valid_cells or get_valid_cells(grid_cols, grid_rows))
+    normalized_topology_signature = build_map_topology_signature(
+        topology,
+        grid_cols,
+        grid_rows,
+        valid_cells or get_valid_cells(grid_cols, grid_rows),
+    )
 
     for profile in list_map_profiles():
         profile_cells = {(int(cell.x), int(cell.y)) for cell in profile.blocked_cells}
@@ -329,11 +394,23 @@ def _resolve_current_profile_payload(
             int(profile.grid_cols),
             int(profile.grid_rows),
         )
+        profile_topology = normalize_map_topology_payload(
+            profile.topology,
+            int(profile.grid_cols),
+            int(profile.grid_rows),
+            profile_valid_cells,
+        )
         if (
             int(profile.grid_cols) == int(grid_cols)
             and int(profile.grid_rows) == int(grid_rows)
             and _normalize_cells_signature(profile_cells) == normalized_cells
             and _normalize_cells_signature(profile_valid_cells) == normalized_valid_cells
+            and build_map_topology_signature(
+                profile_topology,
+                int(profile.grid_cols),
+                int(profile.grid_rows),
+                profile_valid_cells,
+            ) == normalized_topology_signature
         ):
             return _build_custom_profile_payload(profile)
 
@@ -346,10 +423,17 @@ def _resolve_current_profile_payload(
             and int(definition["grid_rows"]) == int(grid_rows)
             and _normalize_cells_signature(definition["cells"]) == normalized_cells
             and _normalize_cells_signature(definition["valid_cells"]) == normalized_valid_cells
+            and build_map_topology_signature(
+                definition.get("topology"),
+                int(definition["grid_cols"]),
+                int(definition["grid_rows"]),
+                definition["valid_cells"],
+            ) == normalized_topology_signature
         ):
             return profile_payload
 
     runtime_valid_cells = valid_cells or get_valid_cells(grid_cols, grid_rows)
+    runtime_topology = normalize_map_topology_payload(topology, grid_cols, grid_rows, runtime_valid_cells)
     return build_map_profile_payload(
         key=f"runtime_{int(grid_cols)}x{int(grid_rows)}",
         name={
@@ -358,13 +442,14 @@ def _resolve_current_profile_payload(
             "en": "Runtime Map Profile",
         },
         description={
-            "zh": "当前运行中的地图布局与内置方案不完全一致，可作为后续异形地图与自定义方案的过渡状态。",
-            "ja": "現在の実行中マップは内蔵プロファイルと完全には一致しておらず、今後の異形マップやカスタム構成への移行状態として扱います。",
+            "zh": "当前地图布局与已有内置方案不完全一致，系统会将其识别为适合异形地图或自定义路网的运行时方案。",
+            "ja": "現在のマップ構成は既存の内蔵プロファイルと完全には一致しないため、異形マップやカスタム路網向けの実行時プロファイルとして扱われます。",
             "en": "The active map layout no longer matches a built-in profile exactly and is treated as a runtime transition state for custom or irregular layouts.",
         },
         grid_cols=grid_cols,
         grid_rows=grid_rows,
         valid_cells=runtime_valid_cells,
+        topology=runtime_topology,
         custom=True,
         editable=False,
         deletable=False,
@@ -407,6 +492,7 @@ def get_map_layout():
     grid_rows = int(state["grid_rows"])
     valid_cells = get_valid_cells(grid_cols, grid_rows)
     blocked_cells = get_blocked_cells(grid_cols, grid_rows)
+    topology = normalize_map_topology_payload(state.get("topology"), grid_cols, grid_rows, valid_cells)
     return {
         "grid_cols": grid_cols,
         "grid_rows": grid_rows,
@@ -415,6 +501,9 @@ def get_map_layout():
         "valid_cells": get_valid_cell_payload(grid_cols, grid_rows),
         "valid_count": len(valid_cells),
         "is_irregular": len(valid_cells) != grid_cols * grid_rows,
+        "topology": topology,
+        "topology_summary": build_map_topology_summary(topology),
+        "has_topology": bool(build_map_topology_summary(topology).get("enabled")),
     }
 
 
@@ -510,6 +599,12 @@ def get_map_profiles():
     grid_cols, grid_rows = get_current_grid_size()
     blocked_cells = get_blocked_cells(grid_cols, grid_rows)
     valid_cells = get_valid_cells(grid_cols, grid_rows)
+    current_topology = normalize_map_topology_payload(
+        get_map_layout_state().get("topology"),
+        grid_cols,
+        grid_rows,
+        valid_cells,
+    )
     active_tasks = [
         task
         for task in list_tasks()
@@ -533,7 +628,7 @@ def get_map_profiles():
     custom_profiles = [_build_custom_profile_payload(profile) for profile in list_map_profiles()]
     return {
         "current_profile": _attach_map_profile_audit(
-            _resolve_current_profile_payload(grid_cols, grid_rows, blocked_cells, valid_cells)
+            _resolve_current_profile_payload(grid_cols, grid_rows, blocked_cells, valid_cells, current_topology)
         ),
         "profiles": [_attach_map_profile_audit(profile) for profile in get_map_profiles_payload()] + custom_profiles,
         "can_resize_now": can_resize_now,
@@ -551,6 +646,12 @@ def get_map_profile_detail(profile_key: str):
             int(custom_profile.grid_cols),
             int(custom_profile.grid_rows),
         )
+        topology = normalize_map_topology_payload(
+            custom_profile.topology,
+            int(custom_profile.grid_cols),
+            int(custom_profile.grid_rows),
+            valid_cells,
+        )
         return _attach_map_profile_audit(build_map_profile_payload(
             key=custom_profile.key,
             name=custom_profile.custom_name,
@@ -558,6 +659,7 @@ def get_map_profile_detail(profile_key: str):
             grid_cols=int(custom_profile.grid_cols),
             grid_rows=int(custom_profile.grid_rows),
             valid_cells=valid_cells,
+            topology=topology,
             custom=True,
             editable=True,
             deletable=True,
@@ -572,6 +674,12 @@ def get_map_profile_detail(profile_key: str):
 
     cells = {(int(x), int(y)) for x, y in profile_definition["cells"]}
     valid_cells = set(profile_definition["valid_cells"])
+    topology = normalize_map_topology_payload(
+        profile_definition.get("topology"),
+        int(profile_definition["grid_cols"]),
+        int(profile_definition["grid_rows"]),
+        valid_cells,
+    )
     return _attach_map_profile_audit(build_map_profile_payload(
         key=profile_definition["key"],
         name=profile_definition["name"],
@@ -579,6 +687,7 @@ def get_map_profile_detail(profile_key: str):
         grid_cols=int(profile_definition["grid_cols"]),
         grid_rows=int(profile_definition["grid_rows"]),
         valid_cells=valid_cells,
+        topology=topology,
         custom=bool(profile_definition.get("custom", False)),
         editable=False,
         deletable=False,
@@ -712,6 +821,12 @@ def resize_map_layout(requested_grid_cols: int, requested_grid_rows: int, actor:
     current_grid_cols, current_grid_rows = get_current_grid_size()
     current_cells = get_blocked_cells(current_grid_cols, current_grid_rows)
     current_valid_cells = get_valid_cells(current_grid_cols, current_grid_rows)
+    current_topology = normalize_map_topology_payload(
+        get_map_layout_state().get("topology"),
+        current_grid_cols,
+        current_grid_rows,
+        current_valid_cells,
+    )
     full_current_layout = _build_full_grid_cells(current_grid_cols, current_grid_rows)
     if current_valid_cells == full_current_layout:
         next_valid_cells = get_default_valid_cells(requested_grid_cols, requested_grid_rows)
@@ -723,9 +838,16 @@ def resize_map_layout(requested_grid_cols: int, requested_grid_rows: int, actor:
         }
         if not next_valid_cells:
             next_valid_cells = get_default_valid_cells(requested_grid_cols, requested_grid_rows)
-    updated_state = set_layout_cells(current_cells, next_valid_cells, requested_grid_cols, requested_grid_rows)
+    updated_state = set_layout_cells(
+        current_cells,
+        next_valid_cells,
+        requested_grid_cols,
+        requested_grid_rows,
+        topology=current_topology,
+    )
     updated = updated_state["blocked_cells"]
     updated_valid_cells = updated_state["valid_cells"]
+    updated_topology = updated_state["topology"]
     record_operation_audit(
         "map_layout",
         "global",
@@ -738,6 +860,8 @@ def resize_map_layout(requested_grid_cols: int, requested_grid_rows: int, actor:
             "grid_rows": int(requested_grid_rows),
             "blocked_count": len(updated),
             "valid_count": len(updated_valid_cells),
+            "topology_node_count": len(updated_topology.get("nodes", [])),
+            "topology_edge_count": len(updated_topology.get("edges", [])),
         },
     )
     return {
@@ -749,11 +873,14 @@ def resize_map_layout(requested_grid_cols: int, requested_grid_rows: int, actor:
         "valid_cells": _cells_to_payload(updated_valid_cells),
         "valid_count": len(updated_valid_cells),
         "is_irregular": len(updated_valid_cells) != int(requested_grid_cols) * int(requested_grid_rows),
+        "topology": updated_topology,
+        "topology_summary": build_map_topology_summary(updated_topology),
         "current_profile": _resolve_current_profile_payload(
             requested_grid_cols,
             requested_grid_rows,
             updated,
             updated_valid_cells,
+            updated_topology,
         ),
         "can_apply": True,
     }
@@ -807,10 +934,26 @@ def apply_map_profile(profile_key: str, force: bool = False, actor: dict | None 
                     _build_full_grid_cells(target_cols, target_rows),
                 ),
             )
+            if profile.get("custom"):
+                in_bounds_profile_topology = _get_custom_map_profile_topology(profile_key)
+            else:
+                in_bounds_profile_topology = normalize_map_topology_payload(
+                    profile.get("topology"),
+                    target_cols,
+                    target_rows,
+                    in_bounds_profile_valid_cells,
+                )
             filtered, skipped = _filter_occupied_cells(in_bounds_profile_cells)
-            updated_state = set_layout_cells(filtered, in_bounds_profile_valid_cells, target_cols, target_rows)
+            updated_state = set_layout_cells(
+                filtered,
+                in_bounds_profile_valid_cells,
+                target_cols,
+                target_rows,
+                topology=in_bounds_profile_topology,
+            )
             updated = updated_state["blocked_cells"]
             updated_valid_cells = updated_state["valid_cells"]
+            updated_topology = updated_state["topology"]
             record_operation_audit(
                 "map_profile",
                 profile_key,
@@ -822,6 +965,8 @@ def apply_map_profile(profile_key: str, force: bool = False, actor: dict | None 
                     "relocated_agv_count": len(relocated_agvs),
                     "trimmed_blocked_cells_count": len(trimmed_blocked_cells),
                     "valid_count": len(updated_valid_cells),
+                    "topology_node_count": len(updated_topology.get("nodes", [])),
+                    "topology_edge_count": len(updated_topology.get("edges", [])),
                 },
             )
             return {
@@ -834,10 +979,12 @@ def apply_map_profile(profile_key: str, force: bool = False, actor: dict | None 
                 "valid_cells": _cells_to_payload(updated_valid_cells),
                 "valid_count": len(updated_valid_cells),
                 "is_irregular": len(updated_valid_cells) != target_cols * target_rows,
+                "topology": updated_topology,
+                "topology_summary": build_map_topology_summary(updated_topology),
                 "skipped_occupied_cells": _cells_to_payload(set(skipped)),
                 "skipped_occupied_count": len(skipped),
                 "current_profile": _attach_map_profile_audit(
-                    _resolve_current_profile_payload(target_cols, target_rows, updated, updated_valid_cells)
+                    _resolve_current_profile_payload(target_cols, target_rows, updated, updated_valid_cells, updated_topology)
                 ),
                 "can_apply": True,
                 "forced": True,
@@ -868,13 +1015,27 @@ def apply_map_profile(profile_key: str, force: bool = False, actor: dict | None 
     if profile.get("custom"):
         profile_cells = _get_custom_map_profile_cells(profile_key)
         profile_valid_cells = _get_custom_map_profile_valid_cells(profile_key)
+        profile_topology = _get_custom_map_profile_topology(profile_key)
     else:
         profile_cells = get_map_profile_cells(profile_key)
         profile_valid_cells = get_map_profile_valid_cells(profile_key)
+        profile_topology = normalize_map_topology_payload(
+            profile.get("topology"),
+            target_cols,
+            target_rows,
+            profile_valid_cells,
+        )
     filtered, skipped = _filter_occupied_cells(profile_cells)
-    updated_state = set_layout_cells(filtered, profile_valid_cells, target_cols, target_rows)
+    updated_state = set_layout_cells(
+        filtered,
+        profile_valid_cells,
+        target_cols,
+        target_rows,
+        topology=profile_topology,
+    )
     updated = updated_state["blocked_cells"]
     updated_valid_cells = updated_state["valid_cells"]
+    updated_topology = updated_state["topology"]
     record_operation_audit(
         "map_profile",
         profile_key,
@@ -885,6 +1046,8 @@ def apply_map_profile(profile_key: str, force: bool = False, actor: dict | None 
             "grid_rows": target_rows,
             "skipped_occupied_count": len(skipped),
             "valid_count": len(updated_valid_cells),
+            "topology_node_count": len(updated_topology.get("nodes", [])),
+            "topology_edge_count": len(updated_topology.get("edges", [])),
         },
     )
     return {
@@ -897,10 +1060,12 @@ def apply_map_profile(profile_key: str, force: bool = False, actor: dict | None 
         "valid_cells": _cells_to_payload(updated_valid_cells),
         "valid_count": len(updated_valid_cells),
         "is_irregular": len(updated_valid_cells) != target_cols * target_rows,
+        "topology": updated_topology,
+        "topology_summary": build_map_topology_summary(updated_topology),
         "skipped_occupied_cells": _cells_to_payload(set(skipped)),
         "skipped_occupied_count": len(skipped),
         "current_profile": _attach_map_profile_audit(
-            _resolve_current_profile_payload(target_cols, target_rows, updated, updated_valid_cells)
+            _resolve_current_profile_payload(target_cols, target_rows, updated, updated_valid_cells, updated_topology)
         ),
         "can_apply": True,
     }
@@ -917,6 +1082,12 @@ def save_map_profile(payload, actor: dict | None = None):
     requested = _normalize_requested_cells(payload.blocked_cells, grid_cols, grid_rows)
     requested_valid_cells = _normalize_requested_valid_cells(payload.valid_cells, grid_cols, grid_rows)
     filtered_blocked = _normalize_blocked_for_valid_cells(requested, requested_valid_cells)
+    normalized_topology = normalize_map_topology_payload(
+        payload.topology,
+        grid_cols,
+        grid_rows,
+        requested_valid_cells,
+    )
     profile = MapProfile(
         key=_build_custom_profile_key(resolved_name),
         custom_name=resolved_name,
@@ -925,6 +1096,7 @@ def save_map_profile(payload, actor: dict | None = None):
         grid_rows=grid_rows,
         blocked_cells=[MapProfileCell(x=x, y=y) for x, y in sorted(filtered_blocked)],
         valid_cells=[MapProfileCell(x=x, y=y) for x, y in sorted(requested_valid_cells)],
+        topology=_topology_payload_to_model(normalized_topology),
         custom=True,
     )
     upsert_map_profile(profile)
@@ -940,6 +1112,8 @@ def save_map_profile(payload, actor: dict | None = None):
             "grid_cols": grid_cols,
             "grid_rows": grid_rows,
             "valid_count": len(requested_valid_cells),
+            "topology_node_count": len(normalized_topology.get("nodes", [])),
+            "topology_edge_count": len(normalized_topology.get("edges", [])),
         },
     )
     return {
@@ -972,14 +1146,33 @@ def update_map_layout(
     valid_cells: list | None,
     grid_cols: int,
     grid_rows: int,
+    topology=None,
     actor: dict | None = None,
 ):
     requested = {(cell.x, cell.y) for cell in blocked_cells}
     requested_valid_cells = _normalize_requested_valid_cells(valid_cells, grid_cols, grid_rows)
     filtered, skipped = _filter_occupied_cells(requested)
-    updated_state = set_layout_cells(filtered, requested_valid_cells, grid_cols, grid_rows)
+    current_topology = normalize_map_topology_payload(
+        get_map_layout_state().get("topology"),
+        grid_cols,
+        grid_rows,
+        requested_valid_cells,
+    )
+    normalized_topology = (
+        normalize_map_topology_payload(topology, grid_cols, grid_rows, requested_valid_cells)
+        if topology is not None
+        else current_topology
+    )
+    updated_state = set_layout_cells(
+        filtered,
+        requested_valid_cells,
+        grid_cols,
+        grid_rows,
+        topology=normalized_topology,
+    )
     updated = updated_state["blocked_cells"]
     updated_valid_cells = updated_state["valid_cells"]
+    updated_topology = updated_state["topology"]
     record_operation_audit(
         "map_layout",
         "global",
@@ -991,6 +1184,8 @@ def update_map_layout(
             "blocked_count": len(updated),
             "valid_count": len(updated_valid_cells),
             "skipped_occupied_count": len(skipped),
+            "topology_node_count": len(updated_topology.get("nodes", [])),
+            "topology_edge_count": len(updated_topology.get("edges", [])),
         },
     )
     return {
@@ -1002,14 +1197,22 @@ def update_map_layout(
         "valid_cells": _cells_to_payload(updated_valid_cells),
         "valid_count": len(updated_valid_cells),
         "is_irregular": len(updated_valid_cells) != int(grid_cols) * int(grid_rows),
+        "topology": updated_topology,
+        "topology_summary": build_map_topology_summary(updated_topology),
         "skipped_occupied_cells": _cells_to_payload(set(skipped)),
         "skipped_occupied_count": len(skipped),
-        "current_profile": _resolve_current_profile_payload(grid_cols, grid_rows, updated, updated_valid_cells),
+        "current_profile": _resolve_current_profile_payload(grid_cols, grid_rows, updated, updated_valid_cells, updated_topology),
     }
 
 
 def apply_map_layout_preset(preset_key: str, actor: dict | None = None):
     grid_cols, grid_rows = get_current_grid_size()
+    current_topology = normalize_map_topology_payload(
+        get_map_layout_state().get("topology"),
+        grid_cols,
+        grid_rows,
+        get_valid_cells(grid_cols, grid_rows),
+    )
     try:
         preset_cells = get_map_preset_cells(preset_key, grid_cols, grid_rows)
         preset_valid_cells = get_map_preset_valid_cells(preset_key, grid_cols, grid_rows)
@@ -1021,9 +1224,16 @@ def apply_map_layout_preset(preset_key: str, actor: dict | None = None):
             raise_api_error(404, "preset_not_found")
 
     filtered, skipped = _filter_occupied_cells(preset_cells)
-    updated_state = set_layout_cells(filtered, preset_valid_cells, grid_cols, grid_rows)
+    updated_state = set_layout_cells(
+        filtered,
+        preset_valid_cells,
+        grid_cols,
+        grid_rows,
+        topology=current_topology,
+    )
     updated = updated_state["blocked_cells"]
     updated_valid_cells = updated_state["valid_cells"]
+    updated_topology = updated_state["topology"]
     record_operation_audit(
         "map_preset",
         preset_key,
@@ -1035,6 +1245,8 @@ def apply_map_layout_preset(preset_key: str, actor: dict | None = None):
             "blocked_count": len(updated),
             "valid_count": len(updated_valid_cells),
             "skipped_occupied_count": len(skipped),
+            "topology_node_count": len(updated_topology.get("nodes", [])),
+            "topology_edge_count": len(updated_topology.get("edges", [])),
         },
     )
     return {
@@ -1046,10 +1258,12 @@ def apply_map_layout_preset(preset_key: str, actor: dict | None = None):
         "valid_cells": _cells_to_payload(updated_valid_cells),
         "valid_count": len(updated_valid_cells),
         "is_irregular": len(updated_valid_cells) != grid_cols * grid_rows,
+        "topology": updated_topology,
+        "topology_summary": build_map_topology_summary(updated_topology),
         "preset_key": preset_key,
         "skipped_occupied_cells": _cells_to_payload(set(skipped)),
         "skipped_occupied_count": len(skipped),
-        "current_profile": _resolve_current_profile_payload(grid_cols, grid_rows, updated, updated_valid_cells),
+        "current_profile": _resolve_current_profile_payload(grid_cols, grid_rows, updated, updated_valid_cells, updated_topology),
     }
 
 
@@ -1126,9 +1340,16 @@ def reset_map_layout(actor: dict | None = None):
     default_cells = get_default_blocked_cells(grid_cols, grid_rows)
     default_valid_cells = get_default_valid_cells(grid_cols, grid_rows)
     filtered, skipped = _filter_occupied_cells(default_cells)
-    updated_state = set_layout_cells(filtered, default_valid_cells, grid_cols, grid_rows)
+    updated_state = set_layout_cells(
+        filtered,
+        default_valid_cells,
+        grid_cols,
+        grid_rows,
+        topology=create_empty_map_topology(),
+    )
     updated = updated_state["blocked_cells"]
     updated_valid_cells = updated_state["valid_cells"]
+    updated_topology = updated_state["topology"]
     record_operation_audit(
         "map_layout",
         "global",
@@ -1140,6 +1361,8 @@ def reset_map_layout(actor: dict | None = None):
             "blocked_count": len(updated),
             "valid_count": len(updated_valid_cells),
             "skipped_occupied_count": len(skipped),
+            "topology_node_count": len(updated_topology.get("nodes", [])),
+            "topology_edge_count": len(updated_topology.get("edges", [])),
         },
     )
     return {
@@ -1151,7 +1374,10 @@ def reset_map_layout(actor: dict | None = None):
         "valid_cells": _cells_to_payload(updated_valid_cells),
         "valid_count": len(updated_valid_cells),
         "is_irregular": False,
+        "topology": updated_topology,
+        "topology_summary": build_map_topology_summary(updated_topology),
         "skipped_occupied_cells": _cells_to_payload(set(skipped)),
         "skipped_occupied_count": len(skipped),
-        "current_profile": _resolve_current_profile_payload(grid_cols, grid_rows, updated, updated_valid_cells),
+        "current_profile": _resolve_current_profile_payload(grid_cols, grid_rows, updated, updated_valid_cells, updated_topology),
     }
+

@@ -10,11 +10,39 @@ class BlockedCellPayload(BaseModel):
     y: int
 
 
+class MapTopologyNodePayload(BaseModel):
+    key: str | None = None
+    x: int
+    y: int
+    label: str | None = None
+    node_type: Literal["waypoint", "station", "parking", "charge"] = "waypoint"
+
+
+class MapTopologyEdgePayload(BaseModel):
+    key: str | None = None
+    source: str
+    target: str
+    direction: Literal["bidirectional", "forward", "reverse"] = "bidirectional"
+    lane_type: Literal["main", "branch", "service"] = "main"
+    weight: float = 1.0
+    speed_multiplier: float = 1.0
+
+
+class MapTopologyPayload(BaseModel):
+    topology_version: int = 1
+    nodes: list[MapTopologyNodePayload] = []
+    edges: list[MapTopologyEdgePayload] = []
+    stations: list[str] = []
+    parking_nodes: list[str] = []
+    charge_nodes: list[str] = []
+
+
 class MapLayoutUpdateRequest(BaseModel):
     blocked_cells: list[BlockedCellPayload]
     valid_cells: list[BlockedCellPayload] | None = None
     grid_cols: int = DEFAULT_GRID_COLS
     grid_rows: int = DEFAULT_GRID_ROWS
+    topology: MapTopologyPayload | None = None
 
 
 class MapResizeRequest(BaseModel):
@@ -39,6 +67,7 @@ class MapProfileCreateRequest(BaseModel):
     grid_cols: int = DEFAULT_GRID_COLS
     grid_rows: int = DEFAULT_GRID_ROWS
     import_source: str | None = None
+    topology: MapTopologyPayload | None = None
 
 
 class UiPanelSectionsPayload(BaseModel):

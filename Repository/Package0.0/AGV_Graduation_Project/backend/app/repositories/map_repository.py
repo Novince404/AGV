@@ -24,6 +24,7 @@ def get_layout_state(
 def set_layout_state(
     blocked_cells: set[tuple[int, int]],
     valid_cells: set[tuple[int, int]],
+    topology: dict[str, object] | None,
     grid_cols: int,
     grid_rows: int,
     default_grid_cols: int,
@@ -34,6 +35,7 @@ def set_layout_state(
     return _store.set_layout_state(
         blocked_cells,
         valid_cells,
+        topology,
         grid_cols,
         grid_rows,
         default_grid_cols,

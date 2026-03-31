@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from app.models.tracked_model import TrackedModel
+from app.models.map_topology import MapTopology
 
 
 class MapProfileCell(TrackedModel):
@@ -16,6 +17,7 @@ class MapProfile(TrackedModel):
     grid_rows: int
     valid_cells: list[MapProfileCell] = []
     blocked_cells: list[MapProfileCell] = []
+    topology: MapTopology | None = None
     custom: bool = True
 
     def bind_on_change(self, callback):
@@ -26,4 +28,6 @@ class MapProfile(TrackedModel):
         for cell in self.blocked_cells:
             if hasattr(cell, "bind_on_change"):
                 cell.bind_on_change(self._notify_change)
+        if self.topology and hasattr(self.topology, "bind_on_change"):
+            self.topology.bind_on_change(self._notify_change)
         return self

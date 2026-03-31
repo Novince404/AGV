@@ -121,6 +121,9 @@ const ENTERPRISE_MAP_EDITOR_ZOOM_DEFAULT = 0.85
 const ENTERPRISE_MAP_EDITOR_ZOOM_MIN = 0.5
 const ENTERPRISE_MAP_EDITOR_ZOOM_MAX = 1.6
 const ENTERPRISE_MAP_EDITOR_ZOOM_STEP = 0.05
+const TOPOLOGY_NODE_TYPE_KEYS = ['waypoint', 'station', 'parking', 'charge']
+const TOPOLOGY_EDGE_DIRECTION_KEYS = ['bidirectional', 'forward', 'reverse']
+const TOPOLOGY_EDGE_LANE_TYPE_KEYS = ['main', 'branch', 'service']
 const MIN_ZOOM = 0.75
 const MAX_ZOOM = 3
 const DEFAULT_BLOCKED_CELLS = [
@@ -155,6 +158,7 @@ const localAgvs = ref([])
 const tasks = ref([])
 const blockedCells = ref([...DEFAULT_BLOCKED_CELLS])
 const validCells = ref(buildFullValidCellList(GRID_COLS, GRID_ROWS))
+const currentMapTopology = ref(createEmptyMapTopology())
 const currentGridCols = ref(GRID_COLS)
 const currentGridRows = ref(GRID_ROWS)
 const mapWidth = computed(() => currentGridCols.value * CELL_SIZE)
@@ -205,6 +209,159 @@ function normalizeValidCellList(cells, gridCols = gridColsValue(), gridRows = gr
     .sort((a, b) => a.y - b.y || a.x - b.x)
 
   return normalized.length ? normalized : fallback
+}
+
+function createEmptyMapTopology() {
+  return {
+    topology_version: 1,
+    nodes: [],
+    edges: [],
+    stations: [],
+    parking_nodes: [],
+    charge_nodes: []
+  }
+}
+
+function normalizeMapTopology(topology, gridCols = gridColsValue(), gridRows = gridRowsValue(), nextValidCells = validCells.value) {
+  const normalizedValidCells = normalizeValidCellList(nextValidCells, gridCols, gridRows)
+  const validCellKeySet = new Set(normalizedValidCells.map(cell => blockedCellKey(cell.x, cell.y)))
+  const source = topology && typeof topology === 'object' ? topology : {}
+  const stationKeys = new Set((Array.isArray(source?.stations) ? source.stations : []).map(item => String(item || '').trim()).filter(Boolean))
+  const parkingKeys = new Set((Array.isArray(source?.parking_nodes) ? source.parking_nodes : []).map(item => String(item || '').trim()).filter(Boolean))
+  const chargeKeys = new Set((Array.isArray(source?.charge_nodes) ? source.charge_nodes : []).map(item => String(item || '').trim()).filter(Boolean))
+
+  const nodes = []
+  const seenNodeKeys = new Set()
+  const seenNodeCells = new Set()
+  ;(Array.isArray(source?.nodes) ? source.nodes : []).forEach((node, index) => {
+    const x = Math.round(Number(node?.x))
+    const y = Math.round(Number(node?.y))
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return
+    const cellKey = blockedCellKey(x, y)
+    if (!validCellKeySet.has(cellKey)) return
+    const fallbackKey = `node_${x}_${y}_${index + 1}`
+    const key = String(node?.key || fallbackKey).trim() || fallbackKey
+    if (seenNodeKeys.has(key) || seenNodeCells.has(cellKey)) return
+    let nodeType = String(node?.node_type || 'waypoint').trim().toLowerCase()
+    if (chargeKeys.has(key)) nodeType = 'charge'
+    else if (parkingKeys.has(key)) nodeType = 'parking'
+    else if (stationKeys.has(key)) nodeType = 'station'
+    if (!TOPOLOGY_NODE_TYPE_KEYS.includes(nodeType)) nodeType = 'waypoint'
+    nodes.push({
+      key,
+      x,
+      y,
+      label: String(node?.label || '').trim() || null,
+      node_type: nodeType
+    })
+    seenNodeKeys.add(key)
+    seenNodeCells.add(cellKey)
+  })
+
+  const nodeKeySet = new Set(nodes.map(node => node.key))
+  const edges = []
+  const seenEdgeKeys = new Set()
+  const seenEdgePairs = new Set()
+  ;(Array.isArray(source?.edges) ? source.edges : []).forEach((edge, index) => {
+    const sourceKey = String(edge?.source || '').trim()
+    const targetKey = String(edge?.target || '').trim()
+    if (!sourceKey || !targetKey || sourceKey === targetKey) return
+    if (!nodeKeySet.has(sourceKey) || !nodeKeySet.has(targetKey)) return
+    const fallbackKey = `edge_${sourceKey}_${targetKey}_${index + 1}`
+    const key = String(edge?.key || fallbackKey).trim() || fallbackKey
+    const pairKey = `${sourceKey}=>${targetKey}`
+    if (seenEdgeKeys.has(key) || seenEdgePairs.has(pairKey)) return
+    const direction = TOPOLOGY_EDGE_DIRECTION_KEYS.includes(String(edge?.direction || '').trim())
+      ? String(edge.direction).trim()
+      : 'bidirectional'
+    const laneType = TOPOLOGY_EDGE_LANE_TYPE_KEYS.includes(String(edge?.lane_type || '').trim())
+      ? String(edge.lane_type).trim()
+      : 'main'
+    const weight = Math.max(0.1, Number(edge?.weight) || 1)
+    const speedMultiplier = Math.max(0.1, Number(edge?.speed_multiplier) || 1)
+    edges.push({
+      key,
+      source: sourceKey,
+      target: targetKey,
+      direction,
+      lane_type: laneType,
+      weight,
+      speed_multiplier: speedMultiplier
+    })
+    seenEdgeKeys.add(key)
+    seenEdgePairs.add(pairKey)
+  })
+
+  return {
+    topology_version: 1,
+    nodes,
+    edges,
+    stations: nodes.filter(node => node.node_type === 'station').map(node => node.key),
+    parking_nodes: nodes.filter(node => node.node_type === 'parking').map(node => node.key),
+    charge_nodes: nodes.filter(node => node.node_type === 'charge').map(node => node.key)
+  }
+}
+
+function cloneMapTopology(topology, gridCols = gridColsValue(), gridRows = gridRowsValue(), nextValidCells = validCells.value) {
+  return normalizeMapTopology(topology, gridCols, gridRows, nextValidCells)
+}
+
+function buildMapTopologySummary(topology, gridCols = gridColsValue(), gridRows = gridRowsValue(), nextValidCells = validCells.value) {
+  const normalized = normalizeMapTopology(topology, gridCols, gridRows, nextValidCells)
+  return {
+    enabled: normalized.nodes.length > 0 || normalized.edges.length > 0,
+    node_count: normalized.nodes.length,
+    edge_count: normalized.edges.length,
+    station_count: normalized.stations.length,
+    parking_count: normalized.parking_nodes.length,
+    charge_count: normalized.charge_nodes.length
+  }
+}
+
+function findMapTopologyNodeAtCell(topology, x, y) {
+  const normalized = topology && typeof topology === 'object' ? topology : createEmptyMapTopology()
+  return (normalized.nodes || []).find(node => Number(node.x) === Number(x) && Number(node.y) === Number(y)) || null
+}
+
+function buildMapTopologyNodeKey(topology, x, y) {
+  const existing = new Set((topology?.nodes || []).map(node => String(node.key)))
+  let counter = (topology?.nodes || []).length + 1
+  let key = `node_${x}_${y}_${counter}`
+  while (existing.has(key)) {
+    counter += 1
+    key = `node_${x}_${y}_${counter}`
+  }
+  return key
+}
+
+function buildMapTopologyEdgeKey(topology, sourceKey, targetKey) {
+  const existing = new Set((topology?.edges || []).map(edge => String(edge.key)))
+  let counter = (topology?.edges || []).length + 1
+  let key = `edge_${sourceKey}_${targetKey}_${counter}`
+  while (existing.has(key)) {
+    counter += 1
+    key = `edge_${sourceKey}_${targetKey}_${counter}`
+  }
+  return key
+}
+
+function formatEnterpriseTopologyNodeBadge(node) {
+  if (!node) return ''
+  if (node.node_type === 'station') return 'S'
+  if (node.node_type === 'parking') return 'P'
+  if (node.node_type === 'charge') return 'C'
+  const label = String(node.label || '').trim()
+  return label ? label.slice(0, 2).toUpperCase() : 'N'
+}
+
+function formatMapProfileTopologySummary(profile) {
+  const summary = profile?.topology_summary || {}
+  const nodeCount = Number(summary.node_count || 0)
+  const edgeCount = Number(summary.edge_count || 0)
+  if (!nodeCount && !edgeCount) return ''
+  return t('enterprise_settings_route_topology_profile_meta')
+    .replace('{nodes}', String(nodeCount))
+    .replace('{edges}', String(edgeCount))
 }
 
 function isValidMapCell(x, y) {
@@ -892,6 +1049,11 @@ const enterpriseMapEditorDraftValidCells = ref(buildFullValidCellList(GRID_COLS,
 const enterpriseMapEditorDraftCols = ref(GRID_COLS)
 const enterpriseMapEditorDraftRows = ref(GRID_ROWS)
 const enterpriseMapEditorZoom = ref(ENTERPRISE_MAP_EDITOR_ZOOM_DEFAULT)
+const enterpriseTopologyEditorDialogOpen = ref(false)
+const enterpriseTopologyEditorDraft = ref(createEmptyMapTopology())
+const enterpriseTopologyEditorSelectedNodeKey = ref('')
+const enterpriseTopologyEditorSelectedEdgeKey = ref('')
+const enterpriseTopologyEditorLinkSourceKey = ref('')
 const authRoleLabel = computed(() => t(`auth_role_${authCurrentRole.value}`))
 const authRoleBadgeClass = computed(() => `role-${authCurrentRole.value}`)
 const isPlatformAdmin = computed(() => authCurrentRole.value === 'platform_admin')
@@ -2187,6 +2349,67 @@ const enterpriseMapEditorGridStyle = computed(() => ({
   gridTemplateColumns: `repeat(${enterpriseMapEditorCols.value.length}, ${enterpriseMapEditorCellSize.value}px)`,
   '--enterprise-map-editor-cell-size': `${enterpriseMapEditorCellSize.value}px`
 }))
+const enterpriseTopologyNodeTypeOptions = computed(() => [
+  { value: 'waypoint', label: t('enterprise_settings_route_topology_node_type_waypoint') },
+  { value: 'station', label: t('enterprise_settings_route_topology_node_type_station') },
+  { value: 'parking', label: t('enterprise_settings_route_topology_node_type_parking') },
+  { value: 'charge', label: t('enterprise_settings_route_topology_node_type_charge') }
+])
+const enterpriseTopologyEdgeDirectionOptions = computed(() => [
+  { value: 'bidirectional', label: t('enterprise_settings_route_topology_direction_bidirectional') },
+  { value: 'forward', label: t('enterprise_settings_route_topology_direction_forward') },
+  { value: 'reverse', label: t('enterprise_settings_route_topology_direction_reverse') }
+])
+const enterpriseTopologyLaneTypeOptions = computed(() => [
+  { value: 'main', label: t('enterprise_settings_route_topology_lane_type_main') },
+  { value: 'branch', label: t('enterprise_settings_route_topology_lane_type_branch') },
+  { value: 'service', label: t('enterprise_settings_route_topology_lane_type_service') }
+])
+const enterpriseTopologyDraftSummary = computed(() =>
+  buildMapTopologySummary(enterpriseTopologyEditorDraft.value, gridColsValue(), gridRowsValue(), validCells.value)
+)
+const enterpriseTopologyNodesByCell = computed(() => {
+  const entries = {}
+  for (const node of enterpriseTopologyEditorDraft.value?.nodes || []) {
+    entries[blockedCellKey(node.x, node.y)] = node
+  }
+  return entries
+})
+const enterpriseTopologySelectedNode = computed(() =>
+  (enterpriseTopologyEditorDraft.value?.nodes || []).find(node => node.key === enterpriseTopologyEditorSelectedNodeKey.value) || null
+)
+const enterpriseTopologySelectedEdge = computed(() =>
+  (enterpriseTopologyEditorDraft.value?.edges || []).find(edge => edge.key === enterpriseTopologyEditorSelectedEdgeKey.value) || null
+)
+const enterpriseTopologyLinkSourceNode = computed(() =>
+  (enterpriseTopologyEditorDraft.value?.nodes || []).find(node => node.key === enterpriseTopologyEditorLinkSourceKey.value) || null
+)
+const enterpriseTopologyGridStyle = computed(() => ({
+  gridTemplateColumns: `repeat(${gridColsValue()}, 30px)`,
+  '--enterprise-map-editor-cell-size': '30px'
+}))
+const enterpriseTopologyEdgeSvgStyle = computed(() => ({
+  width: `${gridColsValue() * 30}px`,
+  height: `${gridRowsValue() * 30}px`
+}))
+const enterpriseTopologySvgEdges = computed(() => {
+  const topology = enterpriseTopologyEditorDraft.value || createEmptyMapTopology()
+  const nodeMap = Object.fromEntries((topology.nodes || []).map(node => [node.key, node]))
+  return (topology.edges || [])
+    .map(edge => {
+      const source = nodeMap[edge.source]
+      const target = nodeMap[edge.target]
+      if (!source || !target) return null
+      return {
+        ...edge,
+        x1: source.x * 30 + 15,
+        y1: source.y * 30 + 15,
+        x2: target.x * 30 + 15,
+        y2: target.y * 30 + 15
+      }
+    })
+    .filter(Boolean)
+})
 const authCapabilityCards = computed(() => [
   {
     key: 'dispatch',
@@ -2611,6 +2834,9 @@ const enterpriseRecentCustomTemplates = computed(() => customTaskTemplates.value
 const enterpriseRecentAiJobs = computed(() => comfyRenderJobs.value.slice(0, 4))
 const enterpriseRecentAuditEntries = computed(() => operationAudits.value.slice(0, 5))
 const enterpriseFilteredAuditEntries = computed(() => filteredOperationAudits.value.slice(0, 8))
+const currentMapTopologySummary = computed(() =>
+  buildMapTopologySummary(currentMapTopology.value, gridColsValue(), gridRowsValue(), validCells.value)
+)
 const enterpriseMapWorkspaceCards = computed(() => [
   {
     key: 'profile',
@@ -2628,6 +2854,16 @@ const enterpriseMapWorkspaceCards = computed(() => [
     value: String(blockedCellCount.value)
   },
   {
+    key: 'topology_nodes',
+    label: t('enterprise_settings_route_topology_nodes'),
+    value: String(currentMapTopologySummary.value.node_count)
+  },
+  {
+    key: 'topology_edges',
+    label: t('enterprise_settings_route_topology_edges'),
+    value: String(currentMapTopologySummary.value.edge_count)
+  },
+  {
     key: 'profiles',
     label: t('enterprise_settings_summary_profile_count'),
     value: String(mapProfiles.value.length)
@@ -2637,6 +2873,40 @@ const enterpriseMapWorkspaceMetaText = computed(() => {
   if (!mapProfileActionSummary.value) return ''
   const profileName = mapProfileActionSummary.value.profileName || currentMapProfileLabel.value || '—'
   return `${mapProfileActionSummaryTitle()} · ${profileName}`
+})
+const enterpriseRouteTopologyCards = computed(() => [
+  {
+    key: 'nodes',
+    label: t('enterprise_settings_route_topology_nodes'),
+    value: String(currentMapTopologySummary.value.node_count)
+  },
+  {
+    key: 'edges',
+    label: t('enterprise_settings_route_topology_edges'),
+    value: String(currentMapTopologySummary.value.edge_count)
+  },
+  {
+    key: 'stations',
+    label: t('enterprise_settings_route_topology_stations'),
+    value: String(currentMapTopologySummary.value.station_count)
+  },
+  {
+    key: 'parking',
+    label: t('enterprise_settings_route_topology_parking'),
+    value: String(currentMapTopologySummary.value.parking_count)
+  },
+  {
+    key: 'charge',
+    label: t('enterprise_settings_route_topology_charge'),
+    value: String(currentMapTopologySummary.value.charge_count)
+  }
+])
+const enterpriseRouteTopologyMetaText = computed(() => {
+  if (!currentMapTopologySummary.value.enabled) return t('enterprise_settings_route_topology_empty_hint')
+  return t('enterprise_settings_route_topology_meta')
+    .replace('{stations}', String(currentMapTopologySummary.value.station_count))
+    .replace('{parking}', String(currentMapTopologySummary.value.parking_count))
+    .replace('{charge}', String(currentMapTopologySummary.value.charge_count))
 })
 const enterprisePointFormDraftText = computed(() => {
   const draft = customPointForm.value || {}
@@ -7551,6 +7821,165 @@ async function saveEnterpriseMapEditorDraft() {
   }
 }
 
+function openEnterpriseTopologyEditorDialog() {
+  enterpriseTopologyEditorDraft.value = cloneMapTopology(currentMapTopology.value, gridColsValue(), gridRowsValue(), validCells.value)
+  enterpriseTopologyEditorSelectedNodeKey.value = ''
+  enterpriseTopologyEditorSelectedEdgeKey.value = ''
+  enterpriseTopologyEditorLinkSourceKey.value = ''
+  enterpriseTopologyEditorDialogOpen.value = true
+}
+
+function closeEnterpriseTopologyEditorDialog() {
+  enterpriseTopologyEditorDialogOpen.value = false
+  enterpriseTopologyEditorSelectedNodeKey.value = ''
+  enterpriseTopologyEditorSelectedEdgeKey.value = ''
+  enterpriseTopologyEditorLinkSourceKey.value = ''
+}
+
+function resetEnterpriseTopologyEditorDraft() {
+  enterpriseTopologyEditorDraft.value = cloneMapTopology(currentMapTopology.value, gridColsValue(), gridRowsValue(), validCells.value)
+  enterpriseTopologyEditorSelectedNodeKey.value = ''
+  enterpriseTopologyEditorSelectedEdgeKey.value = ''
+  enterpriseTopologyEditorLinkSourceKey.value = ''
+}
+
+function selectEnterpriseTopologyNode(nodeKey) {
+  enterpriseTopologyEditorSelectedNodeKey.value = String(nodeKey || '')
+  enterpriseTopologyEditorSelectedEdgeKey.value = ''
+}
+
+function selectEnterpriseTopologyEdge(edgeKey) {
+  enterpriseTopologyEditorSelectedEdgeKey.value = String(edgeKey || '')
+  enterpriseTopologyEditorSelectedNodeKey.value = ''
+}
+
+function updateEnterpriseTopologyNode(patch = {}) {
+  const selectedKey = enterpriseTopologyEditorSelectedNodeKey.value
+  if (!selectedKey) return
+  enterpriseTopologyEditorDraft.value = normalizeMapTopology({
+    ...enterpriseTopologyEditorDraft.value,
+    nodes: (enterpriseTopologyEditorDraft.value?.nodes || []).map(node =>
+      node.key === selectedKey ? { ...node, ...patch } : node
+    )
+  }, gridColsValue(), gridRowsValue(), validCells.value)
+}
+
+function updateEnterpriseTopologyEdge(patch = {}) {
+  const selectedKey = enterpriseTopologyEditorSelectedEdgeKey.value
+  if (!selectedKey) return
+  enterpriseTopologyEditorDraft.value = normalizeMapTopology({
+    ...enterpriseTopologyEditorDraft.value,
+    edges: (enterpriseTopologyEditorDraft.value?.edges || []).map(edge =>
+      edge.key === selectedKey ? { ...edge, ...patch } : edge
+    )
+  }, gridColsValue(), gridRowsValue(), validCells.value)
+}
+
+function toggleEnterpriseTopologyLinkSource() {
+  if (!enterpriseTopologySelectedNode.value) return
+  enterpriseTopologyEditorLinkSourceKey.value = enterpriseTopologyEditorLinkSourceKey.value === enterpriseTopologySelectedNode.value.key
+    ? ''
+    : enterpriseTopologySelectedNode.value.key
+}
+
+function removeSelectedEnterpriseTopologyNode() {
+  const selectedNode = enterpriseTopologySelectedNode.value
+  if (!selectedNode) return
+  enterpriseTopologyEditorDraft.value = normalizeMapTopology({
+    ...enterpriseTopologyEditorDraft.value,
+    nodes: (enterpriseTopologyEditorDraft.value?.nodes || []).filter(node => node.key !== selectedNode.key),
+    edges: (enterpriseTopologyEditorDraft.value?.edges || []).filter(edge => edge.source !== selectedNode.key && edge.target !== selectedNode.key)
+  }, gridColsValue(), gridRowsValue(), validCells.value)
+  if (enterpriseTopologyEditorLinkSourceKey.value === selectedNode.key) {
+    enterpriseTopologyEditorLinkSourceKey.value = ''
+  }
+  enterpriseTopologyEditorSelectedNodeKey.value = ''
+}
+
+function removeSelectedEnterpriseTopologyEdge() {
+  const selectedEdge = enterpriseTopologySelectedEdge.value
+  if (!selectedEdge) return
+  enterpriseTopologyEditorDraft.value = normalizeMapTopology({
+    ...enterpriseTopologyEditorDraft.value,
+    edges: (enterpriseTopologyEditorDraft.value?.edges || []).filter(edge => edge.key !== selectedEdge.key)
+  }, gridColsValue(), gridRowsValue(), validCells.value)
+  enterpriseTopologyEditorSelectedEdgeKey.value = ''
+}
+
+function applyEnterpriseTopologyCell(cell) {
+  if (!cell) return
+  if (!isValidMapCell(cell.x, cell.y)) return
+  const existingNode = findMapTopologyNodeAtCell(enterpriseTopologyEditorDraft.value, cell.x, cell.y)
+  if (existingNode) {
+    if (enterpriseTopologyEditorLinkSourceKey.value && enterpriseTopologyEditorLinkSourceKey.value !== existingNode.key) {
+      const edgeKey = buildMapTopologyEdgeKey(
+        enterpriseTopologyEditorDraft.value,
+        enterpriseTopologyEditorLinkSourceKey.value,
+        existingNode.key
+      )
+      enterpriseTopologyEditorDraft.value = normalizeMapTopology({
+        ...enterpriseTopologyEditorDraft.value,
+        edges: [
+          ...(enterpriseTopologyEditorDraft.value?.edges || []),
+          {
+            key: edgeKey,
+            source: enterpriseTopologyEditorLinkSourceKey.value,
+            target: existingNode.key,
+            direction: 'bidirectional',
+            lane_type: 'main',
+            weight: 1,
+            speed_multiplier: 1
+          }
+        ]
+      }, gridColsValue(), gridRowsValue(), validCells.value)
+      enterpriseTopologyEditorSelectedEdgeKey.value = edgeKey
+      enterpriseTopologyEditorSelectedNodeKey.value = ''
+      enterpriseTopologyEditorLinkSourceKey.value = ''
+      return
+    }
+    selectEnterpriseTopologyNode(existingNode.key)
+    return
+  }
+
+  const nodeKey = buildMapTopologyNodeKey(enterpriseTopologyEditorDraft.value, cell.x, cell.y)
+  enterpriseTopologyEditorDraft.value = normalizeMapTopology({
+    ...enterpriseTopologyEditorDraft.value,
+    nodes: [
+      ...(enterpriseTopologyEditorDraft.value?.nodes || []),
+      {
+        key: nodeKey,
+        x: cell.x,
+        y: cell.y,
+        label: null,
+        node_type: 'waypoint'
+      }
+    ]
+  }, gridColsValue(), gridRowsValue(), validCells.value)
+  selectEnterpriseTopologyNode(nodeKey)
+}
+
+async function saveEnterpriseTopologyEditorDraft() {
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'map.write', buildCapabilityDeniedMessage('map'))) return
+  const normalizedTopology = normalizeMapTopology(
+    enterpriseTopologyEditorDraft.value,
+    gridColsValue(),
+    gridRowsValue(),
+    validCells.value
+  )
+  const ok = await saveBlockedCells(
+    blockedCells.value,
+    validCells.value,
+    gridColsValue(),
+    gridRowsValue(),
+    normalizedTopology
+  )
+  if (ok) {
+    enterpriseTopologyEditorDraft.value = normalizedTopology
+    closeEnterpriseTopologyEditorDialog()
+    showFloatingToast(t('enterprise_settings_route_topology_saved'), 'success')
+  }
+}
+
 function normalizeOperationAuditEntryIds(entries = []) {
   return [...new Set(
     (entries || [])
@@ -10852,6 +11281,15 @@ function applyGridSizeFromPayload(payload) {
   }
 }
 
+function syncMapTopologyFromPayload(payload, nextValidCells = validCells.value) {
+  currentMapTopology.value = normalizeMapTopology(
+    payload?.topology,
+    gridColsValue(),
+    gridRowsValue(),
+    nextValidCells
+  )
+}
+
 function createMapResizePreviewSnapshot(cols, rows, canApply = true) {
   return {
     current_grid_cols: cols,
@@ -11229,6 +11667,7 @@ async function saveCurrentMapProfile() {
         valid_cells: validCells.value,
         grid_cols: gridColsValue(),
         grid_rows: gridRowsValue(),
+        topology: currentMapTopology.value,
       })
     })
     const data = await res.json()
@@ -11274,7 +11713,8 @@ async function exportMapProfile(profile) {
         blocked_count: Number(data.blocked_count ?? 0),
         blocked_cells: Array.isArray(data.blocked_cells) ? data.blocked_cells : [],
         valid_count: Number(data.valid_count ?? 0),
-        valid_cells: Array.isArray(data.valid_cells) ? data.valid_cells : []
+        valid_cells: Array.isArray(data.valid_cells) ? data.valid_cells : [],
+        topology: data?.topology ?? createEmptyMapTopology()
       }
     }
     downloadJsonFile(`agv-map-profile-${data.key}.json`, JSON.stringify(payload, null, 2))
@@ -11318,6 +11758,7 @@ function normalizeImportedMapProfilePayload(payload) {
     gridCols,
     gridRows
   )
+  const topology = normalizeMapTopology(profile.topology, gridCols, gridRows, validCells)
 
   return {
     name,
@@ -11325,7 +11766,8 @@ function normalizeImportedMapProfilePayload(payload) {
     grid_cols: gridCols,
     grid_rows: gridRows,
     blocked_cells: filterBlockedCellsAgainstValid(blockedCells, validCells),
-    valid_cells: validCells
+    valid_cells: validCells,
+    topology
   }
 }
 
@@ -11497,6 +11939,7 @@ async function applyMapProfile(profile) {
     validCells.value = normalizedValidCells
     syncedBlockedCells.value = normalized
     syncedValidCells.value = normalizedValidCells
+    syncMapTopologyFromPayload(data, normalizedValidCells)
     appliedObstacleSceneKey.value = detectObstacleSceneKey(normalized, normalizedValidCells)
     if (appliedObstacleSceneKey.value !== 'custom') {
       selectedObstaclePreset.value = appliedObstacleSceneKey.value
@@ -11798,7 +12241,8 @@ async function saveBlockedCells(
   nextBlockedCells = blockedCells.value,
   nextValidCells = validCells.value,
   nextGridCols = gridColsValue(),
-  nextGridRows = gridRowsValue()
+  nextGridRows = gridRowsValue(),
+  nextTopology = currentMapTopology.value
 ) {
   if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'map.write', buildCapabilityDeniedMessage('map'))) return false
   if (!ensureObstacleMutationAllowed()) {
@@ -11809,6 +12253,7 @@ async function saveBlockedCells(
     const targetGridCols = sanitizeGridDimensionInput(nextGridCols, gridColsValue())
     const targetGridRows = sanitizeGridDimensionInput(nextGridRows, gridRowsValue())
     const normalizedValidCells = normalizeValidCellList(nextValidCells, targetGridCols, targetGridRows)
+    const normalizedTopology = normalizeMapTopology(nextTopology, targetGridCols, targetGridRows, normalizedValidCells)
     const { filtered, skipped } = filterBlockedCellsAgainstOccupied(
       filterBlockedCellsAgainstValid(nextBlockedCells, normalizedValidCells)
     )
@@ -11819,7 +12264,8 @@ async function saveBlockedCells(
         blocked_cells: filtered,
         valid_cells: normalizedValidCells,
         grid_cols: targetGridCols,
-        grid_rows: targetGridRows
+        grid_rows: targetGridRows,
+        topology: normalizedTopology
       })
     })
     const data = await res.json()
@@ -11836,6 +12282,7 @@ async function saveBlockedCells(
     validCells.value = syncedValid
     syncedBlockedCells.value = normalized
     syncedValidCells.value = syncedValid
+    syncMapTopologyFromPayload(data, syncedValid)
     appliedObstacleSceneKey.value = detectObstacleSceneKey(normalized, syncedValid)
     if (appliedObstacleSceneKey.value !== 'custom') {
       selectedObstaclePreset.value = appliedObstacleSceneKey.value
@@ -11981,6 +12428,7 @@ async function resetBlockedCellsToDefault() {
     validCells.value = normalizedValidCells
     syncedBlockedCells.value = filtered
     syncedValidCells.value = normalizedValidCells
+    syncMapTopologyFromPayload(data, normalizedValidCells)
     appliedObstacleSceneKey.value = detectObstacleSceneKey(filtered, normalizedValidCells)
     if (appliedObstacleSceneKey.value !== 'custom') {
       selectedObstaclePreset.value = appliedObstacleSceneKey.value
@@ -12087,6 +12535,7 @@ async function fetchMapLayout() {
       validCells.value = buildFullValidCellList(gridColsValue(), gridRowsValue())
       syncedBlockedCells.value = [...DEFAULT_BLOCKED_CELLS]
       syncedValidCells.value = buildFullValidCellList(gridColsValue(), gridRowsValue())
+      currentMapTopology.value = createEmptyMapTopology()
       appliedObstacleSceneKey.value = 'default_shelves'
       selectedObstaclePreset.value = 'default_shelves'
       clearImportedObstacleLayoutPreset()
@@ -12106,6 +12555,7 @@ async function fetchMapLayout() {
     validCells.value = normalizedValidCells
     syncedBlockedCells.value = filtered
     syncedValidCells.value = normalizedValidCells
+    syncMapTopologyFromPayload(data, normalizedValidCells)
     appliedObstacleSceneKey.value = detectObstacleSceneKey(filtered, normalizedValidCells)
     if (appliedObstacleSceneKey.value !== 'custom') {
       selectedObstaclePreset.value = appliedObstacleSceneKey.value
@@ -12120,6 +12570,7 @@ async function fetchMapLayout() {
     validCells.value = buildFullValidCellList(gridColsValue(), gridRowsValue())
     syncedBlockedCells.value = [...DEFAULT_BLOCKED_CELLS]
     syncedValidCells.value = buildFullValidCellList(gridColsValue(), gridRowsValue())
+    currentMapTopology.value = createEmptyMapTopology()
     appliedObstacleSceneKey.value = 'default_shelves'
     selectedObstaclePreset.value = 'default_shelves'
     clearImportedObstacleLayoutPreset()
@@ -12157,6 +12608,7 @@ async function applyObstaclePreset() {
     validCells.value = normalizedValidCells
     syncedBlockedCells.value = filtered
     syncedValidCells.value = normalizedValidCells
+    syncMapTopologyFromPayload(data, normalizedValidCells)
     appliedObstacleSceneKey.value = detectObstacleSceneKey(filtered, normalizedValidCells)
     if (appliedObstacleSceneKey.value !== 'custom') {
       selectedObstaclePreset.value = appliedObstacleSceneKey.value
@@ -12187,7 +12639,8 @@ function downloadObstacleLayout() {
     grid_cols: gridColsValue(),
     grid_rows: gridRowsValue(),
     blocked_cells: normalizeBlockedCellList(blockedCells.value),
-    valid_cells: normalizeValidCellList(validCells.value)
+    valid_cells: normalizeValidCellList(validCells.value),
+    topology: currentMapTopology.value
   }
   downloadJsonFile('agv-obstacle-layout.json', JSON.stringify(payload, null, 2))
 }
@@ -13899,6 +14352,7 @@ const enterpriseSettingsDialogBindings = {
   enterpriseShortcutPlannerDialogOpen,
   enterpriseMapEditorDialogOpen,
   enterpriseMapEditorSaving,
+  enterpriseTopologyEditorDialogOpen,
   enterpriseActiveTabModeLabel,
   enterpriseActiveTabAccessLabel,
   enterpriseActiveTabAccessHint,
@@ -13966,6 +14420,8 @@ const enterpriseSettingsDialogBindings = {
   enterprisePointTemplateFocus,
   enterpriseMapWorkspaceCards,
   enterpriseMapWorkspaceMetaText,
+  enterpriseRouteTopologyCards,
+  enterpriseRouteTopologyMetaText,
   enterprisePointTemplateWorkspaceCards,
   enterpriseRuntimeWorkspaceCards,
   enterpriseAiWorkspaceCards,
@@ -13977,6 +14433,7 @@ const enterpriseSettingsDialogBindings = {
   enterpriseAiActionScope,
   mapSizeLabel,
   blockedCellCount,
+  currentMapTopologySummary,
   enterpriseMapEditorRows,
   enterpriseMapEditorCols,
   enterpriseMapEditorDraftCols,
@@ -13988,6 +14445,17 @@ const enterpriseSettingsDialogBindings = {
   enterpriseMapEditorFootprintLabel,
   enterpriseMapEditorSizeLabel,
   enterpriseMapEditorGridStyle,
+  enterpriseTopologyDraftSummary,
+  enterpriseTopologyNodesByCell,
+  enterpriseTopologySelectedNode,
+  enterpriseTopologySelectedEdge,
+  enterpriseTopologyLinkSourceNode,
+  enterpriseTopologyNodeTypeOptions,
+  enterpriseTopologyEdgeDirectionOptions,
+  enterpriseTopologyLaneTypeOptions,
+  enterpriseTopologyGridStyle,
+  enterpriseTopologyEdgeSvgStyle,
+  enterpriseTopologySvgEdges,
   mapProfiles,
   mapProfileActionSummary,
   pointLibrary,
@@ -14092,6 +14560,9 @@ const enterpriseSettingsDialogBindings = {
   openEnterpriseMapEditorDialog,
   closeEnterpriseMapEditorDialog,
   resetEnterpriseMapEditorDraft,
+  openEnterpriseTopologyEditorDialog,
+  closeEnterpriseTopologyEditorDialog,
+  resetEnterpriseTopologyEditorDraft,
   switchEnterpriseSettingsTab,
   toggleEnterpriseSettingsSidebar,
   enterpriseTabAccessLabel,
@@ -14150,6 +14621,17 @@ const enterpriseSettingsDialogBindings = {
   handleEnterpriseMapEditorWheel,
   applyEnterpriseMapEditorCell,
   saveEnterpriseMapEditorDraft,
+  applyEnterpriseTopologyCell,
+  selectEnterpriseTopologyNode,
+  selectEnterpriseTopologyEdge,
+  updateEnterpriseTopologyNode,
+  updateEnterpriseTopologyEdge,
+  toggleEnterpriseTopologyLinkSource,
+  removeSelectedEnterpriseTopologyNode,
+  removeSelectedEnterpriseTopologyEdge,
+  saveEnterpriseTopologyEditorDraft,
+  formatEnterpriseTopologyNodeBadge,
+  formatMapProfileTopologySummary,
   isCellOccupied,
   applyMapProfile,
   isMapProfilePreviewing,

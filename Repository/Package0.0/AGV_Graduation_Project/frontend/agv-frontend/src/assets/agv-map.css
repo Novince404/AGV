@@ -1681,6 +1681,88 @@ h2 {
   cursor: not-allowed;
 }
 
+.enterprise-route-topology-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(280px, 0.95fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.enterprise-route-topology-canvas,
+.enterprise-route-topology-inspector {
+  display: grid;
+  gap: 10px;
+}
+
+.enterprise-route-topology-stage {
+  position: relative;
+  display: inline-block;
+  min-width: max-content;
+}
+
+.enterprise-route-topology-svg {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.enterprise-route-topology-line {
+  stroke: rgba(110, 85, 49, 0.66);
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.enterprise-route-topology-line.is-selected {
+  stroke: rgba(183, 92, 36, 0.96);
+  stroke-width: 4;
+}
+
+.enterprise-route-topology-cell {
+  position: relative;
+  z-index: 1;
+}
+
+.enterprise-route-topology-cell.has-node {
+  border-color: rgba(89, 115, 160, 0.68);
+  background: rgba(220, 231, 247, 0.92);
+  color: #406189;
+}
+
+.enterprise-route-topology-cell.is-link-source {
+  border-color: rgba(33, 127, 93, 0.82);
+  background: rgba(212, 241, 231, 0.98);
+}
+
+.enterprise-route-topology-cell.is-selected {
+  border-color: rgba(183, 92, 36, 0.88);
+  background: rgba(247, 223, 205, 0.98);
+  box-shadow: inset 0 0 0 1px rgba(183, 92, 36, 0.16);
+}
+
+.enterprise-route-topology-node-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.96);
+  color: #406189;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+  box-shadow: 0 2px 6px rgba(63, 86, 112, 0.14);
+}
+
+.enterprise-route-topology-inspector .enterprise-settings-action-chip.is-active {
+  background: rgba(197, 142, 81, 0.18);
+  border-color: rgba(197, 142, 81, 0.34);
+  color: #7b5227;
+}
+
 .enterprise-settings-content {
   display: grid;
   align-content: start;
@@ -5918,7 +6000,8 @@ h2 {
 
   .enterprise-settings-shell,
   .approval-layout,
-  .enterprise-settings-subgrid {
+  .enterprise-settings-subgrid,
+  .enterprise-route-topology-layout {
     grid-template-columns: 1fr;
   }
 
