@@ -253,6 +253,16 @@ class AuthUserEntity(Base):
     account_status: Mapped[str] = mapped_column(String(32), nullable=False, default="approved")
     organization_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     organization_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    suspension_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    suspension_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    suspended_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    suspended_until: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    suspended_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    deactivated_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    deactivated_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    last_login_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    governance_updated_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
 
 class AuthSessionEntity(Base):

@@ -24,6 +24,16 @@ function buildGuestState() {
       account_status: 'guest',
       organization_id: null,
       organization_name: null,
+      suspension_reason: null,
+      suspension_note: null,
+      suspended_at: null,
+      suspended_until: null,
+      suspended_by: null,
+      deactivated_at: null,
+      deactivated_by: null,
+      created_at: null,
+      last_login_at: null,
+      governance_updated_at: null,
       enterprise_application: null,
       capabilities: ['dashboard.view'],
       capability_groups: {
@@ -73,6 +83,16 @@ function normalizeAuthPayload(payload) {
       account_status: String(payload.user.account_status ?? 'approved'),
       organization_id: payload.user.organization_id == null ? null : String(payload.user.organization_id),
       organization_name: payload.user.organization_name == null ? null : String(payload.user.organization_name),
+      suspension_reason: payload.user.suspension_reason == null ? null : String(payload.user.suspension_reason),
+      suspension_note: payload.user.suspension_note == null ? null : String(payload.user.suspension_note),
+      suspended_at: payload.user.suspended_at == null ? null : String(payload.user.suspended_at),
+      suspended_until: payload.user.suspended_until == null ? null : String(payload.user.suspended_until),
+      suspended_by: payload.user.suspended_by == null ? null : String(payload.user.suspended_by),
+      deactivated_at: payload.user.deactivated_at == null ? null : String(payload.user.deactivated_at),
+      deactivated_by: payload.user.deactivated_by == null ? null : String(payload.user.deactivated_by),
+      created_at: payload.user.created_at == null ? null : String(payload.user.created_at),
+      last_login_at: payload.user.last_login_at == null ? null : String(payload.user.last_login_at),
+      governance_updated_at: payload.user.governance_updated_at == null ? null : String(payload.user.governance_updated_at),
       enterprise_application:
         payload.user.enterprise_application && typeof payload.user.enterprise_application === 'object'
           ? {
@@ -242,6 +262,37 @@ export function useAuthSession(options) {
     }
   }
 
+  async function registerPersonal({
+    username,
+    password,
+    display_name
+  }) {
+    authLoading.value = true
+    try {
+      const response = await fetch(`${API_BASE}/auth/register-personal`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          username: String(username ?? ''),
+          password: String(password ?? ''),
+          display_name: display_name == null ? null : String(display_name)
+        })
+      })
+      const data = await readJsonResponse(response)
+      if (!response.ok) {
+        throw createApiError(data, 'Personal registration failed')
+      }
+      authPassword.value = ''
+      authLastFetchedAt.value = new Date().toISOString()
+      return applyAuthPayload(data)
+    } finally {
+      authInitialized.value = true
+      authLoading.value = false
+    }
+  }
+
   async function logout() {
     authLoading.value = true
     try {
@@ -303,6 +354,7 @@ export function useAuthSession(options) {
     applyAuthPayload,
     fetchAuthMe,
     login,
+    registerPersonal,
     logout,
     fillDemoAccount
   }

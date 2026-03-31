@@ -6,6 +6,12 @@ class AuthLoginRequest(BaseModel):
     password: str
 
 
+class PersonalRegisterRequest(BaseModel):
+    username: str
+    password: str
+    display_name: str | None = None
+
+
 class EnterpriseRegisterRequest(BaseModel):
     company_name: str
     contact_name: str

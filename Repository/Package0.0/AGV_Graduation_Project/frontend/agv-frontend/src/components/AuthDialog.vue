@@ -615,6 +615,14 @@
             </button>
             <button
               class="auth-dialog-segment"
+              :class="{ active: authDialogView === 'personal-register' }"
+              type="button"
+              @click="switchAuthDialogView('personal-register')"
+            >
+              {{ t('auth_personal_register') }}
+            </button>
+            <button
+              class="auth-dialog-segment"
               :class="{ active: authDialogView === 'enterprise-register' }"
               type="button"
               @click="switchAuthDialogView('enterprise-register')"
@@ -774,6 +782,51 @@
               </button>
             </div>
           </div>
+          </div>
+        </template>
+
+        <template v-else-if="authDialogView === 'personal-register'">
+          <div class="auth-dialog-workspace">
+            <div class="auth-dialog-divider">{{ t('auth_personal_register') }}</div>
+            <p class="auth-dialog-hint">{{ t('auth_personal_register_hint') }}</p>
+
+            <div class="auth-dialog-form">
+              <label class="auth-dialog-field">
+                <span>{{ t('auth_personal_register_display_name') }}</span>
+                <input
+                  v-model.trim="authPersonalRegisterForm.display_name"
+                  :placeholder="t('auth_personal_register_display_name_placeholder')"
+                />
+              </label>
+              <label class="auth-dialog-field">
+                <span>{{ t('auth_username') }}</span>
+                <input
+                  v-model.trim="authPersonalRegisterForm.username"
+                  :placeholder="t('auth_username_placeholder')"
+                  @keydown.enter.prevent="handlePersonalRegister"
+                />
+              </label>
+              <label class="auth-dialog-field">
+                <span>{{ t('auth_password') }}</span>
+                <input
+                  v-model="authPersonalRegisterForm.password"
+                  type="password"
+                  :placeholder="t('auth_password_placeholder')"
+                  @keydown.enter.prevent="handlePersonalRegister"
+                />
+              </label>
+
+              <div class="auth-dialog-actions">
+                <button
+                  class="auth-dialog-submit"
+                  type="button"
+                  :disabled="authLoading || !authPersonalRegisterValidation.valid"
+                  @click="handlePersonalRegister"
+                >
+                  {{ authLoading ? t('auth_personal_register_submitting') : t('auth_personal_register_submit') }}
+                </button>
+              </div>
+            </div>
           </div>
         </template>
 
@@ -1013,6 +1066,37 @@
           </div>
         </div>
         <div
+          v-if="authDialogView === 'personal-register'"
+          class="auth-register-sidecard auth-register-sidecard-side"
+        >
+          <div class="auth-register-sidecard-head">
+            <strong>{{ t('auth_personal_register_panel_title') }}</strong>
+            <span class="auth-register-sidecard-state" :class="{ ready: authPersonalRegisterValidation.valid }">
+              {{ authPersonalRegisterStatusText }}
+            </span>
+          </div>
+          <div class="auth-register-checklist">
+            <article
+              v-for="item in authPersonalRegisterValidation.items"
+              :key="item.key"
+              class="auth-register-check-item"
+              :class="{ ready: item.valid }"
+            >
+              <strong>{{ item.label }}</strong>
+              <span>{{ item.valid ? t('auth_personal_register_requirement_complete') : item.message }}</span>
+            </article>
+          </div>
+
+          <div class="auth-register-process">
+            <strong>{{ t('auth_personal_register_process_title') }}</strong>
+            <ol>
+              <li>{{ t('auth_personal_register_process_step_submit') }}</li>
+              <li>{{ t('auth_personal_register_process_step_unlock') }}</li>
+              <li>{{ t('auth_personal_register_process_step_manage') }}</li>
+            </ol>
+          </div>
+        </div>
+        <div
           v-if="authDialogView === 'enterprise-register'"
           class="auth-register-sidecard auth-register-sidecard-side"
         >
@@ -1216,6 +1300,13 @@ export default defineComponent({
           hint: t('auth_side_guide_enter_hint')
         }
       ]
+      if (ui.authDialogView === 'personal-register') {
+        items.push({
+          key: 'personal-register',
+          title: t('auth_side_guide_personal_register_title'),
+          hint: t('auth_side_guide_personal_register_hint')
+        })
+      }
       if (ui.authDialogView === 'enterprise-register') {
         items.push({
           key: 'register',

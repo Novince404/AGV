@@ -14,6 +14,16 @@ class AuthUser(BaseModel):
     account_status: str = "approved"
     organization_id: str | None = None
     organization_name: str | None = None
+    suspension_reason: str | None = None
+    suspension_note: str | None = None
+    suspended_at: str | None = None
+    suspended_until: str | None = None
+    suspended_by: str | None = None
+    deactivated_at: str | None = None
+    deactivated_by: str | None = None
+    created_at: str | None = None
+    last_login_at: str | None = None
+    governance_updated_at: str | None = None
 
 
 class AuthSession(BaseModel):

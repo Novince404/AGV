@@ -768,6 +768,7 @@ const {
   buildAuthHeaders,
   fetchAuthMe,
   login: loginWithAuthSession,
+  registerPersonal: registerPersonalWithAuthSession,
   logout: logoutFromAuthSession,
   fillDemoAccount
 } = useAuthSession({
@@ -777,6 +778,11 @@ const {
 
 const authGuestAccepted = ref(false)
 const authDialogView = ref('login')
+const authPersonalRegisterForm = ref({
+  display_name: '',
+  username: '',
+  password: ''
+})
 const authEnterpriseRegisterLoading = ref(false)
 const authEnterpriseRegisterFollowup = ref(loadEnterpriseRegisterFollowup())
 const authEnterpriseStatusFollowup = ref(loadEnterpriseStatusFollowup())
@@ -959,6 +965,41 @@ const authEnterpriseRegisterValidation = computed(() => {
     firstMessage: missing[0]?.message || ''
   }
 })
+const authPersonalRegisterValidation = computed(() => {
+  const payload = {
+    display_name: String(authPersonalRegisterForm.value.display_name || '').trim(),
+    username: String(authPersonalRegisterForm.value.username || '').trim(),
+    password: String(authPersonalRegisterForm.value.password || '')
+  }
+  const items = [
+    {
+      key: 'username',
+      label: t('auth_username'),
+      valid: payload.username.length >= 4,
+      message: t('auth_personal_register_validation_username')
+    },
+    {
+      key: 'password',
+      label: t('auth_password'),
+      valid: payload.password.length >= 8,
+      message: t('auth_personal_register_validation_password')
+    }
+  ]
+  const missing = items.filter(item => !item.valid)
+  return {
+    payload,
+    items,
+    missing,
+    missingCount: missing.length,
+    valid: missing.length === 0,
+    firstMessage: missing[0]?.message || ''
+  }
+})
+const authPersonalRegisterStatusText = computed(() =>
+  authPersonalRegisterValidation.value.valid
+    ? t('auth_personal_register_ready')
+    : formatInlineMessage(t('auth_personal_register_incomplete'), { count: authPersonalRegisterValidation.value.missingCount })
+)
 const authEnterpriseRegisterStatusText = computed(() =>
   authEnterpriseRegisterValidation.value.valid
     ? t('auth_enterprise_register_ready')
@@ -4408,6 +4449,14 @@ function enterGuestMode() {
   showFloatingToast(`${t('auth_guest_entered')} ${t('auth_entry_hint_guest')}`, 'info')
 }
 
+function resetPersonalRegisterForm() {
+  authPersonalRegisterForm.value = {
+    display_name: '',
+    username: '',
+    password: ''
+  }
+}
+
 function resetEnterpriseRegisterForm() {
   authEnterpriseRegisterForm.value = {
     company_name: '',
@@ -4548,7 +4597,9 @@ watch(
 )
 
 function switchAuthDialogView(view) {
-  authDialogView.value = view === 'enterprise-register' ? 'enterprise-register' : 'login'
+  authDialogView.value = ['login', 'personal-register', 'enterprise-register'].includes(view)
+    ? view
+    : 'login'
 }
 
 function fillEnterpriseRegisterFormFromApplication(application = authCurrentEnterpriseApplication.value) {
@@ -4666,6 +4717,29 @@ function dismissEnterpriseRegisterFollowup() {
   if (!authEnterpriseRegisterFollowup.value) return
   authEnterpriseRegisterFollowup.value = null
   showFloatingToast(t('auth_enterprise_register_followup_dismissed'), 'info')
+}
+
+async function handlePersonalRegister() {
+  const payload = authPersonalRegisterValidation.value.payload
+  if (!authPersonalRegisterValidation.value.valid) {
+    showFloatingToast(authPersonalRegisterValidation.value.firstMessage || t('auth_personal_register_failed'), 'warning')
+    return
+  }
+  try {
+    const state = await registerPersonalWithAuthSession(payload)
+    authGuestAccepted.value = Boolean(state?.authenticated)
+    authPanelOpen.value = false
+    authDialogView.value = 'login'
+    resetPersonalRegisterForm()
+    showFloatingToast(
+      formatInlineMessage(t('auth_personal_register_success'), {
+        username: payload.username
+      }),
+      'success'
+    )
+  } catch (error) {
+    showFloatingToast(error?.message || t('auth_personal_register_failed'), 'error')
+  }
 }
 
 function syncEnterpriseRegisterFollowupFromApplication(application, statusFallback = authCurrentAccountStatus.value) {
@@ -11645,6 +11719,8 @@ const authDialogBindings = {
   enterpriseWorkspaceSectionLabels,
   enterpriseRoleWorkspaceActionItems,
   authStatusNotice,
+  authPersonalRegisterValidation,
+  authPersonalRegisterStatusText,
   authEnterpriseRegisterValidation,
   authEnterpriseRegisterStatusText,
   authEnterpriseRegisterDraftHasContent,
@@ -11663,6 +11739,7 @@ const authDialogBindings = {
   authUsername,
   authPassword,
   authDemoAccounts,
+  authPersonalRegisterForm,
   authEnterpriseRegisterForm,
   authEnterpriseRegisterLoading,
   buildAuthCapabilityStateText,
@@ -11684,6 +11761,7 @@ const authDialogBindings = {
   handleAuthQuickLogin,
   switchAuthDialogView,
   handleAuthLogin,
+  handlePersonalRegister,
   authDemoAccountLabel,
   handleAuthDemoFill,
   handleEnterpriseRegister,

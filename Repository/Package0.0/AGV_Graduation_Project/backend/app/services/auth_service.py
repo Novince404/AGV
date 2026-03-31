@@ -8,6 +8,7 @@ from app.core.settings import get_settings
 from app.models.auth import AuthSession, AuthUser
 from app.models.enterprise_application import EnterpriseApplication
 from app.repositories.auth_repository import (
+    list_users,
     get_session_by_token,
     get_user_by_id,
     get_user_by_username,
@@ -46,6 +47,16 @@ def _guest_payload() -> dict:
             "account_status": "guest",
             "organization_id": None,
             "organization_name": None,
+            "suspension_reason": None,
+            "suspension_note": None,
+            "suspended_at": None,
+            "suspended_until": None,
+            "suspended_by": None,
+            "deactivated_at": None,
+            "deactivated_by": None,
+            "created_at": None,
+            "last_login_at": None,
+            "governance_updated_at": None,
         },
     }
 
@@ -65,9 +76,44 @@ def _public_user_payload(user) -> dict:
         "account_status": account_status,
         "organization_id": getattr(user, "organization_id", None),
         "organization_name": getattr(user, "organization_name", None),
+        "suspension_reason": getattr(user, "suspension_reason", None),
+        "suspension_note": getattr(user, "suspension_note", None),
+        "suspended_at": getattr(user, "suspended_at", None),
+        "suspended_until": getattr(user, "suspended_until", None),
+        "suspended_by": getattr(user, "suspended_by", None),
+        "deactivated_at": getattr(user, "deactivated_at", None),
+        "deactivated_by": getattr(user, "deactivated_by", None),
+        "created_at": getattr(user, "created_at", None),
+        "last_login_at": getattr(user, "last_login_at", None),
+        "governance_updated_at": getattr(user, "governance_updated_at", None),
         "enterprise_application": _serialize_enterprise_application(enterprise_application) if enterprise_application else None,
         "capabilities": capabilities,
         "capability_groups": build_capability_groups(normalized_role, account_status=account_status),
+    }
+
+
+def _serialize_managed_user(user) -> dict:
+    payload = _public_user_payload(user)
+    return {
+        "id": payload["id"],
+        "username": payload["username"],
+        "display_name": payload["display_name"],
+        "role": payload["role"],
+        "active": payload["active"],
+        "builtin": payload["builtin"],
+        "account_status": payload["account_status"],
+        "organization_id": payload["organization_id"],
+        "organization_name": payload["organization_name"],
+        "suspension_reason": payload["suspension_reason"],
+        "suspension_note": payload["suspension_note"],
+        "suspended_at": payload["suspended_at"],
+        "suspended_until": payload["suspended_until"],
+        "suspended_by": payload["suspended_by"],
+        "deactivated_at": payload["deactivated_at"],
+        "deactivated_by": payload["deactivated_by"],
+        "created_at": payload["created_at"],
+        "last_login_at": payload["last_login_at"],
+        "governance_updated_at": payload["governance_updated_at"],
     }
 
 
@@ -153,6 +199,24 @@ def _resolve_current_session(request: Request, touch: bool = True) -> tuple[obje
     return user, session
 
 
+def _raise_if_login_restricted(user) -> None:
+    account_status = str(getattr(user, "account_status", "approved") or "approved")
+    if account_status == "suspended":
+        raise_api_error(
+            403,
+            "auth_account_suspended",
+            reason=getattr(user, "suspension_reason", None),
+            note=getattr(user, "suspension_note", None),
+            suspended_until=getattr(user, "suspended_until", None),
+        )
+    if account_status == "deactivated" or not bool(getattr(user, "active", True)):
+        raise_api_error(
+            403,
+            "auth_account_deactivated",
+            note=getattr(user, "suspension_note", None),
+        )
+
+
 def login(username: str, password: str) -> dict:
     normalized_username = str(username or "").strip()
     normalized_password = str(password or "")
@@ -162,6 +226,7 @@ def login(username: str, password: str) -> dict:
     user = get_user_by_username(normalized_username)
     if user is None or not user.active or not verify_password(normalized_password, user.password_hash):
         raise_api_error(401, "auth_invalid_credentials")
+    _raise_if_login_restricted(user)
 
     remove_sessions_for_user(user.id)
     now = utc_timestamp()
@@ -173,7 +238,9 @@ def login(username: str, password: str) -> dict:
         expires_at=now + ttl,
         last_seen_at=now,
     )
+    user.last_login_at = now_iso()
     upsert_session(session)
+    upsert_user(user)
     return _build_authenticated_payload(user, session)
 
 
@@ -249,6 +316,8 @@ def register_enterprise(
         account_status="pending",
         organization_id=None,
         organization_name=normalized_company_name,
+        created_at=now_iso(),
+        governance_updated_at=now_iso(),
     )
     upsert_user(user)
 
@@ -288,6 +357,147 @@ def register_enterprise(
     return {
         "message": "enterprise_application_submitted",
         "application": _serialize_enterprise_application(application),
+    }
+
+
+def register_personal(
+    username: str,
+    password: str,
+    display_name: str | None = None,
+) -> dict:
+    normalized_username = str(username or "").strip()
+    normalized_password = str(password or "")
+    normalized_display_name = str(display_name or "").strip()
+
+    if not normalized_username or not normalized_password:
+        raise_api_error(400, "personal_register_fields_required")
+    if len(normalized_username) < 4:
+        raise_api_error(400, "personal_register_username_invalid")
+    if len(normalized_password) < 8:
+        raise_api_error(400, "personal_register_password_invalid")
+    if get_user_by_username(normalized_username) is not None:
+        raise_api_error(409, "personal_register_username_taken")
+    if get_enterprise_application_by_username(normalized_username) is not None:
+        raise_api_error(409, "personal_register_username_taken")
+
+    timestamp = now_iso()
+    user = AuthUser(
+        id=normalized_username,
+        username=normalized_username,
+        display_name=normalized_display_name or normalized_username,
+        role="personal",
+        password_hash=hash_password(normalized_password),
+        active=True,
+        builtin=False,
+        account_status="approved",
+        organization_id=None,
+        organization_name=None,
+        created_at=timestamp,
+        governance_updated_at=timestamp,
+        last_login_at=timestamp,
+    )
+    upsert_user(user)
+    record_operation_audit(
+        "user_account",
+        user.id,
+        "user.register.personal",
+        actor={
+            "id": user.id,
+            "username": user.username,
+            "display_name": user.display_name,
+            "role": user.role,
+            "account_status": user.account_status,
+            "authenticated": False,
+        },
+        metadata={
+            "username": user.username,
+            "display_name": user.display_name,
+            "role": user.role,
+            "builtin": user.builtin,
+        },
+    )
+
+    remove_sessions_for_user(user.id)
+    now = utc_timestamp()
+    ttl = max(int(get_settings().auth_session_ttl_sec), 300)
+    session = AuthSession(
+        token=issue_session_token(),
+        user_id=user.id,
+        created_at=now,
+        expires_at=now + ttl,
+        last_seen_at=now,
+    )
+    upsert_session(session)
+    return _build_authenticated_payload(user, session)
+
+
+def list_user_feed(
+    role: str | None = None,
+    status: str | None = None,
+    search: str | None = None,
+    limit: int = 60,
+) -> dict:
+    normalized_role = str(role or "").strip().lower()
+    normalized_status = str(status or "").strip().lower()
+    normalized_search = str(search or "").strip().casefold()
+    safe_limit = max(1, min(int(limit or 60), 200))
+
+    users = list_users()
+
+    def matches_role(user) -> bool:
+        if not normalized_role or normalized_role == "all":
+            return True
+        user_role = normalize_role(getattr(user, "role", "guest"))
+        if normalized_role == "enterprise":
+            return user_role.startswith("enterprise_")
+        return user_role == normalized_role
+
+    def matches_status(user) -> bool:
+        if not normalized_status or normalized_status == "all":
+            return True
+        return str(getattr(user, "account_status", "approved") or "approved").lower() == normalized_status
+
+    def matches_search(user) -> bool:
+        if not normalized_search:
+            return True
+        haystack = " ".join(
+            [
+                str(getattr(user, "username", "") or ""),
+                str(getattr(user, "display_name", "") or ""),
+                str(getattr(user, "organization_name", "") or ""),
+            ]
+        ).casefold()
+        return normalized_search in haystack
+
+    filtered_items = [
+        user for user in users
+        if matches_role(user) and matches_status(user) and matches_search(user)
+    ]
+    filtered_items.sort(
+        key=lambda user: (
+            str(getattr(user, "created_at", "") or ""),
+            str(getattr(user, "username", "") or ""),
+        ),
+        reverse=True,
+    )
+    summary = {
+        "all": len(users),
+        "personal": sum(1 for user in users if normalize_role(getattr(user, "role", "guest")) == "personal"),
+        "enterprise": sum(1 for user in users if normalize_role(getattr(user, "role", "guest")).startswith("enterprise_")),
+        "platform_admin": sum(1 for user in users if normalize_role(getattr(user, "role", "guest")) == "platform_admin"),
+        "approved": sum(1 for user in users if str(getattr(user, "account_status", "approved") or "approved") == "approved"),
+        "pending": sum(1 for user in users if str(getattr(user, "account_status", "approved") or "approved") == "pending"),
+        "rejected": sum(1 for user in users if str(getattr(user, "account_status", "approved") or "approved") == "rejected"),
+        "suspended": sum(1 for user in users if str(getattr(user, "account_status", "approved") or "approved") == "suspended"),
+        "deactivated": sum(1 for user in users if str(getattr(user, "account_status", "approved") or "approved") == "deactivated"),
+    }
+    return {
+        "items": [_serialize_managed_user(user) for user in filtered_items[:safe_limit]],
+        "summary": summary,
+        "role": normalized_role or "all",
+        "status": normalized_status or "all",
+        "search": str(search or "").strip(),
+        "limit": safe_limit,
     }
 
 

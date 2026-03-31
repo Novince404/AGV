@@ -1,6 +1,11 @@
 from fastapi import APIRouter, Query, Request
 
-from app.schemas.auth import AuthLoginRequest, EnterpriseApplicationReviewRequest, EnterpriseRegisterRequest
+from app.schemas.auth import (
+    AuthLoginRequest,
+    EnterpriseApplicationReviewRequest,
+    EnterpriseRegisterRequest,
+    PersonalRegisterRequest,
+)
 from app.services import auth_service
 
 
@@ -47,6 +52,27 @@ def register_enterprise(req: EnterpriseRegisterRequest):
         username=req.username,
         password=req.password,
     )
+
+
+@router.post("/register-personal")
+def register_personal(req: PersonalRegisterRequest):
+    return auth_service.register_personal(
+        username=req.username,
+        password=req.password,
+        display_name=req.display_name,
+    )
+
+
+@router.get("/users")
+def list_users(
+    request: Request,
+    role: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    search: str | None = Query(default=None),
+    limit: int = Query(default=60, ge=1, le=200),
+):
+    auth_service.require_actor_capability(request, "system.manage")
+    return auth_service.list_user_feed(role=role, status=status, search=search, limit=limit)
 
 
 @router.get("/enterprise-applications")

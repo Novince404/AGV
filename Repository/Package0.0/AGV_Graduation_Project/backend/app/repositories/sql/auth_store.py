@@ -23,6 +23,16 @@ def _entity_to_user(entity: AuthUserEntity) -> AuthUser:
         account_status=str(getattr(entity, "account_status", "approved") or "approved"),
         organization_id=getattr(entity, "organization_id", None),
         organization_name=getattr(entity, "organization_name", None),
+        suspension_reason=getattr(entity, "suspension_reason", None),
+        suspension_note=getattr(entity, "suspension_note", None),
+        suspended_at=getattr(entity, "suspended_at", None),
+        suspended_until=getattr(entity, "suspended_until", None),
+        suspended_by=getattr(entity, "suspended_by", None),
+        deactivated_at=getattr(entity, "deactivated_at", None),
+        deactivated_by=getattr(entity, "deactivated_by", None),
+        created_at=getattr(entity, "created_at", None),
+        last_login_at=getattr(entity, "last_login_at", None),
+        governance_updated_at=getattr(entity, "governance_updated_at", None),
     )
 
 
@@ -37,6 +47,16 @@ def _user_to_entity(user: AuthUser, entity: AuthUserEntity | None = None) -> Aut
     entity.account_status = str(user.account_status or "approved")
     entity.organization_id = user.organization_id
     entity.organization_name = user.organization_name
+    entity.suspension_reason = user.suspension_reason
+    entity.suspension_note = user.suspension_note
+    entity.suspended_at = user.suspended_at
+    entity.suspended_until = user.suspended_until
+    entity.suspended_by = user.suspended_by
+    entity.deactivated_at = user.deactivated_at
+    entity.deactivated_by = user.deactivated_by
+    entity.created_at = user.created_at
+    entity.last_login_at = user.last_login_at
+    entity.governance_updated_at = user.governance_updated_at
     return entity
 
 
@@ -74,6 +94,26 @@ def _ensure_schema() -> None:
         ddl_statements.append("ALTER TABLE auth_user ADD COLUMN organization_id VARCHAR(64)")
     if "organization_name" not in columns:
         ddl_statements.append("ALTER TABLE auth_user ADD COLUMN organization_name VARCHAR(128)")
+    if "suspension_reason" not in columns:
+        ddl_statements.append("ALTER TABLE auth_user ADD COLUMN suspension_reason TEXT")
+    if "suspension_note" not in columns:
+        ddl_statements.append("ALTER TABLE auth_user ADD COLUMN suspension_note TEXT")
+    if "suspended_at" not in columns:
+        ddl_statements.append("ALTER TABLE auth_user ADD COLUMN suspended_at VARCHAR(32)")
+    if "suspended_until" not in columns:
+        ddl_statements.append("ALTER TABLE auth_user ADD COLUMN suspended_until VARCHAR(32)")
+    if "suspended_by" not in columns:
+        ddl_statements.append("ALTER TABLE auth_user ADD COLUMN suspended_by VARCHAR(64)")
+    if "deactivated_at" not in columns:
+        ddl_statements.append("ALTER TABLE auth_user ADD COLUMN deactivated_at VARCHAR(32)")
+    if "deactivated_by" not in columns:
+        ddl_statements.append("ALTER TABLE auth_user ADD COLUMN deactivated_by VARCHAR(64)")
+    if "created_at" not in columns:
+        ddl_statements.append("ALTER TABLE auth_user ADD COLUMN created_at VARCHAR(32)")
+    if "last_login_at" not in columns:
+        ddl_statements.append("ALTER TABLE auth_user ADD COLUMN last_login_at VARCHAR(32)")
+    if "governance_updated_at" not in columns:
+        ddl_statements.append("ALTER TABLE auth_user ADD COLUMN governance_updated_at VARCHAR(32)")
 
     if ddl_statements:
         with engine.begin() as connection:
