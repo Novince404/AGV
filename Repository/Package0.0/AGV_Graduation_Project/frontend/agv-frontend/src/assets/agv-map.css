@@ -1949,6 +1949,10 @@ h2 {
   align-self: stretch;
 }
 
+.auth-dialog-form > .auth-dialog-actions-end {
+  grid-column: 2 / 3;
+}
+
 .auth-dialog-form > .auth-register-sidecard {
   grid-column: 1 / -1;
 }
@@ -5573,6 +5577,10 @@ h2 {
   .auth-dialog-form,
   .auth-capability-grid {
     grid-template-columns: 1fr;
+  }
+
+  .auth-dialog-form > .auth-dialog-actions-end {
+    grid-column: 1 / -1;
   }
 
   .auth-dialog-stage {
