@@ -927,6 +927,25 @@ h2 {
   align-items: center;
 }
 
+.account-governance-dialog-card {
+  width: min(1120px, calc(100vw - 32px));
+}
+
+.account-governance-search-field {
+  min-width: min(260px, 100%);
+}
+
+.account-governance-list-item .managed-user-item-meta {
+  color: var(--muted-text);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.account-governance-detail .point-badge {
+  background: rgba(21, 101, 192, 0.1);
+  color: #1565c0;
+}
+
 .approval-existing-note {
   display: grid;
   gap: 6px;

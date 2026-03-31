@@ -1,0 +1,269 @@
+<template>
+  <div class="auth-dialog-backdrop">
+    <div class="approval-dialog-card account-governance-dialog-card">
+      <div class="auth-dialog-header">
+        <div>
+          <div class="auth-dialog-kicker">{{ t('auth_role_platform_admin') }}</div>
+          <h2 class="auth-dialog-title">{{ t('account_governance_title') }}</h2>
+          <p class="auth-dialog-hint">{{ t('account_governance_hint') }}</p>
+        </div>
+        <button class="auth-dialog-close" type="button" @click="closeAccountGovernanceDialog">
+          {{ t('auth_close') }}
+        </button>
+      </div>
+
+      <div class="approval-summary-grid account-governance-summary-grid">
+        <button
+          class="approval-summary-card"
+          :class="{ active: accountGovernanceRoleFilter === 'all' }"
+          type="button"
+          @click="accountGovernanceRoleFilter = 'all'"
+        >
+          <strong>{{ accountGovernanceSummary.all || 0 }}</strong>
+          <span>{{ t('account_governance_role_all') }}</span>
+        </button>
+        <button
+          class="approval-summary-card"
+          :class="{ active: accountGovernanceRoleFilter === 'personal' }"
+          type="button"
+          @click="accountGovernanceRoleFilter = 'personal'"
+        >
+          <strong>{{ accountGovernanceSummary.personal || 0 }}</strong>
+          <span>{{ t('account_governance_role_personal') }}</span>
+        </button>
+        <button
+          class="approval-summary-card"
+          :class="{ active: accountGovernanceRoleFilter === 'enterprise' }"
+          type="button"
+          @click="accountGovernanceRoleFilter = 'enterprise'"
+        >
+          <strong>{{ accountGovernanceSummary.enterprise || 0 }}</strong>
+          <span>{{ t('account_governance_role_enterprise') }}</span>
+        </button>
+        <button
+          class="approval-summary-card"
+          :class="{ active: accountGovernanceRoleFilter === 'platform_admin' }"
+          type="button"
+          @click="accountGovernanceRoleFilter = 'platform_admin'"
+        >
+          <strong>{{ accountGovernanceSummary.platform_admin || 0 }}</strong>
+          <span>{{ t('account_governance_role_platform_admin') }}</span>
+        </button>
+      </div>
+
+      <div class="approval-toolbar">
+        <div class="task-line operations-last-fetched approval-filter-summary">
+          {{ accountGovernanceFilterSummaryText }}
+        </div>
+        <label class="auth-dialog-field">
+          <span>{{ t('account_governance_filter_role') }}</span>
+          <select v-model="accountGovernanceRoleFilter">
+            <option value="all">{{ t('account_governance_role_all') }}</option>
+            <option value="personal">{{ t('account_governance_role_personal') }}</option>
+            <option value="enterprise">{{ t('account_governance_role_enterprise') }}</option>
+            <option value="platform_admin">{{ t('account_governance_role_platform_admin') }}</option>
+          </select>
+        </label>
+        <label class="auth-dialog-field">
+          <span>{{ t('account_governance_filter_status') }}</span>
+          <select v-model="accountGovernanceStatusFilter">
+            <option value="all">{{ t('account_governance_status_all') }}</option>
+            <option value="approved">{{ t('account_governance_status_approved') }}</option>
+            <option value="pending">{{ t('account_governance_status_pending') }}</option>
+            <option value="rejected">{{ t('account_governance_status_rejected') }}</option>
+            <option value="suspended">{{ t('account_governance_status_suspended') }}</option>
+            <option value="deactivated">{{ t('account_governance_status_deactivated') }}</option>
+          </select>
+        </label>
+        <label class="auth-dialog-field account-governance-search-field">
+          <span>{{ t('account_governance_filter_search') }}</span>
+          <input
+            v-model.trim="accountGovernanceSearch"
+            type="text"
+            :placeholder="t('account_governance_filter_search_placeholder')"
+            @keyup.enter="fetchManagedUserAccounts({ forceSelectFirst: true })"
+          />
+        </label>
+        <div v-if="accountGovernanceLastFetchedText" class="task-line operations-last-fetched">
+          {{ accountGovernanceLastFetchedText }}
+        </div>
+        <button class="auth-dialog-inline-action" type="button" :disabled="accountGovernanceLoading" @click="fetchManagedUserAccounts({ forceSelectFirst: false })">
+          {{ accountGovernanceLoading ? `${t('account_governance_refresh')}...` : t('account_governance_refresh') }}
+        </button>
+        <button class="btn-ghost" type="button" @click="resetAccountGovernanceFilters">
+          {{ t('account_governance_reset_filters') }}
+        </button>
+        <button class="btn-ghost" type="button" @click="exportManagedUserAccounts('json')">
+          {{ t('account_governance_export_json') }}
+        </button>
+        <button class="btn-ghost" type="button" @click="exportManagedUserAccounts('csv')">
+          {{ t('account_governance_export_csv') }}
+        </button>
+      </div>
+
+      <div class="approval-layout">
+        <div class="approval-list">
+          <div v-if="accountGovernanceLoading && managedUserAccounts.length === 0" class="approval-empty">
+            {{ t('account_governance_loading') }}
+          </div>
+          <button
+            v-for="item in managedUserAccounts"
+            :key="item.id"
+            class="approval-list-item account-governance-list-item"
+            :class="{ active: String(selectedManagedUserId || '') === String(item.id || '') }"
+            type="button"
+            @click="selectedManagedUserId = String(item.id || '')"
+          >
+            <strong>{{ item.display_name || item.username }}</strong>
+            <span class="managed-user-item-meta">{{ buildManagedUserMeta(item) }}</span>
+            <div class="approval-list-meta">
+              <small>{{ managedUserStatusLabel(item.account_status) }}</small>
+              <span v-if="item.builtin" class="point-badge approval-draft-badge">
+                {{ t('account_governance_builtin_badge') }}
+              </span>
+            </div>
+          </button>
+          <div v-if="!accountGovernanceLoading && managedUserAccounts.length === 0" class="approval-empty">
+            <strong>{{ t('account_governance_empty') }}</strong>
+            <span>{{ accountGovernanceEmptyHint }}</span>
+            <div class="approval-actions approval-empty-actions">
+              <button class="btn-secondary" type="button" @click="resetAccountGovernanceFilters">
+                {{ t('account_governance_reset_filters') }}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="selectedManagedUser" class="approval-detail account-governance-detail">
+          <div class="approval-detail-toolbar">
+            <div>
+              <strong>{{ t('account_governance_detail_title') }}</strong>
+            </div>
+            <div class="approval-actions approval-detail-actions">
+              <span class="point-badge">{{ managedUserRoleLabel(selectedManagedUser.role) }}</span>
+              <span class="point-badge">{{ managedUserStatusLabel(selectedManagedUser.account_status) }}</span>
+            </div>
+          </div>
+
+          <div class="approval-detail-grid">
+            <div>
+              <strong>{{ t('account_governance_field_username') }}</strong>
+              <span>{{ selectedManagedUser.username || '—' }}</span>
+            </div>
+            <div>
+              <strong>{{ t('account_governance_field_display_name') }}</strong>
+              <span>{{ selectedManagedUser.display_name || '—' }}</span>
+            </div>
+            <div>
+              <strong>{{ t('account_governance_field_role') }}</strong>
+              <span>{{ managedUserRoleLabel(selectedManagedUser.role) }}</span>
+            </div>
+            <div>
+              <strong>{{ t('account_governance_field_status') }}</strong>
+              <span>{{ managedUserStatusLabel(selectedManagedUser.account_status) }}</span>
+            </div>
+            <div>
+              <strong>{{ t('account_governance_field_organization') }}</strong>
+              <span>{{ selectedManagedUser.organization_name || '—' }}</span>
+            </div>
+            <div>
+              <strong>{{ t('account_governance_field_created_at') }}</strong>
+              <span>{{ selectedManagedUser.created_at || '—' }}</span>
+            </div>
+            <div>
+              <strong>{{ t('account_governance_field_last_login_at') }}</strong>
+              <span>{{ selectedManagedUser.last_login_at || '—' }}</span>
+            </div>
+            <div>
+              <strong>{{ t('account_governance_field_governance_updated_at') }}</strong>
+              <span>{{ selectedManagedUser.governance_updated_at || '—' }}</span>
+            </div>
+            <div v-if="selectedManagedUser.suspended_until">
+              <strong>{{ t('account_governance_field_suspended_until') }}</strong>
+              <span>{{ selectedManagedUser.suspended_until }}</span>
+            </div>
+          </div>
+
+          <div
+            v-if="selectedManagedUser.suspension_reason || selectedManagedUser.suspension_note"
+            class="approval-existing-note"
+          >
+            <strong>{{ t('account_governance_suspension_title') }}</strong>
+            <p v-if="selectedManagedUser.suspension_reason">
+              <strong>{{ t('account_governance_suspension_reason') }}</strong>
+              <span> {{ selectedManagedUser.suspension_reason }}</span>
+            </p>
+            <p v-if="selectedManagedUser.suspension_note">
+              <strong>{{ t('account_governance_suspension_note') }}</strong>
+              <span> {{ selectedManagedUser.suspension_note }}</span>
+            </p>
+          </div>
+
+          <div
+            v-if="selectedManagedUser.enterprise_application"
+            class="approval-existing-note"
+          >
+            <strong>{{ t('account_governance_enterprise_application') }}</strong>
+            <p>
+              <strong>{{ t('enterprise_register_company_name') }}</strong>
+              <span> {{ selectedManagedUser.enterprise_application.company_name || '—' }}</span>
+            </p>
+            <p>
+              <strong>{{ t('account_governance_contact_email') }}</strong>
+              <span> {{ selectedManagedUser.enterprise_application.contact_email || '—' }}</span>
+            </p>
+            <p v-if="selectedManagedUser.enterprise_application.review_note">
+              <strong>{{ t('account_governance_review_note') }}</strong>
+              <span> {{ selectedManagedUser.enterprise_application.review_note }}</span>
+            </p>
+          </div>
+        </div>
+
+        <div v-else class="approval-detail-empty">
+          {{ t('account_governance_select_hint') }}
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script>
+import { defineComponent, reactive, watchEffect } from 'vue'
+
+export default defineComponent({
+  name: 'PlatformAccountGovernanceDialog',
+  props: {
+    ui: {
+      type: Object,
+      required: true
+    }
+  },
+  setup(props) {
+    const exposed = reactive({
+      buildManagedUserMeta(item) {
+        if (!item) return ''
+        const parts = [
+          exposed.managedUserRoleLabel?.(item.role) || item.role || '—',
+          item.username || '—'
+        ]
+        if (item.organization_name) {
+          parts.push(item.organization_name)
+        }
+        return parts.join(' · ')
+      },
+      managedUserRoleLabel(role) {
+        return exposed.t?.(`auth_role_${role || 'guest'}`) || String(role || 'guest')
+      },
+      managedUserStatusLabel(status) {
+        return exposed.t?.(`account_governance_status_${status || 'approved'}`) || String(status || 'approved')
+      }
+    })
+
+    watchEffect(() => {
+      Object.assign(exposed, props.ui || {})
+    })
+
+    return exposed
+  }
+})
+</script>

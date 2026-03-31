@@ -64,6 +64,7 @@ import { buildCustomPoint, normalizeStoredCustomPoints } from './utils/pointHelp
 const ComfyAiWorkspace = defineAsyncComponent(() => import('./components/ComfyAiWorkspace.vue'))
 const EnterpriseSettingsDialog = defineAsyncComponent(() => import('./components/EnterpriseSettingsDialog.vue'))
 const EnterpriseApprovalDialog = defineAsyncComponent(() => import('./components/EnterpriseApprovalDialog.vue'))
+const PlatformAccountGovernanceDialog = defineAsyncComponent(() => import('./components/PlatformAccountGovernanceDialog.vue'))
 const AuthDialog = defineAsyncComponent(() => import('./components/AuthDialog.vue'))
 const OperationsAuditPanel = defineAsyncComponent(() => import('./components/OperationsAuditPanel.vue'))
 const ExperimentRecordsPanel = defineAsyncComponent(() => import('./components/ExperimentRecordsPanel.vue'))
@@ -479,6 +480,7 @@ let manualPreviewHoldTimer = null
 let mapPreviewFocusTimer = null
 let mapResizeSectionHighlightTimer = null
 let mapResizeItemHighlightTimer = null
+let accountGovernanceSearchTimer = null
 let mapPreviewFocusSequence = 0
 let operationAuditRefreshPending = false
 
@@ -804,6 +806,25 @@ const selectedEnterpriseApplicationId = ref(enterpriseApprovalUiState.selectedId
 const enterpriseApprovalReviewNote = ref('')
 const enterpriseApprovalNoteDrafts = ref(enterpriseApprovalUiState.noteDrafts)
 const enterpriseApprovalReviewFollowup = ref(loadEnterpriseApprovalReviewFollowup())
+const accountGovernanceDialogOpen = ref(false)
+const accountGovernanceLoading = ref(false)
+const accountGovernanceRoleFilter = ref('all')
+const accountGovernanceStatusFilter = ref('all')
+const accountGovernanceSearch = ref('')
+const accountGovernanceSummary = ref({
+  all: 0,
+  personal: 0,
+  enterprise: 0,
+  platform_admin: 0,
+  approved: 0,
+  pending: 0,
+  rejected: 0,
+  suspended: 0,
+  deactivated: 0
+})
+const managedUserAccounts = ref([])
+const selectedManagedUserId = ref('')
+const accountGovernanceLastFetchedAt = ref('')
 const enterpriseSettingsDialogOpen = ref(false)
 const enterpriseSettingsActiveTab = ref('overview')
 const enterpriseSettingsSidebarCollapsed = ref(false)
@@ -1519,10 +1540,50 @@ const authCanViewAudit = computed(() => authCapabilitySet.value.has('audit.view'
 const authCanAiRender = computed(() => authCapabilitySet.value.has('ai.render'))
 const authCanForceApplyMap = computed(() => authCapabilitySet.value.has('map.force_apply'))
 const authCanEnterpriseApprove = computed(() => authCapabilitySet.value.has('enterprise.approve'))
+const authCanSystemManage = computed(() => authCapabilitySet.value.has('system.manage'))
 const authIsEnterpriseRole = computed(() =>
   ['enterprise_operator', 'enterprise_logistics', 'enterprise_admin'].includes(authCurrentRole.value)
 )
 const platformApprovalPendingCount = computed(() => Number(enterpriseApprovalSummary.value.pending || 0))
+const selectedManagedUser = computed(() =>
+  managedUserAccounts.value.find(item => String(item.id || '') === String(selectedManagedUserId.value || '')) || null
+)
+const accountGovernanceFilterSummaryText = computed(() => {
+  const roleLabelMap = {
+    all: t('account_governance_role_all'),
+    personal: t('account_governance_role_personal'),
+    enterprise: t('account_governance_role_enterprise'),
+    platform_admin: t('account_governance_role_platform_admin')
+  }
+  const statusLabelMap = {
+    all: t('account_governance_status_all'),
+    approved: t('account_governance_status_approved'),
+    pending: t('account_governance_status_pending'),
+    rejected: t('account_governance_status_rejected'),
+    suspended: t('account_governance_status_suspended'),
+    deactivated: t('account_governance_status_deactivated')
+  }
+  return formatInlineMessage(t('account_governance_filter_summary'), {
+    count: managedUserAccounts.value.length,
+    role: roleLabelMap[accountGovernanceRoleFilter.value] || roleLabelMap.all,
+    status: statusLabelMap[accountGovernanceStatusFilter.value] || statusLabelMap.all,
+    search: String(accountGovernanceSearch.value || '').trim() || t('account_governance_filter_search_empty')
+  })
+})
+const accountGovernanceEmptyHint = computed(() => {
+  if (String(accountGovernanceSearch.value || '').trim()) {
+    return t('account_governance_empty_search')
+  }
+  if (accountGovernanceRoleFilter.value !== 'all' || accountGovernanceStatusFilter.value !== 'all') {
+    return t('account_governance_empty_filtered')
+  }
+  return t('account_governance_empty')
+})
+const accountGovernanceLastFetchedText = computed(() =>
+  accountGovernanceLastFetchedAt.value
+    ? formatInlineMessage(t('operations_last_updated'), { at: accountGovernanceLastFetchedAt.value })
+    : ''
+)
 const enterpriseToolbarStatusBadgeText = computed(() => {
   if (!authIsEnterpriseRole.value) return ''
   if (authCurrentAccountStatus.value === 'pending') return t('auth_account_status_pending_short')
@@ -4405,6 +4466,7 @@ async function handleAuthLogout() {
     authPanelOpen.value = false
     authDialogView.value = 'login'
     enterpriseApprovalDialogOpen.value = false
+    accountGovernanceDialogOpen.value = false
     authEnterpriseRegisterFollowup.value = null
     operationAudits.value = []
     operationAuditLastFetchedAt.value = ''
@@ -5155,6 +5217,150 @@ function exportEnterpriseApplicationsCsv() {
   }
   downloadCsvFile(`${buildEnterpriseApprovalExportFilename()}.csv`, rowsToCsv(rows))
   showFloatingToast(t('enterprise_approval_export_csv_ok'), 'success')
+}
+
+async function fetchManagedUserAccounts({ forceSelectFirst = false, preferredSelectedId = '' } = {}) {
+  if (!authCanSystemManage.value) {
+    managedUserAccounts.value = []
+    accountGovernanceLastFetchedAt.value = ''
+    return
+  }
+  if (accountGovernanceLoading.value) return
+  accountGovernanceLoading.value = true
+  try {
+    const params = new URLSearchParams({
+      role: accountGovernanceRoleFilter.value || 'all',
+      status: accountGovernanceStatusFilter.value || 'all',
+      search: String(accountGovernanceSearch.value || '').trim(),
+      limit: '200'
+    })
+    const response = await fetch(`${API_BASE}/auth/users?${params.toString()}`, {
+      headers: buildAuthorizedHeaders()
+    })
+    const data = await response.json().catch(() => null)
+    if (!response.ok) {
+      throw createApiError(data, 'Managed user request failed')
+    }
+    managedUserAccounts.value = Array.isArray(data?.items) ? data.items : []
+    accountGovernanceSummary.value = data?.summary ?? accountGovernanceSummary.value
+    accountGovernanceLastFetchedAt.value = new Date().toISOString()
+    const preferredId = String(preferredSelectedId || '')
+    if (preferredId && managedUserAccounts.value.some(item => String(item.id || '') === preferredId)) {
+      selectedManagedUserId.value = preferredId
+    } else if (
+      forceSelectFirst ||
+      !managedUserAccounts.value.some(item => String(item.id || '') === String(selectedManagedUserId.value || ''))
+    ) {
+      selectedManagedUserId.value = String(managedUserAccounts.value[0]?.id || '')
+    }
+  } catch (error) {
+    console.error('Fetch managed user accounts error:', error)
+    showFloatingToast(error?.message || t('account_governance_fetch_failed'), 'error')
+  } finally {
+    accountGovernanceLoading.value = false
+  }
+}
+
+async function openAccountGovernanceDialog({ role = '', status = '', selectedId = '', resetSearch = false } = {}) {
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'system.manage', buildCapabilityDeniedMessage('platform'))) return
+  accountGovernanceDialogOpen.value = true
+  if (resetSearch) {
+    accountGovernanceSearch.value = ''
+  }
+  if (String(role || '').trim()) {
+    accountGovernanceRoleFilter.value = String(role).trim()
+  }
+  if (String(status || '').trim()) {
+    accountGovernanceStatusFilter.value = String(status).trim()
+  }
+  await fetchManagedUserAccounts({ forceSelectFirst: !String(selectedId || '').trim(), preferredSelectedId: selectedId })
+}
+
+function closeAccountGovernanceDialog() {
+  if (accountGovernanceSearchTimer) {
+    clearTimeout(accountGovernanceSearchTimer)
+    accountGovernanceSearchTimer = null
+  }
+  accountGovernanceDialogOpen.value = false
+}
+
+function resetAccountGovernanceFilters() {
+  accountGovernanceRoleFilter.value = 'all'
+  accountGovernanceStatusFilter.value = 'all'
+  accountGovernanceSearch.value = ''
+}
+
+function buildManagedUserExportFilename(prefix = 'agv-managed-accounts') {
+  return `${prefix}-${accountGovernanceRoleFilter.value || 'all'}-${accountGovernanceStatusFilter.value || 'all'}-${
+    String(accountGovernanceSearch.value || '').trim() ? 'search' : 'full'
+  }`
+}
+
+function buildManagedUserExportRows(items = managedUserAccounts.value) {
+  return items.map(item => ({
+    id: item.id,
+    username: item.username,
+    display_name: item.display_name || '',
+    role: item.role,
+    organization_name: item.organization_name || '',
+    account_status: item.account_status || 'approved',
+    created_at: item.created_at || '',
+    last_login_at: item.last_login_at || '',
+    governance_updated_at: item.governance_updated_at || '',
+    suspended_until: item.suspended_until || '',
+    suspension_reason: item.suspension_reason || '',
+    suspension_note: item.suspension_note || '',
+    deactivated_at: item.deactivated_at || '',
+    enterprise_contact_email: item.enterprise_application?.contact_email || '',
+    enterprise_review_note: item.enterprise_application?.review_note || ''
+  }))
+}
+
+async function exportManagedUserAccounts(format = 'json') {
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'system.manage', buildCapabilityDeniedMessage('platform'))) return
+  const params = new URLSearchParams({
+    role: accountGovernanceRoleFilter.value || 'all',
+    status: accountGovernanceStatusFilter.value || 'all',
+    search: String(accountGovernanceSearch.value || '').trim()
+  })
+  try {
+    const response = await fetch(`${API_BASE}/auth/users/export?${params.toString()}`, {
+      headers: buildAuthorizedHeaders()
+    })
+    const data = await response.json().catch(() => null)
+    if (!response.ok) {
+      throw createApiError(data, 'Managed user export failed')
+    }
+    const items = Array.isArray(data?.items) ? data.items : []
+    if (!items.length) {
+      showFloatingToast(t('account_governance_export_empty'), 'info')
+      return
+    }
+    const rows = buildManagedUserExportRows(items)
+    if (format === 'csv') {
+      downloadCsvFile(`${buildManagedUserExportFilename()}.csv`, rowsToCsv(rows))
+      showFloatingToast(t('account_governance_export_csv_ok'), 'success')
+      return
+    }
+    downloadJsonFile(
+      `${buildManagedUserExportFilename()}.json`,
+      JSON.stringify(
+        {
+          exported_at: data?.exported_at || new Date().toISOString(),
+          role_filter: data?.role || accountGovernanceRoleFilter.value,
+          status_filter: data?.status || accountGovernanceStatusFilter.value,
+          search: data?.search || String(accountGovernanceSearch.value || '').trim(),
+          summary: data?.summary || accountGovernanceSummary.value,
+          items: rows
+        },
+        null,
+        2
+      )
+    )
+    showFloatingToast(t('account_governance_export_json_ok'), 'success')
+  } catch (error) {
+    showFloatingToast(error?.message || t('account_governance_export_failed'), 'error')
+  }
 }
 
 function saveEnterpriseApprovalUiState() {
@@ -11473,9 +11679,51 @@ watch([authAuthenticated, authCanEnterpriseApprove], ([authenticated, canApprove
   enterpriseApprovalReviewNote.value = ''
 })
 
+watch([authAuthenticated, authCanSystemManage], ([authenticated, canManage]) => {
+  if (authenticated && canManage) {
+    fetchManagedUserAccounts({ forceSelectFirst: false })
+    return
+  }
+  accountGovernanceDialogOpen.value = false
+  managedUserAccounts.value = []
+  selectedManagedUserId.value = ''
+  accountGovernanceLastFetchedAt.value = ''
+  accountGovernanceSummary.value = {
+    all: 0,
+    personal: 0,
+    enterprise: 0,
+    platform_admin: 0,
+    approved: 0,
+    pending: 0,
+    rejected: 0,
+    suspended: 0,
+    deactivated: 0
+  }
+})
+
 watch(enterpriseApprovalStatusFilter, () => {
   if (!enterpriseApprovalDialogOpen.value || !authCanEnterpriseApprove.value) return
   fetchEnterpriseApplications({ forceSelectFirst: true })
+})
+
+watch([accountGovernanceRoleFilter, accountGovernanceStatusFilter], () => {
+  if (!accountGovernanceDialogOpen.value || !authCanSystemManage.value) return
+  fetchManagedUserAccounts({ forceSelectFirst: true })
+})
+
+watch(accountGovernanceSearch, () => {
+  if (!accountGovernanceDialogOpen.value || !authCanSystemManage.value) return
+  if (accountGovernanceSearchTimer) clearTimeout(accountGovernanceSearchTimer)
+  accountGovernanceSearchTimer = setTimeout(() => {
+    fetchManagedUserAccounts({ forceSelectFirst: true })
+  }, 220)
+})
+
+watch([managedUserAccounts, accountGovernanceDialogOpen], () => {
+  if (!accountGovernanceDialogOpen.value) return
+  if (!managedUserAccounts.value.some(item => String(item.id || '') === String(selectedManagedUserId.value || ''))) {
+    selectedManagedUserId.value = String(managedUserAccounts.value[0]?.id || '')
+  }
 })
 
 watch([enterpriseApprovalSearch, filteredEnterpriseApplications], () => {
@@ -12328,6 +12576,26 @@ const enterpriseApprovalDialogBindings = {
   reviewEnterpriseApplication
 }
 
+const platformAccountGovernanceDialogBindings = {
+  t,
+  formatInlineMessage,
+  accountGovernanceSummary,
+  accountGovernanceRoleFilter,
+  accountGovernanceStatusFilter,
+  accountGovernanceSearch,
+  accountGovernanceLoading,
+  managedUserAccounts,
+  selectedManagedUserId,
+  selectedManagedUser,
+  accountGovernanceFilterSummaryText,
+  accountGovernanceEmptyHint,
+  accountGovernanceLastFetchedText,
+  closeAccountGovernanceDialog,
+  resetAccountGovernanceFilters,
+  fetchManagedUserAccounts,
+  exportManagedUserAccounts
+}
+
 const enterpriseSettingsDialogBindings = {
   t,
   authRoleLabel,
@@ -12653,6 +12921,7 @@ onBeforeUnmount(() => {
   if (mapPreviewFocusTimer) clearTimeout(mapPreviewFocusTimer)
   if (mapResizeSectionHighlightTimer) clearTimeout(mapResizeSectionHighlightTimer)
   if (mapResizeItemHighlightTimer) clearTimeout(mapResizeItemHighlightTimer)
+  if (accountGovernanceSearchTimer) clearTimeout(accountGovernanceSearchTimer)
   if (taskBuilderJumpTimer) clearTimeout(taskBuilderJumpTimer)
   if (agvRecoveryJumpTimer) clearTimeout(agvRecoveryJumpTimer)
   if (faultSelectedAgvPulseTimer) clearTimeout(faultSelectedAgvPulseTimer)
@@ -12674,6 +12943,11 @@ onBeforeUnmount(() => {
     <AuthDialog v-if="showAuthDialog" :ui="authDialogBindings" />
 
     <EnterpriseApprovalDialog v-if="enterpriseApprovalDialogOpen" :ui="enterpriseApprovalDialogBindings" />
+
+    <PlatformAccountGovernanceDialog
+      v-if="accountGovernanceDialogOpen"
+      :ui="platformAccountGovernanceDialogBindings"
+    />
 
     <EnterpriseSettingsDialog v-if="enterpriseSettingsDialogOpen" :ui="enterpriseSettingsDialogBindings" />
 
@@ -12755,6 +13029,14 @@ onBeforeUnmount(() => {
         <span v-if="platformApprovalPendingCount > 0" class="toolbar-entry-badge">
           {{ formatInlineMessage(t('enterprise_approval_pending_badge'), { count: platformApprovalPendingCount }) }}
         </span>
+      </button>
+      <button
+        v-if="authCanSystemManage"
+        class="toolbar-compare-entry toolbar-admin-entry"
+        type="button"
+        @click="openAccountGovernanceDialog()"
+      >
+        <span>{{ t('account_governance_entry') }}</span>
       </button>
     </div>
 

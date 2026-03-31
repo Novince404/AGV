@@ -114,6 +114,7 @@ def _serialize_managed_user(user) -> dict:
         "created_at": payload["created_at"],
         "last_login_at": payload["last_login_at"],
         "governance_updated_at": payload["governance_updated_at"],
+        "enterprise_application": payload["enterprise_application"],
     }
 
 
@@ -431,16 +432,14 @@ def register_personal(
     return _build_authenticated_payload(user, session)
 
 
-def list_user_feed(
+def _filter_user_feed(
     role: str | None = None,
     status: str | None = None,
     search: str | None = None,
-    limit: int = 60,
-) -> dict:
+) -> tuple[list, dict, str, str, str]:
     normalized_role = str(role or "").strip().lower()
     normalized_status = str(status or "").strip().lower()
     normalized_search = str(search or "").strip().casefold()
-    safe_limit = max(1, min(int(limit or 60), 200))
 
     users = list_users()
 
@@ -491,13 +490,58 @@ def list_user_feed(
         "suspended": sum(1 for user in users if str(getattr(user, "account_status", "approved") or "approved") == "suspended"),
         "deactivated": sum(1 for user in users if str(getattr(user, "account_status", "approved") or "approved") == "deactivated"),
     }
+    return filtered_items, summary, normalized_role or "all", normalized_status or "all", str(search or "").strip()
+
+
+def list_user_feed(
+    role: str | None = None,
+    status: str | None = None,
+    search: str | None = None,
+    limit: int = 60,
+) -> dict:
+    safe_limit = max(1, min(int(limit or 60), 200))
+    filtered_items, summary, normalized_role, normalized_status, normalized_search = _filter_user_feed(
+        role=role,
+        status=status,
+        search=search,
+    )
     return {
         "items": [_serialize_managed_user(user) for user in filtered_items[:safe_limit]],
         "summary": summary,
-        "role": normalized_role or "all",
-        "status": normalized_status or "all",
-        "search": str(search or "").strip(),
+        "role": normalized_role,
+        "status": normalized_status,
+        "search": normalized_search,
         "limit": safe_limit,
+    }
+
+
+def export_user_feed(request: Request, role: str | None = None, status: str | None = None, search: str | None = None) -> dict:
+    actor = require_actor_capability(request, "system.manage")
+    filtered_items, summary, normalized_role, normalized_status, normalized_search = _filter_user_feed(
+        role=role,
+        status=status,
+        search=search,
+    )
+    items = [_serialize_managed_user(user) for user in filtered_items]
+    record_operation_audit(
+        "user_account",
+        str(actor.get("id") or actor.get("username") or "platform_admin"),
+        "user.export",
+        actor=actor,
+        metadata={
+            "role_filter": normalized_role,
+            "status_filter": normalized_status,
+            "search": normalized_search,
+            "count": len(items),
+        },
+    )
+    return {
+        "items": items,
+        "summary": summary,
+        "role": normalized_role,
+        "status": normalized_status,
+        "search": normalized_search,
+        "exported_at": now_iso(),
     }
 
 

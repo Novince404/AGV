@@ -75,6 +75,16 @@ def list_users(
     return auth_service.list_user_feed(role=role, status=status, search=search, limit=limit)
 
 
+@router.get("/users/export")
+def export_users(
+    request: Request,
+    role: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    search: str | None = Query(default=None),
+):
+    return auth_service.export_user_feed(request, role=role, status=status, search=search)
+
+
 @router.get("/enterprise-applications")
 def list_enterprise_applications(
     request: Request,
