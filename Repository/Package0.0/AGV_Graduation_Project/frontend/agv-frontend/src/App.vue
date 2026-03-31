@@ -66,6 +66,8 @@ const EnterpriseSettingsDialog = defineAsyncComponent(() => import('./components
 const EnterpriseApprovalDialog = defineAsyncComponent(() => import('./components/EnterpriseApprovalDialog.vue'))
 const PlatformAccountGovernanceDialog = defineAsyncComponent(() => import('./components/PlatformAccountGovernanceDialog.vue'))
 const PlatformAdminGovernanceHub = defineAsyncComponent(() => import('./components/PlatformAdminGovernanceHub.vue'))
+const EnterpriseRequestDialog = defineAsyncComponent(() => import('./components/EnterpriseRequestDialog.vue'))
+const PlatformBugFeedbackDialog = defineAsyncComponent(() => import('./components/PlatformBugFeedbackDialog.vue'))
 const AuthDialog = defineAsyncComponent(() => import('./components/AuthDialog.vue'))
 const OperationsAuditPanel = defineAsyncComponent(() => import('./components/OperationsAuditPanel.vue'))
 const ExperimentRecordsPanel = defineAsyncComponent(() => import('./components/ExperimentRecordsPanel.vue'))
@@ -108,6 +110,7 @@ const COMFY_WORKFLOW_TEMPLATE_STORAGE_KEY = 'agv_comfy_workflow_templates'
 const SHORTCUT_PREFERENCES_STORAGE_KEY = 'agv_shortcut_preferences'
 const ENTERPRISE_SETTINGS_TAB_STORAGE_KEY = 'agv_enterprise_settings_tabs'
 const ENTERPRISE_SETTINGS_SIDEBAR_STORAGE_KEY = 'agv_enterprise_settings_sidebar_collapsed'
+const PANEL_SECTION_KEYS = ['control', 'queue', 'templates', 'points', 'json', 'experiments', 'ai', 'operations']
 const ENTERPRISE_REGISTER_DRAFT_STORAGE_KEY = 'agv_enterprise_register_draft'
 const ENTERPRISE_REGISTER_FOLLOWUP_STORAGE_KEY = 'agv_enterprise_register_followup'
 const ENTERPRISE_APPROVAL_UI_STORAGE_KEY = 'agv_enterprise_approval_ui'
@@ -834,6 +837,41 @@ const accountGovernanceSelectedTemplateKey = ref('')
 const accountGovernanceSuspendReason = ref('')
 const accountGovernanceSuspendNote = ref('')
 const accountGovernanceSuspendDurationPreset = ref('7d')
+const enterpriseRequestDialogOpen = ref(false)
+const enterpriseRequestLoading = ref(false)
+const enterpriseRequestActionLoading = ref(false)
+const enterpriseRequestSummary = ref({ all: 0, open: 0, in_progress: 0, resolved: 0, closed: 0 })
+const enterpriseRequestStatusFilter = ref('all')
+const enterpriseRequestCategoryFilter = ref('all')
+const enterpriseRequestSearch = ref('')
+const enterpriseRequestItems = ref([])
+const enterpriseRequestRecipients = ref([])
+const selectedEnterpriseRequestId = ref('')
+const enterpriseRequestDraft = ref({
+  category: 'request',
+  title: '',
+  content: '',
+  target_user_id: ''
+})
+const enterpriseRequestResponseNote = ref('')
+const enterpriseRequestLastFetchedAt = ref('')
+const platformBugFeedbackDialogOpen = ref(false)
+const platformBugFeedbackLoading = ref(false)
+const platformBugFeedbackActionLoading = ref(false)
+const platformBugFeedbackSummary = ref({ all: 0, open: 0, in_progress: 0, resolved: 0, closed: 0 })
+const platformBugFeedbackStatusFilter = ref('all')
+const platformBugFeedbackCategoryFilter = ref('all')
+const platformBugFeedbackSearch = ref('')
+const platformBugFeedbackItems = ref([])
+const selectedPlatformBugFeedbackId = ref('')
+const platformBugFeedbackDraft = ref({
+  category: 'ui',
+  title: '',
+  content: ''
+})
+const platformBugFeedbackResponseNote = ref('')
+const platformBugFeedbackLastFetchedAt = ref('')
+const platformBugFeedbackManagementMode = ref(false)
 const platformAdminSurfaceMode = ref('governance')
 const platformAdminEnterprisePreviewRole = ref('enterprise_admin')
 const authLoginRestrictionNotice = ref(null)
@@ -888,6 +926,12 @@ const showEnterpriseSettingsToolbarEntry = computed(
   () => authIsEnterpriseRole.value || isPlatformAdminEnterprisePreviewMode.value
 )
 const showPlatformAdminManagementEntries = computed(() => !isPlatformAdminPreviewMode.value)
+const showEnterpriseRequestToolbarEntry = computed(() =>
+  authCanEnterpriseRequestSubmit.value && authIsEnterpriseRole.value && authCurrentAccountStatus.value === 'approved'
+)
+const showPlatformBugFeedbackToolbarEntry = computed(() =>
+  authAuthenticated.value && !isPlatformAdmin.value && (authCanPlatformBugSubmit.value || authCanPlatformBugManage.value)
+)
 const dashboardUnlocked = computed(() => authAuthenticated.value || authGuestAccepted.value)
 const authModeText = computed(() =>
   authAuthenticated.value ? t(`auth_mode_${authCurrentRole.value}`) : t('auth_mode_guest')
@@ -1585,6 +1629,9 @@ const authCanAiRender = computed(() => authCapabilitySet.value.has('ai.render'))
 const authCanForceApplyMap = computed(() => authCapabilitySet.value.has('map.force_apply'))
 const authCanEnterpriseApprove = computed(() => authCapabilitySet.value.has('enterprise.approve'))
 const authCanSystemManage = computed(() => authCapabilitySet.value.has('system.manage'))
+const authCanEnterpriseRequestSubmit = computed(() => authCapabilitySet.value.has('feedback.enterprise.submit'))
+const authCanPlatformBugSubmit = computed(() => authCapabilitySet.value.has('feedback.platform.submit'))
+const authCanPlatformBugManage = computed(() => authCapabilitySet.value.has('feedback.platform.manage'))
 const authIsEnterpriseRole = computed(() =>
   ['enterprise_operator', 'enterprise_logistics', 'enterprise_admin'].includes(authCurrentRole.value)
 )
@@ -1592,6 +1639,12 @@ const canUseEnterpriseUi = computed(() => authIsEnterpriseRole.value || isPlatfo
 const platformApprovalPendingCount = computed(() => Number(enterpriseApprovalSummary.value.pending || 0))
 const selectedManagedUser = computed(() =>
   managedUserAccounts.value.find(item => String(item.id || '') === String(selectedManagedUserId.value || '')) || null
+)
+const selectedEnterpriseRequest = computed(() =>
+  enterpriseRequestItems.value.find(item => String(item.id || '') === String(selectedEnterpriseRequestId.value || '')) || null
+)
+const selectedPlatformBugFeedback = computed(() =>
+  platformBugFeedbackItems.value.find(item => String(item.id || '') === String(selectedPlatformBugFeedbackId.value || '')) || null
 )
 const selectedManagedUserIdSet = computed(() => new Set(selectedManagedUserIds.value.map(item => String(item || ''))))
 const selectedManagedUsers = computed(() =>
@@ -1685,6 +1738,55 @@ const accountGovernanceLastFetchedText = computed(() =>
   accountGovernanceLastFetchedAt.value
     ? formatInlineMessage(t('operations_last_updated'), { at: accountGovernanceLastFetchedAt.value })
     : ''
+)
+const enterpriseRequestFilterSummaryText = computed(() =>
+  formatInlineMessage(t('enterprise_request_filter_summary'), {
+    count: enterpriseRequestItems.value.length,
+    status: t(`feedback_status_${enterpriseRequestStatusFilter.value || 'all'}`),
+    category: t(`enterprise_request_category_${enterpriseRequestCategoryFilter.value || 'all'}`),
+    search: String(enterpriseRequestSearch.value || '').trim() || t('enterprise_request_filter_search_empty')
+  })
+)
+const enterpriseRequestEmptyHint = computed(() => {
+  if (String(enterpriseRequestSearch.value || '').trim()) return t('enterprise_request_empty_search')
+  if (enterpriseRequestStatusFilter.value !== 'all' || enterpriseRequestCategoryFilter.value !== 'all') {
+    return t('enterprise_request_empty_filtered')
+  }
+  return t('enterprise_request_empty')
+})
+const enterpriseRequestLastFetchedText = computed(() =>
+  enterpriseRequestLastFetchedAt.value
+    ? formatInlineMessage(t('operations_last_updated'), { at: enterpriseRequestLastFetchedAt.value })
+    : ''
+)
+const enterpriseRequestCanManageSelected = computed(() => {
+  if (!selectedEnterpriseRequest.value) return false
+  if (authCurrentRole.value === 'enterprise_admin' && authCurrentAccountStatus.value === 'approved') return true
+  return String(selectedEnterpriseRequest.value.target_user_id || '') === String(authCurrentUser.value?.id || '')
+})
+const platformBugFeedbackFilterSummaryText = computed(() =>
+  formatInlineMessage(t('platform_bug_feedback_filter_summary'), {
+    count: platformBugFeedbackItems.value.length,
+    status: t(`feedback_status_${platformBugFeedbackStatusFilter.value || 'all'}`),
+    category: t(`platform_bug_feedback_category_${platformBugFeedbackCategoryFilter.value || 'all'}`),
+    search: String(platformBugFeedbackSearch.value || '').trim() || t('platform_bug_feedback_filter_search_empty')
+  })
+)
+const platformBugFeedbackEmptyHint = computed(() => {
+  if (String(platformBugFeedbackSearch.value || '').trim()) return t('platform_bug_feedback_empty_search')
+  if (platformBugFeedbackStatusFilter.value !== 'all' || platformBugFeedbackCategoryFilter.value !== 'all') {
+    return t('platform_bug_feedback_empty_filtered')
+  }
+  return t('platform_bug_feedback_empty')
+})
+const platformBugFeedbackLastFetchedText = computed(() =>
+  platformBugFeedbackLastFetchedAt.value
+    ? formatInlineMessage(t('operations_last_updated'), { at: platformBugFeedbackLastFetchedAt.value })
+    : ''
+)
+const platformBugFeedbackOpenCount = computed(() => Number(platformBugFeedbackSummary.value.open || 0))
+const platformBugFeedbackCanManageSelected = computed(() =>
+  authCanPlatformBugManage.value && Boolean(selectedPlatformBugFeedback.value)
 )
 const enterpriseToolbarStatusBadgeText = computed(() => {
   if (isPlatformAdminEnterprisePreviewMode.value) return ''
@@ -2174,14 +2276,14 @@ const enterpriseSettingsTabDefinitions = computed(() => {
       hint: enterpriseTabAccessHint(key, accessMode)
     }
   }
-  if (authCurrentRole.value === 'enterprise_operator') {
+  if (enterpriseUiRole.value === 'enterprise_operator') {
     return [
       buildTab('overview', true),
       buildTab('runtime', true),
       buildTab('ai', false)
     ]
   }
-  if (authCurrentRole.value === 'enterprise_logistics') {
+  if (enterpriseUiRole.value === 'enterprise_logistics') {
     return [
       buildTab('overview', false),
       buildTab('map_profiles', true),
@@ -2261,6 +2363,13 @@ function enterpriseRoleWorkspaceSectionKeys(role = enterpriseUiRole.value) {
   return ['control', 'queue']
 }
 
+function enterpriseVisiblePanelSectionKeysForRole(role = enterpriseUiRole.value) {
+  if (role === 'enterprise_operator') return ['control', 'queue', 'ai']
+  if (role === 'enterprise_logistics') return ['templates', 'points', 'json', 'experiments', 'ai']
+  if (role === 'enterprise_admin') return [...PANEL_SECTION_KEYS]
+  return ['control', 'queue']
+}
+
 function enterprisePanelPreset(role = enterpriseUiRole.value) {
   if (role === 'enterprise_operator') {
     return {
@@ -2270,7 +2379,7 @@ function enterprisePanelPreset(role = enterpriseUiRole.value) {
       points: false,
       json: false,
       experiments: false,
-      ai: false,
+      ai: true,
       operations: false
     }
   }
@@ -2282,7 +2391,7 @@ function enterprisePanelPreset(role = enterpriseUiRole.value) {
       points: true,
       json: true,
       experiments: true,
-      ai: false,
+      ai: true,
       operations: false
     }
   }
@@ -2292,7 +2401,7 @@ function enterprisePanelPreset(role = enterpriseUiRole.value) {
       queue: true,
       templates: true,
       points: true,
-      json: false,
+      json: true,
       experiments: true,
       ai: true,
       operations: true
@@ -2300,6 +2409,15 @@ function enterprisePanelPreset(role = enterpriseUiRole.value) {
   }
   return null
 }
+
+const visiblePanelSectionKeys = computed(() => {
+  if (isPlatformAdminGovernanceMode.value) return []
+  if (!uiTreatAsEnterpriseRole.value) return PANEL_SECTION_KEYS
+  if (!enterpriseUiApproved.value) return []
+  return enterpriseVisiblePanelSectionKeysForRole(enterpriseUiRole.value)
+})
+const visiblePanelSectionKeySet = computed(() => new Set(visiblePanelSectionKeys.value))
+const hasVisiblePanelSections = computed(() => visiblePanelSectionKeys.value.length > 0)
 
 const enterpriseWorkspaceSectionLabels = computed(() =>
   enterpriseRoleWorkspaceSectionKeys().map(key => panelLocale.value.sections[key]).filter(Boolean)
@@ -3766,8 +3884,12 @@ const panelSummaryModes = computed(() => [
   { key: 'compact', label: panelSummaryLocale.value.compact },
   { key: 'full', label: panelSummaryLocale.value.full }
 ])
-const areAllPanelSectionsExpanded = computed(() => Object.values(panelSections.value).every(Boolean))
-const areAllPanelSectionsCollapsed = computed(() => Object.values(panelSections.value).every(value => !value))
+const areAllPanelSectionsExpanded = computed(() =>
+  visiblePanelSectionKeys.value.length > 0 && visiblePanelSectionKeys.value.every(key => Boolean(panelSections.value[key]))
+)
+const areAllPanelSectionsCollapsed = computed(() =>
+  visiblePanelSectionKeys.value.every(key => !panelSections.value[key])
+)
 const pendingTaskCount = computed(() => tasks.value.filter(task => task.status === 'pending').length)
 const runningTaskCount = computed(() => tasks.value.filter(task => task.status === 'running').length)
 const obstacleSummaryText = computed(() => {
@@ -4097,6 +4219,7 @@ const panelSearchResults = computed(() => {
   ]
 
   for (const section of sections) {
+    if (!visiblePanelSectionKeySet.value.has(section.key)) continue
     if (!section.matched) continue
     results.push({
       ...section,
@@ -5415,6 +5538,316 @@ function closeAccountGovernanceDialog() {
   resetAccountGovernanceActionDraft()
   selectedManagedUserIds.value = []
   accountGovernanceDialogOpen.value = false
+}
+
+function resetEnterpriseRequestDraft() {
+  enterpriseRequestDraft.value = {
+    category: 'request',
+    title: '',
+    content: '',
+    target_user_id: String(enterpriseRequestRecipients.value[0]?.id || '')
+  }
+  enterpriseRequestResponseNote.value = ''
+}
+
+async function fetchEnterpriseRequestRecipients() {
+  if (!authCanEnterpriseRequestSubmit.value) {
+    enterpriseRequestRecipients.value = []
+    return
+  }
+  const response = await fetch(`${API_BASE}/feedback/enterprise/recipients`, {
+    headers: buildAuthorizedHeaders()
+  })
+  const data = await response.json().catch(() => null)
+  if (!response.ok) {
+    throw createApiError(data, 'Enterprise request recipients failed')
+  }
+  enterpriseRequestRecipients.value = Array.isArray(data?.items) ? data.items : []
+  if (
+    !enterpriseRequestDraft.value.target_user_id ||
+    !enterpriseRequestRecipients.value.some(item => String(item.id || '') === String(enterpriseRequestDraft.value.target_user_id || ''))
+  ) {
+    enterpriseRequestDraft.value = {
+      ...enterpriseRequestDraft.value,
+      target_user_id: String(enterpriseRequestRecipients.value[0]?.id || '')
+    }
+  }
+}
+
+async function fetchEnterpriseRequests({ forceSelectFirst = false, preferredSelectedId = '' } = {}) {
+  if (!authCanEnterpriseRequestSubmit.value) {
+    enterpriseRequestItems.value = []
+    enterpriseRequestSummary.value = { all: 0, open: 0, in_progress: 0, resolved: 0, closed: 0 }
+    enterpriseRequestLastFetchedAt.value = ''
+    return
+  }
+  if (enterpriseRequestLoading.value) return
+  enterpriseRequestLoading.value = true
+  try {
+    const params = new URLSearchParams({
+      status: enterpriseRequestStatusFilter.value || 'all',
+      category: enterpriseRequestCategoryFilter.value || 'all',
+      search: String(enterpriseRequestSearch.value || '').trim(),
+      limit: '120'
+    })
+    const response = await fetch(`${API_BASE}/feedback/enterprise/requests?${params.toString()}`, {
+      headers: buildAuthorizedHeaders()
+    })
+    const data = await response.json().catch(() => null)
+    if (!response.ok) {
+      throw createApiError(data, 'Enterprise request fetch failed')
+    }
+    enterpriseRequestItems.value = Array.isArray(data?.items) ? data.items : []
+    enterpriseRequestSummary.value = data?.summary ?? enterpriseRequestSummary.value
+    enterpriseRequestLastFetchedAt.value = new Date().toISOString()
+    const preferredId = String(preferredSelectedId || '')
+    if (preferredId && enterpriseRequestItems.value.some(item => String(item.id || '') === preferredId)) {
+      selectedEnterpriseRequestId.value = preferredId
+    } else if (
+      forceSelectFirst ||
+      !enterpriseRequestItems.value.some(item => String(item.id || '') === String(selectedEnterpriseRequestId.value || ''))
+    ) {
+      selectedEnterpriseRequestId.value = String(enterpriseRequestItems.value[0]?.id || '')
+    }
+  } catch (error) {
+    console.error('Fetch enterprise requests error:', error)
+    showFloatingToast(error?.message || t('enterprise_request_fetch_failed'), 'error')
+  } finally {
+    enterpriseRequestLoading.value = false
+  }
+}
+
+async function openEnterpriseRequestDialog({ status = '', category = '', selectedId = '' } = {}) {
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'feedback.enterprise.submit', t('enterprise_request_requires_enterprise'))) return
+  enterpriseRequestDialogOpen.value = true
+  if (String(status || '').trim()) enterpriseRequestStatusFilter.value = String(status).trim()
+  if (String(category || '').trim()) enterpriseRequestCategoryFilter.value = String(category).trim()
+  try {
+    await fetchEnterpriseRequestRecipients()
+    await fetchEnterpriseRequests({ forceSelectFirst: !String(selectedId || '').trim(), preferredSelectedId: selectedId })
+    if (!enterpriseRequestDraft.value.target_user_id) {
+      enterpriseRequestDraft.value = {
+        ...enterpriseRequestDraft.value,
+        target_user_id: String(enterpriseRequestRecipients.value[0]?.id || '')
+      }
+    }
+  } catch (error) {
+    console.error('Open enterprise request dialog error:', error)
+    showFloatingToast(error?.message || t('enterprise_request_fetch_failed'), 'error')
+  }
+}
+
+function closeEnterpriseRequestDialog() {
+  enterpriseRequestDialogOpen.value = false
+  enterpriseRequestResponseNote.value = ''
+}
+
+function resetEnterpriseRequestFilters() {
+  enterpriseRequestStatusFilter.value = 'all'
+  enterpriseRequestCategoryFilter.value = 'all'
+  enterpriseRequestSearch.value = ''
+}
+
+async function submitEnterpriseRequest() {
+  if (!authCanEnterpriseRequestSubmit.value) return
+  const payload = {
+    category: String(enterpriseRequestDraft.value.category || '').trim() || 'request',
+    title: String(enterpriseRequestDraft.value.title || '').trim(),
+    content: String(enterpriseRequestDraft.value.content || '').trim(),
+    target_user_id: String(enterpriseRequestDraft.value.target_user_id || '').trim()
+  }
+  if (!payload.title || !payload.content || !payload.target_user_id) {
+    showFloatingToast(t('enterprise_request_fields_required'), 'error')
+    return
+  }
+  enterpriseRequestActionLoading.value = true
+  try {
+    const response = await fetch(`${API_BASE}/feedback/enterprise/requests`, {
+      method: 'POST',
+      headers: buildAuthorizedHeaders({
+        'Content-Type': 'application/json'
+      }),
+      body: JSON.stringify(payload)
+    })
+    const data = await response.json().catch(() => null)
+    if (!response.ok) {
+      throw createApiError(data, 'Enterprise request create failed')
+    }
+    resetEnterpriseRequestDraft()
+    await fetchEnterpriseRequests({ forceSelectFirst: true, preferredSelectedId: data?.item?.id })
+    showFloatingToast(t('enterprise_request_submit_ok'), 'success')
+  } catch (error) {
+    console.error('Submit enterprise request error:', error)
+    showFloatingToast(error?.message || t('enterprise_request_submit_failed'), 'error')
+  } finally {
+    enterpriseRequestActionLoading.value = false
+  }
+}
+
+async function updateSelectedEnterpriseRequestStatus(status) {
+  if (!selectedEnterpriseRequest.value || !enterpriseRequestCanManageSelected.value) return
+  enterpriseRequestActionLoading.value = true
+  try {
+    const response = await fetch(
+      `${API_BASE}/feedback/enterprise/requests/${encodeURIComponent(selectedEnterpriseRequest.value.id)}/status`,
+      {
+        method: 'POST',
+        headers: buildAuthorizedHeaders({
+          'Content-Type': 'application/json'
+        }),
+        body: JSON.stringify({
+          status,
+          response_note: String(enterpriseRequestResponseNote.value || '').trim() || null
+        })
+      }
+    )
+    const data = await response.json().catch(() => null)
+    if (!response.ok) {
+      throw createApiError(data, 'Enterprise request update failed')
+    }
+    enterpriseRequestResponseNote.value = String(data?.item?.response_note || '')
+    await fetchEnterpriseRequests({ forceSelectFirst: false, preferredSelectedId: selectedEnterpriseRequest.value.id })
+    showFloatingToast(t('enterprise_request_status_update_ok'), 'success')
+  } catch (error) {
+    console.error('Update enterprise request status error:', error)
+    showFloatingToast(error?.message || t('enterprise_request_status_update_failed'), 'error')
+  } finally {
+    enterpriseRequestActionLoading.value = false
+  }
+}
+
+async function fetchPlatformBugFeedback({ forceSelectFirst = false, preferredSelectedId = '' } = {}) {
+  if (!authCanPlatformBugSubmit.value && !authCanPlatformBugManage.value) {
+    platformBugFeedbackItems.value = []
+    platformBugFeedbackSummary.value = { all: 0, open: 0, in_progress: 0, resolved: 0, closed: 0 }
+    platformBugFeedbackLastFetchedAt.value = ''
+    platformBugFeedbackManagementMode.value = false
+    return
+  }
+  if (platformBugFeedbackLoading.value) return
+  platformBugFeedbackLoading.value = true
+  try {
+    const params = new URLSearchParams({
+      status: platformBugFeedbackStatusFilter.value || 'all',
+      category: platformBugFeedbackCategoryFilter.value || 'all',
+      search: String(platformBugFeedbackSearch.value || '').trim(),
+      limit: '120'
+    })
+    const response = await fetch(`${API_BASE}/feedback/platform-bugs?${params.toString()}`, {
+      headers: buildAuthorizedHeaders()
+    })
+    const data = await response.json().catch(() => null)
+    if (!response.ok) {
+      throw createApiError(data, 'Platform bug feedback fetch failed')
+    }
+    platformBugFeedbackItems.value = Array.isArray(data?.items) ? data.items : []
+    platformBugFeedbackSummary.value = data?.summary ?? platformBugFeedbackSummary.value
+    platformBugFeedbackManagementMode.value = Boolean(data?.management)
+    platformBugFeedbackLastFetchedAt.value = new Date().toISOString()
+    const preferredId = String(preferredSelectedId || '')
+    if (preferredId && platformBugFeedbackItems.value.some(item => String(item.id || '') === preferredId)) {
+      selectedPlatformBugFeedbackId.value = preferredId
+    } else if (
+      forceSelectFirst ||
+      !platformBugFeedbackItems.value.some(item => String(item.id || '') === String(selectedPlatformBugFeedbackId.value || ''))
+    ) {
+      selectedPlatformBugFeedbackId.value = String(platformBugFeedbackItems.value[0]?.id || '')
+    }
+  } catch (error) {
+    console.error('Fetch platform bug feedback error:', error)
+    showFloatingToast(error?.message || t('platform_bug_feedback_fetch_failed'), 'error')
+  } finally {
+    platformBugFeedbackLoading.value = false
+  }
+}
+
+async function openPlatformBugFeedbackDialog({ status = '', category = '', selectedId = '' } = {}) {
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'feedback.platform.submit', t('platform_bug_feedback_requires_login'))) return
+  platformBugFeedbackDialogOpen.value = true
+  if (String(status || '').trim()) platformBugFeedbackStatusFilter.value = String(status).trim()
+  if (String(category || '').trim()) platformBugFeedbackCategoryFilter.value = String(category).trim()
+  await fetchPlatformBugFeedback({ forceSelectFirst: !String(selectedId || '').trim(), preferredSelectedId: selectedId })
+}
+
+function closePlatformBugFeedbackDialog() {
+  platformBugFeedbackDialogOpen.value = false
+  platformBugFeedbackResponseNote.value = ''
+}
+
+function resetPlatformBugFeedbackFilters() {
+  platformBugFeedbackStatusFilter.value = 'all'
+  platformBugFeedbackCategoryFilter.value = 'all'
+  platformBugFeedbackSearch.value = ''
+}
+
+async function submitPlatformBugFeedback() {
+  const payload = {
+    category: String(platformBugFeedbackDraft.value.category || '').trim() || 'ui',
+    title: String(platformBugFeedbackDraft.value.title || '').trim(),
+    content: String(platformBugFeedbackDraft.value.content || '').trim()
+  }
+  if (!payload.title || !payload.content) {
+    showFloatingToast(t('platform_bug_feedback_fields_required'), 'error')
+    return
+  }
+  platformBugFeedbackActionLoading.value = true
+  try {
+    const response = await fetch(`${API_BASE}/feedback/platform-bugs`, {
+      method: 'POST',
+      headers: buildAuthorizedHeaders({
+        'Content-Type': 'application/json'
+      }),
+      body: JSON.stringify(payload)
+    })
+    const data = await response.json().catch(() => null)
+    if (!response.ok) {
+      throw createApiError(data, 'Platform bug feedback create failed')
+    }
+    platformBugFeedbackDraft.value = {
+      category: 'ui',
+      title: '',
+      content: ''
+    }
+    await fetchPlatformBugFeedback({ forceSelectFirst: true, preferredSelectedId: data?.item?.id })
+    showFloatingToast(t('platform_bug_feedback_submit_ok'), 'success')
+  } catch (error) {
+    console.error('Submit platform bug feedback error:', error)
+    showFloatingToast(error?.message || t('platform_bug_feedback_submit_failed'), 'error')
+  } finally {
+    platformBugFeedbackActionLoading.value = false
+  }
+}
+
+async function updateSelectedPlatformBugFeedbackStatus(status) {
+  if (!selectedPlatformBugFeedback.value || !platformBugFeedbackCanManageSelected.value) return
+  platformBugFeedbackActionLoading.value = true
+  try {
+    const response = await fetch(
+      `${API_BASE}/feedback/platform-bugs/${encodeURIComponent(selectedPlatformBugFeedback.value.id)}/status`,
+      {
+        method: 'POST',
+        headers: buildAuthorizedHeaders({
+          'Content-Type': 'application/json'
+        }),
+        body: JSON.stringify({
+          status,
+          response_note: String(platformBugFeedbackResponseNote.value || '').trim() || null
+        })
+      }
+    )
+    const data = await response.json().catch(() => null)
+    if (!response.ok) {
+      throw createApiError(data, 'Platform bug feedback update failed')
+    }
+    platformBugFeedbackResponseNote.value = String(data?.item?.response_note || '')
+    await fetchPlatformBugFeedback({ forceSelectFirst: false, preferredSelectedId: selectedPlatformBugFeedback.value.id })
+    showFloatingToast(t('platform_bug_feedback_status_update_ok'), 'success')
+  } catch (error) {
+    console.error('Update platform bug feedback status error:', error)
+    showFloatingToast(error?.message || t('platform_bug_feedback_status_update_failed'), 'error')
+  } finally {
+    platformBugFeedbackActionLoading.value = false
+  }
 }
 
 function resetAccountGovernanceFilters() {
@@ -8468,16 +8901,11 @@ function togglePanelSection(sectionKey) {
 }
 
 function setAllPanelSections(expanded) {
-  panelSections.value = {
-    control: expanded,
-    queue: expanded,
-    templates: expanded,
-    points: expanded,
-    json: expanded,
-    experiments: expanded,
-    ai: expanded,
-    operations: expanded
+  const nextSections = { ...panelSections.value }
+  for (const key of visiblePanelSectionKeys.value) {
+    nextSections[key] = expanded
   }
+  panelSections.value = nextSections
 }
 
 function hasIdleAgv() {
@@ -12220,6 +12648,37 @@ watch([authAuthenticated, authCanSystemManage], ([authenticated, canManage]) => 
   }
 })
 
+watch([authAuthenticated, authCanEnterpriseRequestSubmit], ([authenticated, canSubmit]) => {
+  if (authenticated && canSubmit) return
+  enterpriseRequestDialogOpen.value = false
+  enterpriseRequestItems.value = []
+  enterpriseRequestRecipients.value = []
+  selectedEnterpriseRequestId.value = ''
+  enterpriseRequestSummary.value = { all: 0, open: 0, in_progress: 0, resolved: 0, closed: 0 }
+  enterpriseRequestLastFetchedAt.value = ''
+  resetEnterpriseRequestDraft()
+})
+
+watch([authAuthenticated, authCanPlatformBugSubmit, authCanPlatformBugManage], ([authenticated, canSubmit, canManage]) => {
+  if (authenticated && (canSubmit || canManage)) {
+    if (canManage) {
+      fetchPlatformBugFeedback({ forceSelectFirst: false })
+    }
+    return
+  }
+  platformBugFeedbackDialogOpen.value = false
+  platformBugFeedbackItems.value = []
+  selectedPlatformBugFeedbackId.value = ''
+  platformBugFeedbackSummary.value = { all: 0, open: 0, in_progress: 0, resolved: 0, closed: 0 }
+  platformBugFeedbackLastFetchedAt.value = ''
+  platformBugFeedbackManagementMode.value = false
+})
+
+watch([isPlatformAdminGovernanceMode, authCanPlatformBugManage], ([isGovernance, canManage]) => {
+  if (!isGovernance || !canManage) return
+  fetchPlatformBugFeedback({ forceSelectFirst: false })
+})
+
 watch(enterpriseApprovalStatusFilter, () => {
   if (!enterpriseApprovalDialogOpen.value || !authCanEnterpriseApprove.value) return
   fetchEnterpriseApplications({ forceSelectFirst: true })
@@ -12238,6 +12697,26 @@ watch(accountGovernanceSearch, () => {
   }, 220)
 })
 
+watch([enterpriseRequestStatusFilter, enterpriseRequestCategoryFilter], () => {
+  if (!enterpriseRequestDialogOpen.value || !authCanEnterpriseRequestSubmit.value) return
+  fetchEnterpriseRequests({ forceSelectFirst: true })
+})
+
+watch(enterpriseRequestSearch, () => {
+  if (!enterpriseRequestDialogOpen.value || !authCanEnterpriseRequestSubmit.value) return
+  fetchEnterpriseRequests({ forceSelectFirst: true })
+})
+
+watch([platformBugFeedbackStatusFilter, platformBugFeedbackCategoryFilter], () => {
+  if (!platformBugFeedbackDialogOpen.value || (!authCanPlatformBugSubmit.value && !authCanPlatformBugManage.value)) return
+  fetchPlatformBugFeedback({ forceSelectFirst: true })
+})
+
+watch(platformBugFeedbackSearch, () => {
+  if (!platformBugFeedbackDialogOpen.value || (!authCanPlatformBugSubmit.value && !authCanPlatformBugManage.value)) return
+  fetchPlatformBugFeedback({ forceSelectFirst: true })
+})
+
 watch([managedUserAccounts, accountGovernanceDialogOpen], () => {
   if (!accountGovernanceDialogOpen.value) return
   selectedManagedUserIds.value = selectedManagedUserIds.value.filter(id =>
@@ -12250,6 +12729,28 @@ watch([managedUserAccounts, accountGovernanceDialogOpen], () => {
 
 watch(selectedManagedUserId, () => {
   resetAccountGovernanceActionDraft()
+})
+
+watch([enterpriseRequestItems, enterpriseRequestDialogOpen], () => {
+  if (!enterpriseRequestDialogOpen.value) return
+  if (!enterpriseRequestItems.value.some(item => String(item.id || '') === String(selectedEnterpriseRequestId.value || ''))) {
+    selectedEnterpriseRequestId.value = String(enterpriseRequestItems.value[0]?.id || '')
+  }
+})
+
+watch(selectedEnterpriseRequestId, () => {
+  enterpriseRequestResponseNote.value = String(selectedEnterpriseRequest.value?.response_note || '')
+})
+
+watch([platformBugFeedbackItems, platformBugFeedbackDialogOpen], () => {
+  if (!platformBugFeedbackDialogOpen.value) return
+  if (!platformBugFeedbackItems.value.some(item => String(item.id || '') === String(selectedPlatformBugFeedbackId.value || ''))) {
+    selectedPlatformBugFeedbackId.value = String(platformBugFeedbackItems.value[0]?.id || '')
+  }
+})
+
+watch(selectedPlatformBugFeedbackId, () => {
+  platformBugFeedbackResponseNote.value = String(selectedPlatformBugFeedback.value?.response_note || '')
 })
 
 watch([enterpriseApprovalSearch, filteredEnterpriseApplications], () => {
@@ -13143,6 +13644,58 @@ const platformAccountGovernanceDialogBindings = {
   runManagedUserBulkAction
 }
 
+const enterpriseRequestDialogBindings = {
+  t,
+  formatInlineMessage,
+  enterpriseRequestSummary,
+  enterpriseRequestStatusFilter,
+  enterpriseRequestCategoryFilter,
+  enterpriseRequestSearch,
+  enterpriseRequestLoading,
+  enterpriseRequestActionLoading,
+  enterpriseRequestItems,
+  enterpriseRequestRecipients,
+  selectedEnterpriseRequestId,
+  selectedEnterpriseRequest,
+  enterpriseRequestDraft,
+  enterpriseRequestResponseNote,
+  enterpriseRequestLastFetchedText,
+  enterpriseRequestFilterSummaryText,
+  enterpriseRequestEmptyHint,
+  enterpriseRequestCanManageSelected,
+  closeEnterpriseRequestDialog,
+  fetchEnterpriseRequests,
+  resetEnterpriseRequestFilters,
+  submitEnterpriseRequest,
+  updateSelectedEnterpriseRequestStatus
+}
+
+const platformBugFeedbackDialogBindings = {
+  t,
+  formatInlineMessage,
+  platformBugFeedbackSummary,
+  platformBugFeedbackStatusFilter,
+  platformBugFeedbackCategoryFilter,
+  platformBugFeedbackSearch,
+  platformBugFeedbackLoading,
+  platformBugFeedbackActionLoading,
+  platformBugFeedbackItems,
+  selectedPlatformBugFeedbackId,
+  selectedPlatformBugFeedback,
+  platformBugFeedbackDraft,
+  platformBugFeedbackResponseNote,
+  platformBugFeedbackLastFetchedText,
+  platformBugFeedbackFilterSummaryText,
+  platformBugFeedbackEmptyHint,
+  platformBugFeedbackManagementMode,
+  platformBugFeedbackCanManageSelected,
+  closePlatformBugFeedbackDialog,
+  fetchPlatformBugFeedback,
+  resetPlatformBugFeedbackFilters,
+  submitPlatformBugFeedback,
+  updateSelectedPlatformBugFeedbackStatus
+}
+
 const platformAdminGovernanceHubBindings = {
   t,
   formatInlineMessage,
@@ -13150,6 +13703,8 @@ const platformAdminGovernanceHubBindings = {
   enterpriseApprovalLastFetchedText,
   accountGovernanceSummary,
   accountGovernanceLastFetchedText,
+  platformBugFeedbackSummary,
+  platformBugFeedbackLastFetchedText,
   operationAuditLastFetchedAt,
   platformRecentAuditEntries,
   formatOperationAuditTitle,
@@ -13157,6 +13712,7 @@ const platformAdminGovernanceHubBindings = {
   formatOperationAuditResourceRef,
   openEnterpriseApprovalDialog,
   openAccountGovernanceDialog,
+  openPlatformBugFeedbackDialog,
   requestOperationAuditRefresh,
   enterPlatformAdminPersonalPreviewMode,
   enterPlatformAdminEnterprisePreviewMode
@@ -13519,6 +14075,16 @@ onBeforeUnmount(() => {
       :ui="platformAccountGovernanceDialogBindings"
     />
 
+    <EnterpriseRequestDialog
+      v-if="enterpriseRequestDialogOpen"
+      :ui="enterpriseRequestDialogBindings"
+    />
+
+    <PlatformBugFeedbackDialog
+      v-if="platformBugFeedbackDialogOpen"
+      :ui="platformBugFeedbackDialogBindings"
+    />
+
     <EnterpriseSettingsDialog v-if="enterpriseSettingsDialogOpen" :ui="enterpriseSettingsDialogBindings" />
 
     <div v-if="isPlatformAdminGovernanceMode" class="page-top page-top-governance">
@@ -13557,6 +14123,17 @@ onBeforeUnmount(() => {
             @click="openAccountGovernanceDialog()"
           >
             <span>{{ t('account_governance_entry') }}</span>
+          </button>
+          <button
+            v-if="authCanPlatformBugManage"
+            class="toolbar-compare-entry toolbar-admin-entry"
+            type="button"
+            @click="openPlatformBugFeedbackDialog({ status: 'open' })"
+          >
+            <span>{{ t('platform_bug_feedback_entry') }}</span>
+            <span v-if="platformBugFeedbackOpenCount > 0" class="toolbar-entry-badge">
+              {{ formatInlineMessage(t('platform_bug_feedback_open_badge'), { count: platformBugFeedbackOpenCount }) }}
+            </span>
           </button>
         </div>
 
@@ -13632,6 +14209,22 @@ onBeforeUnmount(() => {
             >
               {{ enterpriseToolbarStatusBadgeText }}
             </span>
+          </button>
+          <button
+            v-if="showEnterpriseRequestToolbarEntry"
+            class="toolbar-compare-entry toolbar-admin-entry"
+            type="button"
+            @click="openEnterpriseRequestDialog()"
+          >
+            <span>{{ t('enterprise_request_entry') }}</span>
+          </button>
+          <button
+            v-if="showPlatformBugFeedbackToolbarEntry"
+            class="toolbar-compare-entry toolbar-admin-entry"
+            type="button"
+            @click="openPlatformBugFeedbackDialog()"
+          >
+            <span>{{ t('platform_bug_feedback_entry') }}</span>
           </button>
           <button
             v-if="authCanEnterpriseApprove && showPlatformAdminManagementEntries"
@@ -14265,7 +14858,7 @@ onBeforeUnmount(() => {
 
       <aside class="panel-shell">
         <div ref="panelRef" class="panel" @scroll="onPanelScroll">
-          <div class="panel-search">
+          <div v-if="hasVisiblePanelSections" class="panel-search">
             <div class="panel-search-row">
               <input
                 v-model.trim="panelSearch"
@@ -14293,7 +14886,7 @@ onBeforeUnmount(() => {
             </div>
           </div>
 
-          <div class="panel-section-actions">
+          <div v-if="hasVisiblePanelSections" class="panel-section-actions">
             <button
               class="btn-ghost"
               type="button"
@@ -14312,7 +14905,31 @@ onBeforeUnmount(() => {
             </button>
           </div>
 
+          <div v-if="!hasVisiblePanelSections" class="panel-empty-state">
+            <strong>{{ t('enterprise_workspace_empty_title') }}</strong>
+            <span>{{ t('enterprise_workspace_empty_hint') }}</span>
+            <div class="approval-actions">
+              <button
+                v-if="showEnterpriseSettingsToolbarEntry"
+                class="btn-secondary"
+                type="button"
+                @click="openEnterpriseSettingsDialog()"
+              >
+                {{ t('enterprise_settings_entry') }}
+              </button>
+              <button
+                v-if="showPlatformBugFeedbackToolbarEntry"
+                class="btn-ghost"
+                type="button"
+                @click="openPlatformBugFeedbackDialog()"
+              >
+                {{ t('platform_bug_feedback_entry') }}
+              </button>
+            </div>
+          </div>
+
           <section
+            v-if="visiblePanelSectionKeySet.has('control')"
             ref="controlSectionRef"
             class="panel-section"
             :class="{
@@ -14342,6 +14959,7 @@ onBeforeUnmount(() => {
           </section>
 
           <section
+            v-if="visiblePanelSectionKeySet.has('queue')"
             ref="queueSectionRef"
             class="panel-section"
             :class="{
@@ -14367,6 +14985,7 @@ onBeforeUnmount(() => {
           </section>
 
           <section
+            v-if="visiblePanelSectionKeySet.has('templates')"
             ref="templatesSectionRef"
             class="panel-section"
             :class="{
@@ -14392,6 +15011,7 @@ onBeforeUnmount(() => {
           </section>
 
           <section
+            v-if="visiblePanelSectionKeySet.has('points')"
             ref="pointsSectionRef"
             class="panel-section"
             :class="{
@@ -14417,6 +15037,7 @@ onBeforeUnmount(() => {
           </section>
 
           <section
+            v-if="visiblePanelSectionKeySet.has('json')"
             ref="jsonSectionRef"
             class="panel-section"
             :class="{
@@ -14442,6 +15063,7 @@ onBeforeUnmount(() => {
           </section>
 
           <section
+            v-if="visiblePanelSectionKeySet.has('experiments')"
             ref="experimentsSectionRef"
             class="panel-section"
             :class="{
@@ -14467,6 +15089,7 @@ onBeforeUnmount(() => {
           </section>
 
           <section
+            v-if="visiblePanelSectionKeySet.has('ai')"
             ref="aiSectionRef"
             class="panel-section ai-panel-section"
             :class="{
@@ -14565,6 +15188,7 @@ onBeforeUnmount(() => {
           </section>
 
           <section
+            v-if="visiblePanelSectionKeySet.has('operations')"
             ref="operationsSectionRef"
             class="panel-section"
             :class="{
@@ -14717,6 +15341,7 @@ onBeforeUnmount(() => {
     </div>
   </div>
 </template>
+
 
 
 

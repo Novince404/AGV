@@ -932,6 +932,38 @@ h2 {
   width: min(1120px, calc(100vw - 32px));
 }
 
+.feedback-dialog-card {
+  width: min(1120px, calc(100vw - 32px));
+}
+
+.feedback-summary-grid {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.feedback-dialog-detail {
+  align-content: start;
+}
+
+.feedback-dialog-card .managed-user-item-meta {
+  color: var(--muted-text);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.feedback-create-box,
+.feedback-action-box {
+  gap: 10px;
+}
+
+.panel-empty-state {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  border: 1px solid #e2d8cb;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.9);
+}
+
 .account-governance-search-field {
   min-width: min(260px, 100%);
 }
@@ -5845,6 +5877,10 @@ h2 {
 
   .auth-register-sidecard {
     grid-template-columns: 1fr;
+  }
+
+  .feedback-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .platform-admin-preview-bar,

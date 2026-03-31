@@ -51,6 +51,30 @@
 
       <article class="approval-summary-card platform-admin-governance-card">
         <div class="platform-admin-governance-card-head">
+          <strong>{{ t('platform_admin_governance_bug_title') }}</strong>
+          <span>{{ t('platform_admin_governance_bug_hint') }}</span>
+        </div>
+        <div class="platform-admin-governance-metrics">
+          <span>
+            {{
+              formatInlineMessage(t('platform_admin_governance_bug_meta'), {
+                open: platformBugFeedbackSummary.open || 0,
+                progressing: platformBugFeedbackSummary.in_progress || 0,
+                resolved: platformBugFeedbackSummary.resolved || 0
+              })
+            }}
+          </span>
+          <small v-if="platformBugFeedbackLastFetchedText">{{ platformBugFeedbackLastFetchedText }}</small>
+        </div>
+        <div class="approval-actions">
+          <button class="btn-secondary" type="button" @click="openPlatformBugFeedbackDialog({ status: 'open' })">
+            {{ t('platform_admin_governance_bug_action') }}
+          </button>
+        </div>
+      </article>
+
+      <article class="approval-summary-card platform-admin-governance-card">
+        <div class="platform-admin-governance-card-head">
           <strong>{{ t('platform_admin_governance_audit_title') }}</strong>
           <span>{{ t('platform_admin_governance_audit_hint') }}</span>
         </div>

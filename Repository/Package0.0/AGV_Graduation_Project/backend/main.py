@@ -8,6 +8,7 @@ from app.api.agv_api import router as agv_router
 from app.api.ai_api import router as ai_router
 from app.api.auth_api import router as auth_router
 from app.api.fault_api import router as fault_router
+from app.api.feedback_api import router as feedback_router
 from app.api.point_api import router as point_router
 from app.api.schedule_api import router as schedule_router
 from app.api.status_api import router as status_router
@@ -34,6 +35,7 @@ app.include_router(agv_router)
 app.include_router(ai_router)
 app.include_router(auth_router)
 app.include_router(fault_router)
+app.include_router(feedback_router)
 app.include_router(point_router)
 app.include_router(task_router)
 app.include_router(template_router)

@@ -292,6 +292,46 @@ class EnterpriseApplicationEntity(Base):
     organization_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
+class EnterpriseRequestEntity(Base):
+    __tablename__ = "enterprise_request"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    organization_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    organization_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    category: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(256), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    submitter_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    submitter_username: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    submitter_display_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    submitter_role: Mapped[str] = mapped_column(String(32), nullable=False)
+    target_user_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    target_username: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    target_display_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    target_role: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="open", index=True)
+    response_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    updated_at: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+
+
+class PlatformBugFeedbackEntity(Base):
+    __tablename__ = "platform_bug_feedback"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    category: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(256), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    submitter_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    submitter_username: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    submitter_display_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    submitter_role: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="open", index=True)
+    response_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    updated_at: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+
+
 class ComfyRenderJobEntity(Base):
     __tablename__ = "comfy_render_job"
 

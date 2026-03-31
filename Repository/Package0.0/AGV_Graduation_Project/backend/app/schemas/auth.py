@@ -34,3 +34,26 @@ class UserSuspendRequest(BaseModel):
 class UserDeactivateRequest(BaseModel):
     reason: str | None = None
     note: str | None = None
+
+
+class EnterpriseRequestCreateRequest(BaseModel):
+    category: str
+    title: str
+    content: str
+    target_user_id: str
+
+
+class EnterpriseRequestStatusRequest(BaseModel):
+    status: str
+    response_note: str | None = None
+
+
+class PlatformBugFeedbackCreateRequest(BaseModel):
+    category: str
+    title: str
+    content: str
+
+
+class PlatformBugFeedbackStatusRequest(BaseModel):
+    status: str
+    response_note: str | None = None

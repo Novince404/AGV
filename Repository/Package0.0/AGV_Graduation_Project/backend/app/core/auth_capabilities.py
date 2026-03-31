@@ -20,12 +20,15 @@ ROLE_CAPABILITIES: dict[str, set[str]] = {
         "json.write",
         "experiment.write",
         "audit.view",
+        "feedback.platform.submit",
     },
     "enterprise_operator": {
         "dashboard.view",
         "dispatch.write",
         "fault.write",
         "ai.render",
+        "feedback.enterprise.submit",
+        "feedback.platform.submit",
     },
     "enterprise_logistics": {
         "dashboard.view",
@@ -35,6 +38,8 @@ ROLE_CAPABILITIES: dict[str, set[str]] = {
         "json.write",
         "experiment.write",
         "ai.render",
+        "feedback.enterprise.submit",
+        "feedback.platform.submit",
     },
     "enterprise_admin": {
         "dashboard.view",
@@ -48,6 +53,9 @@ ROLE_CAPABILITIES: dict[str, set[str]] = {
         "experiment.write",
         "audit.view",
         "ai.render",
+        "feedback.enterprise.submit",
+        "feedback.enterprise.manage",
+        "feedback.platform.submit",
     },
     "platform_admin": {
         "dashboard.view",
@@ -63,6 +71,7 @@ ROLE_CAPABILITIES: dict[str, set[str]] = {
         "enterprise.approve",
         "system.manage",
         "ai.render",
+        "feedback.platform.manage",
     },
 }
 
