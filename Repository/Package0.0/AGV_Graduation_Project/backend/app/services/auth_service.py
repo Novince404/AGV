@@ -246,6 +246,7 @@ def _raise_if_login_restricted(user) -> None:
         raise_api_error(
             403,
             "auth_account_deactivated",
+            reason=getattr(user, "suspension_reason", None),
             note=getattr(user, "suspension_note", None),
         )
 
@@ -380,7 +381,7 @@ def login(username: str, password: str) -> dict:
         raise_api_error(400, "auth_credentials_required")
 
     user = get_user_by_username(normalized_username)
-    if user is None or not user.active or not verify_password(normalized_password, user.password_hash):
+    if user is None or not verify_password(normalized_password, user.password_hash):
         raise_api_error(401, "auth_invalid_credentials")
     _raise_if_login_restricted(user)
 
