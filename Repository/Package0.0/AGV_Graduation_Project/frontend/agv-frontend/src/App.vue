@@ -481,6 +481,7 @@ let mapPreviewFocusTimer = null
 let mapResizeSectionHighlightTimer = null
 let mapResizeItemHighlightTimer = null
 let accountGovernanceSearchTimer = null
+let authGovernanceSyncTimer = null
 let mapPreviewFocusSequence = 0
 let operationAuditRefreshPending = false
 
@@ -772,7 +773,8 @@ const {
   login: loginWithAuthSession,
   registerPersonal: registerPersonalWithAuthSession,
   logout: logoutFromAuthSession,
-  fillDemoAccount
+  fillDemoAccount,
+  resetAuthState: resetAuthStateWithAuthSession
 } = useAuthSession({
   API_BASE,
   createApiError
@@ -5313,15 +5315,24 @@ function buildManagedUserExportRows(items = managedUserAccounts.value) {
     username: item.username,
     display_name: item.display_name || '',
     role: item.role,
+    active: item.active !== false,
+    builtin: item.builtin !== false,
+    organization_id: item.organization_id || '',
     organization_name: item.organization_name || '',
     account_status: item.account_status || 'approved',
     created_at: item.created_at || '',
     last_login_at: item.last_login_at || '',
     governance_updated_at: item.governance_updated_at || '',
+    suspended_at: item.suspended_at || '',
     suspended_until: item.suspended_until || '',
+    suspended_by: item.suspended_by || '',
     suspension_reason: item.suspension_reason || '',
     suspension_note: item.suspension_note || '',
     deactivated_at: item.deactivated_at || '',
+    deactivated_by: item.deactivated_by || '',
+    enterprise_application_status: item.enterprise_application?.status || '',
+    enterprise_application_submitted_at: item.enterprise_application?.submitted_at || '',
+    enterprise_application_reviewed_at: item.enterprise_application?.reviewed_at || '',
     enterprise_contact_email: item.enterprise_application?.contact_email || '',
     enterprise_review_note: item.enterprise_application?.review_note || ''
   }))
@@ -5363,6 +5374,75 @@ function buildAuthLoginRestrictionNotice(detail) {
       : t('auth_login_restriction_deactivated_hint'),
     meta,
     detail: detailParts.join(' · ')
+  }
+}
+
+function buildAuthSessionRefreshNotice(previousUser = null) {
+  const username = String(previousUser?.username || '').trim()
+  return {
+    tone: 'platform',
+    title: t('auth_session_refresh_title'),
+    hint: t('auth_session_refresh_hint'),
+    meta: username
+      ? formatInlineMessage(t('auth_session_refresh_meta'), { username })
+      : '',
+    detail: ''
+  }
+}
+
+async function syncAuthGovernanceState() {
+  if (authGovernanceSyncTimer === null || authLoading.value || !authInitialized.value || !authAuthenticated.value) return
+  const wasAuthenticated = Boolean(authAuthenticated.value)
+  const previousUser = wasAuthenticated
+    ? {
+        id: String(authCurrentUser.value?.id || ''),
+        username: String(authCurrentUser.value?.username || ''),
+        account_status: String(authCurrentAccountStatus.value || '')
+      }
+    : null
+  const previousGovernanceUpdatedAt = String(authCurrentUser.value?.governance_updated_at || '')
+  let nextState = null
+  try {
+    nextState = await fetchAuthMe({ silent: false, preserveOnFailure: true })
+  } catch (error) {
+    if (wasAuthenticated && [401, 403].includes(Number(error?.status || 0))) {
+      resetAuthStateWithAuthSession()
+      authPanelOpen.value = true
+      switchAuthDialogView('login')
+      authLoginRestrictionNotice.value = buildAuthSessionRefreshNotice(previousUser)
+      showFloatingToast(t('auth_session_refresh_toast'), 'info')
+    }
+    return
+  }
+  const isAuthenticated = Boolean(nextState?.authenticated)
+  const nextGovernanceUpdatedAt = String(nextState?.user?.governance_updated_at || '')
+  const nextStatus = String(nextState?.user?.account_status || '')
+  if (wasAuthenticated && !isAuthenticated) {
+    authPanelOpen.value = true
+    switchAuthDialogView('login')
+    authLoginRestrictionNotice.value = buildAuthSessionRefreshNotice(previousUser)
+    showFloatingToast(t('auth_session_refresh_toast'), 'info')
+    return
+  }
+  if (
+    wasAuthenticated &&
+    isAuthenticated &&
+    previousGovernanceUpdatedAt &&
+    nextGovernanceUpdatedAt &&
+    previousGovernanceUpdatedAt !== nextGovernanceUpdatedAt
+  ) {
+    const nextUsername = String(nextState?.user?.username || '')
+    const previousStatus = String(previousUser?.account_status || '')
+    if (nextStatus !== previousStatus && nextUsername === previousUser?.username) {
+      showFloatingToast(
+        formatInlineMessage(t('auth_session_status_changed_toast'), {
+          status: t(`auth_account_status_${nextStatus}`)
+        }),
+        'info'
+      )
+    } else {
+      showFloatingToast(t('auth_session_refresh_updated_toast'), 'info')
+    }
   }
 }
 
@@ -11730,6 +11810,9 @@ onMounted(() => {
   timer = setInterval(() => {
     void refreshState()
   }, 1000)
+  authGovernanceSyncTimer = setInterval(() => {
+    void syncAuthGovernanceState()
+  }, 45000)
   window.addEventListener('keydown', onKeyDown)
   window.addEventListener('beforeunload', onWindowBeforeUnload)
   window.addEventListener('resize', onWindowResize)
@@ -13078,6 +13161,10 @@ const enterpriseSettingsDialogBindings = {
 
 onBeforeUnmount(() => {
   if (timer) clearInterval(timer)
+  if (authGovernanceSyncTimer) {
+    clearInterval(authGovernanceSyncTimer)
+    authGovernanceSyncTimer = null
+  }
   if (clickTimer) clearTimeout(clickTimer)
   clearPreview()
   if (manualPreviewHoldTimer) clearTimeout(manualPreviewHoldTimer)

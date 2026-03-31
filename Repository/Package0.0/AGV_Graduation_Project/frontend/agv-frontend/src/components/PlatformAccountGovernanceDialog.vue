@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="auth-dialog-backdrop">
     <div class="approval-dialog-card account-governance-dialog-card">
       <div class="auth-dialog-header">
@@ -153,11 +153,11 @@
           <div class="approval-detail-grid">
             <div>
               <strong>{{ t('account_governance_field_username') }}</strong>
-              <span>{{ selectedManagedUser.username || '—' }}</span>
+              <span>{{ selectedManagedUser.username || '-' }}</span>
             </div>
             <div>
               <strong>{{ t('account_governance_field_display_name') }}</strong>
-              <span>{{ selectedManagedUser.display_name || '—' }}</span>
+              <span>{{ selectedManagedUser.display_name || '-' }}</span>
             </div>
             <div>
               <strong>{{ t('account_governance_field_role') }}</strong>
@@ -169,26 +169,41 @@
             </div>
             <div>
               <strong>{{ t('account_governance_field_organization') }}</strong>
-              <span>{{ selectedManagedUser.organization_name || '—' }}</span>
+              <span>{{ selectedManagedUser.organization_name || '-' }}</span>
             </div>
             <div>
               <strong>{{ t('account_governance_field_created_at') }}</strong>
-              <span>{{ selectedManagedUser.created_at || '—' }}</span>
+              <span>{{ selectedManagedUser.created_at || '-' }}</span>
             </div>
             <div>
               <strong>{{ t('account_governance_field_last_login_at') }}</strong>
-              <span>{{ selectedManagedUser.last_login_at || '—' }}</span>
+              <span>{{ selectedManagedUser.last_login_at || '-' }}</span>
             </div>
             <div>
               <strong>{{ t('account_governance_field_governance_updated_at') }}</strong>
-              <span>{{ selectedManagedUser.governance_updated_at || '—' }}</span>
+              <span>{{ selectedManagedUser.governance_updated_at || '-' }}</span>
+            </div>
+            <div v-if="selectedManagedUser.suspended_at">
+              <strong>{{ t('account_governance_field_suspended_at') }}</strong>
+              <span>{{ selectedManagedUser.suspended_at }}</span>
+            </div>
+            <div v-if="selectedManagedUser.suspended_by">
+              <strong>{{ t('account_governance_field_suspended_by') }}</strong>
+              <span>{{ selectedManagedUser.suspended_by }}</span>
             </div>
             <div v-if="selectedManagedUser.suspended_until">
               <strong>{{ t('account_governance_field_suspended_until') }}</strong>
               <span>{{ selectedManagedUser.suspended_until }}</span>
             </div>
+            <div v-if="selectedManagedUser.deactivated_at">
+              <strong>{{ t('account_governance_field_deactivated_at') }}</strong>
+              <span>{{ selectedManagedUser.deactivated_at }}</span>
+            </div>
+            <div v-if="selectedManagedUser.deactivated_by">
+              <strong>{{ t('account_governance_field_deactivated_by') }}</strong>
+              <span>{{ selectedManagedUser.deactivated_by }}</span>
+            </div>
           </div>
-
           <div
             v-if="selectedManagedUser.suspension_reason || selectedManagedUser.suspension_note"
             class="approval-existing-note"
@@ -208,11 +223,11 @@
             <strong>{{ t('account_governance_enterprise_application') }}</strong>
             <p>
               <strong>{{ t('enterprise_register_company_name') }}</strong>
-              <span> {{ selectedManagedUser.enterprise_application.company_name || '—' }}</span>
+              <span> {{ selectedManagedUser.enterprise_application.company_name || '-' }}</span>
             </p>
             <p>
               <strong>{{ t('account_governance_contact_email') }}</strong>
-              <span> {{ selectedManagedUser.enterprise_application.contact_email || '—' }}</span>
+              <span> {{ selectedManagedUser.enterprise_application.contact_email || '-' }}</span>
             </p>
             <p v-if="selectedManagedUser.enterprise_application.review_note">
               <strong>{{ t('account_governance_review_note') }}</strong>
@@ -332,8 +347,8 @@ export default defineComponent({
       buildManagedUserMeta(item) {
         if (!item) return ''
         const parts = [
-          exposed.managedUserRoleLabel?.(item.role) || item.role || '—',
-          item.username || '—'
+          exposed.managedUserRoleLabel?.(item.role) || item.role || '-',
+          item.username || '-'
         ]
         if (item.organization_name) {
           parts.push(item.organization_name)
@@ -356,3 +371,5 @@ export default defineComponent({
   }
 })
 </script>
+
+

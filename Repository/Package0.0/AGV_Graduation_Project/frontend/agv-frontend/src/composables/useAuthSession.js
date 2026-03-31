@@ -214,7 +214,7 @@ export function useAuthSession(options) {
     }
   }
 
-  async function fetchAuthMe({ silent = true } = {}) {
+  async function fetchAuthMe({ silent = true, preserveOnFailure = false } = {}) {
     authLoading.value = true
     try {
       const response = await fetch(`${API_BASE}/auth/me`, {
@@ -222,18 +222,29 @@ export function useAuthSession(options) {
       })
       const data = await readJsonResponse(response)
       if (!response.ok) {
-        throw createApiError(data, 'Auth status request failed')
+        const error = createApiError(data, 'Auth status request failed')
+        error.status = response.status
+        error.detail = data?.detail ?? null
+        throw error
       }
       authLastFetchedAt.value = new Date().toISOString()
       return applyAuthPayload(data)
     } catch (error) {
-      applyAuthPayload(null)
+      if (!preserveOnFailure) {
+        applyAuthPayload(null)
+      }
       if (!silent) throw error
       return authState.value
     } finally {
       authInitialized.value = true
       authLoading.value = false
     }
+  }
+
+  function resetAuthState() {
+    authPassword.value = ''
+    authLastFetchedAt.value = new Date().toISOString()
+    return applyAuthPayload(null)
   }
 
   async function login(username = authUsername.value, password = authPassword.value) {
@@ -358,6 +369,7 @@ export function useAuthSession(options) {
     login,
     registerPersonal,
     logout,
-    fillDemoAccount
+    fillDemoAccount,
+    resetAuthState
   }
 }
