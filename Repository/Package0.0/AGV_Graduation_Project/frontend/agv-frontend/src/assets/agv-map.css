@@ -942,6 +942,36 @@ h2 {
   overflow-wrap: anywhere;
 }
 
+.account-governance-list-item {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+}
+
+.account-governance-list-item.selected {
+  border-color: rgba(138, 106, 77, 0.4);
+  box-shadow: inset 0 0 0 1px rgba(138, 106, 77, 0.08);
+}
+
+.account-governance-list-item-select {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-top: 2px;
+}
+
+.account-governance-list-item-select input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
+
+.account-governance-list-item-body {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
 .account-governance-detail .point-badge {
   background: rgba(21, 101, 192, 0.1);
   color: #1565c0;
@@ -1006,6 +1036,10 @@ h2 {
   color: var(--muted-text);
   font-size: 12px;
   line-height: 1.5;
+}
+
+.account-governance-selection-card {
+  margin-bottom: 2px;
 }
 
 .approval-existing-note {

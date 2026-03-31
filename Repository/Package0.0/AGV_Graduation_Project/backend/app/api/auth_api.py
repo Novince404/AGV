@@ -77,6 +77,12 @@ def list_users(
     return auth_service.list_user_feed(role=role, status=status, search=search, limit=limit)
 
 
+@router.get("/users/{user_id}")
+def get_user_detail(request: Request, user_id: str):
+    auth_service.require_actor_capability(request, "system.manage")
+    return auth_service.get_user_detail(user_id)
+
+
 @router.get("/users/export")
 def export_users(
     request: Request,

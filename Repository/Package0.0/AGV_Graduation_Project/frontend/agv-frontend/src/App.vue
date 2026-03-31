@@ -826,6 +826,7 @@ const accountGovernanceSummary = ref({
 })
 const managedUserAccounts = ref([])
 const selectedManagedUserId = ref('')
+const selectedManagedUserIds = ref([])
 const accountGovernanceLastFetchedAt = ref('')
 const accountGovernanceActionLoading = ref(false)
 const accountGovernanceSelectedTemplateKey = ref('')
@@ -1556,6 +1557,29 @@ const platformApprovalPendingCount = computed(() => Number(enterpriseApprovalSum
 const selectedManagedUser = computed(() =>
   managedUserAccounts.value.find(item => String(item.id || '') === String(selectedManagedUserId.value || '')) || null
 )
+const selectedManagedUserIdSet = computed(() => new Set(selectedManagedUserIds.value.map(item => String(item || ''))))
+const selectedManagedUsers = computed(() =>
+  managedUserAccounts.value.filter(item => selectedManagedUserIdSet.value.has(String(item.id || '')))
+)
+const accountGovernanceSelectedCount = computed(() => selectedManagedUsers.value.length)
+const accountGovernanceBulkSuspendableUsers = computed(() =>
+  selectedManagedUsers.value.filter(item => !['suspended', 'deactivated'].includes(String(item.account_status || 'approved')))
+)
+const accountGovernanceBulkUnsuspendableUsers = computed(() =>
+  selectedManagedUsers.value.filter(item => String(item.account_status || 'approved') === 'suspended')
+)
+const accountGovernanceBulkDeactivatableUsers = computed(() =>
+  selectedManagedUsers.value.filter(item => String(item.account_status || 'approved') !== 'deactivated')
+)
+const accountGovernanceSelectionSummaryText = computed(() => {
+  if (!accountGovernanceSelectedCount.value) return ''
+  return formatInlineMessage(t('account_governance_selection_summary'), {
+    count: accountGovernanceSelectedCount.value,
+    suspendable: accountGovernanceBulkSuspendableUsers.value.length,
+    unsuspendable: accountGovernanceBulkUnsuspendableUsers.value.length,
+    deactivatable: accountGovernanceBulkDeactivatableUsers.value.length
+  })
+})
 const accountGovernanceActionTemplateItems = computed(() => [
   {
     key: 'policy',
@@ -5291,6 +5315,9 @@ async function fetchManagedUserAccounts({ forceSelectFirst = false, preferredSel
     managedUserAccounts.value = Array.isArray(data?.items) ? data.items : []
     accountGovernanceSummary.value = data?.summary ?? accountGovernanceSummary.value
     accountGovernanceLastFetchedAt.value = new Date().toISOString()
+    selectedManagedUserIds.value = selectedManagedUserIds.value.filter(id =>
+      managedUserAccounts.value.some(item => String(item.id || '') === String(id || ''))
+    )
     const preferredId = String(preferredSelectedId || '')
     if (preferredId && managedUserAccounts.value.some(item => String(item.id || '') === preferredId)) {
       selectedManagedUserId.value = preferredId
@@ -5329,6 +5356,7 @@ function closeAccountGovernanceDialog() {
     accountGovernanceSearchTimer = null
   }
   resetAccountGovernanceActionDraft()
+  selectedManagedUserIds.value = []
   accountGovernanceDialogOpen.value = false
 }
 
@@ -5336,6 +5364,27 @@ function resetAccountGovernanceFilters() {
   accountGovernanceRoleFilter.value = 'all'
   accountGovernanceStatusFilter.value = 'all'
   accountGovernanceSearch.value = ''
+}
+
+function toggleManagedUserSelection(userId, forceValue = null) {
+  const normalizedId = String(userId || '').trim()
+  if (!normalizedId) return
+  const current = new Set(selectedManagedUserIds.value.map(item => String(item || '')))
+  const nextChecked = forceValue === null ? !current.has(normalizedId) : Boolean(forceValue)
+  if (nextChecked) {
+    current.add(normalizedId)
+  } else {
+    current.delete(normalizedId)
+  }
+  selectedManagedUserIds.value = Array.from(current)
+}
+
+function selectAllManagedUsers() {
+  selectedManagedUserIds.value = managedUserAccounts.value.map(item => String(item.id || '')).filter(Boolean)
+}
+
+function clearSelectedManagedUsers() {
+  selectedManagedUserIds.value = []
 }
 
 function buildManagedUserExportFilename(prefix = 'agv-managed-accounts') {
@@ -5635,6 +5684,105 @@ async function deactivateManagedUserAccount() {
     )
   } catch (error) {
     showFloatingToast(error?.message || t('account_governance_action_failed'), 'error')
+  } finally {
+    accountGovernanceActionLoading.value = false
+  }
+}
+
+async function runManagedUserBulkAction(action = 'suspend') {
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'system.manage', buildCapabilityDeniedMessage('platform'))) return
+  const targetUsers = (
+    action === 'unsuspend'
+      ? accountGovernanceBulkUnsuspendableUsers.value
+      : action === 'deactivate'
+        ? accountGovernanceBulkDeactivatableUsers.value
+        : accountGovernanceBulkSuspendableUsers.value
+  )
+  if (!targetUsers.length) {
+    showFloatingToast(t('account_governance_bulk_none_eligible'), 'info')
+    return
+  }
+  const count = targetUsers.length
+  const confirmKey = action === 'unsuspend'
+    ? 'account_governance_bulk_unsuspend_confirm'
+    : action === 'deactivate'
+      ? 'account_governance_bulk_deactivate_confirm'
+      : 'account_governance_bulk_suspend_confirm'
+  if (!window.confirm(formatInlineMessage(t(confirmKey), { count }))) return
+
+  const durationMap = {
+    '1d': { duration_days: 1, permanent: false },
+    '7d': { duration_days: 7, permanent: false },
+    '30d': { duration_days: 30, permanent: false },
+    permanent: { duration_days: null, permanent: true }
+  }
+  const durationPayload = durationMap[accountGovernanceSuspendDurationPreset.value] || durationMap['7d']
+  const failedUsers = []
+  let successCount = 0
+  accountGovernanceActionLoading.value = true
+  try {
+    for (const item of targetUsers) {
+      try {
+        let response
+        if (action === 'unsuspend') {
+          response = await fetch(`${API_BASE}/auth/users/${encodeURIComponent(item.id)}/unsuspend`, {
+            method: 'POST',
+            headers: buildAuthorizedHeaders()
+          })
+        } else if (action === 'deactivate') {
+          response = await fetch(`${API_BASE}/auth/users/${encodeURIComponent(item.id)}/deactivate`, {
+            method: 'POST',
+            headers: buildAuthorizedJsonHeaders(),
+            body: JSON.stringify({
+              reason: String(accountGovernanceSuspendReason.value || '').trim(),
+              note: String(accountGovernanceSuspendNote.value || '').trim()
+            })
+          })
+        } else {
+          response = await fetch(`${API_BASE}/auth/users/${encodeURIComponent(item.id)}/suspend`, {
+            method: 'POST',
+            headers: buildAuthorizedJsonHeaders(),
+            body: JSON.stringify({
+              reason: String(accountGovernanceSuspendReason.value || '').trim(),
+              note: String(accountGovernanceSuspendNote.value || '').trim(),
+              duration_days: durationPayload.duration_days,
+              permanent: durationPayload.permanent
+            })
+          })
+        }
+        const data = await response.json().catch(() => null)
+        if (!response.ok) {
+          throw createApiError(data, `Managed user bulk ${action} failed`)
+        }
+        successCount += 1
+      } catch (error) {
+        failedUsers.push(item.display_name || item.username || item.id)
+        console.error(`Managed user bulk ${action} error:`, error)
+      }
+    }
+    await fetchManagedUserAccounts({ forceSelectFirst: false, preferredSelectedId: selectedManagedUserId.value })
+    if (!successCount) {
+      showFloatingToast(t('account_governance_bulk_none_eligible'), 'warning')
+      return
+    }
+    clearSelectedManagedUsers()
+    resetAccountGovernanceActionDraft()
+    const successKey = action === 'unsuspend'
+      ? 'account_governance_bulk_unsuspend_ok'
+      : action === 'deactivate'
+        ? 'account_governance_bulk_deactivate_ok'
+        : 'account_governance_bulk_suspend_ok'
+    if (failedUsers.length) {
+      showFloatingToast(
+        formatInlineMessage(t('account_governance_bulk_partial'), {
+          ok: successCount,
+          failed: failedUsers.slice(0, 3).join(' / ')
+        }),
+        'warning'
+      )
+      return
+    }
+    showFloatingToast(formatInlineMessage(t(successKey), { count: successCount }), 'success')
   } finally {
     accountGovernanceActionLoading.value = false
   }
@@ -12001,6 +12149,9 @@ watch(accountGovernanceSearch, () => {
 
 watch([managedUserAccounts, accountGovernanceDialogOpen], () => {
   if (!accountGovernanceDialogOpen.value) return
+  selectedManagedUserIds.value = selectedManagedUserIds.value.filter(id =>
+    managedUserAccounts.value.some(item => String(item.id || '') === String(id || ''))
+  )
   if (!managedUserAccounts.value.some(item => String(item.id || '') === String(selectedManagedUserId.value || ''))) {
     selectedManagedUserId.value = String(managedUserAccounts.value[0]?.id || '')
   }
@@ -12872,7 +13023,13 @@ const platformAccountGovernanceDialogBindings = {
   accountGovernanceActionLoading,
   managedUserAccounts,
   selectedManagedUserId,
+  selectedManagedUserIdSet,
   selectedManagedUser,
+  accountGovernanceSelectedCount,
+  accountGovernanceSelectionSummaryText,
+  accountGovernanceBulkSuspendableUsers,
+  accountGovernanceBulkUnsuspendableUsers,
+  accountGovernanceBulkDeactivatableUsers,
   accountGovernanceFilterSummaryText,
   accountGovernanceEmptyHint,
   accountGovernanceLastFetchedText,
@@ -12884,11 +13041,15 @@ const platformAccountGovernanceDialogBindings = {
   applyAccountGovernanceActionTemplate,
   closeAccountGovernanceDialog,
   resetAccountGovernanceFilters,
+  toggleManagedUserSelection,
+  selectAllManagedUsers,
+  clearSelectedManagedUsers,
   fetchManagedUserAccounts,
   exportManagedUserAccounts,
   suspendManagedUserAccount,
   unsuspendManagedUserAccount,
-  deactivateManagedUserAccount
+  deactivateManagedUserAccount,
+  runManagedUserBulkAction
 }
 
 const enterpriseSettingsDialogBindings = {

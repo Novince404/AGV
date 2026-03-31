@@ -152,30 +152,52 @@
         <button class="btn-ghost" type="button" @click="exportManagedUserAccounts('csv')">
           {{ t('account_governance_export_csv') }}
         </button>
+        <button class="btn-ghost" type="button" @click="selectAllManagedUsers">
+          {{ t('account_governance_select_all_visible') }}
+        </button>
+        <button class="btn-ghost" type="button" :disabled="!accountGovernanceSelectedCount" @click="clearSelectedManagedUsers">
+          {{ t('account_governance_clear_selection') }}
+        </button>
       </div>
 
       <div class="approval-layout">
         <div class="approval-list">
+          <div v-if="accountGovernanceSelectedCount" class="approval-existing-note account-governance-selection-card">
+            <strong>{{ t('account_governance_selection_title') }}</strong>
+            <span>{{ accountGovernanceSelectionSummaryText }}</span>
+          </div>
           <div v-if="accountGovernanceLoading && managedUserAccounts.length === 0" class="approval-empty">
             {{ t('account_governance_loading') }}
           </div>
-          <button
+          <div
             v-for="item in managedUserAccounts"
             :key="item.id"
             class="approval-list-item account-governance-list-item"
-            :class="{ active: String(selectedManagedUserId || '') === String(item.id || '') }"
-            type="button"
+            :class="{
+              active: String(selectedManagedUserId || '') === String(item.id || ''),
+              selected: selectedManagedUserIdSet.has(String(item.id || ''))
+            }"
             @click="selectedManagedUserId = String(item.id || '')"
           >
-            <strong>{{ item.display_name || item.username }}</strong>
-            <span class="managed-user-item-meta">{{ buildManagedUserMeta(item) }}</span>
-            <div class="approval-list-meta">
-              <small>{{ managedUserStatusLabel(item.account_status) }}</small>
-              <span v-if="item.builtin" class="point-badge approval-draft-badge">
-                {{ t('account_governance_builtin_badge') }}
-              </span>
+            <div class="account-governance-list-item-select">
+              <input
+                :checked="selectedManagedUserIdSet.has(String(item.id || ''))"
+                type="checkbox"
+                @click.stop
+                @change="toggleManagedUserSelection(item.id, $event.target.checked)"
+              />
             </div>
-          </button>
+            <div class="account-governance-list-item-body">
+              <strong>{{ item.display_name || item.username }}</strong>
+              <span class="managed-user-item-meta">{{ buildManagedUserMeta(item) }}</span>
+              <div class="approval-list-meta">
+                <small>{{ managedUserStatusLabel(item.account_status) }}</small>
+                <span v-if="item.builtin" class="point-badge approval-draft-badge">
+                  {{ t('account_governance_builtin_badge') }}
+                </span>
+              </div>
+            </div>
+          </div>
           <div v-if="!accountGovernanceLoading && managedUserAccounts.length === 0" class="approval-empty">
             <strong>{{ t('account_governance_empty') }}</strong>
             <span>{{ accountGovernanceEmptyHint }}</span>
@@ -187,7 +209,69 @@
           </div>
         </div>
 
-        <div v-if="selectedManagedUser" class="approval-detail account-governance-detail">
+        <div v-if="selectedManagedUser || accountGovernanceSelectedCount" class="approval-detail account-governance-detail">
+          <div v-if="accountGovernanceSelectedCount" class="approval-existing-note account-governance-action-box">
+            <strong>{{ t('account_governance_bulk_title') }}</strong>
+            <p>{{ t('account_governance_bulk_hint') }}</p>
+            <div class="approval-detail-grid">
+              <div>
+                <strong>{{ t('account_governance_bulk_selected') }}</strong>
+                <span>{{ accountGovernanceSelectedCount }}</span>
+              </div>
+              <div>
+                <strong>{{ t('account_governance_bulk_suspend_submit') }}</strong>
+                <span>{{ accountGovernanceBulkSuspendableUsers.length }}</span>
+              </div>
+              <div>
+                <strong>{{ t('account_governance_bulk_unsuspend_submit') }}</strong>
+                <span>{{ accountGovernanceBulkUnsuspendableUsers.length }}</span>
+              </div>
+              <div>
+                <strong>{{ t('account_governance_bulk_deactivate_submit') }}</strong>
+                <span>{{ accountGovernanceBulkDeactivatableUsers.length }}</span>
+              </div>
+            </div>
+            <div class="approval-actions">
+              <button
+                class="btn-secondary"
+                type="button"
+                :disabled="accountGovernanceActionLoading || !accountGovernanceBulkSuspendableUsers.length"
+                @click="runManagedUserBulkAction('suspend')"
+              >
+                {{
+                  accountGovernanceActionLoading
+                    ? `${t('account_governance_bulk_suspend_submit')}...`
+                    : t('account_governance_bulk_suspend_submit')
+                }}
+              </button>
+              <button
+                class="btn-secondary"
+                type="button"
+                :disabled="accountGovernanceActionLoading || !accountGovernanceBulkUnsuspendableUsers.length"
+                @click="runManagedUserBulkAction('unsuspend')"
+              >
+                {{
+                  accountGovernanceActionLoading
+                    ? `${t('account_governance_bulk_unsuspend_submit')}...`
+                    : t('account_governance_bulk_unsuspend_submit')
+                }}
+              </button>
+              <button
+                class="btn-delete"
+                type="button"
+                :disabled="accountGovernanceActionLoading || !accountGovernanceBulkDeactivatableUsers.length"
+                @click="runManagedUserBulkAction('deactivate')"
+              >
+                {{
+                  accountGovernanceActionLoading
+                    ? `${t('account_governance_bulk_deactivate_submit')}...`
+                    : t('account_governance_bulk_deactivate_submit')
+                }}
+              </button>
+            </div>
+          </div>
+
+          <template v-if="selectedManagedUser">
           <div class="approval-detail-toolbar">
             <div>
               <strong>{{ t('account_governance_detail_title') }}</strong>
@@ -386,6 +470,7 @@
             <strong>{{ t('account_governance_deactivated_title') }}</strong>
             <p>{{ t('account_governance_deactivated_hint') }}</p>
           </div>
+          </template>
         </div>
 
         <div v-else class="approval-detail-empty">

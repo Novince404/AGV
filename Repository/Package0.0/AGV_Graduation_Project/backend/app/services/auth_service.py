@@ -670,6 +670,14 @@ def list_user_feed(
     }
 
 
+def get_user_detail(user_id: str) -> dict:
+    target = get_user_by_id(str(user_id or "").strip())
+    if target is None:
+        raise_api_error(404, "auth_user_not_found")
+    target = _release_expired_suspension(target)
+    return {"item": _serialize_managed_user(target)}
+
+
 def export_user_feed(request: Request, role: str | None = None, status: str | None = None, search: str | None = None) -> dict:
     actor = require_actor_capability(request, "system.manage")
     filtered_items, summary, normalized_role, normalized_status, normalized_search = _filter_user_feed(
