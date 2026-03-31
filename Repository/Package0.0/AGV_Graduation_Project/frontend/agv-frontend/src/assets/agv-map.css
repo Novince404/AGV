@@ -951,6 +951,10 @@ h2 {
   gap: 10px;
 }
 
+.account-governance-summary-grid-status {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
 .account-governance-action-box .auth-dialog-field {
   min-width: 0;
 }
@@ -1897,6 +1901,47 @@ h2 {
 .auth-dialog-actions {
   display: grid;
   gap: 10px;
+}
+
+.auth-dialog-actions-end {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+.auth-dialog-submit-compact {
+  min-width: 128px;
+}
+
+.auth-dialog-subtle-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px 14px;
+  padding-top: 10px;
+  margin-top: 2px;
+  border-top: 1px solid rgba(217, 209, 198, 0.85);
+}
+
+.auth-dialog-subtle-action {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--muted-text);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: color 0.12s ease, opacity 0.12s ease;
+}
+
+.auth-dialog-subtle-action:hover {
+  color: var(--strong-text);
+}
+
+.auth-dialog-subtle-action:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
 }
 
 .auth-dialog-form > .auth-dialog-actions,
@@ -4123,6 +4168,10 @@ h2 {
   .ai-action-grid.compact {
     grid-template-columns: 1fr;
   }
+
+  .account-governance-summary-grid-status {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .btn-primary,
@@ -5545,6 +5594,10 @@ h2 {
 
   .auth-register-sidecard {
     grid-template-columns: 1fr;
+  }
+
+  .account-governance-summary-grid-status {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .enterprise-settings-dialog-card {

@@ -789,8 +789,8 @@
               />
             </label>
 
-            <div class="auth-dialog-actions">
-              <button class="auth-dialog-submit" type="button" :disabled="authLoading" @click="handleAuthLogin">
+            <div class="auth-dialog-actions auth-dialog-actions-end">
+              <button class="auth-dialog-submit auth-dialog-submit-compact" type="button" :disabled="authLoading" @click="handleAuthLogin">
                 {{ authLoading ? t('auth_signing_in') : t('auth_sign_in') }}
               </button>
             </div>
@@ -829,9 +829,9 @@
                 />
               </label>
 
-              <div class="auth-dialog-actions">
+              <div class="auth-dialog-actions auth-dialog-actions-end">
                 <button
-                  class="auth-dialog-submit"
+                  class="auth-dialog-submit auth-dialog-submit-compact"
                   type="button"
                   :disabled="authLoading || !authPersonalRegisterValidation.valid"
                   @click="handlePersonalRegister"
@@ -1023,18 +1023,13 @@
               />
             </label>
 
-            <div class="auth-dialog-actions">
-              <button
-                class="auth-dialog-submit"
-                type="button"
-                :disabled="authEnterpriseRegisterLoading || !authEnterpriseRegisterValidation.valid"
-                @click="handleEnterpriseRegister"
-              >
-                {{ authEnterpriseRegisterLoading ? t('auth_enterprise_register_submitting') : t('auth_enterprise_register_submit') }}
-              </button>
+            <div
+              v-if="authCurrentEnterpriseApplication || authEnterpriseRegisterDraftHasContent"
+              class="auth-dialog-subtle-actions"
+            >
               <button
                 v-if="authCurrentEnterpriseApplication"
-                class="btn-ghost"
+                class="auth-dialog-subtle-action"
                 type="button"
                 :disabled="authEnterpriseRegisterLoading"
                 @click="runAuthEnterpriseRegisterExistingPrimaryAction"
@@ -1042,7 +1037,7 @@
                 {{ authEnterpriseRegisterExistingPrimaryActionLabel }}
               </button>
               <button
-                class="btn-ghost"
+                class="auth-dialog-subtle-action"
                 type="button"
                 :disabled="authEnterpriseRegisterLoading || !authEnterpriseRegisterDraftHasContent"
                 @click="clearEnterpriseRegisterDraft"
@@ -1051,12 +1046,22 @@
               </button>
               <button
                 v-if="authCurrentEnterpriseApplication"
-                class="btn-ghost"
+                class="auth-dialog-subtle-action"
                 type="button"
                 :disabled="authEnterpriseRegisterLoading"
                 @click="useCurrentEnterpriseApplicationForRegisterDraft"
               >
                 {{ t('auth_enterprise_register_existing_action_use') }}
+              </button>
+            </div>
+            <div class="auth-dialog-actions auth-dialog-actions-end">
+              <button
+                class="auth-dialog-submit auth-dialog-submit-compact"
+                type="button"
+                :disabled="authEnterpriseRegisterLoading || !authEnterpriseRegisterValidation.valid"
+                @click="handleEnterpriseRegister"
+              >
+                {{ authEnterpriseRegisterLoading ? t('auth_enterprise_register_submitting') : t('auth_enterprise_register_submit') }}
               </button>
             </div>
           </div>

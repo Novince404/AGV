@@ -51,6 +51,54 @@
         </button>
       </div>
 
+      <div class="approval-summary-grid account-governance-summary-grid account-governance-summary-grid-status">
+        <button
+          class="approval-summary-card"
+          :class="{ active: accountGovernanceStatusFilter === 'approved' }"
+          type="button"
+          @click="accountGovernanceStatusFilter = 'approved'"
+        >
+          <strong>{{ accountGovernanceSummary.approved || 0 }}</strong>
+          <span>{{ t('account_governance_status_approved') }}</span>
+        </button>
+        <button
+          class="approval-summary-card"
+          :class="{ active: accountGovernanceStatusFilter === 'pending' }"
+          type="button"
+          @click="accountGovernanceStatusFilter = 'pending'"
+        >
+          <strong>{{ accountGovernanceSummary.pending || 0 }}</strong>
+          <span>{{ t('account_governance_status_pending') }}</span>
+        </button>
+        <button
+          class="approval-summary-card"
+          :class="{ active: accountGovernanceStatusFilter === 'rejected' }"
+          type="button"
+          @click="accountGovernanceStatusFilter = 'rejected'"
+        >
+          <strong>{{ accountGovernanceSummary.rejected || 0 }}</strong>
+          <span>{{ t('account_governance_status_rejected') }}</span>
+        </button>
+        <button
+          class="approval-summary-card"
+          :class="{ active: accountGovernanceStatusFilter === 'suspended' }"
+          type="button"
+          @click="accountGovernanceStatusFilter = 'suspended'"
+        >
+          <strong>{{ accountGovernanceSummary.suspended || 0 }}</strong>
+          <span>{{ t('account_governance_status_suspended') }}</span>
+        </button>
+        <button
+          class="approval-summary-card"
+          :class="{ active: accountGovernanceStatusFilter === 'deactivated' }"
+          type="button"
+          @click="accountGovernanceStatusFilter = 'deactivated'"
+        >
+          <strong>{{ accountGovernanceSummary.deactivated || 0 }}</strong>
+          <span>{{ t('account_governance_status_deactivated') }}</span>
+        </button>
+      </div>
+
       <div class="approval-toolbar">
         <div class="task-line operations-last-fetched approval-filter-summary">
           {{ accountGovernanceFilterSummaryText }}
