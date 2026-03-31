@@ -87,7 +87,12 @@
         <div v-if="accountGovernanceLastFetchedText" class="task-line operations-last-fetched">
           {{ accountGovernanceLastFetchedText }}
         </div>
-        <button class="auth-dialog-inline-action" type="button" :disabled="accountGovernanceLoading" @click="fetchManagedUserAccounts({ forceSelectFirst: false })">
+        <button
+          class="auth-dialog-inline-action"
+          type="button"
+          :disabled="accountGovernanceLoading"
+          @click="fetchManagedUserAccounts({ forceSelectFirst: false })"
+        >
           {{ accountGovernanceLoading ? `${t('account_governance_refresh')}...` : t('account_governance_refresh') }}
         </button>
         <button class="btn-ghost" type="button" @click="resetAccountGovernanceFilters">
@@ -199,10 +204,7 @@
             </p>
           </div>
 
-          <div
-            v-if="selectedManagedUser.enterprise_application"
-            class="approval-existing-note"
-          >
+          <div v-if="selectedManagedUser.enterprise_application" class="approval-existing-note">
             <strong>{{ t('account_governance_enterprise_application') }}</strong>
             <p>
               <strong>{{ t('enterprise_register_company_name') }}</strong>
@@ -216,6 +218,93 @@
               <strong>{{ t('account_governance_review_note') }}</strong>
               <span> {{ selectedManagedUser.enterprise_application.review_note }}</span>
             </p>
+          </div>
+
+          <div
+            v-if="selectedManagedUser.account_status !== 'deactivated'"
+            class="approval-existing-note account-governance-action-box"
+          >
+            <strong>{{ t('account_governance_action_title') }}</strong>
+            <p>{{ t('account_governance_action_hint') }}</p>
+
+            <template v-if="selectedManagedUser.account_status === 'suspended'">
+              <div class="approval-actions">
+                <button
+                  class="btn-secondary"
+                  type="button"
+                  :disabled="accountGovernanceActionLoading"
+                  @click="unsuspendManagedUserAccount"
+                >
+                  {{
+                    accountGovernanceActionLoading
+                      ? `${t('account_governance_unsuspend_submit')}...`
+                      : t('account_governance_unsuspend_submit')
+                  }}
+                </button>
+              </div>
+            </template>
+
+            <template v-else>
+              <div class="approval-detail-grid">
+                <label class="auth-dialog-field">
+                  <span>{{ t('account_governance_suspension_reason') }}</span>
+                  <input
+                    v-model.trim="accountGovernanceSuspendReason"
+                    type="text"
+                    :placeholder="t('account_governance_suspend_reason_placeholder')"
+                  />
+                </label>
+                <label class="auth-dialog-field">
+                  <span>{{ t('account_governance_suspend_duration') }}</span>
+                  <select v-model="accountGovernanceSuspendDurationPreset">
+                    <option value="1d">{{ t('account_governance_suspend_duration_1d') }}</option>
+                    <option value="7d">{{ t('account_governance_suspend_duration_7d') }}</option>
+                    <option value="30d">{{ t('account_governance_suspend_duration_30d') }}</option>
+                    <option value="permanent">{{ t('account_governance_suspend_duration_permanent') }}</option>
+                  </select>
+                </label>
+              </div>
+              <label class="auth-dialog-field">
+                <span>{{ t('account_governance_suspension_note') }}</span>
+                <textarea
+                  v-model.trim="accountGovernanceSuspendNote"
+                  rows="3"
+                  :placeholder="t('account_governance_suspend_note_placeholder')"
+                ></textarea>
+              </label>
+
+              <div class="approval-actions">
+                <button
+                  class="btn-secondary"
+                  type="button"
+                  :disabled="accountGovernanceActionLoading"
+                  @click="suspendManagedUserAccount"
+                >
+                  {{
+                    accountGovernanceActionLoading
+                      ? `${t('account_governance_suspend_submit')}...`
+                      : t('account_governance_suspend_submit')
+                  }}
+                </button>
+                <button
+                  class="btn-delete"
+                  type="button"
+                  :disabled="accountGovernanceActionLoading"
+                  @click="deactivateManagedUserAccount"
+                >
+                  {{
+                    accountGovernanceActionLoading
+                      ? `${t('account_governance_deactivate_submit')}...`
+                      : t('account_governance_deactivate_submit')
+                  }}
+                </button>
+              </div>
+            </template>
+          </div>
+
+          <div v-else class="approval-existing-note account-governance-action-box">
+            <strong>{{ t('account_governance_deactivated_title') }}</strong>
+            <p>{{ t('account_governance_deactivated_hint') }}</p>
           </div>
         </div>
 

@@ -946,6 +946,14 @@ h2 {
   color: #1565c0;
 }
 
+.account-governance-action-box {
+  gap: 10px;
+}
+
+.account-governance-action-box .auth-dialog-field {
+  min-width: 0;
+}
+
 .approval-existing-note {
   display: grid;
   gap: 6px;

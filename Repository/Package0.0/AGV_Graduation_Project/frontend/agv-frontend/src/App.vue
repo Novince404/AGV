@@ -825,6 +825,11 @@ const accountGovernanceSummary = ref({
 const managedUserAccounts = ref([])
 const selectedManagedUserId = ref('')
 const accountGovernanceLastFetchedAt = ref('')
+const accountGovernanceActionLoading = ref(false)
+const accountGovernanceSuspendReason = ref('')
+const accountGovernanceSuspendNote = ref('')
+const accountGovernanceSuspendDurationPreset = ref('7d')
+const authLoginRestrictionNotice = ref(null)
 const enterpriseSettingsDialogOpen = ref(false)
 const enterpriseSettingsActiveTab = ref('overview')
 const enterpriseSettingsSidebarCollapsed = ref(false)
@@ -4444,6 +4449,7 @@ function showFloatingToast(message, type = 'info', durationMs = 3200) {
 async function handleAuthLogin() {
   try {
     const state = await loginWithAuthSession()
+    authLoginRestrictionNotice.value = null
     const nextRole = String(state?.user?.role || state?.role || '').trim()
     authGuestAccepted.value = Boolean(state?.authenticated)
     authPanelOpen.value = false
@@ -4455,6 +4461,7 @@ async function handleAuthLogin() {
     await fetchOperationAudits({ force: true })
     showFloatingToast(buildAuthLoginSuccessMessage(state), 'success')
   } catch (error) {
+    authLoginRestrictionNotice.value = buildAuthLoginRestrictionNotice(error?.detail)
     showFloatingToast(error?.message || t('auth_login_failed'), 'error')
   }
 }
@@ -4662,6 +4669,9 @@ function switchAuthDialogView(view) {
   authDialogView.value = ['login', 'personal-register', 'enterprise-register'].includes(view)
     ? view
     : 'login'
+  if (authDialogView.value !== 'login') {
+    authLoginRestrictionNotice.value = null
+  }
 }
 
 function fillEnterpriseRegisterFormFromApplication(application = authCurrentEnterpriseApplication.value) {
@@ -5281,6 +5291,7 @@ function closeAccountGovernanceDialog() {
     clearTimeout(accountGovernanceSearchTimer)
     accountGovernanceSearchTimer = null
   }
+  resetAccountGovernanceActionDraft()
   accountGovernanceDialogOpen.value = false
 }
 
@@ -5314,6 +5325,45 @@ function buildManagedUserExportRows(items = managedUserAccounts.value) {
     enterprise_contact_email: item.enterprise_application?.contact_email || '',
     enterprise_review_note: item.enterprise_application?.review_note || ''
   }))
+}
+
+function resetAccountGovernanceActionDraft() {
+  accountGovernanceSuspendReason.value = ''
+  accountGovernanceSuspendNote.value = ''
+  accountGovernanceSuspendDurationPreset.value = '7d'
+}
+
+function buildAuthLoginRestrictionNotice(detail) {
+  const errorCode = String(detail?.error_code || '')
+  if (!['auth_account_suspended', 'auth_account_deactivated'].includes(errorCode)) return null
+  const reason = String(detail?.reason || '').trim()
+  const note = String(detail?.note || '').trim()
+  const suspendedUntil = String(detail?.suspended_until || '').trim()
+  const meta = errorCode === 'auth_account_suspended'
+    ? (
+        suspendedUntil
+          ? formatInlineMessage(t('auth_login_restriction_until'), { at: suspendedUntil })
+          : t('auth_login_restriction_permanent')
+      )
+    : ''
+  const detailParts = []
+  if (reason) {
+    detailParts.push(formatInlineMessage(t('auth_login_restriction_reason'), { reason }))
+  }
+  if (note) {
+    detailParts.push(formatInlineMessage(t('auth_login_restriction_note'), { note }))
+  }
+  return {
+    tone: errorCode === 'auth_account_suspended' ? 'rejected' : 'platform',
+    title: errorCode === 'auth_account_suspended'
+      ? t('auth_login_restriction_suspended_title')
+      : t('auth_login_restriction_deactivated_title'),
+    hint: errorCode === 'auth_account_suspended'
+      ? t('auth_login_restriction_suspended_hint')
+      : t('auth_login_restriction_deactivated_hint'),
+    meta,
+    detail: detailParts.join(' · ')
+  }
 }
 
 async function exportManagedUserAccounts(format = 'json') {
@@ -5360,6 +5410,107 @@ async function exportManagedUserAccounts(format = 'json') {
     showFloatingToast(t('account_governance_export_json_ok'), 'success')
   } catch (error) {
     showFloatingToast(error?.message || t('account_governance_export_failed'), 'error')
+  }
+}
+
+async function suspendManagedUserAccount() {
+  const target = selectedManagedUser.value
+  if (!target) return
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'system.manage', buildCapabilityDeniedMessage('platform'))) return
+  accountGovernanceActionLoading.value = true
+  try {
+    const durationMap = {
+      '1d': { duration_days: 1, permanent: false },
+      '7d': { duration_days: 7, permanent: false },
+      '30d': { duration_days: 30, permanent: false },
+      permanent: { duration_days: null, permanent: true }
+    }
+    const durationPayload = durationMap[accountGovernanceSuspendDurationPreset.value] || durationMap['7d']
+    const response = await fetch(`${API_BASE}/auth/users/${encodeURIComponent(target.id)}/suspend`, {
+      method: 'POST',
+      headers: buildAuthorizedJsonHeaders(),
+      body: JSON.stringify({
+        reason: String(accountGovernanceSuspendReason.value || '').trim(),
+        note: String(accountGovernanceSuspendNote.value || '').trim(),
+        duration_days: durationPayload.duration_days,
+        permanent: durationPayload.permanent
+      })
+    })
+    const data = await response.json().catch(() => null)
+    if (!response.ok) {
+      throw createApiError(data, 'Suspend managed user failed')
+    }
+    resetAccountGovernanceActionDraft()
+    await fetchManagedUserAccounts({ forceSelectFirst: false, preferredSelectedId: target.id })
+    showFloatingToast(
+      formatInlineMessage(t('account_governance_suspend_ok'), {
+        username: target.username || target.display_name || target.id
+      }),
+      'success'
+    )
+  } catch (error) {
+    showFloatingToast(error?.message || t('account_governance_action_failed'), 'error')
+  } finally {
+    accountGovernanceActionLoading.value = false
+  }
+}
+
+async function unsuspendManagedUserAccount() {
+  const target = selectedManagedUser.value
+  if (!target) return
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'system.manage', buildCapabilityDeniedMessage('platform'))) return
+  accountGovernanceActionLoading.value = true
+  try {
+    const response = await fetch(`${API_BASE}/auth/users/${encodeURIComponent(target.id)}/unsuspend`, {
+      method: 'POST',
+      headers: buildAuthorizedHeaders()
+    })
+    const data = await response.json().catch(() => null)
+    if (!response.ok) {
+      throw createApiError(data, 'Unsuspend managed user failed')
+    }
+    await fetchManagedUserAccounts({ forceSelectFirst: false, preferredSelectedId: target.id })
+    showFloatingToast(
+      formatInlineMessage(t('account_governance_unsuspend_ok'), {
+        username: target.username || target.display_name || target.id
+      }),
+      'success'
+    )
+  } catch (error) {
+    showFloatingToast(error?.message || t('account_governance_action_failed'), 'error')
+  } finally {
+    accountGovernanceActionLoading.value = false
+  }
+}
+
+async function deactivateManagedUserAccount() {
+  const target = selectedManagedUser.value
+  if (!target) return
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'system.manage', buildCapabilityDeniedMessage('platform'))) return
+  accountGovernanceActionLoading.value = true
+  try {
+    const response = await fetch(`${API_BASE}/auth/users/${encodeURIComponent(target.id)}/deactivate`, {
+      method: 'POST',
+      headers: buildAuthorizedJsonHeaders(),
+      body: JSON.stringify({
+        note: String(accountGovernanceSuspendNote.value || '').trim()
+      })
+    })
+    const data = await response.json().catch(() => null)
+    if (!response.ok) {
+      throw createApiError(data, 'Deactivate managed user failed')
+    }
+    await fetchManagedUserAccounts({ forceSelectFirst: false, preferredSelectedId: target.id })
+    showFloatingToast(
+      formatInlineMessage(t('account_governance_deactivate_ok'), {
+        username: target.username || target.display_name || target.id
+      }),
+      'success'
+    )
+  } catch (error) {
+    showFloatingToast(error?.message || t('account_governance_action_failed'), 'error')
+  } finally {
+    accountGovernanceActionLoading.value = false
   }
 }
 
@@ -11726,6 +11877,10 @@ watch([managedUserAccounts, accountGovernanceDialogOpen], () => {
   }
 })
 
+watch(selectedManagedUserId, () => {
+  resetAccountGovernanceActionDraft()
+})
+
 watch([enterpriseApprovalSearch, filteredEnterpriseApplications], () => {
   if (!enterpriseApprovalDialogOpen.value) return
   if (!filteredEnterpriseApplications.value.some(item => Number(item.id) === Number(selectedEnterpriseApplicationId.value))) {
@@ -11967,6 +12122,7 @@ const authDialogBindings = {
   enterpriseWorkspaceSectionLabels,
   enterpriseRoleWorkspaceActionItems,
   authStatusNotice,
+  authLoginRestrictionNotice,
   authPersonalRegisterValidation,
   authPersonalRegisterStatusText,
   authEnterpriseRegisterValidation,
@@ -12584,16 +12740,23 @@ const platformAccountGovernanceDialogBindings = {
   accountGovernanceStatusFilter,
   accountGovernanceSearch,
   accountGovernanceLoading,
+  accountGovernanceActionLoading,
   managedUserAccounts,
   selectedManagedUserId,
   selectedManagedUser,
   accountGovernanceFilterSummaryText,
   accountGovernanceEmptyHint,
   accountGovernanceLastFetchedText,
+  accountGovernanceSuspendReason,
+  accountGovernanceSuspendNote,
+  accountGovernanceSuspendDurationPreset,
   closeAccountGovernanceDialog,
   resetAccountGovernanceFilters,
   fetchManagedUserAccounts,
-  exportManagedUserAccounts
+  exportManagedUserAccounts,
+  suspendManagedUserAccount,
+  unsuspendManagedUserAccount,
+  deactivateManagedUserAccount
 }
 
 const enterpriseSettingsDialogBindings = {

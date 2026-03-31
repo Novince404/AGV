@@ -603,7 +603,7 @@
           </div>
           <p class="auth-dialog-hint">{{ t('auth_identity_preview_hint') }}</p>
 
-          <div class="auth-dialog-divider">{{ t('auth_manual_login') }}</div>
+          <div class="auth-dialog-divider">{{ t('auth_entry_modes_title') }}</div>
           <div class="auth-dialog-segmented">
             <button
               class="auth-dialog-segment"
@@ -634,7 +634,20 @@
 
         <template v-if="authDialogView === 'login'">
           <div class="auth-dialog-workspace">
-          <div class="auth-dialog-divider">{{ t('auth_manual_login') }}</div>
+          <div class="auth-dialog-divider">{{ t('auth_login_workspace_title') }}</div>
+
+          <div
+            v-if="authLoginRestrictionNotice"
+            class="auth-status-note"
+            :class="[`tone-${authLoginRestrictionNotice.tone}`]"
+          >
+            <strong>{{ authLoginRestrictionNotice.title }}</strong>
+            <span>{{ authLoginRestrictionNotice.hint }}</span>
+            <small v-if="authLoginRestrictionNotice.meta">{{ authLoginRestrictionNotice.meta }}</small>
+            <p v-if="authLoginRestrictionNotice.detail" class="auth-status-note-detail">
+              {{ authLoginRestrictionNotice.detail }}
+            </p>
+          </div>
 
           <div v-if="authEnterpriseRegisterFollowup" class="auth-status-note tone-pending">
             <div class="auth-status-note-head">

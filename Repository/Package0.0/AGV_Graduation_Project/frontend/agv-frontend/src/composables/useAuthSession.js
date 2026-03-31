@@ -251,7 +251,9 @@ export function useAuthSession(options) {
       })
       const data = await readJsonResponse(response)
       if (!response.ok) {
-        throw createApiError(data, 'Login failed')
+        const error = createApiError(data, 'Login failed')
+        error.detail = data?.detail ?? null
+        throw error
       }
       authPassword.value = ''
       authLastFetchedAt.value = new Date().toISOString()

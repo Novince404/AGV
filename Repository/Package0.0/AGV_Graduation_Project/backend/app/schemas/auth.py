@@ -22,3 +22,14 @@ class EnterpriseRegisterRequest(BaseModel):
 
 class EnterpriseApplicationReviewRequest(BaseModel):
     review_note: str | None = None
+
+
+class UserSuspendRequest(BaseModel):
+    reason: str
+    note: str | None = None
+    duration_days: int | None = None
+    permanent: bool = False
+
+
+class UserDeactivateRequest(BaseModel):
+    note: str | None = None

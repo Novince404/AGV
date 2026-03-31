@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta
+
 from fastapi import Request
 
 from app.core.auth_capabilities import build_capability_groups, get_role_capabilities, has_capability, normalize_role
@@ -62,6 +64,7 @@ def _guest_payload() -> dict:
 
 
 def _public_user_payload(user) -> dict:
+    user = _release_expired_suspension(user)
     normalized_role = normalize_role(user.role)
     account_status = str(getattr(user, "account_status", "approved") or "approved")
     capabilities = sorted(get_role_capabilities(normalized_role, account_status=account_status))
@@ -116,6 +119,34 @@ def _serialize_managed_user(user) -> dict:
         "governance_updated_at": payload["governance_updated_at"],
         "enterprise_application": payload["enterprise_application"],
     }
+
+
+def _parse_iso_datetime(value: str | None) -> datetime | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+
+
+def _release_expired_suspension(user):
+    if user is None:
+        return None
+    if str(getattr(user, "account_status", "approved") or "approved").lower() != "suspended":
+        return user
+    suspended_until = _parse_iso_datetime(getattr(user, "suspended_until", None))
+    if suspended_until is None or suspended_until > datetime.now():
+        return user
+    user.account_status = "approved"
+    user.suspension_reason = None
+    user.suspension_note = None
+    user.suspended_at = None
+    user.suspended_until = None
+    user.suspended_by = None
+    user.governance_updated_at = now_iso()
+    return upsert_user(user)
 
 
 def _build_authenticated_payload(user, session: AuthSession) -> dict:
@@ -201,6 +232,7 @@ def _resolve_current_session(request: Request, touch: bool = True) -> tuple[obje
 
 
 def _raise_if_login_restricted(user) -> None:
+    user = _release_expired_suspension(user)
     account_status = str(getattr(user, "account_status", "approved") or "approved")
     if account_status == "suspended":
         raise_api_error(
@@ -216,6 +248,122 @@ def _raise_if_login_restricted(user) -> None:
             "auth_account_deactivated",
             note=getattr(user, "suspension_note", None),
         )
+
+
+def _resolve_governance_actor_and_target(request: Request, user_id: str):
+    actor = require_actor_capability(request, "system.manage")
+    target = get_user_by_id(str(user_id or "").strip())
+    if target is None:
+        raise_api_error(404, "auth_user_not_found")
+    target = _release_expired_suspension(target)
+    if str(actor.get("id") or "") == str(target.id or ""):
+        raise_api_error(403, "auth_governance_self_locked")
+    if normalize_role(target.role) == "platform_admin":
+        raise_api_error(403, "auth_governance_platform_admin_protected")
+    return actor, target
+
+
+def suspend_user_account(
+    request: Request,
+    user_id: str,
+    reason: str,
+    note: str | None = None,
+    duration_days: int | None = None,
+    permanent: bool = False,
+) -> dict:
+    actor, target = _resolve_governance_actor_and_target(request, user_id)
+    normalized_reason = str(reason or "").strip()
+    if not normalized_reason:
+        raise_api_error(400, "auth_governance_suspend_reason_required")
+    if str(getattr(target, "account_status", "approved") or "approved").lower() == "deactivated":
+        raise_api_error(400, "auth_governance_already_deactivated")
+
+    normalized_duration = None if permanent else max(int(duration_days or 0), 0)
+    if not permanent and normalized_duration <= 0:
+        raise_api_error(400, "auth_governance_duration_invalid")
+
+    suspended_at = now_iso()
+    suspended_until = None if permanent else (datetime.now() + timedelta(days=normalized_duration)).isoformat(timespec="seconds")
+    target.account_status = "suspended"
+    target.suspension_reason = normalized_reason
+    target.suspension_note = str(note or "").strip() or None
+    target.suspended_at = suspended_at
+    target.suspended_until = suspended_until
+    target.suspended_by = str(actor.get("username") or actor.get("id") or "platform_admin")
+    target.governance_updated_at = suspended_at
+    updated = upsert_user(target)
+    remove_sessions_for_user(updated.id)
+    record_operation_audit(
+        "user_account",
+        updated.id,
+        "user.suspend",
+        actor=actor,
+        metadata={
+            "target_username": updated.username,
+            "target_role": updated.role,
+            "reason": updated.suspension_reason,
+            "note": updated.suspension_note,
+            "permanent": bool(permanent),
+            "duration_days": None if permanent else normalized_duration,
+            "suspended_until": updated.suspended_until,
+        },
+    )
+    return {"item": _serialize_managed_user(updated)}
+
+
+def unsuspend_user_account(request: Request, user_id: str) -> dict:
+    actor, target = _resolve_governance_actor_and_target(request, user_id)
+    if str(getattr(target, "account_status", "approved") or "approved").lower() != "suspended":
+        raise_api_error(400, "auth_governance_not_suspended")
+    target.account_status = "approved"
+    target.suspension_reason = None
+    target.suspension_note = None
+    target.suspended_at = None
+    target.suspended_until = None
+    target.suspended_by = None
+    target.governance_updated_at = now_iso()
+    updated = upsert_user(target)
+    record_operation_audit(
+        "user_account",
+        updated.id,
+        "user.unsuspend",
+        actor=actor,
+        metadata={
+            "target_username": updated.username,
+            "target_role": updated.role,
+        },
+    )
+    return {"item": _serialize_managed_user(updated)}
+
+
+def deactivate_user_account(request: Request, user_id: str, note: str | None = None) -> dict:
+    actor, target = _resolve_governance_actor_and_target(request, user_id)
+    if str(getattr(target, "account_status", "approved") or "approved").lower() == "deactivated":
+        raise_api_error(400, "auth_governance_already_deactivated")
+    target.active = False
+    target.account_status = "deactivated"
+    target.deactivated_at = now_iso()
+    target.deactivated_by = str(actor.get("username") or actor.get("id") or "platform_admin")
+    target.suspension_note = str(note or "").strip() or target.suspension_note
+    target.suspension_reason = target.suspension_reason or "deactivated"
+    target.suspended_at = None
+    target.suspended_until = None
+    target.suspended_by = None
+    target.governance_updated_at = target.deactivated_at
+    updated = upsert_user(target)
+    remove_sessions_for_user(updated.id)
+    record_operation_audit(
+        "user_account",
+        updated.id,
+        "user.deactivate",
+        actor=actor,
+        metadata={
+            "target_username": updated.username,
+            "target_role": updated.role,
+            "note": updated.suspension_note,
+        },
+    )
+    return {"item": _serialize_managed_user(updated)}
 
 
 def login(username: str, password: str) -> dict:
@@ -441,7 +589,7 @@ def _filter_user_feed(
     normalized_status = str(status or "").strip().lower()
     normalized_search = str(search or "").strip().casefold()
 
-    users = list_users()
+    users = [_release_expired_suspension(user) for user in list_users()]
 
     def matches_role(user) -> bool:
         if not normalized_role or normalized_role == "all":

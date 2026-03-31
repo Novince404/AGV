@@ -5,6 +5,8 @@ from app.schemas.auth import (
     EnterpriseApplicationReviewRequest,
     EnterpriseRegisterRequest,
     PersonalRegisterRequest,
+    UserDeactivateRequest,
+    UserSuspendRequest,
 )
 from app.services import auth_service
 
@@ -83,6 +85,28 @@ def export_users(
     search: str | None = Query(default=None),
 ):
     return auth_service.export_user_feed(request, role=role, status=status, search=search)
+
+
+@router.post("/users/{user_id}/suspend")
+def suspend_user(request: Request, user_id: str, req: UserSuspendRequest):
+    return auth_service.suspend_user_account(
+        request,
+        user_id=user_id,
+        reason=req.reason,
+        note=req.note,
+        duration_days=req.duration_days,
+        permanent=req.permanent,
+    )
+
+
+@router.post("/users/{user_id}/unsuspend")
+def unsuspend_user(request: Request, user_id: str):
+    return auth_service.unsuspend_user_account(request, user_id=user_id)
+
+
+@router.post("/users/{user_id}/deactivate")
+def deactivate_user(request: Request, user_id: str, req: UserDeactivateRequest):
+    return auth_service.deactivate_user_account(request, user_id=user_id, note=req.note)
 
 
 @router.get("/enterprise-applications")
