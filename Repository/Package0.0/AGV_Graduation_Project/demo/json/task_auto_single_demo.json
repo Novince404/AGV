@@ -1,0 +1,16 @@
+{
+  "tasks": [
+    {
+      "start_x": 0,
+      "start_y": 3,
+      "end_x": 5,
+      "end_y": 3,
+      "grid_cols": 10,
+      "grid_rows": 8,
+      "priority": 3,
+      "dispatch_mode": "auto",
+      "dispatch_algorithm": "astar",
+      "dispatch_reason": "导师演示：自动单段任务"
+    }
+  ]
+}

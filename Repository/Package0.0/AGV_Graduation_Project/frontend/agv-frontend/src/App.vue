@@ -65,6 +65,7 @@ const ComfyAiWorkspace = defineAsyncComponent(() => import('./components/ComfyAi
 const EnterpriseSettingsDialog = defineAsyncComponent(() => import('./components/EnterpriseSettingsDialog.vue'))
 const EnterpriseApprovalDialog = defineAsyncComponent(() => import('./components/EnterpriseApprovalDialog.vue'))
 const PlatformAccountGovernanceDialog = defineAsyncComponent(() => import('./components/PlatformAccountGovernanceDialog.vue'))
+const PlatformAdminGovernanceHub = defineAsyncComponent(() => import('./components/PlatformAdminGovernanceHub.vue'))
 const AuthDialog = defineAsyncComponent(() => import('./components/AuthDialog.vue'))
 const OperationsAuditPanel = defineAsyncComponent(() => import('./components/OperationsAuditPanel.vue'))
 const ExperimentRecordsPanel = defineAsyncComponent(() => import('./components/ExperimentRecordsPanel.vue'))
@@ -833,6 +834,8 @@ const accountGovernanceSelectedTemplateKey = ref('')
 const accountGovernanceSuspendReason = ref('')
 const accountGovernanceSuspendNote = ref('')
 const accountGovernanceSuspendDurationPreset = ref('7d')
+const platformAdminSurfaceMode = ref('governance')
+const platformAdminEnterprisePreviewRole = ref('enterprise_admin')
 const authLoginRestrictionNotice = ref(null)
 const enterpriseSettingsDialogOpen = ref(false)
 const enterpriseSettingsActiveTab = ref('overview')
@@ -853,6 +856,38 @@ const enterpriseMapEditorDraftRows = ref(GRID_ROWS)
 const enterpriseMapEditorZoom = ref(ENTERPRISE_MAP_EDITOR_ZOOM_DEFAULT)
 const authRoleLabel = computed(() => t(`auth_role_${authCurrentRole.value}`))
 const authRoleBadgeClass = computed(() => `role-${authCurrentRole.value}`)
+const isPlatformAdmin = computed(() => authCurrentRole.value === 'platform_admin')
+const isPlatformAdminGovernanceMode = computed(
+  () => isPlatformAdmin.value && platformAdminSurfaceMode.value === 'governance'
+)
+const isPlatformAdminPersonalPreviewMode = computed(
+  () => isPlatformAdmin.value && platformAdminSurfaceMode.value === 'personal'
+)
+const isPlatformAdminEnterprisePreviewMode = computed(
+  () => isPlatformAdmin.value && platformAdminSurfaceMode.value === 'enterprise'
+)
+const isPlatformAdminPreviewMode = computed(
+  () => isPlatformAdminPersonalPreviewMode.value || isPlatformAdminEnterprisePreviewMode.value
+)
+const effectiveSurfaceRole = computed(() => {
+  if (isPlatformAdminPersonalPreviewMode.value) return 'personal'
+  if (isPlatformAdminEnterprisePreviewMode.value) return platformAdminEnterprisePreviewRole.value
+  return authCurrentRole.value
+})
+const uiTreatAsEnterpriseRole = computed(() =>
+  ['enterprise_operator', 'enterprise_logistics', 'enterprise_admin'].includes(effectiveSurfaceRole.value)
+)
+const enterpriseUiRole = computed(() =>
+  uiTreatAsEnterpriseRole.value ? effectiveSurfaceRole.value : 'enterprise_admin'
+)
+const enterpriseUiApproved = computed(() =>
+  isPlatformAdminEnterprisePreviewMode.value || authCurrentAccountStatus.value === 'approved'
+)
+const enterpriseUiRoleLabel = computed(() => t(`auth_role_${enterpriseUiRole.value}`))
+const showEnterpriseSettingsToolbarEntry = computed(
+  () => authIsEnterpriseRole.value || isPlatformAdminEnterprisePreviewMode.value
+)
+const showPlatformAdminManagementEntries = computed(() => !isPlatformAdminPreviewMode.value)
 const dashboardUnlocked = computed(() => authAuthenticated.value || authGuestAccepted.value)
 const authModeText = computed(() =>
   authAuthenticated.value ? t(`auth_mode_${authCurrentRole.value}`) : t('auth_mode_guest')
@@ -1345,7 +1380,7 @@ const enterpriseApplicationActionItems = computed(() => {
   if (authCurrentAccountStatus.value !== 'approved') {
     return items
   }
-  if (authCurrentRole.value === 'enterprise_operator') {
+  if (enterpriseUiRole.value === 'enterprise_operator') {
     items.push(
       {
         key: 'switch-runtime',
@@ -1365,7 +1400,7 @@ const enterpriseApplicationActionItems = computed(() => {
     )
     return items
   }
-  if (authCurrentRole.value === 'enterprise_logistics') {
+  if (enterpriseUiRole.value === 'enterprise_logistics') {
     items.push(
       {
         key: 'switch-map-profiles',
@@ -1553,6 +1588,7 @@ const authCanSystemManage = computed(() => authCapabilitySet.value.has('system.m
 const authIsEnterpriseRole = computed(() =>
   ['enterprise_operator', 'enterprise_logistics', 'enterprise_admin'].includes(authCurrentRole.value)
 )
+const canUseEnterpriseUi = computed(() => authIsEnterpriseRole.value || isPlatformAdminEnterprisePreviewMode.value)
 const platformApprovalPendingCount = computed(() => Number(enterpriseApprovalSummary.value.pending || 0))
 const selectedManagedUser = computed(() =>
   managedUserAccounts.value.find(item => String(item.id || '') === String(selectedManagedUserId.value || '')) || null
@@ -1651,6 +1687,7 @@ const accountGovernanceLastFetchedText = computed(() =>
     : ''
 )
 const enterpriseToolbarStatusBadgeText = computed(() => {
+  if (isPlatformAdminEnterprisePreviewMode.value) return ''
   if (!authIsEnterpriseRole.value) return ''
   if (authCurrentAccountStatus.value === 'pending') return t('auth_account_status_pending_short')
   if (authCurrentAccountStatus.value === 'rejected') return t('auth_account_status_rejected_short')
@@ -1884,8 +1921,8 @@ const authEnterpriseQuickActionHint = computed(() => {
   return t('auth_enterprise_actions_hint_pending')
 })
 const enterpriseRoleWorkspaceActionItems = computed(() => {
-  if (!authIsEnterpriseRole.value || authCurrentAccountStatus.value !== 'approved') return []
-  if (authCurrentRole.value === 'enterprise_operator') {
+  if ((!authIsEnterpriseRole.value && !isPlatformAdminEnterprisePreviewMode.value) || !enterpriseUiApproved.value) return []
+  if (enterpriseUiRole.value === 'enterprise_operator') {
     return [
       {
         key: 'open-runtime',
@@ -1904,7 +1941,7 @@ const enterpriseRoleWorkspaceActionItems = computed(() => {
       }
     ]
   }
-  if (authCurrentRole.value === 'enterprise_logistics') {
+  if (enterpriseUiRole.value === 'enterprise_logistics') {
     return [
       {
         key: 'open-map-profiles',
@@ -1972,8 +2009,28 @@ const enterpriseWorkspacePopupActionItems = computed(() => {
   ]
 })
 const showEnterpriseWorkspaceBanner = computed(() =>
-  authIsEnterpriseRole.value && authCurrentAccountStatus.value === 'approved'
+  canUseEnterpriseUi.value && enterpriseUiApproved.value
 )
+const platformRecentAuditEntries = computed(() => operationAudits.value.slice(0, 5))
+const platformAdminPreviewRoleItems = computed(() => [
+  { key: 'enterprise_admin', label: t('auth_role_enterprise_admin') },
+  { key: 'enterprise_operator', label: t('auth_role_enterprise_operator') },
+  { key: 'enterprise_logistics', label: t('auth_role_enterprise_logistics') }
+])
+const platformAdminPreviewTitle = computed(() => {
+  if (isPlatformAdminPersonalPreviewMode.value) return t('platform_admin_preview_personal_title')
+  if (isPlatformAdminEnterprisePreviewMode.value) {
+    return formatInlineMessage(t('platform_admin_preview_enterprise_title'), {
+      role: enterpriseUiRoleLabel.value
+    })
+  }
+  return ''
+})
+const platformAdminPreviewHint = computed(() => {
+  if (isPlatformAdminPersonalPreviewMode.value) return t('platform_admin_preview_personal_hint')
+  if (isPlatformAdminEnterprisePreviewMode.value) return t('platform_admin_preview_enterprise_hint')
+  return ''
+})
 const enterpriseWorkspacePopupDismissed = ref(false)
 const enterpriseWorkspacePopupX = ref(null)
 const enterpriseWorkspacePopupY = ref(10)
@@ -2151,7 +2208,7 @@ const enterpriseOverviewCards = computed(() => [
   {
     key: 'role',
     label: t('enterprise_settings_summary_role'),
-    value: authRoleLabel.value
+    value: enterpriseUiRoleLabel.value
   },
   {
     key: 'organization',
@@ -2180,13 +2237,13 @@ const enterpriseOverviewQuickTabs = computed(() =>
     }))
 )
 const enterpriseRoleFocus = computed(() => {
-  if (authCurrentRole.value === 'enterprise_operator') {
+  if (enterpriseUiRole.value === 'enterprise_operator') {
     return {
       title: t('enterprise_settings_focus_operator_title'),
       hint: t('enterprise_settings_focus_operator_hint')
     }
   }
-  if (authCurrentRole.value === 'enterprise_logistics') {
+  if (enterpriseUiRole.value === 'enterprise_logistics') {
     return {
       title: t('enterprise_settings_focus_logistics_title'),
       hint: t('enterprise_settings_focus_logistics_hint')
@@ -2197,14 +2254,14 @@ const enterpriseRoleFocus = computed(() => {
     hint: t('enterprise_settings_focus_admin_hint')
   }
 })
-function enterpriseRoleWorkspaceSectionKeys(role = authCurrentRole.value) {
+function enterpriseRoleWorkspaceSectionKeys(role = enterpriseUiRole.value) {
   if (role === 'enterprise_operator') return ['control', 'queue']
   if (role === 'enterprise_logistics') return ['templates', 'points', 'experiments']
   if (role === 'enterprise_admin') return ['operations', 'ai', 'control', 'queue']
   return ['control', 'queue']
 }
 
-function enterprisePanelPreset(role = authCurrentRole.value) {
+function enterprisePanelPreset(role = enterpriseUiRole.value) {
   if (role === 'enterprise_operator') {
     return {
       control: true,
@@ -2254,8 +2311,8 @@ const enterpriseActiveTabDefinition = computed(() =>
   enterpriseSettingsTabDefinitions.value.find(item => item.key === enterpriseSettingsActiveTab.value) || null
 )
 const enterpriseRoleScopeText = computed(() => {
-  if (authCurrentRole.value === 'enterprise_operator') return t('enterprise_settings_scope_operator')
-  if (authCurrentRole.value === 'enterprise_logistics') return t('enterprise_settings_scope_logistics')
+  if (enterpriseUiRole.value === 'enterprise_operator') return t('enterprise_settings_scope_operator')
+  if (enterpriseUiRole.value === 'enterprise_logistics') return t('enterprise_settings_scope_logistics')
   return t('enterprise_settings_scope_admin')
 })
 const enterpriseCapabilityCards = computed(() =>
@@ -2268,7 +2325,7 @@ const enterpriseReadonlyCapabilityCards = computed(() =>
   enterpriseCapabilityCards.value.filter(item => !item.enabled)
 )
 const enterprisePointTemplateFocus = computed(() => {
-  if (authCurrentRole.value === 'enterprise_operator') {
+  if (enterpriseUiRole.value === 'enterprise_operator') {
     return {
       title: t('enterprise_settings_point_templates_focus_operator_title'),
       hint: t('enterprise_settings_point_templates_focus_operator_hint'),
@@ -2278,7 +2335,7 @@ const enterprisePointTemplateFocus = computed(() => {
       ]
     }
   }
-  if (authCurrentRole.value === 'enterprise_logistics') {
+  if (enterpriseUiRole.value === 'enterprise_logistics') {
     return {
       title: t('enterprise_settings_point_templates_focus_logistics_title'),
       hint: t('enterprise_settings_point_templates_focus_logistics_hint'),
@@ -2298,7 +2355,7 @@ const enterprisePointTemplateFocus = computed(() => {
   }
 })
 const enterpriseRuntimeFocus = computed(() => {
-  if (authCurrentRole.value === 'enterprise_operator') {
+  if (enterpriseUiRole.value === 'enterprise_operator') {
     return {
       title: t('enterprise_settings_runtime_focus_operator_title'),
       hint: t('enterprise_settings_runtime_focus_operator_hint'),
@@ -2308,7 +2365,7 @@ const enterpriseRuntimeFocus = computed(() => {
       ]
     }
   }
-  if (authCurrentRole.value === 'enterprise_logistics') {
+  if (enterpriseUiRole.value === 'enterprise_logistics') {
     return {
       title: t('enterprise_settings_runtime_focus_logistics_title'),
       hint: t('enterprise_settings_runtime_focus_logistics_hint'),
@@ -5366,6 +5423,32 @@ function resetAccountGovernanceFilters() {
   accountGovernanceSearch.value = ''
 }
 
+function enterPlatformAdminGovernanceMode() {
+  platformAdminSurfaceMode.value = 'governance'
+  enterpriseSettingsDialogOpen.value = false
+  enterprisePageSettingsDialogOpen.value = false
+  enterpriseMapEditorDialogOpen.value = false
+}
+
+function enterPlatformAdminPersonalPreviewMode() {
+  if (!isPlatformAdmin.value) return
+  platformAdminSurfaceMode.value = 'personal'
+  enterpriseSettingsDialogOpen.value = false
+  enterprisePageSettingsDialogOpen.value = false
+}
+
+function enterPlatformAdminEnterprisePreviewMode(role = 'enterprise_admin') {
+  if (!isPlatformAdmin.value) return
+  const normalizedRole = ['enterprise_admin', 'enterprise_operator', 'enterprise_logistics'].includes(role)
+    ? role
+    : 'enterprise_admin'
+  platformAdminEnterprisePreviewRole.value = normalizedRole
+  platformAdminSurfaceMode.value = 'enterprise'
+  enterpriseSettingsDialogOpen.value = false
+  enterprisePageSettingsDialogOpen.value = false
+  applyEnterprisePanelPreset(normalizedRole, { silent: true })
+}
+
 function toggleManagedUserSelection(userId, forceValue = null) {
   const normalizedId = String(userId || '').trim()
   if (!normalizedId) return
@@ -5825,14 +5908,14 @@ function clearAllEnterpriseApprovalDrafts() {
   showFloatingToast(t('enterprise_approval_clear_all_drafts_ok'), 'info')
 }
 
-function preferredEnterpriseSettingsTab(role = authCurrentRole.value) {
+function preferredEnterpriseSettingsTab(role = enterpriseUiRole.value) {
   if (role === 'enterprise_operator') return 'runtime'
   if (role === 'enterprise_logistics') return 'map_profiles'
   if (role === 'enterprise_admin') return 'audit'
   return 'overview'
 }
 
-function loadEnterpriseSettingsTabPreference(role = authCurrentRole.value) {
+function loadEnterpriseSettingsTabPreference(role = enterpriseUiRole.value) {
   try {
     const raw = window.localStorage.getItem(ENTERPRISE_SETTINGS_TAB_STORAGE_KEY)
     if (!raw) return ''
@@ -5869,7 +5952,7 @@ function saveEnterpriseSettingsSidebarPreference(collapsed = enterpriseSettingsS
   }
 }
 
-function saveEnterpriseSettingsTabPreference(role = authCurrentRole.value, tab = enterpriseSettingsActiveTab.value) {
+function saveEnterpriseSettingsTabPreference(role = enterpriseUiRole.value, tab = enterpriseSettingsActiveTab.value) {
   try {
     const normalizedRole = String(role || '').trim()
     const normalizedTab = String(tab || '').trim()
@@ -5988,7 +6071,7 @@ function confirmDiscardShortcutEditorChanges() {
   return window.confirm(t('shortcut_editor_unsaved_close_confirm'))
 }
 
-function applyEnterprisePanelPreset(role = authCurrentRole.value, { silent = false } = {}) {
+function applyEnterprisePanelPreset(role = enterpriseUiRole.value, { silent = false } = {}) {
   const preset = enterprisePanelPreset(role)
   if (!preset) return false
   panelSections.value = {
@@ -6003,7 +6086,7 @@ function applyEnterprisePanelPreset(role = authCurrentRole.value, { silent = fal
 
 async function openEnterpriseSettingsDialog(targetTab = '') {
   if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'dashboard.view', t('enterprise_settings_requires_enterprise'))) return
-  if (!authIsEnterpriseRole.value) {
+  if (!canUseEnterpriseUi.value) {
     showFloatingToast(t('enterprise_settings_requires_enterprise'), 'error')
     return
   }
@@ -12070,8 +12153,16 @@ watch([authAuthenticated, authCanAiRender], ([authenticated, canRender]) => {
   void fetchComfySharedTemplates({ force: true })
 })
 
-watch([authCurrentRole, authIsEnterpriseRole], ([role, isEnterprise]) => {
-  if (!isEnterprise) {
+watch(authCurrentRole, authRole => {
+  if (authRole === 'platform_admin') {
+    platformAdminSurfaceMode.value = 'governance'
+  } else {
+    platformAdminEnterprisePreviewRole.value = 'enterprise_admin'
+  }
+})
+
+watch([enterpriseUiRole, canUseEnterpriseUi], ([role, isEnterprise]) => {
+  if (!isEnterprise && !isPlatformAdminEnterprisePreviewMode.value) {
     enterpriseSettingsDialogOpen.value = false
     enterpriseSettingsActiveTab.value = 'overview'
     return
@@ -12081,7 +12172,7 @@ watch([authCurrentRole, authIsEnterpriseRole], ([role, isEnterprise]) => {
   }
 })
 
-watch([enterpriseSettingsActiveTab, authCurrentRole, authIsEnterpriseRole], ([tab, role, isEnterprise]) => {
+watch([enterpriseSettingsActiveTab, enterpriseUiRole, canUseEnterpriseUi], ([tab, role, isEnterprise]) => {
   if (!isEnterprise) return
   saveEnterpriseSettingsTabPreference(role, tab)
 })
@@ -13052,9 +13143,28 @@ const platformAccountGovernanceDialogBindings = {
   runManagedUserBulkAction
 }
 
+const platformAdminGovernanceHubBindings = {
+  t,
+  formatInlineMessage,
+  enterpriseApprovalSummary,
+  enterpriseApprovalLastFetchedText,
+  accountGovernanceSummary,
+  accountGovernanceLastFetchedText,
+  operationAuditLastFetchedAt,
+  platformRecentAuditEntries,
+  formatOperationAuditTitle,
+  formatOperationAuditOperator,
+  formatOperationAuditResourceRef,
+  openEnterpriseApprovalDialog,
+  openAccountGovernanceDialog,
+  requestOperationAuditRefresh,
+  enterPlatformAdminPersonalPreviewMode,
+  enterPlatformAdminEnterprisePreviewMode
+}
+
 const enterpriseSettingsDialogBindings = {
   t,
-  authRoleLabel,
+  authRoleLabel: enterpriseUiRoleLabel,
   authAccountStatusLabel,
   authCurrentAccountStatus,
   authCurrentOrganizationName,
@@ -13411,97 +13521,141 @@ onBeforeUnmount(() => {
 
     <EnterpriseSettingsDialog v-if="enterpriseSettingsDialogOpen" :ui="enterpriseSettingsDialogBindings" />
 
-    <div class="page-top" :style="pageTopStyle">
+    <div v-if="isPlatformAdminGovernanceMode" class="page-top page-top-governance">
       <div class="page-top-main">
-    <button class="page-title-auth" type="button" :title="authTitleButtonTitle" @click="openAuthDialog">
-      <span class="page-title-auth-main">{{ t('title') }}</span>
-      <span class="page-title-auth-divider">·</span>
-      <span class="page-title-auth-mode">{{ authModeText }}</span>
-    </button>
+        <button class="page-title-auth" type="button" :title="authTitleButtonTitle" @click="openAuthDialog">
+          <span class="page-title-auth-main">{{ t('title') }}</span>
+          <span class="page-title-auth-divider">·</span>
+          <span class="page-title-auth-mode">{{ authModeText }}</span>
+        </button>
 
-    <div class="toolbar">
-      <label class="field">
-        {{ t('language') }}
-        <select v-model="locale">
-          <option value="zh">中文</option>
-          <option value="ja">日本語</option>
-          <option value="en">English</option>
-        </select>
-      </label>
+        <div class="toolbar">
+          <label class="field">
+            {{ t('language') }}
+            <select v-model="locale">
+              <option value="zh">中文</option>
+              <option value="ja">日本語</option>
+              <option value="en">English</option>
+            </select>
+          </label>
 
-      <div class="field">
-        <span class="field-label">{{ t('dispatch') }}</span>
-        <select v-model="dispatchMode">
-          <option value="auto">{{ t('dispatch_auto') }}</option>
-          <option value="manual">{{ t('dispatch_manual') }}</option>
-        </select>
+          <button
+            v-if="authCanEnterpriseApprove"
+            class="toolbar-compare-entry toolbar-admin-entry"
+            type="button"
+            @click="openEnterpriseApprovalDialog"
+          >
+            <span>{{ t('enterprise_approval_entry') }}</span>
+            <span v-if="platformApprovalPendingCount > 0" class="toolbar-entry-badge">
+              {{ formatInlineMessage(t('enterprise_approval_pending_badge'), { count: platformApprovalPendingCount }) }}
+            </span>
+          </button>
+          <button
+            v-if="authCanSystemManage"
+            class="toolbar-compare-entry toolbar-admin-entry"
+            type="button"
+            @click="openAccountGovernanceDialog()"
+          >
+            <span>{{ t('account_governance_entry') }}</span>
+          </button>
+        </div>
+
+        <p class="toolbar-hint">{{ t('platform_admin_governance_hint') }}</p>
+        <p class="toolbar-hint toolbar-hint-secondary">{{ t('platform_admin_governance_subhint') }}</p>
       </div>
-
-      <label class="field">
-        {{ t('algorithm') }}
-        <select v-model="algorithm">
-          <option value="simple">{{ t('algo_simple') }}</option>
-          <option value="astar">{{ t('algo_astar') }}</option>
-        </select>
-      </label>
-
-      <label class="field">
-        {{ t('priority') }}
-        <select v-model.number="taskPriority">
-          <option :value="5">5</option>
-          <option :value="4">4</option>
-          <option :value="3">3</option>
-          <option :value="2">2</option>
-          <option :value="1">1</option>
-        </select>
-      </label>
-
-      <div class="status-pill" :class="{ empty: !selectedAgv }" :title="toolbarSelectedAgvTitle">
-        <span class="status-pill-dot" :style="{ backgroundColor: selectedAgv ? statusColor(selectedAgv.status) : '#9e9e9e' }"></span>
-        <span class="status-pill-text">{{ toolbarSelectedAgvText }}</span>
-      </div>
-
-      <button ref="compareEntryButtonRef" class="toolbar-compare-entry" type="button" @click="handleCompareEntryClick">
-        {{ compareEntryText }}
-      </button>
-      <button
-        v-if="authIsEnterpriseRole"
-        class="toolbar-compare-entry toolbar-admin-entry"
-        type="button"
-        @click="openEnterpriseSettingsDialog()"
-      >
-        <span>{{ t('enterprise_settings_entry') }}</span>
-        <span
-          v-if="enterpriseToolbarStatusBadgeText"
-          class="toolbar-entry-badge"
-          :class="[`tone-${authCurrentAccountStatus}`]"
-        >
-          {{ enterpriseToolbarStatusBadgeText }}
-        </span>
-      </button>
-      <button
-        v-if="authCanEnterpriseApprove"
-        class="toolbar-compare-entry toolbar-admin-entry"
-        type="button"
-        @click="openEnterpriseApprovalDialog"
-      >
-        <span>{{ t('enterprise_approval_entry') }}</span>
-        <span v-if="platformApprovalPendingCount > 0" class="toolbar-entry-badge">
-          {{ formatInlineMessage(t('enterprise_approval_pending_badge'), { count: platformApprovalPendingCount }) }}
-        </span>
-      </button>
-      <button
-        v-if="authCanSystemManage"
-        class="toolbar-compare-entry toolbar-admin-entry"
-        type="button"
-        @click="openAccountGovernanceDialog()"
-      >
-        <span>{{ t('account_governance_entry') }}</span>
-      </button>
     </div>
 
-    <p class="toolbar-hint">{{ t('hint') }}</p>
-    <p class="toolbar-hint toolbar-hint-secondary">{{ toolbarGuideHintText }}</p>
+    <div v-else class="page-top" :style="pageTopStyle">
+      <div class="page-top-main">
+        <button class="page-title-auth" type="button" :title="authTitleButtonTitle" @click="openAuthDialog">
+          <span class="page-title-auth-main">{{ t('title') }}</span>
+          <span class="page-title-auth-divider">·</span>
+          <span class="page-title-auth-mode">{{ authModeText }}</span>
+        </button>
+
+        <div class="toolbar">
+          <label class="field">
+            {{ t('language') }}
+            <select v-model="locale">
+              <option value="zh">中文</option>
+              <option value="ja">日本語</option>
+              <option value="en">English</option>
+            </select>
+          </label>
+
+          <div class="field">
+            <span class="field-label">{{ t('dispatch') }}</span>
+            <select v-model="dispatchMode">
+              <option value="auto">{{ t('dispatch_auto') }}</option>
+              <option value="manual">{{ t('dispatch_manual') }}</option>
+            </select>
+          </div>
+
+          <label class="field">
+            {{ t('algorithm') }}
+            <select v-model="algorithm">
+              <option value="simple">{{ t('algo_simple') }}</option>
+              <option value="astar">{{ t('algo_astar') }}</option>
+            </select>
+          </label>
+
+          <label class="field">
+            {{ t('priority') }}
+            <select v-model.number="taskPriority">
+              <option :value="5">5</option>
+              <option :value="4">4</option>
+              <option :value="3">3</option>
+              <option :value="2">2</option>
+              <option :value="1">1</option>
+            </select>
+          </label>
+
+          <div class="status-pill" :class="{ empty: !selectedAgv }" :title="toolbarSelectedAgvTitle">
+            <span class="status-pill-dot" :style="{ backgroundColor: selectedAgv ? statusColor(selectedAgv.status) : '#9e9e9e' }"></span>
+            <span class="status-pill-text">{{ toolbarSelectedAgvText }}</span>
+          </div>
+
+          <button ref="compareEntryButtonRef" class="toolbar-compare-entry" type="button" @click="handleCompareEntryClick">
+            {{ compareEntryText }}
+          </button>
+          <button
+            v-if="showEnterpriseSettingsToolbarEntry"
+            class="toolbar-compare-entry toolbar-admin-entry"
+            type="button"
+            @click="openEnterpriseSettingsDialog()"
+          >
+            <span>{{ t('enterprise_settings_entry') }}</span>
+            <span
+              v-if="enterpriseToolbarStatusBadgeText"
+              class="toolbar-entry-badge"
+              :class="[`tone-${authCurrentAccountStatus}`]"
+            >
+              {{ enterpriseToolbarStatusBadgeText }}
+            </span>
+          </button>
+          <button
+            v-if="authCanEnterpriseApprove && showPlatformAdminManagementEntries"
+            class="toolbar-compare-entry toolbar-admin-entry"
+            type="button"
+            @click="openEnterpriseApprovalDialog"
+          >
+            <span>{{ t('enterprise_approval_entry') }}</span>
+            <span v-if="platformApprovalPendingCount > 0" class="toolbar-entry-badge">
+              {{ formatInlineMessage(t('enterprise_approval_pending_badge'), { count: platformApprovalPendingCount }) }}
+            </span>
+          </button>
+          <button
+            v-if="authCanSystemManage && showPlatformAdminManagementEntries"
+            class="toolbar-compare-entry toolbar-admin-entry"
+            type="button"
+            @click="openAccountGovernanceDialog()"
+          >
+            <span>{{ t('account_governance_entry') }}</span>
+          </button>
+        </div>
+
+        <p class="toolbar-hint">{{ t('hint') }}</p>
+        <p class="toolbar-hint toolbar-hint-secondary">{{ toolbarGuideHintText }}</p>
       </div>
 
       <div class="page-top-spacer"></div>
@@ -13566,7 +13720,39 @@ onBeforeUnmount(() => {
       </aside>
     </div>
 
-    <div ref="layoutRef" class="layout" :style="layoutStyle">
+    <div v-if="isPlatformAdminPreviewMode" class="platform-admin-preview-bar">
+      <div class="platform-admin-preview-copy">
+        <strong>{{ platformAdminPreviewTitle }}</strong>
+        <span>{{ platformAdminPreviewHint }}</span>
+      </div>
+      <div class="platform-admin-preview-actions">
+        <div v-if="isPlatformAdminEnterprisePreviewMode" class="platform-admin-preview-role-switch">
+          <span>{{ t('platform_admin_preview_role_switch') }}</span>
+          <div class="platform-admin-preview-role-buttons">
+            <button
+              v-for="item in platformAdminPreviewRoleItems"
+              :key="`platform-admin-preview-role-${item.key}`"
+              class="btn-ghost"
+              :class="{ active: platformAdminEnterprisePreviewRole === item.key }"
+              type="button"
+              @click="enterPlatformAdminEnterprisePreviewMode(item.key)"
+            >
+              {{ item.label }}
+            </button>
+          </div>
+        </div>
+        <button class="btn-secondary" type="button" @click="enterPlatformAdminGovernanceMode">
+          {{ t('platform_admin_preview_exit') }}
+        </button>
+      </div>
+    </div>
+
+    <PlatformAdminGovernanceHub
+      v-if="isPlatformAdminGovernanceMode"
+      :ui="platformAdminGovernanceHubBindings"
+    />
+
+    <div v-else ref="layoutRef" class="layout" :style="layoutStyle">
       <div ref="mapPaneRef" class="map-pane">
         <div
           v-if="showEnterpriseWorkspacePopup"
@@ -13578,7 +13764,7 @@ onBeforeUnmount(() => {
             <div class="enterprise-workspace-popup-copy">
               <div class="enterprise-workspace-popup-title-row">
                 <strong>{{ enterpriseRoleFocus.title }}</strong>
-                <span class="point-badge enterprise-settings-chip">{{ authRoleLabel }}</span>
+                <span class="point-badge enterprise-settings-chip">{{ enterpriseUiRoleLabel }}</span>
               </div>
               <p>{{ enterpriseRoleScopeText }}</p>
             </div>
@@ -13907,7 +14093,7 @@ onBeforeUnmount(() => {
           >
             <div class="map-zoom-pill">{{ mapZoomLabel }}</div>
             <button
-              v-if="!authIsEnterpriseRole"
+              v-if="!uiTreatAsEnterpriseRole"
               class="map-control-button map-control-button-page-settings"
               type="button"
               :title="t('enterprise_settings_page_settings_entry')"

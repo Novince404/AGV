@@ -1,0 +1,16 @@
+{
+  "tasks": [
+    {
+      "start_x": 1,
+      "start_y": 6,
+      "end_x": 2,
+      "end_y": 6,
+      "grid_cols": 10,
+      "grid_rows": 8,
+      "priority": 2,
+      "dispatch_mode": "manual",
+      "dispatch_algorithm": "simple",
+      "dispatch_reason": "导师演示：手动单段任务"
+    }
+  ]
+}

@@ -2222,6 +2222,166 @@ h2 {
   overflow: hidden;
 }
 
+.page-top-governance {
+  grid-template-columns: minmax(0, 1fr);
+  height: auto;
+  min-height: 128px;
+  max-height: none;
+}
+
+.page-top-governance .page-top-main {
+  min-height: 0;
+  max-height: none;
+}
+
+.platform-admin-preview-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 18px;
+  margin-top: 10px;
+  padding: 12px 14px;
+  border: 1px solid #d8d0c5;
+  border-radius: 18px;
+  background: rgba(255, 252, 246, 0.92);
+  box-shadow: 0 8px 24px rgba(60, 45, 30, 0.08);
+}
+
+.platform-admin-preview-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.platform-admin-preview-copy strong {
+  color: var(--strong-text);
+  font-size: 14px;
+}
+
+.platform-admin-preview-copy span {
+  color: var(--muted-text);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.platform-admin-preview-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px 12px;
+}
+
+.platform-admin-preview-role-switch {
+  display: grid;
+  gap: 6px;
+  justify-items: end;
+}
+
+.platform-admin-preview-role-switch span {
+  color: var(--muted-text);
+  font-size: 12px;
+}
+
+.platform-admin-preview-role-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.platform-admin-preview-role-buttons .btn-ghost.active {
+  border-color: #1976d2;
+  color: #0f4fa8;
+  box-shadow: 0 0 0 1px rgba(25, 118, 210, 0.16);
+}
+
+.platform-admin-governance-shell {
+  display: grid;
+  gap: 16px;
+  flex: 1;
+  min-height: 0;
+  margin-top: 14px;
+  padding: 18px;
+  border: 1px solid #ddd3c6;
+  border-radius: 22px;
+  background: rgba(255, 251, 245, 0.9);
+  box-shadow: var(--shadow);
+  overflow: auto;
+}
+
+.platform-admin-governance-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.platform-admin-governance-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.platform-admin-governance-card {
+  display: grid;
+  gap: 12px;
+  text-align: left;
+}
+
+.platform-admin-governance-card-head {
+  display: grid;
+  gap: 4px;
+}
+
+.platform-admin-governance-card-head strong {
+  color: var(--strong-text);
+  font-size: 14px;
+}
+
+.platform-admin-governance-card-head span,
+.platform-admin-governance-actions-copy span,
+.platform-admin-governance-metrics small {
+  color: var(--muted-text);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.platform-admin-governance-metrics {
+  display: grid;
+  gap: 6px;
+}
+
+.platform-admin-governance-metrics span {
+  color: #5b5247;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.platform-admin-governance-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 16px;
+  padding: 14px 16px;
+  border: 1px dashed #d9cfc2;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.platform-admin-governance-actions-copy {
+  display: grid;
+  gap: 4px;
+}
+
+.platform-admin-governance-actions-copy strong {
+  color: var(--strong-text);
+  font-size: 14px;
+}
+
+.platform-admin-governance-audit-list-shell {
+  margin-top: 0;
+}
+
 .field {
   display: inline-flex;
   align-items: center;
@@ -5685,6 +5845,21 @@ h2 {
 
   .auth-register-sidecard {
     grid-template-columns: 1fr;
+  }
+
+  .platform-admin-preview-bar,
+  .platform-admin-governance-actions {
+    align-items: flex-start;
+  }
+
+  .platform-admin-governance-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .platform-admin-preview-actions,
+  .platform-admin-preview-role-switch {
+    justify-content: flex-start;
+    justify-items: start;
   }
 
   .account-governance-summary-grid-status {
