@@ -1632,6 +1632,7 @@ const authCanSystemManage = computed(() => authCapabilitySet.value.has('system.m
 const authCanEnterpriseRequestSubmit = computed(() => authCapabilitySet.value.has('feedback.enterprise.submit'))
 const authCanPlatformBugSubmit = computed(() => authCapabilitySet.value.has('feedback.platform.submit'))
 const authCanPlatformBugManage = computed(() => authCapabilitySet.value.has('feedback.platform.manage'))
+const authCanUsePlatformBugFeedback = computed(() => authCanPlatformBugSubmit.value || authCanPlatformBugManage.value)
 const authIsEnterpriseRole = computed(() =>
   ['enterprise_operator', 'enterprise_logistics', 'enterprise_admin'].includes(authCurrentRole.value)
 )
@@ -5762,7 +5763,16 @@ async function fetchPlatformBugFeedback({ forceSelectFirst = false, preferredSel
 }
 
 async function openPlatformBugFeedbackDialog({ status = '', category = '', selectedId = '' } = {}) {
-  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'feedback.platform.submit', t('platform_bug_feedback_requires_login'))) return
+  if (!authAuthenticated.value) {
+    authPanelOpen.value = true
+    showFloatingToast(t('auth_action_requires_login'), 'warning')
+    return
+  }
+  if (!authCanUsePlatformBugFeedback.value) {
+    authPanelOpen.value = true
+    showFloatingToast(t('auth_permission_denied'), 'warning')
+    return
+  }
   platformBugFeedbackDialogOpen.value = true
   if (String(status || '').trim()) platformBugFeedbackStatusFilter.value = String(status).trim()
   if (String(category || '').trim()) platformBugFeedbackCategoryFilter.value = String(category).trim()

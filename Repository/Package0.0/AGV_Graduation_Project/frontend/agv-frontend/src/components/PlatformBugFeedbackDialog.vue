@@ -97,7 +97,7 @@
         </div>
 
         <div class="approval-detail feedback-dialog-detail">
-          <div class="approval-existing-note feedback-create-box">
+          <div v-if="!platformBugFeedbackManagementMode" class="approval-existing-note feedback-create-box">
             <strong>{{ t('platform_bug_feedback_create_title') }}</strong>
             <p>{{ t('platform_bug_feedback_create_hint') }}</p>
             <div class="approval-detail-grid">
