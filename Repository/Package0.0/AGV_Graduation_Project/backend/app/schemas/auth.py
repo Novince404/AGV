@@ -32,4 +32,5 @@ class UserSuspendRequest(BaseModel):
 
 
 class UserDeactivateRequest(BaseModel):
+    reason: str | None = None
     note: str | None = None

@@ -308,6 +308,23 @@
             </template>
 
             <template v-else>
+              <div class="account-governance-template-list">
+                <div class="approval-detail-toolbar account-governance-template-toolbar">
+                  <strong>{{ t('account_governance_templates_title') }}</strong>
+                  <span class="task-line">{{ t('account_governance_templates_hint') }}</span>
+                </div>
+                <button
+                  v-for="item in accountGovernanceActionTemplateItems"
+                  :key="item.key"
+                  class="account-governance-template-card"
+                  :class="{ active: accountGovernanceSelectedTemplateKey === item.key }"
+                  type="button"
+                  @click="applyAccountGovernanceActionTemplate(item.key)"
+                >
+                  <strong>{{ item.label }}</strong>
+                  <span>{{ item.hint }}</span>
+                </button>
+              </div>
               <div class="approval-detail-grid">
                 <label class="auth-dialog-field">
                   <span>{{ t('account_governance_suspension_reason') }}</span>

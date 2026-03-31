@@ -336,16 +336,22 @@ def unsuspend_user_account(request: Request, user_id: str) -> dict:
     return {"item": _serialize_managed_user(updated)}
 
 
-def deactivate_user_account(request: Request, user_id: str, note: str | None = None) -> dict:
+def deactivate_user_account(
+    request: Request,
+    user_id: str,
+    reason: str | None = None,
+    note: str | None = None,
+) -> dict:
     actor, target = _resolve_governance_actor_and_target(request, user_id)
     if str(getattr(target, "account_status", "approved") or "approved").lower() == "deactivated":
         raise_api_error(400, "auth_governance_already_deactivated")
+    normalized_reason = str(reason or "").strip()
     target.active = False
     target.account_status = "deactivated"
     target.deactivated_at = now_iso()
     target.deactivated_by = str(actor.get("username") or actor.get("id") or "platform_admin")
     target.suspension_note = str(note or "").strip() or target.suspension_note
-    target.suspension_reason = target.suspension_reason or "deactivated"
+    target.suspension_reason = normalized_reason or target.suspension_reason or "deactivated"
     target.suspended_at = None
     target.suspended_until = None
     target.suspended_by = None
@@ -360,6 +366,7 @@ def deactivate_user_account(request: Request, user_id: str, note: str | None = N
         metadata={
             "target_username": updated.username,
             "target_role": updated.role,
+            "reason": updated.suspension_reason,
             "note": updated.suspension_note,
         },
     )

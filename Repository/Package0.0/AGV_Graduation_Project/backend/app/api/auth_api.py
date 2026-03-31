@@ -106,7 +106,12 @@ def unsuspend_user(request: Request, user_id: str):
 
 @router.post("/users/{user_id}/deactivate")
 def deactivate_user(request: Request, user_id: str, req: UserDeactivateRequest):
-    return auth_service.deactivate_user_account(request, user_id=user_id, note=req.note)
+    return auth_service.deactivate_user_account(
+        request,
+        user_id=user_id,
+        reason=req.reason,
+        note=req.note,
+    )
 
 
 @router.get("/enterprise-applications")

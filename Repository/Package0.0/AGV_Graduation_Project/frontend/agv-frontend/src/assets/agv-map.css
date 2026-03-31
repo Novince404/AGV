@@ -959,6 +959,55 @@ h2 {
   min-width: 0;
 }
 
+.account-governance-template-list {
+  display: grid;
+  gap: 10px;
+}
+
+.account-governance-template-toolbar {
+  gap: 8px;
+}
+
+.account-governance-template-toolbar .task-line {
+  color: var(--muted-text);
+  font-size: 12px;
+}
+
+.account-governance-template-card {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid rgba(212, 201, 187, 0.92);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.78);
+  color: var(--strong-text);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease;
+}
+
+.account-governance-template-card:hover {
+  border-color: rgba(138, 106, 77, 0.46);
+  background: rgba(255, 255, 255, 0.9);
+  transform: translateY(-1px);
+}
+
+.account-governance-template-card.active {
+  border-color: rgba(21, 101, 192, 0.5);
+  background: rgba(227, 242, 253, 0.76);
+}
+
+.account-governance-template-card strong {
+  font-size: 13px;
+}
+
+.account-governance-template-card span {
+  color: var(--muted-text);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .approval-existing-note {
   display: grid;
   gap: 6px;

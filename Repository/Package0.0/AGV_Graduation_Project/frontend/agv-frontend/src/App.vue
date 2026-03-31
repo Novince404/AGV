@@ -828,6 +828,7 @@ const managedUserAccounts = ref([])
 const selectedManagedUserId = ref('')
 const accountGovernanceLastFetchedAt = ref('')
 const accountGovernanceActionLoading = ref(false)
+const accountGovernanceSelectedTemplateKey = ref('')
 const accountGovernanceSuspendReason = ref('')
 const accountGovernanceSuspendNote = ref('')
 const accountGovernanceSuspendDurationPreset = ref('7d')
@@ -1555,6 +1556,40 @@ const platformApprovalPendingCount = computed(() => Number(enterpriseApprovalSum
 const selectedManagedUser = computed(() =>
   managedUserAccounts.value.find(item => String(item.id || '') === String(selectedManagedUserId.value || '')) || null
 )
+const accountGovernanceActionTemplateItems = computed(() => [
+  {
+    key: 'policy',
+    label: t('account_governance_template_policy_label'),
+    hint: t('account_governance_template_policy_hint'),
+    reason: t('account_governance_template_policy_reason'),
+    note: t('account_governance_template_policy_note'),
+    duration: '7d'
+  },
+  {
+    key: 'review',
+    label: t('account_governance_template_review_label'),
+    hint: t('account_governance_template_review_hint'),
+    reason: t('account_governance_template_review_reason'),
+    note: t('account_governance_template_review_note'),
+    duration: '30d'
+  },
+  {
+    key: 'security',
+    label: t('account_governance_template_security_label'),
+    hint: t('account_governance_template_security_hint'),
+    reason: t('account_governance_template_security_reason'),
+    note: t('account_governance_template_security_note'),
+    duration: '1d'
+  },
+  {
+    key: 'deactivate',
+    label: t('account_governance_template_deactivate_label'),
+    hint: t('account_governance_template_deactivate_hint'),
+    reason: t('account_governance_template_deactivate_reason'),
+    note: t('account_governance_template_deactivate_note'),
+    duration: 'permanent'
+  }
+])
 const accountGovernanceFilterSummaryText = computed(() => {
   const roleLabelMap = {
     all: t('account_governance_role_all'),
@@ -5339,9 +5374,19 @@ function buildManagedUserExportRows(items = managedUserAccounts.value) {
 }
 
 function resetAccountGovernanceActionDraft() {
+  accountGovernanceSelectedTemplateKey.value = ''
   accountGovernanceSuspendReason.value = ''
   accountGovernanceSuspendNote.value = ''
   accountGovernanceSuspendDurationPreset.value = '7d'
+}
+
+function applyAccountGovernanceActionTemplate(templateKey) {
+  const matched = accountGovernanceActionTemplateItems.value.find(item => item.key === templateKey)
+  if (!matched) return
+  accountGovernanceSelectedTemplateKey.value = matched.key
+  accountGovernanceSuspendReason.value = matched.reason
+  accountGovernanceSuspendNote.value = matched.note
+  accountGovernanceSuspendDurationPreset.value = matched.duration
 }
 
 function buildAuthLoginRestrictionNotice(detail) {
@@ -5573,6 +5618,7 @@ async function deactivateManagedUserAccount() {
       method: 'POST',
       headers: buildAuthorizedJsonHeaders(),
       body: JSON.stringify({
+        reason: String(accountGovernanceSuspendReason.value || '').trim(),
         note: String(accountGovernanceSuspendNote.value || '').trim()
       })
     })
@@ -12830,9 +12876,12 @@ const platformAccountGovernanceDialogBindings = {
   accountGovernanceFilterSummaryText,
   accountGovernanceEmptyHint,
   accountGovernanceLastFetchedText,
+  accountGovernanceSelectedTemplateKey,
+  accountGovernanceActionTemplateItems,
   accountGovernanceSuspendReason,
   accountGovernanceSuspendNote,
   accountGovernanceSuspendDurationPreset,
+  applyAccountGovernanceActionTemplate,
   closeAccountGovernanceDialog,
   resetAccountGovernanceFilters,
   fetchManagedUserAccounts,
