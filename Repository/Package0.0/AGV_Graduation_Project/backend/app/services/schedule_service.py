@@ -130,8 +130,21 @@ def _path_length(
     ey: int,
     grid_cols: int,
     grid_rows: int,
+    *,
+    request_priority: int = 0,
+    agv_id: int | None = None,
 ):
-    path = plan_path(algorithm, sx, sy, ex, ey, grid_cols, grid_rows)
+    path = plan_path(
+        algorithm,
+        sx,
+        sy,
+        ex,
+        ey,
+        grid_cols,
+        grid_rows,
+        request_priority=request_priority,
+        agv_id=agv_id,
+    )
     if not path:
         return None
     return max(len(path) - 1, 0)
@@ -157,6 +170,8 @@ def _pick_task_and_agv_resolved(
                 task.start_y,
                 grid_cols,
                 grid_rows,
+                request_priority=int(getattr(task, "priority", 0) or 0),
+                agv_id=agv.id,
             )
             if distance is None:
                 _mark_task_unreachable(task, task_algorithm, f"task_start_unreachable:{task_algorithm}")
@@ -178,6 +193,8 @@ def _pick_task_and_agv_resolved(
                 task.start_y,
                 grid_cols,
                 grid_rows,
+                request_priority=int(getattr(task, "priority", 0) or 0),
+                agv_id=agv.id,
             )
             if distance is None:
                 continue
@@ -214,6 +231,8 @@ def _pick_task_and_agv_resolved(
                 pending_task.start_y,
                 grid_cols,
                 grid_rows,
+                request_priority=int(getattr(pending_task, "priority", 0) or 0),
+                agv_id=agv.id,
             )
             if distance is None:
                 continue
@@ -247,6 +266,8 @@ def _pick_task_and_agv_resolved(
                 pending_task.start_y,
                 grid_cols,
                 grid_rows,
+                request_priority=int(getattr(pending_task, "priority", 0) or 0),
+                agv_id=preferred_agv.id,
             )
             if distance is None:
                 continue
@@ -374,6 +395,7 @@ def _compare_algorithm(
             stage["end_y"],
             grid_cols,
             grid_rows,
+            request_priority=0,
         )
         if not path:
             return {
@@ -479,6 +501,8 @@ def _schedule_task(
             stage.end_y,
             grid_cols,
             grid_rows,
+            request_priority=int(getattr(task, "priority", 0) or 0),
+            agv_id=agv.id,
         )
     else:
         path_to_start = plan_path(
@@ -489,6 +513,8 @@ def _schedule_task(
             stage.start_y,
             grid_cols,
             grid_rows,
+            request_priority=int(getattr(task, "priority", 0) or 0),
+            agv_id=agv.id,
         )
         path_to_end = plan_path(
             task_algorithm,
@@ -498,6 +524,8 @@ def _schedule_task(
             stage.end_y,
             grid_cols,
             grid_rows,
+            request_priority=int(getattr(task, "priority", 0) or 0),
+            agv_id=agv.id,
         )
 
     if not path_to_start or not path_to_end:

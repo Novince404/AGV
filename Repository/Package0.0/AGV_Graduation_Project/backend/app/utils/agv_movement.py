@@ -5,7 +5,7 @@ from math import atan2, degrees
 
 from app.repositories.agv_repository import get_agv_by_id, list_agvs
 from app.repositories.task_repository import get_task_by_id
-from app.utils.path_planner import plan_path
+from app.utils.path_planner import plan_path, resolve_topology_segment_metadata
 from app.utils.task_chain import (
     advance_task_stage,
     get_current_stage,
@@ -13,11 +13,10 @@ from app.utils.task_chain import (
     set_stage_paths,
     sync_task_stage_fields,
 )
-from app.utils.warehouse_map import get_map_layout_state
-
 movement_lock = threading.Lock()
 MOVE_WAIT_INTERVAL_SEC = 0.25
 MOVE_WAIT_TIMEOUT_SEC = 12
+TOPOLOGY_EDGE_REPLAN_INTERVAL_SEC = 1.2
 CELL_TRAVEL_DURATION_SEC = 0.9
 DEFAULT_CELL_SPEED = 1.0
 
@@ -83,54 +82,83 @@ def _segment_heading(source_x: int, source_y: int, target_x: int, target_y: int)
     return round(degrees(atan2(dy, dx)), 2)
 
 
-def _resolve_motion_context(source_x: int, source_y: int, target_x: int, target_y: int):
-    source_key = _build_grid_node_key(source_x, source_y)
-    target_key = _build_grid_node_key(target_x, target_y)
-    fallback_edge = f"{source_key}->{target_key}"
+def _point_coordinates(point) -> tuple[int, int]:
+    return int(point["x"]), int(point["y"])
 
-    try:
-        topology = get_map_layout_state().get("topology") or {}
-    except Exception:
-        topology = {}
 
-    nodes = topology.get("nodes") if isinstance(topology, dict) else []
-    edges = topology.get("edges") if isinstance(topology, dict) else []
-    if not isinstance(nodes, list) or not isinstance(edges, list):
-        return source_key, fallback_edge, target_key
+def _same_point_coordinates(a, b) -> bool:
+    if not a or not b:
+        return False
+    return int(a.get("x", -1)) == int(b.get("x", -2)) and int(a.get("y", -1)) == int(b.get("y", -2))
 
-    node_by_position: dict[tuple[int, int], str] = {}
-    for node in nodes:
-        if not isinstance(node, dict):
+
+def _build_topology_wait_reason(conflict: dict) -> str:
+    edge_key = str(conflict.get("edge_key") or "topology")
+    blocker_agv_id = conflict.get("blocker_agv_id")
+    if blocker_agv_id is None:
+        return f"topology_edge_waiting:{edge_key}"
+    return f"topology_edge_waiting:{edge_key}:agv={int(blocker_agv_id)}"
+
+
+def _build_topology_retry_reason(conflict: dict) -> str:
+    edge_key = str(conflict.get("edge_key") or "topology")
+    blocker_agv_id = conflict.get("blocker_agv_id")
+    if blocker_agv_id is None:
+        return f"topology_edge_reroute:{edge_key}"
+    return f"topology_edge_reroute:{edge_key}:agv={int(blocker_agv_id)}"
+
+
+def _detect_topology_edge_conflict(agv_id: int, source_x: int, source_y: int, point: dict):
+    target_x, target_y = _point_coordinates(point)
+    segment = resolve_topology_segment_metadata(
+        source_x,
+        source_y,
+        target_x,
+        target_y,
+        edge_key=point.get("topology_edge_key"),
+    )
+    edge_key = str(segment.get("edge_key") or "").strip()
+    if not edge_key or edge_key.startswith("grid:"):
+        return None
+
+    for other in list_agvs():
+        if int(other.id) == int(agv_id) or other.status == "maintenance":
             continue
-        try:
-            x = int(node.get("x"))
-            y = int(node.get("y"))
-        except Exception:
+        other_edge = str(getattr(other, "current_edge", "") or "").strip()
+        if other_edge != edge_key:
             continue
-        node_by_position[(x, y)] = str(node.get("key") or _build_grid_node_key(x, y))
-
-    source_node = node_by_position.get((int(source_x), int(source_y))) or source_key
-    target_node = node_by_position.get((int(target_x), int(target_y))) or target_key
-
-    for edge in edges:
-        if not isinstance(edge, dict):
-            continue
-        edge_key = str(edge.get("key") or "") or fallback_edge
-        edge_source = str(edge.get("source") or "")
-        edge_target = str(edge.get("target") or "")
-        direction = str(edge.get("direction") or "bidirectional")
-        if edge_source == source_node and edge_target == target_node:
-            return source_node, edge_key, target_node
-        if direction == "bidirectional" and edge_source == target_node and edge_target == source_node:
-            return source_node, edge_key, target_node
-
-    return source_node, fallback_edge, target_node
+        blocker_task = get_task_by_id(other.task_id) if getattr(other, "task_id", None) is not None else None
+        return {
+            "edge_key": edge_key,
+            "lane_type": str(segment.get("lane_type") or "main"),
+            "speed_multiplier": float(segment.get("speed_multiplier") or 1.0),
+            "target_node": str(segment.get("target_node") or _build_grid_node_key(target_x, target_y)),
+            "blocker_agv_id": int(other.id),
+            "blocker_task_id": int(other.task_id) if getattr(other, "task_id", None) is not None else None,
+            "blocker_priority": int(getattr(blocker_task, "priority", 0) or 0) if blocker_task else 0,
+            "blocker_motion_state": str(getattr(other, "motion_state", "") or getattr(other, "status", "") or "idle"),
+        }
+    return None
 
 
-def _begin_motion_segment(agv, source_x: int, source_y: int, target_x: int, target_y: int, active_status: str):
-    start_node, edge_key, target_node = _resolve_motion_context(source_x, source_y, target_x, target_y)
+def _begin_motion_segment(agv, point: dict, active_status: str):
+    source_x = int(agv.x)
+    source_y = int(agv.y)
+    target_x, target_y = _point_coordinates(point)
+    segment = resolve_topology_segment_metadata(
+        source_x,
+        source_y,
+        target_x,
+        target_y,
+        edge_key=point.get("topology_edge_key"),
+    )
+    start_node = str(segment.get("source_node") or _build_grid_node_key(source_x, source_y))
+    edge_key = str(segment.get("edge_key") or f"{start_node}->{_build_grid_node_key(target_x, target_y)}")
+    target_node = str(segment.get("target_node") or _build_grid_node_key(target_x, target_y))
     started_at = now_iso_ms()
-    target_speed = DEFAULT_CELL_SPEED / max(CELL_TRAVEL_DURATION_SEC, 0.1)
+    speed_multiplier = max(float(point.get("topology_speed_multiplier") or segment.get("speed_multiplier") or 1.0), 0.1)
+    travel_duration_sec = CELL_TRAVEL_DURATION_SEC / speed_multiplier
+    target_speed = DEFAULT_CELL_SPEED / max(travel_duration_sec, 0.1)
     heading = _segment_heading(source_x, source_y, target_x, target_y)
 
     agv.apply_motion_fields(
@@ -148,13 +176,13 @@ def _begin_motion_segment(agv, source_x: int, source_y: int, target_x: int, targ
         heading=heading,
         motion_started_at=started_at,
         motion_updated_at=started_at,
-        motion_duration_ms=int(CELL_TRAVEL_DURATION_SEC * 1000),
+        motion_duration_ms=int(travel_duration_sec * 1000),
         motion_source_x=float(source_x),
         motion_source_y=float(source_y),
         motion_target_x=float(target_x),
         motion_target_y=float(target_y),
     )
-    return target_node, target_speed
+    return target_node, target_speed, travel_duration_sec
 
 
 def _finish_motion_segment(agv, target_x: int, target_y: int, target_node: str, active_status: str, target_speed: float):
@@ -170,7 +198,7 @@ def _finish_motion_segment(agv, target_x: int, target_y: int, target_node: str, 
     )
 
 
-def _set_waiting_motion_state(agv, active_status: str):
+def _set_waiting_motion_state(agv, active_status: str, motion_state: str = "waiting"):
     agv.apply_motion_fields(
         status=active_status,
         render_x=float(agv.x),
@@ -178,7 +206,7 @@ def _set_waiting_motion_state(agv, active_status: str):
         current_node=_build_grid_node_key(int(agv.x), int(agv.y)),
         current_edge=None,
         edge_progress=0.0,
-        motion_state="waiting",
+        motion_state=motion_state,
         current_speed=0.0,
         target_speed=0.0,
         heading=0.0,
@@ -193,8 +221,7 @@ def _set_waiting_motion_state(agv, active_status: str):
 
 
 def move_to_point_with_collision_guard(agv, task, point, algorithm: str, active_status: str):
-    target_x = int(point["x"])
-    target_y = int(point["y"])
+    target_x, target_y = _point_coordinates(point)
     previous_reason = task.dispatch_reason
     waiting_noted = False
     wait_started_at = time.monotonic()
@@ -208,29 +235,46 @@ def move_to_point_with_collision_guard(agv, task, point, algorithm: str, active_
         moved = False
         target_node = _build_grid_node_key(target_x, target_y)
         target_speed = 0.0
+        travel_duration_sec = CELL_TRAVEL_DURATION_SEC
         source_x = int(agv.x)
         source_y = int(agv.y)
+        topology_conflict = None
         with movement_lock:
-            if not is_cell_occupied_by_other_agv(agv.id, target_x, target_y):
-                target_node, target_speed = _begin_motion_segment(agv, source_x, source_y, target_x, target_y, active_status)
+            topology_conflict = _detect_topology_edge_conflict(agv.id, source_x, source_y, point)
+            if topology_conflict is None and not is_cell_occupied_by_other_agv(agv.id, target_x, target_y):
+                target_node, target_speed, travel_duration_sec = _begin_motion_segment(agv, point, active_status)
                 moved = True
 
         if moved:
             if waiting_noted:
                 task.dispatch_reason = previous_reason
             if source_x != target_x or source_y != target_y:
-                time.sleep(CELL_TRAVEL_DURATION_SEC)
+                time.sleep(travel_duration_sec)
             _finish_motion_segment(agv, target_x, target_y, target_node, active_status, target_speed)
             return "moved"
 
         waited_sec = time.monotonic() - wait_started_at
+        if topology_conflict is not None:
+            if not waiting_noted:
+                task.dispatch_reason = _build_topology_wait_reason(topology_conflict)
+                waiting_noted = True
+
+            _set_waiting_motion_state(agv, active_status, motion_state="yielding")
+            if waited_sec >= TOPOLOGY_EDGE_REPLAN_INTERVAL_SEC:
+                task.dispatch_reason = _build_topology_retry_reason(topology_conflict)
+                agv.clear_motion(motion_state=active_status)
+                return "retry"
+
+            time.sleep(MOVE_WAIT_INTERVAL_SEC)
+            continue
+
         if waited_sec >= MOVE_WAIT_TIMEOUT_SEC:
             retry_budget = max(int(getattr(task, "cell_wait_retry_budget", 1)), 0)
             retry_count = max(int(getattr(task, "cell_wait_retry_count", 0)), 0)
             if retry_count < retry_budget:
                 task.cell_wait_retry_count = retry_count + 1
                 task.dispatch_reason = f"cell_occupied_retrying:{task.cell_wait_retry_count}"
-                _set_waiting_motion_state(agv, active_status)
+                _set_waiting_motion_state(agv, active_status, motion_state="waiting")
                 return "retry"
 
             task.preferred_agv_id = task.preferred_agv_id or agv.id
@@ -244,7 +288,7 @@ def move_to_point_with_collision_guard(agv, task, point, algorithm: str, active_
             task.dispatch_reason = "cell_occupied_waiting"
             waiting_noted = True
 
-        _set_waiting_motion_state(agv, active_status)
+        _set_waiting_motion_state(agv, active_status, motion_state="waiting")
 
         time.sleep(MOVE_WAIT_INTERVAL_SEC)
 
@@ -284,6 +328,8 @@ def move_agv(
                     stage.end_y,
                     grid_cols,
                     grid_rows,
+                    request_priority=int(getattr(task, "priority", 0) or 0),
+                    agv_id=agv.id,
                 )
             else:
                 path_to_start = plan_path(
@@ -294,6 +340,8 @@ def move_agv(
                     stage.start_y,
                     grid_cols,
                     grid_rows,
+                    request_priority=int(getattr(task, "priority", 0) or 0),
+                    agv_id=agv.id,
                 )
                 path_to_end = plan_path(
                     algorithm,
@@ -303,6 +351,8 @@ def move_agv(
                     stage.end_y,
                     grid_cols,
                     grid_rows,
+                    request_priority=int(getattr(task, "priority", 0) or 0),
+                    agv_id=agv.id,
                 )
             if not path_to_start or not path_to_end:
                 mark_task_blocked(task, f"task_route_unreachable:{algorithm}", algorithm)
@@ -338,7 +388,7 @@ def move_agv(
             agv.status = "running"
 
             start_index = 0
-            if path_to_start and path_to_end and path_to_end[0] == path_to_start[-1]:
+            if path_to_start and path_to_end and _same_point_coordinates(path_to_end[0], path_to_start[-1]):
                 start_index = 1 if len(path_to_start) > 1 else 0
 
             for point in path_to_end[start_index:]:
@@ -374,6 +424,8 @@ def move_agv(
                 next_stage.start_y,
                 grid_cols,
                 grid_rows,
+                request_priority=int(getattr(task, "priority", 0) or 0),
+                agv_id=agv.id,
             )
             next_path_to_end = plan_path(
                 algorithm,
@@ -383,6 +435,8 @@ def move_agv(
                 next_stage.end_y,
                 grid_cols,
                 grid_rows,
+                request_priority=int(getattr(task, "priority", 0) or 0),
+                agv_id=agv.id,
             )
             if not next_path_to_start or not next_path_to_end:
                 mark_task_blocked(task, f"task_route_unreachable:{algorithm}", algorithm)

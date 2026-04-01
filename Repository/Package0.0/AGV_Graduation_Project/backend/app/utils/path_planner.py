@@ -1,6 +1,54 @@
-import heapq
+from __future__ import annotations
 
-from app.utils.warehouse_map import get_navigation_blocked_cells
+import heapq
+from collections import defaultdict
+
+from app.repositories.agv_repository import list_agvs
+from app.repositories.task_repository import list_tasks
+from app.utils.warehouse_map import get_map_layout_state, get_navigation_blocked_cells
+
+
+TOPOLOGY_LANE_COST_FACTORS = {
+    "main": 1.0,
+    "branch": 1.08,
+    "service": 1.16,
+}
+TOPOLOGY_OCCUPIED_EDGE_PENALTY = 32.0
+TOPOLOGY_OCCUPIED_NODE_PENALTY = 10.0
+
+
+def _build_point(x: int, y: int, **meta):
+    point = {"x": int(x), "y": int(y)}
+    for key, value in meta.items():
+        if value is not None:
+            point[key] = value
+    return point
+
+
+def _same_point(a: dict | None, b: dict | None) -> bool:
+    if not a or not b:
+        return False
+    return int(a.get("x", -1)) == int(b.get("x", -2)) and int(a.get("y", -1)) == int(b.get("y", -2))
+
+
+def _merge_path_segments(*segments: list[dict]) -> list[dict]:
+    merged: list[dict] = []
+    for segment in segments:
+        for point in segment or []:
+            normalized = dict(point)
+            if merged and _same_point(merged[-1], normalized):
+                for key, value in normalized.items():
+                    if key in {"x", "y"}:
+                        continue
+                    if value is not None:
+                        merged[-1][key] = value
+                continue
+            merged.append(normalized)
+    return merged
+
+
+def _reverse_path(path: list[dict]) -> list[dict]:
+    return [_build_point(int(point["x"]), int(point["y"])) for point in reversed(path or [])]
 
 
 def _trace_simple_candidate(
@@ -11,7 +59,7 @@ def _trace_simple_candidate(
     axis_order: tuple[str, str],
     blocked: set[tuple[int, int]],
 ):
-    path = [{"x": sx, "y": sy}]
+    path = [_build_point(sx, sy)]
     x, y = sx, sy
 
     for axis in axis_order:
@@ -20,13 +68,13 @@ def _trace_simple_candidate(
                 x += 1 if ex > x else -1
                 if (x, y) in blocked:
                     return []
-                path.append({"x": x, "y": y})
+                path.append(_build_point(x, y))
         else:
             while y != ey:
                 y += 1 if ey > y else -1
                 if (x, y) in blocked:
                     return []
-                path.append({"x": x, "y": y})
+                path.append(_build_point(x, y))
 
     return path
 
@@ -53,7 +101,7 @@ def generate_simple_path(
         return []
 
     if sx == ex and sy == ey:
-        return [{"x": sx, "y": sy}]
+        return [_build_point(sx, sy)]
 
     for axis_order in (("x", "y"), ("y", "x")):
         path = _trace_simple_candidate(sx, sy, ex, ey, axis_order, blocked)
@@ -70,13 +118,13 @@ def generate_astar_path(
     ey: int,
     grid_cols: int,
     grid_rows: int,
-    blocked: set | None = None,
+    blocked: set[tuple[int, int]] | None = None,
 ):
     start = (sx, sy)
     goal = (ex, ey)
 
     if start == goal:
-        return [{"x": sx, "y": sy}]
+        return [_build_point(sx, sy)]
 
     if blocked is None:
         blocked = set()
@@ -113,7 +161,7 @@ def generate_astar_path(
                 current = came_from[current]
                 path.append(current)
             path.reverse()
-            return [{"x": x, "y": y} for x, y in path]
+            return [_build_point(x, y) for x, y in path]
 
         for neighbor in neighbors(current):
             tentative = g_score[current] + 1
@@ -126,6 +174,359 @@ def generate_astar_path(
     return []
 
 
+def _plan_grid_path(
+    algorithm: str,
+    sx: int,
+    sy: int,
+    ex: int,
+    ey: int,
+    grid_cols: int,
+    grid_rows: int,
+    blocked: set[tuple[int, int]],
+):
+    if algorithm == "astar":
+        return generate_astar_path(sx, sy, ex, ey, grid_cols, grid_rows, blocked)
+    return generate_simple_path(sx, sy, ex, ey, grid_cols, grid_rows, blocked)
+
+
+def _get_runtime_topology_state():
+    state = get_map_layout_state()
+    return state.get("topology") or {}, state.get("valid_cells") or []
+
+
+def _build_task_priority_map() -> dict[int, int]:
+    priorities: dict[int, int] = {}
+    for task in list_tasks():
+        try:
+            priorities[int(task.id)] = max(int(getattr(task, "priority", 0) or 0), 0)
+        except Exception:
+            continue
+    return priorities
+
+
+def _build_live_topology_reservations(exclude_agv_id: int | None = None):
+    task_priorities = _build_task_priority_map()
+    occupied_positions: set[tuple[int, int]] = set()
+    occupied_nodes: set[str] = set()
+    edge_blockers: dict[str, dict[str, int | str | None]] = {}
+
+    for agv in list_agvs():
+        try:
+            current_agv_id = int(agv.id)
+        except Exception:
+            continue
+        if exclude_agv_id is not None and current_agv_id == int(exclude_agv_id):
+            continue
+        if getattr(agv, "status", None) == "maintenance":
+            continue
+
+        occupied_positions.add((int(agv.x), int(agv.y)))
+        node_key = str(getattr(agv, "current_node", "") or "").strip()
+        if node_key:
+            occupied_nodes.add(node_key)
+
+        edge_key = str(getattr(agv, "current_edge", "") or "").strip()
+        if not edge_key:
+            continue
+
+        blocker = {
+            "agv_id": current_agv_id,
+            "task_id": int(agv.task_id) if getattr(agv, "task_id", None) is not None else None,
+            "priority": task_priorities.get(int(agv.task_id), 0) if getattr(agv, "task_id", None) is not None else 0,
+            "motion_state": str(getattr(agv, "motion_state", "") or getattr(agv, "status", "") or "idle"),
+        }
+        existing = edge_blockers.get(edge_key)
+        if existing is None or int(blocker["priority"] or 0) >= int(existing["priority"] or 0):
+            edge_blockers[edge_key] = blocker
+
+    return {
+        "occupied_positions": occupied_positions,
+        "occupied_nodes": occupied_nodes,
+        "edge_blockers": edge_blockers,
+    }
+
+
+def _build_topology_indexes(topology: dict | None):
+    source = topology if isinstance(topology, dict) else {}
+    nodes = source.get("nodes") if isinstance(source.get("nodes"), list) else []
+    edges = source.get("edges") if isinstance(source.get("edges"), list) else []
+
+    node_by_key: dict[str, dict] = {}
+    node_by_position: dict[tuple[int, int], dict] = {}
+    outgoing: dict[str, list[dict]] = defaultdict(list)
+
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        key = str(node.get("key") or "").strip()
+        if not key:
+            continue
+        payload = {
+            "key": key,
+            "x": int(node.get("x", 0)),
+            "y": int(node.get("y", 0)),
+            "label": node.get("label"),
+            "node_type": str(node.get("node_type") or "waypoint"),
+        }
+        node_by_key[key] = payload
+        node_by_position[(payload["x"], payload["y"])] = payload
+
+    for edge in edges:
+        if not isinstance(edge, dict):
+            continue
+        key = str(edge.get("key") or "").strip()
+        source_key = str(edge.get("source") or "").strip()
+        target_key = str(edge.get("target") or "").strip()
+        if not key or source_key not in node_by_key or target_key not in node_by_key or source_key == target_key:
+            continue
+        direction = str(edge.get("direction") or "bidirectional").strip().lower()
+        lane_type = str(edge.get("lane_type") or "main").strip().lower()
+        weight = max(float(edge.get("weight") or 1.0), 0.1)
+        speed_multiplier = max(float(edge.get("speed_multiplier") or 1.0), 0.1)
+        base_edge = {
+            "key": key,
+            "source": source_key,
+            "target": target_key,
+            "direction": direction if direction in {"bidirectional", "forward", "reverse"} else "bidirectional",
+            "lane_type": lane_type if lane_type in TOPOLOGY_LANE_COST_FACTORS else "main",
+            "weight": weight,
+            "speed_multiplier": speed_multiplier,
+        }
+        if base_edge["direction"] in {"bidirectional", "forward"}:
+            outgoing[source_key].append({**base_edge, "from": source_key, "to": target_key})
+        if base_edge["direction"] in {"bidirectional", "reverse"}:
+            outgoing[target_key].append({**base_edge, "from": target_key, "to": source_key})
+
+    return node_by_key, node_by_position, outgoing
+
+
+def resolve_topology_segment_metadata(
+    source_x: int,
+    source_y: int,
+    target_x: int,
+    target_y: int,
+    *,
+    edge_key: str | None = None,
+    topology: dict | None = None,
+):
+    fallback_source = f"grid:{int(source_x)}:{int(source_y)}"
+    fallback_target = f"grid:{int(target_x)}:{int(target_y)}"
+    fallback_edge = str(edge_key or f"{fallback_source}->{fallback_target}")
+
+    topology_payload = topology
+    if topology_payload is None:
+        topology_payload, _ = _get_runtime_topology_state()
+    node_by_key, node_by_position, outgoing = _build_topology_indexes(topology_payload)
+
+    source_node = node_by_position.get((int(source_x), int(source_y)))
+    target_node = node_by_position.get((int(target_x), int(target_y)))
+    if not source_node or not target_node:
+        return {
+            "source_node": fallback_source,
+            "target_node": fallback_target,
+            "edge_key": fallback_edge,
+            "lane_type": "grid",
+            "speed_multiplier": 1.0,
+        }
+
+    selected_edge = None
+    for candidate in outgoing.get(source_node["key"], []):
+        if candidate["to"] != target_node["key"]:
+            continue
+        if edge_key and str(candidate["key"]) != str(edge_key):
+            continue
+        selected_edge = candidate
+        break
+
+    return {
+        "source_node": source_node["key"],
+        "target_node": target_node["key"],
+        "edge_key": str(selected_edge["key"]) if selected_edge else fallback_edge,
+        "lane_type": str(selected_edge["lane_type"]) if selected_edge else "grid",
+        "speed_multiplier": float(selected_edge["speed_multiplier"]) if selected_edge else 1.0,
+    }
+
+
+def _find_nearest_topology_node(
+    x: int,
+    y: int,
+    *,
+    node_by_position: dict[tuple[int, int], dict],
+    node_by_key: dict[str, dict],
+    algorithm: str,
+    grid_cols: int,
+    grid_rows: int,
+    blocked: set[tuple[int, int]],
+):
+    exact = node_by_position.get((int(x), int(y)))
+    if exact:
+        return exact, [_build_point(x, y)]
+
+    candidates: list[tuple[int, int, dict, list[dict]]] = []
+    for node in node_by_key.values():
+        path = _plan_grid_path(
+            algorithm,
+            int(x),
+            int(y),
+            int(node["x"]),
+            int(node["y"]),
+            grid_cols,
+            grid_rows,
+            blocked,
+        )
+        if not path:
+            continue
+        distance = max(len(path) - 1, 0)
+        manhattan = abs(int(node["x"]) - int(x)) + abs(int(node["y"]) - int(y))
+        candidates.append((distance, manhattan, node, path))
+
+    if not candidates:
+        return None, []
+
+    candidates.sort(key=lambda item: (item[0], item[1], str(item[2]["key"])))
+    _, _, node, path = candidates[0]
+    return node, path
+
+
+def _build_topology_path_points(node_path: list[str], edge_path: list[dict], node_by_key: dict[str, dict]) -> list[dict]:
+    if not node_path:
+        return []
+    points = [_build_point(node_by_key[node_path[0]]["x"], node_by_key[node_path[0]]["y"])]
+    for node_key, edge in zip(node_path[1:], edge_path):
+        node = node_by_key[node_key]
+        points.append(
+            _build_point(
+                node["x"],
+                node["y"],
+                topology_source_node=str(edge["from"]),
+                topology_target_node=str(edge["to"]),
+                topology_edge_key=str(edge["key"]),
+                topology_lane_type=str(edge["lane_type"]),
+                topology_speed_multiplier=float(edge["speed_multiplier"]),
+            )
+        )
+    return points
+
+
+def _topology_edge_cost(edge: dict, edge_blockers: dict[str, dict], occupied_nodes: set[str], request_priority: int, goal_key: str):
+    base_cost = max(float(edge.get("weight") or 1.0), 0.1)
+    speed_multiplier = max(float(edge.get("speed_multiplier") or 1.0), 0.1)
+    lane_factor = TOPOLOGY_LANE_COST_FACTORS.get(str(edge.get("lane_type") or "main"), 1.0)
+    total_cost = (base_cost * lane_factor) / speed_multiplier
+
+    blocker = edge_blockers.get(str(edge["key"]))
+    if blocker is not None:
+        blocker_priority = max(int(blocker.get("priority") or 0), 0)
+        total_cost += TOPOLOGY_OCCUPIED_EDGE_PENALTY + max(blocker_priority - max(int(request_priority or 0), 0), 0) * 6
+
+    if str(edge["to"]) in occupied_nodes and str(edge["to"]) != str(goal_key):
+        total_cost += TOPOLOGY_OCCUPIED_NODE_PENALTY
+
+    return total_cost
+
+
+def _plan_topology_path(
+    algorithm: str,
+    sx: int,
+    sy: int,
+    ex: int,
+    ey: int,
+    grid_cols: int,
+    grid_rows: int,
+    blocked: set[tuple[int, int]],
+    *,
+    topology: dict | None,
+    request_priority: int,
+    agv_id: int | None,
+):
+    topology_payload = topology
+    if topology_payload is None:
+        topology_payload, _ = _get_runtime_topology_state()
+
+    node_by_key, node_by_position, outgoing = _build_topology_indexes(topology_payload)
+    if len(node_by_key) < 2 or not any(outgoing.values()):
+        return []
+
+    start_node, prefix_path = _find_nearest_topology_node(
+        sx,
+        sy,
+        node_by_position=node_by_position,
+        node_by_key=node_by_key,
+        algorithm=algorithm,
+        grid_cols=grid_cols,
+        grid_rows=grid_rows,
+        blocked=blocked,
+    )
+    end_node, target_to_node_path = _find_nearest_topology_node(
+        ex,
+        ey,
+        node_by_position=node_by_position,
+        node_by_key=node_by_key,
+        algorithm=algorithm,
+        grid_cols=grid_cols,
+        grid_rows=grid_rows,
+        blocked=blocked,
+    )
+    if start_node is None or end_node is None:
+        return []
+
+    suffix_path = _reverse_path(target_to_node_path)
+
+    reservations = _build_live_topology_reservations(agv_id)
+    edge_blockers = reservations["edge_blockers"]
+    occupied_nodes = reservations["occupied_nodes"]
+
+    start_key = str(start_node["key"])
+    goal_key = str(end_node["key"])
+
+    distances = {start_key: 0.0}
+    came_from: dict[str, tuple[str, dict]] = {}
+    heap: list[tuple[float, str]] = [(0.0, start_key)]
+    visited: set[str] = set()
+
+    while heap:
+        current_cost, current_key = heapq.heappop(heap)
+        if current_key in visited:
+            continue
+        visited.add(current_key)
+        if current_key == goal_key:
+            break
+
+        for edge in outgoing.get(current_key, []):
+            next_key = str(edge["to"])
+            edge_cost = _topology_edge_cost(edge, edge_blockers, occupied_nodes, request_priority, goal_key)
+            next_cost = current_cost + edge_cost
+            if next_cost < distances.get(next_key, float("inf")):
+                distances[next_key] = next_cost
+                came_from[next_key] = (current_key, edge)
+                heapq.heappush(heap, (next_cost, next_key))
+
+    if goal_key not in distances:
+        return []
+
+    node_path = [goal_key]
+    edge_path: list[dict] = []
+    current_key = goal_key
+    while current_key != start_key:
+        previous_key, edge = came_from[current_key]
+        edge_path.append(edge)
+        node_path.append(previous_key)
+        current_key = previous_key
+    node_path.reverse()
+    edge_path.reverse()
+
+    topology_points = _build_topology_path_points(node_path, edge_path, node_by_key)
+
+    start_anchor = _build_point(int(start_node["x"]), int(start_node["y"]))
+    end_anchor = _build_point(int(end_node["x"]), int(end_node["y"]))
+
+    suffix_grid_path = suffix_path
+    if not suffix_grid_path:
+        suffix_grid_path = [end_anchor]
+
+    return _merge_path_segments(prefix_path or [_build_point(sx, sy)], topology_points, suffix_grid_path or [end_anchor])
+
+
 def plan_path(
     algorithm: str,
     sx: int,
@@ -135,11 +536,28 @@ def plan_path(
     grid_cols: int,
     grid_rows: int,
     blocked: set[tuple[int, int]] | None = None,
+    *,
+    topology: dict | None = None,
+    request_priority: int = 0,
+    agv_id: int | None = None,
 ):
     if blocked is None:
         blocked = get_navigation_blocked_cells(grid_cols, grid_rows)
 
-    if algorithm == "astar":
-        return generate_astar_path(sx, sy, ex, ey, grid_cols, grid_rows, blocked)
+    topology_path = _plan_topology_path(
+        algorithm,
+        sx,
+        sy,
+        ex,
+        ey,
+        grid_cols,
+        grid_rows,
+        blocked,
+        topology=topology,
+        request_priority=request_priority,
+        agv_id=agv_id,
+    )
+    if topology_path:
+        return topology_path
 
-    return generate_simple_path(sx, sy, ex, ey, grid_cols, grid_rows, blocked)
+    return _plan_grid_path(algorithm, sx, sy, ex, ey, grid_cols, grid_rows, blocked)

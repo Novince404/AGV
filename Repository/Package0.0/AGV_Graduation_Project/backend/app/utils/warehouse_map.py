@@ -266,7 +266,6 @@ def normalize_map_topology_payload(
     node_keys = {node["key"] for node in nodes}
     edges = []
     seen_edge_keys: set[str] = set()
-    seen_edge_pairs: set[tuple[str, str]] = set()
     for index, raw_edge in enumerate(payload.get("edges", []) or []):
         item = _coerce_topology_mapping(raw_edge)
         source = str(item.get("source") or "").strip()
@@ -276,7 +275,7 @@ def normalize_map_topology_payload(
         if source not in node_keys or target not in node_keys:
             continue
         edge_key = _normalize_topology_key(item.get("key"), f"edge_{source}_{target}_{index + 1}")
-        if edge_key in seen_edge_keys or (source, target) in seen_edge_pairs:
+        if edge_key in seen_edge_keys:
             continue
         direction = str(item.get("direction") or "bidirectional").strip().lower()
         if direction not in {"bidirectional", "forward", "reverse"}:
@@ -304,7 +303,6 @@ def normalize_map_topology_payload(
             }
         )
         seen_edge_keys.add(edge_key)
-        seen_edge_pairs.add((source, target))
 
     stations = [node["key"] for node in nodes if node["node_type"] == "station"]
     parking_nodes = [node["key"] for node in nodes if node["node_type"] == "parking"]

@@ -263,7 +263,6 @@ function normalizeMapTopology(topology, gridCols = gridColsValue(), gridRows = g
   const nodeKeySet = new Set(nodes.map(node => node.key))
   const edges = []
   const seenEdgeKeys = new Set()
-  const seenEdgePairs = new Set()
   ;(Array.isArray(source?.edges) ? source.edges : []).forEach((edge, index) => {
     const sourceKey = String(edge?.source || '').trim()
     const targetKey = String(edge?.target || '').trim()
@@ -271,8 +270,7 @@ function normalizeMapTopology(topology, gridCols = gridColsValue(), gridRows = g
     if (!nodeKeySet.has(sourceKey) || !nodeKeySet.has(targetKey)) return
     const fallbackKey = `edge_${sourceKey}_${targetKey}_${index + 1}`
     const key = String(edge?.key || fallbackKey).trim() || fallbackKey
-    const pairKey = `${sourceKey}=>${targetKey}`
-    if (seenEdgeKeys.has(key) || seenEdgePairs.has(pairKey)) return
+    if (seenEdgeKeys.has(key)) return
     const direction = TOPOLOGY_EDGE_DIRECTION_KEYS.includes(String(edge?.direction || '').trim())
       ? String(edge.direction).trim()
       : 'bidirectional'
@@ -291,7 +289,6 @@ function normalizeMapTopology(topology, gridCols = gridColsValue(), gridRows = g
       speed_multiplier: speedMultiplier
     })
     seenEdgeKeys.add(key)
-    seenEdgePairs.add(pairKey)
   })
 
   return {
@@ -3528,6 +3525,45 @@ function resolveRenderedBackendAgv(agv, nowMs = agvAnimationNow.value) {
     displayProgress: progress,
     motionState
   }
+}
+
+function formatEnterpriseMotionStateLabel(motionState) {
+  const normalized = String(motionState || 'idle').trim().toLowerCase()
+  if (locale.value === 'ja') {
+    if (normalized === 'yielding') return '譲り待機'
+    if (normalized === 'waiting') return '待機'
+    if (normalized === 'running') return '走行'
+    if (normalized === 'relocating') return '移動'
+    return '待機中'
+  }
+  if (locale.value === 'en') {
+    if (normalized === 'yielding') return 'Yielding'
+    if (normalized === 'waiting') return 'Waiting'
+    if (normalized === 'running') return 'Running'
+    if (normalized === 'relocating') return 'Relocating'
+    return 'Idle'
+  }
+  if (normalized === 'yielding') return '让行等待'
+  if (normalized === 'waiting') return '等待中'
+  if (normalized === 'running') return '运行中'
+  if (normalized === 'relocating') return '前往起点'
+  return '空闲'
+}
+
+function formatEnterpriseAgvRuntimeHint(agv) {
+  if (!uiTreatAsEnterpriseRole.value || agv?.source !== 'backend') return ''
+  const parts = [`AGV #${agv.id}`]
+  parts.push(formatEnterpriseMotionStateLabel(agv.motionState))
+  if (String(agv?.current_edge || '').trim()) {
+    if (locale.value === 'ja') {
+      parts.push(`辺: ${agv.current_edge}`)
+    } else if (locale.value === 'en') {
+      parts.push(`Edge: ${agv.current_edge}`)
+    } else {
+      parts.push(`路段: ${agv.current_edge}`)
+    }
+  }
+  return parts.join(' · ')
 }
 
 const enterpriseAgvMotionActive = computed(() =>
@@ -15491,12 +15527,18 @@ onBeforeUnmount(() => {
               v-for="agv in displayAgvs"
               :key="agv.id"
               class="agv"
-              :class="{ selected: agv.id === selectedAgvId }"
+              :class="{
+                selected: agv.id === selectedAgvId,
+                'is-enterprise-motion': uiTreatAsEnterpriseRole && agv.source === 'backend',
+                'is-waiting': uiTreatAsEnterpriseRole && agv.source === 'backend' && agv.motionState === 'waiting',
+                'is-yielding': uiTreatAsEnterpriseRole && agv.source === 'backend' && agv.motionState === 'yielding'
+              }"
               :style="{
                 left: `${agv.displayX * CELL_SIZE + (CELL_SIZE - AGV_SIZE) / 2}px`,
                 top: `${agv.displayY * CELL_SIZE + (CELL_SIZE - AGV_SIZE) / 2}px`,
                 backgroundColor: statusColor(agv.status)
               }"
+              :title="formatEnterpriseAgvRuntimeHint(agv)"
               @click="onAgvClick(agv, $event)"
               @contextmenu.prevent="cancelSelection"
             >
@@ -15632,6 +15674,10 @@ onBeforeUnmount(() => {
               v-for="agv in displayAgvs"
               :key="`mini-${agv.id}`"
               class="minimap-agv"
+              :class="{
+                'is-waiting': uiTreatAsEnterpriseRole && agv.source === 'backend' && agv.motionState === 'waiting',
+                'is-yielding': uiTreatAsEnterpriseRole && agv.source === 'backend' && agv.motionState === 'yielding'
+              }"
               :style="{
                 left: `${agv.displayX * CELL_SIZE * minimapScale + (CELL_SIZE * minimapScale) / 2 - 4}px`,
                 top: `${agv.displayY * CELL_SIZE * minimapScale + (CELL_SIZE * minimapScale) / 2 - 4}px`,
