@@ -6978,6 +6978,7 @@ function closeEnterpriseSettingsDialog() {
   if (enterpriseShortcutPlannerDialogOpen.value && !closeEnterpriseShortcutPlannerDialog()) return
   enterprisePageSettingsDialogOpen.value = false
   enterpriseMapEditorDialogOpen.value = false
+  enterpriseTopologyEditorDialogOpen.value = false
   enterpriseSettingsDialogOpen.value = false
 }
 
