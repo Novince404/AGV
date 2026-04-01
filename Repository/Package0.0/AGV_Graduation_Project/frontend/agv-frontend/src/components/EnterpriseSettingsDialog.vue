@@ -2022,6 +2022,7 @@
           </section>
         </div>
 
+        <Teleport to="body">
         <div
           v-if="enterpriseTopologyEditorDialogOpen"
           class="enterprise-settings-overlay"
@@ -2287,6 +2288,7 @@
             </div>
           </section>
         </div>
+        </Teleport>
       </section>
     </div>
 </template>
