@@ -11269,14 +11269,15 @@ async function createTaskFromTemplate(template) {
   })
 }
 
-async function importTasksFromJson() {
-  if (!jsonText.value) return
+async function importTasksFromJson(rawText = jsonText.value) {
+  const jsonPayload = String(rawText || '').trim()
+  if (!jsonPayload) return
   if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'json.write', buildCapabilityDeniedMessage('data'))) return
   jsonStatus.value = ''
 
   let parsed
   try {
-    parsed = JSON.parse(jsonText.value)
+    parsed = JSON.parse(jsonPayload)
   } catch {
     jsonStatus.value = t('json_import_fail')
     return
@@ -11442,6 +11443,23 @@ function applyGridSizeFromPayload(payload) {
   }
   if (!mapResizePreview.value && !mapResizePreviewDirty.value) {
     setMapResizePreviewDraft(currentGridCols.value, currentGridRows.value)
+  }
+}
+
+async function importTasksFromJsonFile(event) {
+  const file = event?.target?.files?.[0]
+  if (event?.target) {
+    event.target.value = ''
+  }
+  if (!file) return
+
+  try {
+    const text = await file.text()
+    jsonText.value = text
+    await importTasksFromJson(text)
+  } catch (error) {
+    console.error('Import json file error:', error)
+    jsonStatus.value = t('json_import_fail')
   }
 }
 
@@ -14078,6 +14096,7 @@ const jsonToolsPanelBindings = {
   downloadTaskJsonExample,
   buildCapabilityLockedTitle,
   importTasksFromJson,
+  importTasksFromJsonFile,
   exportTasksToJsonWithAuth,
   clearJsonTextWithAuth
 }

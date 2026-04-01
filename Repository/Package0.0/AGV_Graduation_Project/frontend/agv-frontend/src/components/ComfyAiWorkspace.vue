@@ -239,7 +239,7 @@ function handleTemplateFileChange(event) {
             <button class="btn-secondary" type="button" :disabled="submitting || !hasCustomTemplates" @click="onExportTemplate">
               {{ t('ai_render_export_template') }}
             </button>
-            <label class="btn-secondary ai-file-trigger">
+            <label class="btn-secondary ai-file-trigger file-trigger-button">
               <input type="file" accept="application/json" hidden @change="handleTemplateFileChange" />
               <span>{{ t('ai_render_import_template') }}</span>
             </label>

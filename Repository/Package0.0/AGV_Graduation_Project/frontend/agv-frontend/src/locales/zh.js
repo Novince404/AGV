@@ -1637,6 +1637,7 @@
     "taskJson": {
       "singleExample": "填入单段示例",
       "chainExample": "填入阶段示例",
+      "importFile": "导入文件",
       "singleLoaded": "已填入单段任务 JSON 示例。",
       "chainLoaded": "已填入阶段任务 JSON 示例。"
     },

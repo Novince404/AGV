@@ -32,34 +32,52 @@
       rows="8"
       :placeholder="t('json_placeholder')"
     ></textarea>
-    <div class="json-actions">
-      <button
-        class="btn-secondary"
-        type="button"
-        :disabled="!authCanJsonWrite"
-        :title="buildCapabilityLockedTitle('data', authCanJsonWrite)"
-        @click="importTasksFromJson"
-      >
-        {{ t('import_json') }}
-      </button>
-      <button
-        class="btn-secondary"
-        type="button"
-        :disabled="!authCanJsonWrite"
-        :title="buildCapabilityLockedTitle('data', authCanJsonWrite)"
-        @click="exportTasksToJsonWithAuth"
-      >
-        {{ t('export_json') }}
-      </button>
-      <button
-        class="btn-ghost"
-        type="button"
-        :disabled="!authCanJsonWrite"
-        :title="buildCapabilityLockedTitle('data', authCanJsonWrite)"
-        @click="clearJsonTextWithAuth"
-      >
-        {{ t('clear_json') }}
-      </button>
+    <div class="json-actions-shell">
+      <div class="json-actions-primary">
+        <button
+          class="btn-secondary"
+          type="button"
+          :disabled="!authCanJsonWrite"
+          :title="buildCapabilityLockedTitle('data', authCanJsonWrite)"
+          @click="importTasksFromJson"
+        >
+          {{ t('import_json') }}
+        </button>
+        <label
+          class="btn-secondary file-trigger-button json-file-trigger"
+          :class="{ disabled: !authCanJsonWrite }"
+          :title="buildCapabilityLockedTitle('data', authCanJsonWrite)"
+        >
+          <input
+            type="file"
+            accept="application/json"
+            hidden
+            :disabled="!authCanJsonWrite"
+            @change="importTasksFromJsonFile"
+          />
+          <span>{{ taskJsonLocale.importFile || t('import_json') }}</span>
+        </label>
+      </div>
+      <div class="json-actions-secondary">
+        <button
+          class="btn-ghost"
+          type="button"
+          :disabled="!authCanJsonWrite"
+          :title="buildCapabilityLockedTitle('data', authCanJsonWrite)"
+          @click="exportTasksToJsonWithAuth"
+        >
+          {{ t('export_json') }}
+        </button>
+        <button
+          class="btn-ghost"
+          type="button"
+          :disabled="!authCanJsonWrite"
+          :title="buildCapabilityLockedTitle('data', authCanJsonWrite)"
+          @click="clearJsonTextWithAuth"
+        >
+          {{ t('clear_json') }}
+        </button>
+      </div>
     </div>
     <div v-if="jsonStatus" class="json-status">{{ jsonStatus }}</div>
   </div>

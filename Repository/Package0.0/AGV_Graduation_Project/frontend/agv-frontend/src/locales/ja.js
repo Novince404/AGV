@@ -1637,6 +1637,7 @@
     "taskJson": {
       "singleExample": "単段例を入力",
       "chainExample": "段階例を入力",
+      "importFile": "ファイルをインポート",
       "singleLoaded": "単段タスク JSON サンプルを入力しました。",
       "chainLoaded": "段階タスク JSON サンプルを入力しました。"
     },

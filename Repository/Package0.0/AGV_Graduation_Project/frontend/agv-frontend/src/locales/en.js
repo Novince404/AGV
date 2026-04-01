@@ -1637,6 +1637,7 @@
     "taskJson": {
       "singleExample": "Single Example",
       "chainExample": "Stage Example",
+      "importFile": "Import File",
       "singleLoaded": "Loaded a single-task JSON example.",
       "chainLoaded": "Loaded a stage-task JSON example."
     },

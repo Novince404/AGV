@@ -4581,11 +4581,35 @@ h2 {
   box-sizing: border-box;
 }
 
-.json-actions {
+.json-actions-shell {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+
+.json-actions-primary,
+.json-actions-secondary {
   display: flex;
   gap: 8px;
-  margin-top: 10px;
   flex-wrap: wrap;
+}
+
+.json-actions-primary {
+  flex: 1 1 280px;
+}
+
+.json-actions-secondary {
+  justify-content: flex-end;
+  flex: 0 1 auto;
+}
+
+.json-actions-primary .btn-secondary,
+.json-actions-primary .file-trigger-button,
+.json-actions-secondary .btn-ghost {
+  min-width: 112px;
 }
 
 .json-example-actions {
@@ -4610,6 +4634,25 @@ h2 {
 .json-example-grid .btn-secondary,
 .json-example-grid .btn-ghost {
   width: 100%;
+}
+
+.file-trigger-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  cursor: pointer;
+  text-align: center;
+  user-select: none;
+}
+
+.file-trigger-button span {
+  pointer-events: none;
+}
+
+.file-trigger-button.disabled {
+  opacity: 0.62;
+  cursor: not-allowed;
 }
 
 .experiment-action-stack {
@@ -4649,6 +4692,23 @@ h2 {
 
   .account-governance-summary-grid-status {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .json-actions-shell {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .json-actions-primary,
+  .json-actions-secondary {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .json-actions-primary .btn-secondary,
+  .json-actions-primary .file-trigger-button,
+  .json-actions-secondary .btn-ghost {
+    flex: 1 1 0;
   }
 }
 
@@ -5439,6 +5499,10 @@ h2 {
 .ai-action-grid .btn-primary,
 .ai-action-grid .btn-secondary,
 .ai-action-grid .btn-ghost {
+  width: 100%;
+}
+
+.ai-action-grid .ai-file-trigger {
   width: 100%;
 }
 
