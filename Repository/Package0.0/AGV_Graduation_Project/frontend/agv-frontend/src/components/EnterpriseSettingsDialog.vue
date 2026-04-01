@@ -1653,6 +1653,11 @@
               <section class="enterprise-settings-subsection enterprise-page-settings-group">
                 <div class="enterprise-settings-subtitle">{{ t('enterprise_settings_page_settings_tools_title') }}</div>
                 <p class="panel-hint">{{ t('enterprise_settings_page_settings_tools_hint') }}</p>
+                <label class="map-setting-row">
+                  <input v-model="showGuideCenterOnLoad" type="checkbox" />
+                  <span>{{ t('enterprise_settings_page_settings_guide_auto_open') }}</span>
+                </label>
+                <p class="panel-hint">{{ t('enterprise_settings_page_settings_guide_auto_open_hint') }}</p>
                 <div class="enterprise-page-settings-shortcut-list">
                   <div
                     v-for="entry in shortcutGuideEntries"

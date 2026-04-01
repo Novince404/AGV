@@ -16,6 +16,7 @@ export function useLocalPersistence(options) {
     statusLegendLayout,
     statusLegendOpacity,
     showMinimap,
+    showGuideCenterOnLoad,
     compareDisplayMode,
     compareFloatingOpacity,
     clampValue,
@@ -216,6 +217,9 @@ export function useLocalPersistence(options) {
       if (typeof parsed?.showMinimap === 'boolean') {
         showMinimap.value = parsed.showMinimap
       }
+      if (typeof parsed?.showGuideCenterOnLoad === 'boolean') {
+        showGuideCenterOnLoad.value = parsed.showGuideCenterOnLoad
+      }
       if (parsed?.compareDisplayMode === 'panel' || parsed?.compareDisplayMode === 'floating') {
         compareDisplayMode.value = parsed.compareDisplayMode
       }
@@ -239,6 +243,7 @@ export function useLocalPersistence(options) {
           statusLegendLayout: statusLegendLayout.value,
           statusLegendOpacity: statusLegendOpacity.value,
           showMinimap: showMinimap.value,
+          showGuideCenterOnLoad: showGuideCenterOnLoad.value,
           dispatchMode: dispatchMode.value,
           compareDisplayMode: compareDisplayMode.value,
           compareFloatingOpacity: compareFloatingOpacity.value

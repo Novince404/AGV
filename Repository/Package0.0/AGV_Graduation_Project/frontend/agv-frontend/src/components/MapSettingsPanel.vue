@@ -4,6 +4,11 @@
     <button class="map-settings-guide-button" type="button" @click="openGuideCenter">
       {{ guideCenterLocale.open }}
     </button>
+    <label class="map-setting-row">
+      <input v-model="showGuideCenterOnLoad" type="checkbox" />
+      <span>{{ settingsLocale.showGuideCenterOnLoad }}</span>
+    </label>
+    <p class="panel-hint map-settings-hint">{{ settingsLocale.showGuideCenterOnLoadHint }}</p>
     <div class="map-settings-group">
       <div class="map-settings-subtitle">{{ settingsLocale.mapGroup }}</div>
       <label class="map-setting-row">

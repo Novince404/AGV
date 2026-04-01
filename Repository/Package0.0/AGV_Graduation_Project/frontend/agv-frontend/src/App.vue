@@ -493,6 +493,8 @@ const mapDraftPrimedMode = ref(null)
 const startPoint = ref(null)
 const endPoint = ref(null)
 const showGuideCenter = ref(false)
+const showGuideCenterOnLoad = ref(true)
+const feedbackBellMenuOpen = ref(false)
 
 const manualPathToStart = ref([])
 const manualPathToEnd = ref([])
@@ -1093,6 +1095,11 @@ const showEnterpriseRequestToolbarEntry = computed(() =>
 )
 const showPlatformBugFeedbackToolbarEntry = computed(() =>
   authAuthenticated.value && !isPlatformAdmin.value && (authCanPlatformBugSubmit.value || authCanPlatformBugManage.value)
+)
+const showFeedbackBell = computed(() =>
+  authAuthenticated.value &&
+  !isPlatformAdmin.value &&
+  (showEnterpriseRequestToolbarEntry.value || showPlatformBugFeedbackToolbarEntry.value)
 )
 const dashboardUnlocked = computed(() => authAuthenticated.value || authGuestAccepted.value)
 const authModeText = computed(() =>
@@ -4962,6 +4969,7 @@ const {
   statusLegendLayout,
   statusLegendOpacity,
   showMinimap,
+  showGuideCenterOnLoad,
   compareDisplayMode,
   compareFloatingOpacity,
   clampValue,
@@ -10242,6 +10250,24 @@ function closeGuideCenter() {
   showFloatingToast(guideCenterLocale.value.reopenHint || 'Press H to reopen the guide.', 'info')
 }
 
+function toggleFeedbackBellMenu() {
+  feedbackBellMenuOpen.value = !feedbackBellMenuOpen.value
+}
+
+function closeFeedbackBellMenu() {
+  feedbackBellMenuOpen.value = false
+}
+
+async function openEnterpriseRequestDialogFromBell() {
+  closeFeedbackBellMenu()
+  await openEnterpriseRequestDialog()
+}
+
+async function openPlatformBugFeedbackDialogFromBell() {
+  closeFeedbackBellMenu()
+  await openPlatformBugFeedbackDialog()
+}
+
 function onPanelScroll() {
   showPanelBackToTop.value = (panelRef.value?.scrollTop ?? 0) > 140
 }
@@ -13167,7 +13193,7 @@ onMounted(() => {
   window.addEventListener('resize', onWindowResize)
   window.addEventListener('mousemove', onGlobalMouseMove)
   window.addEventListener('mouseup', onGlobalMouseUp)
-  showGuideCenter.value = true
+  showGuideCenter.value = showGuideCenterOnLoad.value
 })
 
 watch(
@@ -13462,7 +13488,7 @@ watch(showFloatingCompare, visible => {
   stopFloatingCompareRefresh()
 })
 
-watch([showAutoPath, showMarkerIcons, showPathArrows, showStatusLegend, statusLegendLayout, statusLegendOpacity, showMinimap, compareDisplayMode, compareFloatingOpacity], () => {
+watch([showAutoPath, showMarkerIcons, showPathArrows, showStatusLegend, statusLegendLayout, statusLegendOpacity, showMinimap, showGuideCenterOnLoad, compareDisplayMode, compareFloatingOpacity], () => {
   saveMapDisplaySettings()
 })
 
@@ -14076,6 +14102,7 @@ const mapSettingsPanelBindings = {
   showMarkerIcons,
   showPathArrows,
   showMinimap,
+  showGuideCenterOnLoad,
   authCanMapWrite,
   buildCapabilityReadonlyHint,
   buildEnterprisePanelReadonlyHint,
@@ -14475,6 +14502,7 @@ const enterpriseSettingsDialogBindings = {
   enterpriseMapEditorFootprintLabel,
   enterpriseMapEditorSizeLabel,
   enterpriseMapEditorGridStyle,
+  enterpriseTopologyEditorDraft,
   enterpriseTopologyDraftSummary,
   enterpriseTopologyNodesByCell,
   enterpriseTopologySelectedNode,
@@ -14571,6 +14599,7 @@ const enterpriseSettingsDialogBindings = {
   settingsLocale,
   authCanViewAudit,
   authCanAiRender,
+  showGuideCenterOnLoad,
   authCanMapWrite,
   mapProfileApplyingKey,
   mapProfileDeletingKey,
@@ -14762,6 +14791,38 @@ onBeforeUnmount(() => {
 
     <EnterpriseSettingsDialog v-if="enterpriseSettingsDialogOpen" :ui="enterpriseSettingsDialogBindings" />
 
+    <div v-if="showFeedbackBell" class="feedback-fab">
+      <div v-if="feedbackBellMenuOpen" class="feedback-fab-menu">
+        <button
+          v-if="showEnterpriseRequestToolbarEntry"
+          class="feedback-fab-menu-item"
+          type="button"
+          @click="openEnterpriseRequestDialogFromBell"
+        >
+          <strong>{{ t('enterprise_request_entry') }}</strong>
+          <span>{{ t('feedback_bell_enterprise_request_hint') }}</span>
+        </button>
+        <button
+          v-if="showPlatformBugFeedbackToolbarEntry"
+          class="feedback-fab-menu-item"
+          type="button"
+          @click="openPlatformBugFeedbackDialogFromBell"
+        >
+          <strong>{{ t('platform_bug_feedback_entry') }}</strong>
+          <span>{{ t('feedback_bell_platform_bug_hint') }}</span>
+        </button>
+      </div>
+      <button
+        class="feedback-fab-button"
+        :class="{ 'is-open': feedbackBellMenuOpen }"
+        type="button"
+        :title="t('feedback_bell_entry')"
+        @click="toggleFeedbackBellMenu"
+      >
+        <span aria-hidden="true">🔔</span>
+      </button>
+    </div>
+
     <div v-if="isPlatformAdminGovernanceMode" class="page-top page-top-governance">
       <div class="page-top-main">
         <button class="page-title-auth" type="button" :title="authTitleButtonTitle" @click="openAuthDialog">
@@ -14886,22 +14947,6 @@ onBeforeUnmount(() => {
             </span>
           </button>
           <button
-            v-if="showEnterpriseRequestToolbarEntry"
-            class="toolbar-compare-entry toolbar-admin-entry"
-            type="button"
-            @click="openEnterpriseRequestDialog()"
-          >
-            <span>{{ t('enterprise_request_entry') }}</span>
-          </button>
-          <button
-            v-if="showPlatformBugFeedbackToolbarEntry"
-            class="toolbar-compare-entry toolbar-admin-entry"
-            type="button"
-            @click="openPlatformBugFeedbackDialog()"
-          >
-            <span>{{ t('platform_bug_feedback_entry') }}</span>
-          </button>
-          <button
             v-if="authCanEnterpriseApprove && showPlatformAdminManagementEntries"
             class="toolbar-compare-entry toolbar-admin-entry"
             type="button"
@@ -14921,9 +14966,8 @@ onBeforeUnmount(() => {
             <span>{{ t('account_governance_entry') }}</span>
           </button>
         </div>
-
         <p class="toolbar-hint">{{ t('hint') }}</p>
-        <p class="toolbar-hint toolbar-hint-secondary">{{ toolbarGuideHintText }}</p>
+        <p v-if="toolbarGuideHintText" class="toolbar-hint toolbar-hint-secondary">{{ toolbarGuideHintText }}</p>
       </div>
 
       <div class="page-top-spacer"></div>
@@ -15591,14 +15635,6 @@ onBeforeUnmount(() => {
                 @click="openEnterpriseSettingsDialog()"
               >
                 {{ t('enterprise_settings_entry') }}
-              </button>
-              <button
-                v-if="showPlatformBugFeedbackToolbarEntry"
-                class="btn-ghost"
-                type="button"
-                @click="openPlatformBugFeedbackDialog()"
-              >
-                {{ t('platform_bug_feedback_entry') }}
               </button>
             </div>
           </div>
