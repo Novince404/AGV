@@ -1390,9 +1390,9 @@ h2 {
 }
 
 .enterprise-settings-overlay {
-  position: absolute;
+  position: fixed;
   inset: 0;
-  z-index: 120;
+  z-index: 1500;
   display: flex;
   align-items: center;
   justify-content: center;
