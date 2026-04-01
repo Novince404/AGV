@@ -725,6 +725,7 @@
     "enterprise_settings_route_topology_title": "Route Topology",
     "enterprise_settings_route_topology_hint": "Review the enterprise route network here before enabling continuous motion and lane-level scheduling.",
     "enterprise_settings_route_topology_open": "Open Route Topology",
+    "enterprise_settings_route_topology_open_failed": "Unable to open route topology right now. Please try again.",
     "enterprise_settings_route_topology_nodes": "Nodes",
     "enterprise_settings_route_topology_edges": "Edges",
     "enterprise_settings_route_topology_stations": "Stations",

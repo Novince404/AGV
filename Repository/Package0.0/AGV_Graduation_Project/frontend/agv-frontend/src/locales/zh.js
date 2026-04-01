@@ -725,6 +725,7 @@
     "enterprise_settings_route_topology_title": "路网拓扑",
     "enterprise_settings_route_topology_hint": "这里先整理企业路网基础，为后续连续移动、双车道和企业调度升级打底。",
     "enterprise_settings_route_topology_open": "打开路网拓扑",
+    "enterprise_settings_route_topology_open_failed": "暂时无法打开路网拓扑，请稍后重试。",
     "enterprise_settings_route_topology_nodes": "节点数",
     "enterprise_settings_route_topology_edges": "连边数",
     "enterprise_settings_route_topology_stations": "站点数",

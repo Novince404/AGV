@@ -951,6 +951,7 @@
     "enterprise_settings_route_topology_title": "路網トポロジー",
     "enterprise_settings_route_topology_hint": "ここで企業向け路網の土台を整え、後続の連続移動・複線・配車高度化に備えます。",
     "enterprise_settings_route_topology_open": "路網トポロジーを開く",
+    "enterprise_settings_route_topology_open_failed": "現在、路網トポロジーを開けません。しばらくしてからもう一度お試しください。",
     "enterprise_settings_route_topology_nodes": "ノード数",
     "enterprise_settings_route_topology_edges": "エッジ数",
     "enterprise_settings_route_topology_stations": "ステーション",

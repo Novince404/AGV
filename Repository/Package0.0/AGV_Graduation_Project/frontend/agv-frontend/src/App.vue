@@ -7828,11 +7828,19 @@ async function saveEnterpriseMapEditorDraft() {
 }
 
 function openEnterpriseTopologyEditorDialog() {
-  enterpriseTopologyEditorDraft.value = cloneMapTopology(currentMapTopology.value, gridColsValue(), gridRowsValue(), validCells.value)
-  enterpriseTopologyEditorSelectedNodeKey.value = ''
-  enterpriseTopologyEditorSelectedEdgeKey.value = ''
-  enterpriseTopologyEditorLinkSourceKey.value = ''
-  enterpriseTopologyEditorDialogOpen.value = true
+  try {
+    enterpriseTopologyEditorDraft.value = cloneMapTopology(currentMapTopology.value, gridColsValue(), gridRowsValue(), validCells.value)
+    enterpriseTopologyEditorSelectedNodeKey.value = ''
+    enterpriseTopologyEditorSelectedEdgeKey.value = ''
+    enterpriseTopologyEditorLinkSourceKey.value = ''
+    enterpriseTopologyEditorDialogOpen.value = true
+  } catch (error) {
+    console.error('Open enterprise topology editor error:', error)
+    showFloatingToast(
+      t('enterprise_settings_route_topology_open_failed') || 'Unable to open route topology right now.',
+      'error'
+    )
+  }
 }
 
 function closeEnterpriseTopologyEditorDialog() {
