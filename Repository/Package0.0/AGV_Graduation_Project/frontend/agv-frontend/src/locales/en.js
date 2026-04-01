@@ -765,6 +765,7 @@
     "enterprise_settings_route_topology_save": "Save Topology",
     "enterprise_settings_route_topology_saved": "Enterprise route topology saved.",
     "enterprise_settings_route_topology_profile_meta": "Topology {nodes} nodes / {edges} edges",
+    "enterprise_settings_route_topology_readonly_hint": "This role can review the enterprise route topology, but only map-enabled roles can edit and save it.",
     "enterprise_settings_point_templates_hint": "Review reusable points and task templates before jumping to the editing panels.",
     "enterprise_settings_runtime_hint": "Use this tab to review the current dispatch mode, algorithm, priority and experiment-related runtime configuration.",
     "enterprise_settings_points_quick_manage_title": "Quick Point Actions",
@@ -1590,7 +1591,8 @@
       "shortcutCancel": "Right click on map / F: Clear AGV selection",
       "shortcutAlgorithm": "R: Toggle simple / A*",
       "shortcutContext": "Right click on map: cancel stage point-picking",
-      "workflowTitle": "Basic Workflow"
+      "workflowTitle": "Basic Workflow",
+      "reopenHint": "Guide closed. Press H to reopen it."
     },
     "toolbarGuideHintText": "See \"Guide\" for operation instructions.",
     "taskChain": {

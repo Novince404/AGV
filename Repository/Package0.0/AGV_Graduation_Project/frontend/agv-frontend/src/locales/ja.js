@@ -991,6 +991,7 @@
     "enterprise_settings_route_topology_save": "路網を保存",
     "enterprise_settings_route_topology_saved": "企業路網トポロジーを保存しました。",
     "enterprise_settings_route_topology_profile_meta": "トポロジー {nodes} ノード / {edges} エッジ",
+    "enterprise_settings_route_topology_readonly_hint": "この役割では企業路網を閲覧できますが、編集と保存はマップ編集権限のある役割のみ実行できます。",
     "enterprise_settings_point_templates_hint": "ここでは再利用するポイントとタスクテンプレートの概要を確認し、必要なら編集パネルへ移動できます。",
     "enterprise_settings_runtime_hint": "ここでは現在の配車モード、アルゴリズム、優先度、および実験関連の運用設定を確認します。",
     "enterprise_settings_points_quick_manage_title": "ポイントのクイック操作",
@@ -1590,7 +1591,8 @@
       "shortcutCancel": "マップ右クリック / F：AGV の選択を解除",
       "shortcutAlgorithm": "R：simple / A* を切り替え",
       "shortcutContext": "マップ右クリック：多段ポイント選択中は現在の選択フローをキャンセル",
-      "workflowTitle": "基本フロー"
+      "workflowTitle": "基本フロー",
+      "reopenHint": "ガイドを閉じました。H キーで再度開けます。"
     },
     "toolbarGuideHintText": "操作方法は「ガイドセンター」を参照してください。",
     "taskChain": {

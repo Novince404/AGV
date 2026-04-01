@@ -778,7 +778,6 @@
                   {{ t('enterprise_settings_open_page_settings') }}
                 </button>
                 <button
-                  v-if="authCanMapWrite"
                   class="btn-secondary"
                   type="button"
                   @click="openEnterpriseTopologyEditorDialog"
@@ -2069,6 +2068,9 @@
                   <span class="point-badge enterprise-settings-chip enterprise-settings-chip-muted">{{ t('enterprise_settings_route_topology_help_connect') }}</span>
                   <span class="point-badge enterprise-settings-chip enterprise-settings-chip-muted">{{ t('enterprise_settings_route_topology_help_select_edge') }}</span>
                 </div>
+                <div v-if="!authCanMapWrite" class="empty-note">
+                  {{ t('enterprise_settings_route_topology_readonly_hint') }}
+                </div>
               </section>
 
               <section class="enterprise-settings-subsection enterprise-page-settings-group enterprise-route-topology-layout">
@@ -2161,6 +2163,7 @@
                         class="auth-input"
                         :value="enterpriseTopologySelectedNode.label || ''"
                         type="text"
+                        :disabled="!authCanMapWrite"
                         @input="updateEnterpriseTopologyNode({ label: $event.target.value })"
                       />
                     </label>
@@ -2169,6 +2172,7 @@
                       <select
                         class="auth-input"
                         :value="enterpriseTopologySelectedNode.node_type"
+                        :disabled="!authCanMapWrite"
                         @change="updateEnterpriseTopologyNode({ node_type: $event.target.value })"
                       >
                         <option
@@ -2181,14 +2185,14 @@
                       </select>
                     </label>
                     <div class="enterprise-settings-actions">
-                      <button class="btn-ghost" type="button" @click="toggleEnterpriseTopologyLinkSource">
+                      <button class="btn-ghost" type="button" :disabled="!authCanMapWrite" @click="toggleEnterpriseTopologyLinkSource">
                         {{
                           enterpriseTopologyLinkSourceNode && enterpriseTopologyLinkSourceNode.key === enterpriseTopologySelectedNode.key
                             ? t('enterprise_settings_route_topology_cancel_connect')
                             : t('enterprise_settings_route_topology_start_connect')
                         }}
                       </button>
-                      <button class="btn-delete" type="button" @click="removeSelectedEnterpriseTopologyNode">
+                      <button class="btn-delete" type="button" :disabled="!authCanMapWrite" @click="removeSelectedEnterpriseTopologyNode">
                         {{ t('enterprise_settings_route_topology_delete_node') }}
                       </button>
                     </div>
@@ -2201,6 +2205,7 @@
                       <select
                         class="auth-input"
                         :value="enterpriseTopologySelectedEdge.direction"
+                        :disabled="!authCanMapWrite"
                         @change="updateEnterpriseTopologyEdge({ direction: $event.target.value })"
                       >
                         <option
@@ -2217,6 +2222,7 @@
                       <select
                         class="auth-input"
                         :value="enterpriseTopologySelectedEdge.lane_type"
+                        :disabled="!authCanMapWrite"
                         @change="updateEnterpriseTopologyEdge({ lane_type: $event.target.value })"
                       >
                         <option
@@ -2236,6 +2242,7 @@
                         min="0.1"
                         step="0.1"
                         type="number"
+                        :disabled="!authCanMapWrite"
                         @input="updateEnterpriseTopologyEdge({ weight: Number($event.target.value || 1) })"
                       />
                     </label>
@@ -2247,11 +2254,12 @@
                         min="0.1"
                         step="0.1"
                         type="number"
+                        :disabled="!authCanMapWrite"
                         @input="updateEnterpriseTopologyEdge({ speed_multiplier: Number($event.target.value || 1) })"
                       />
                     </label>
                     <div class="enterprise-settings-actions">
-                      <button class="btn-delete" type="button" @click="removeSelectedEnterpriseTopologyEdge">
+                      <button class="btn-delete" type="button" :disabled="!authCanMapWrite" @click="removeSelectedEnterpriseTopologyEdge">
                         {{ t('enterprise_settings_route_topology_delete_edge') }}
                       </button>
                     </div>

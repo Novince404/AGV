@@ -765,6 +765,7 @@
     "enterprise_settings_route_topology_save": "保存路网拓扑",
     "enterprise_settings_route_topology_saved": "企业路网拓扑已保存。",
     "enterprise_settings_route_topology_profile_meta": "拓扑 {nodes} 个节点 / {edges} 条连边",
+    "enterprise_settings_route_topology_readonly_hint": "当前岗位可查看企业路网，但只有具备地图编辑权限的岗位才能修改并保存。",
     "enterprise_settings_point_templates_hint": "这里聚焦常用点位和任务模板数量，便于跳转到具体维护面板。",
     "enterprise_settings_runtime_hint": "这里展示当前调度模式、算法、优先级和实验配置，适合操作工快速确认当前运行策略。",
     "enterprise_settings_points_quick_manage_title": "点位快捷操作",
@@ -1590,7 +1591,8 @@
       "shortcutCancel": "地图右键 / F：取消 AGV 选中",
       "shortcutAlgorithm": "R：切换 simple / A*",
       "shortcutContext": "地图右键：多段选点时可取消当前选点流程",
-      "workflowTitle": "基础流程"
+      "workflowTitle": "基础流程",
+      "reopenHint": "已关闭操作说明。按 H 可重新打开。"
     },
     "toolbarGuideHintText": "操作说明请见“说明中心”。",
     "taskChain": {

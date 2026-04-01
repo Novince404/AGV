@@ -2504,6 +2504,7 @@ const enterpriseSettingsTabDefinitions = computed(() => {
     return [
       buildTab('overview', true),
       buildTab('runtime', true),
+      buildTab('map_profiles', false),
       buildTab('ai', false)
     ]
   }
@@ -7859,6 +7860,7 @@ function selectEnterpriseTopologyEdge(edgeKey) {
 }
 
 function updateEnterpriseTopologyNode(patch = {}) {
+  if (!authCanMapWrite.value) return
   const selectedKey = enterpriseTopologyEditorSelectedNodeKey.value
   if (!selectedKey) return
   enterpriseTopologyEditorDraft.value = normalizeMapTopology({
@@ -7870,6 +7872,7 @@ function updateEnterpriseTopologyNode(patch = {}) {
 }
 
 function updateEnterpriseTopologyEdge(patch = {}) {
+  if (!authCanMapWrite.value) return
   const selectedKey = enterpriseTopologyEditorSelectedEdgeKey.value
   if (!selectedKey) return
   enterpriseTopologyEditorDraft.value = normalizeMapTopology({
@@ -7881,6 +7884,7 @@ function updateEnterpriseTopologyEdge(patch = {}) {
 }
 
 function toggleEnterpriseTopologyLinkSource() {
+  if (!authCanMapWrite.value) return
   if (!enterpriseTopologySelectedNode.value) return
   enterpriseTopologyEditorLinkSourceKey.value = enterpriseTopologyEditorLinkSourceKey.value === enterpriseTopologySelectedNode.value.key
     ? ''
@@ -7888,6 +7892,7 @@ function toggleEnterpriseTopologyLinkSource() {
 }
 
 function removeSelectedEnterpriseTopologyNode() {
+  if (!authCanMapWrite.value) return
   const selectedNode = enterpriseTopologySelectedNode.value
   if (!selectedNode) return
   enterpriseTopologyEditorDraft.value = normalizeMapTopology({
@@ -7902,6 +7907,7 @@ function removeSelectedEnterpriseTopologyNode() {
 }
 
 function removeSelectedEnterpriseTopologyEdge() {
+  if (!authCanMapWrite.value) return
   const selectedEdge = enterpriseTopologySelectedEdge.value
   if (!selectedEdge) return
   enterpriseTopologyEditorDraft.value = normalizeMapTopology({
@@ -7915,6 +7921,10 @@ function applyEnterpriseTopologyCell(cell) {
   if (!cell) return
   if (!isValidMapCell(cell.x, cell.y)) return
   const existingNode = findMapTopologyNodeAtCell(enterpriseTopologyEditorDraft.value, cell.x, cell.y)
+  if (!authCanMapWrite.value) {
+    if (existingNode) selectEnterpriseTopologyNode(existingNode.key)
+    return
+  }
   if (existingNode) {
     if (enterpriseTopologyEditorLinkSourceKey.value && enterpriseTopologyEditorLinkSourceKey.value !== existingNode.key) {
       const edgeKey = buildMapTopologyEdgeKey(
@@ -10221,6 +10231,7 @@ function openGuideCenter() {
 
 function closeGuideCenter() {
   showGuideCenter.value = false
+  showFloatingToast(guideCenterLocale.value.reopenHint || 'Press H to reopen the guide.', 'info')
 }
 
 function onPanelScroll() {
@@ -12956,6 +12967,12 @@ function onKeyDown(event) {
   }
 
   if (enterpriseShortcutPlannerDialogOpen.value) return
+
+  if (normalizedKey === 'H') {
+    event.preventDefault()
+    openGuideCenter()
+    return
+  }
 
   if (normalizedKey && normalizedKey === normalizeShortcutKeyValue(activeShortcutBindings.value.selection_cancel)) {
     event.preventDefault()
