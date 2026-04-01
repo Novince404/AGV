@@ -7751,6 +7751,10 @@ function isEnterpriseMapEditorCellValid(x, y) {
   return enterpriseMapEditorDraftValidCellSet.value.has(blockedCellKey(x, y))
 }
 
+function isEnterpriseTopologyCellValid(x, y) {
+  return validCellSet.value.has(blockedCellKey(x, y))
+}
+
 function isEnterpriseMapEditorCellBlocked(x, y) {
   return enterpriseMapEditorDraftBlockedCellSet.value.has(blockedCellKey(x, y))
 }
@@ -14612,6 +14616,7 @@ const enterpriseSettingsDialogBindings = {
   canApplyMapProfileWithCapability,
   buildMapProfileApplyTitle,
   isEnterpriseMapEditorCellValid,
+  isEnterpriseTopologyCellValid,
   isEnterpriseMapEditorCellBlocked,
   isEnterpriseMapEditorCellLocked,
   canResizeEnterpriseMapEditorTo,

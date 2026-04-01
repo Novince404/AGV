@@ -778,10 +778,9 @@
                   {{ t('enterprise_settings_open_page_settings') }}
                 </button>
                 <button
+                  v-if="authCanMapWrite"
                   class="btn-secondary"
                   type="button"
-                  :disabled="!authCanMapWrite"
-                  :title="buildCapabilityLockedTitle('map', authCanMapWrite)"
                   @click="openEnterpriseTopologyEditorDialog"
                 >
                   {{ t('enterprise_settings_route_topology_open') }}
@@ -2096,13 +2095,13 @@
                             type="button"
                             class="enterprise-map-editor-cell enterprise-route-topology-cell"
                             :class="{
-                              'is-valid': isEnterpriseMapEditorCellValid(col - 1, row - 1),
-                              'is-void': !isEnterpriseMapEditorCellValid(col - 1, row - 1),
+                              'is-valid': isEnterpriseTopologyCellValid(col - 1, row - 1),
+                              'is-void': !isEnterpriseTopologyCellValid(col - 1, row - 1),
                               'has-node': !!enterpriseTopologyNodesByCell[`${col - 1},${row - 1}`],
                               'is-link-source': enterpriseTopologyLinkSourceNode && enterpriseTopologyLinkSourceNode.key === enterpriseTopologyNodesByCell[`${col - 1},${row - 1}`]?.key,
                               'is-selected': enterpriseTopologySelectedNode && enterpriseTopologySelectedNode.key === enterpriseTopologyNodesByCell[`${col - 1},${row - 1}`]?.key
                             }"
-                            :disabled="!isEnterpriseMapEditorCellValid(col - 1, row - 1)"
+                            :disabled="!isEnterpriseTopologyCellValid(col - 1, row - 1)"
                             @click="applyEnterpriseTopologyCell({ x: col - 1, y: row - 1 })"
                           >
                             <span v-if="enterpriseTopologyNodesByCell[`${col - 1},${row - 1}`]" class="enterprise-route-topology-node-badge">
