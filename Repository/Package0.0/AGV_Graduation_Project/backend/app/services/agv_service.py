@@ -68,6 +68,7 @@ def emergency_stop_agv(
     agv.active_fault_event_id = event.id
     agv.status = "emergency_stop"
     agv.task_id = None
+    agv.clear_motion(motion_state="emergency_stop")
 
     if task:
         task.preferred_agv_id = agv.id
@@ -105,6 +106,7 @@ def resume_agv(agv_id: int, actor: dict | None = None):
     agv.status = "idle"
     agv.task_id = None
     agv.active_fault_event_id = None
+    agv.clear_motion()
     record_operation_audit(
         "agv",
         agv.id,
@@ -129,6 +131,7 @@ def move_agv_to_maintenance(agv_id: int, actor: dict | None = None):
     _assert_agv_can_enter_maintenance(agv)
     agv.status = "maintenance"
     agv.task_id = None
+    agv.clear_motion(motion_state="maintenance")
     record_operation_audit("agv", agv.id, "to_maintenance", actor)
     return {"message": "AGV moved to maintenance", "agv": agv}
 
@@ -146,5 +149,6 @@ def return_agv_to_service(agv_id: int, actor: dict | None = None):
     agv.status = "idle"
     agv.task_id = None
     agv.active_fault_event_id = None
+    agv.clear_motion()
     record_operation_audit("agv", agv.id, "return_to_service", actor)
     return {"message": "AGV returned to service", "agv": agv}

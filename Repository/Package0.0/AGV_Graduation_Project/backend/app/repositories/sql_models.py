@@ -17,6 +17,22 @@ class AgvEntity(Base):
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     task_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     active_fault_event_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    render_x: Mapped[float | None] = mapped_column(Float, nullable=True)
+    render_y: Mapped[float | None] = mapped_column(Float, nullable=True)
+    current_node: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    current_edge: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    edge_progress: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    motion_state: Mapped[str] = mapped_column(String(32), nullable=False, default="idle")
+    current_speed: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    target_speed: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    heading: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    motion_started_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    motion_updated_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    motion_duration_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    motion_source_x: Mapped[float | None] = mapped_column(Float, nullable=True)
+    motion_source_y: Mapped[float | None] = mapped_column(Float, nullable=True)
+    motion_target_x: Mapped[float | None] = mapped_column(Float, nullable=True)
+    motion_target_y: Mapped[float | None] = mapped_column(Float, nullable=True)
 
 
 class TaskEntity(Base):

@@ -117,6 +117,7 @@ const ENTERPRISE_APPROVAL_UI_STORAGE_KEY = 'agv_enterprise_approval_ui'
 const ENTERPRISE_STATUS_FOLLOWUP_STORAGE_KEY = 'agv_enterprise_status_followup'
 const ENTERPRISE_APPROVAL_REVIEW_FOLLOWUP_STORAGE_KEY = 'agv_enterprise_approval_review_followup'
 const MINIMAP_WIDTH = 168
+const ENTERPRISE_AGV_MOTION_POLL_INTERVAL_MS = 250
 const ENTERPRISE_MAP_EDITOR_ZOOM_DEFAULT = 0.85
 const ENTERPRISE_MAP_EDITOR_ZOOM_MIN = 0.5
 const ENTERPRISE_MAP_EDITOR_ZOOM_MAX = 1.6
@@ -154,6 +155,7 @@ function buildFullValidCellList(gridCols = GRID_COLS, gridRows = GRID_ROWS) {
 }
 
 const agvs = ref([])
+const agvAnimationNow = ref(Date.now())
 const localAgvs = ref([])
 const tasks = ref([])
 const blockedCells = ref([...DEFAULT_BLOCKED_CELLS])
@@ -615,6 +617,8 @@ const comfyRenderSharedTemplateSaving = ref(false)
 const deletingComfyJobId = ref(null)
 
 let timer = null
+let enterpriseAgvMotionPollTimer = null
+let agvAnimationFrameHandle = null
 let clickTimer = null
 let taskBuilderJumpTimer = null
 let agvRecoveryJumpTimer = null
@@ -3464,11 +3468,85 @@ const maintenanceBackendAgvs = computed(() =>
     .sort((a, b) => a.id - b.id)
 )
 
+function normalizeAgvMotionNumber(value, fallback = 0) {
+  const numeric = Number(value)
+  return Number.isFinite(numeric) ? numeric : fallback
+}
+
+function clampMotionProgress(value) {
+  return Math.max(0, Math.min(1, normalizeAgvMotionNumber(value, 0)))
+}
+
+function isEnterpriseContinuousMotionEnabled() {
+  return uiTreatAsEnterpriseRole.value
+}
+
+function isBackendAgvMotionActive(agv, nowMs = Date.now()) {
+  if (!isEnterpriseContinuousMotionEnabled()) return false
+  const startedMs = Date.parse(String(agv?.motion_started_at || ''))
+  const durationMs = Math.max(0, normalizeAgvMotionNumber(agv?.motion_duration_ms, 0))
+  const sourceX = normalizeAgvMotionNumber(agv?.motion_source_x, normalizeAgvMotionNumber(agv?.render_x, agv?.x))
+  const sourceY = normalizeAgvMotionNumber(agv?.motion_source_y, normalizeAgvMotionNumber(agv?.render_y, agv?.y))
+  const targetX = normalizeAgvMotionNumber(agv?.motion_target_x, agv?.x)
+  const targetY = normalizeAgvMotionNumber(agv?.motion_target_y, agv?.y)
+  if (!Number.isFinite(startedMs) || durationMs <= 0) return false
+  if (sourceX === targetX && sourceY === targetY) return false
+  return nowMs < startedMs + durationMs
+}
+
+function resolveRenderedBackendAgv(agv, nowMs = agvAnimationNow.value) {
+  const enterpriseMotionEnabled = isEnterpriseContinuousMotionEnabled()
+  const sourceX = normalizeAgvMotionNumber(agv?.motion_source_x, normalizeAgvMotionNumber(agv?.render_x, agv?.x))
+  const sourceY = normalizeAgvMotionNumber(agv?.motion_source_y, normalizeAgvMotionNumber(agv?.render_y, agv?.y))
+  const targetX = normalizeAgvMotionNumber(agv?.motion_target_x, agv?.x)
+  const targetY = normalizeAgvMotionNumber(agv?.motion_target_y, agv?.y)
+  const renderX = normalizeAgvMotionNumber(agv?.render_x, agv?.x)
+  const renderY = normalizeAgvMotionNumber(agv?.render_y, agv?.y)
+  const heading = normalizeAgvMotionNumber(agv?.heading, 0)
+  const startedMs = Date.parse(String(agv?.motion_started_at || ''))
+  const durationMs = Math.max(0, normalizeAgvMotionNumber(agv?.motion_duration_ms, 0))
+  const timeProgress =
+    Number.isFinite(startedMs) && durationMs > 0 ? clampMotionProgress((nowMs - startedMs) / durationMs) : null
+  const progress = timeProgress ?? clampMotionProgress(agv?.edge_progress)
+  const motionState = String(agv?.motion_state || agv?.status || 'idle')
+  const shouldAnimate =
+    enterpriseMotionEnabled &&
+    String(agv?.current_edge || '').trim() &&
+    durationMs > 0 &&
+    Number.isFinite(startedMs) &&
+    (sourceX !== targetX || sourceY !== targetY)
+
+  const displayX = shouldAnimate ? sourceX + (targetX - sourceX) * progress : enterpriseMotionEnabled ? renderX : normalizeAgvMotionNumber(agv?.x)
+  const displayY = shouldAnimate ? sourceY + (targetY - sourceY) * progress : enterpriseMotionEnabled ? renderY : normalizeAgvMotionNumber(agv?.y)
+
+  return {
+    ...agv,
+    source: 'backend',
+    displayX,
+    displayY,
+    displayHeading: heading,
+    displayProgress: progress,
+    motionState
+  }
+}
+
+const enterpriseAgvMotionActive = computed(() =>
+  agvs.value.some(agv => isBackendAgvMotionActive(agv, agvAnimationNow.value))
+)
+
 const displayAgvs = computed(() => {
   const backendAgvs = agvs.value
     .filter(agv => agv.status !== 'maintenance')
-    .map(agv => ({ ...agv, source: 'backend' }))
-  return [...backendAgvs, ...localAgvs.value]
+    .map(agv => resolveRenderedBackendAgv(agv))
+  const localDisplayAgvs = localAgvs.value.map(agv => ({
+    ...agv,
+    displayX: normalizeAgvMotionNumber(agv?.x),
+    displayY: normalizeAgvMotionNumber(agv?.y),
+    displayHeading: 0,
+    displayProgress: 1,
+    motionState: String(agv?.status || 'idle')
+  }))
+  return [...backendAgvs, ...localDisplayAgvs]
 })
 const selectedAgvTask = computed(() => {
   if (!selectedBackendAgv.value) return null
@@ -12754,9 +12832,44 @@ async function onObstacleLayoutFileChange(event) {
   await importObstacleLayout(text, file.name)
 }
 
+function stopEnterpriseAgvMotionPolling() {
+  if (!enterpriseAgvMotionPollTimer) return
+  clearInterval(enterpriseAgvMotionPollTimer)
+  enterpriseAgvMotionPollTimer = null
+}
+
+function ensureEnterpriseAgvMotionPolling() {
+  if (enterpriseAgvMotionPollTimer || typeof window === 'undefined') return
+  enterpriseAgvMotionPollTimer = setInterval(() => {
+    if (!dashboardUnlocked.value || !uiTreatAsEnterpriseRole.value || isPlatformAdminGovernanceMode.value) return
+    void fetchAgvs()
+  }, ENTERPRISE_AGV_MOTION_POLL_INTERVAL_MS)
+}
+
+function stopAgvAnimationLoop() {
+  if (!agvAnimationFrameHandle || typeof window === 'undefined') return
+  window.cancelAnimationFrame(agvAnimationFrameHandle)
+  agvAnimationFrameHandle = null
+}
+
+function runAgvAnimationLoop() {
+  agvAnimationNow.value = Date.now()
+  if (!enterpriseAgvMotionActive.value || typeof window === 'undefined') {
+    agvAnimationFrameHandle = null
+    return
+  }
+  agvAnimationFrameHandle = window.requestAnimationFrame(runAgvAnimationLoop)
+}
+
+function ensureAgvAnimationLoop() {
+  if (agvAnimationFrameHandle || typeof window === 'undefined') return
+  agvAnimationFrameHandle = window.requestAnimationFrame(runAgvAnimationLoop)
+}
+
 async function fetchAgvs() {
   const res = await fetch(`${API_BASE}/agv/list`)
   agvs.value = await res.json()
+  agvAnimationNow.value = Date.now()
 }
 
 async function fetchTasks() {
@@ -13195,6 +13308,31 @@ onMounted(() => {
   window.addEventListener('mouseup', onGlobalMouseUp)
   showGuideCenter.value = showGuideCenterOnLoad.value
 })
+
+watch(
+  [uiTreatAsEnterpriseRole, isPlatformAdminGovernanceMode, dashboardUnlocked],
+  ([isEnterpriseSurface, isGovernanceMode, unlocked]) => {
+    if (isEnterpriseSurface && unlocked && !isGovernanceMode) {
+      ensureEnterpriseAgvMotionPolling()
+      return
+    }
+    stopEnterpriseAgvMotionPolling()
+  },
+  { immediate: true }
+)
+
+watch(
+  enterpriseAgvMotionActive,
+  active => {
+    if (active) {
+      ensureAgvAnimationLoop()
+      return
+    }
+    stopAgvAnimationLoop()
+    agvAnimationNow.value = Date.now()
+  },
+  { immediate: true }
+)
 
 watch(
   customPoints,
@@ -14741,6 +14879,8 @@ const enterpriseSettingsDialogBindings = {
 
 onBeforeUnmount(() => {
   if (timer) clearInterval(timer)
+  stopEnterpriseAgvMotionPolling()
+  stopAgvAnimationLoop()
   if (authGovernanceSyncTimer) {
     clearInterval(authGovernanceSyncTimer)
     authGovernanceSyncTimer = null
@@ -15353,8 +15493,8 @@ onBeforeUnmount(() => {
               class="agv"
               :class="{ selected: agv.id === selectedAgvId }"
               :style="{
-                left: `${agv.x * CELL_SIZE + (CELL_SIZE - AGV_SIZE) / 2}px`,
-                top: `${agv.y * CELL_SIZE + (CELL_SIZE - AGV_SIZE) / 2}px`,
+                left: `${agv.displayX * CELL_SIZE + (CELL_SIZE - AGV_SIZE) / 2}px`,
+                top: `${agv.displayY * CELL_SIZE + (CELL_SIZE - AGV_SIZE) / 2}px`,
                 backgroundColor: statusColor(agv.status)
               }"
               @click="onAgvClick(agv, $event)"
@@ -15493,8 +15633,8 @@ onBeforeUnmount(() => {
               :key="`mini-${agv.id}`"
               class="minimap-agv"
               :style="{
-                left: `${agv.x * CELL_SIZE * minimapScale + (CELL_SIZE * minimapScale) / 2 - 4}px`,
-                top: `${agv.y * CELL_SIZE * minimapScale + (CELL_SIZE * minimapScale) / 2 - 4}px`,
+                left: `${agv.displayX * CELL_SIZE * minimapScale + (CELL_SIZE * minimapScale) / 2 - 4}px`,
+                top: `${agv.displayY * CELL_SIZE * minimapScale + (CELL_SIZE * minimapScale) / 2 - 4}px`,
                 backgroundColor: statusColor(agv.status)
               }"
             ></div>

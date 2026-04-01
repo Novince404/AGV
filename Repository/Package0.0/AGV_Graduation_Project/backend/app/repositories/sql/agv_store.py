@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import inspect, select, text
 
+from app.core.database import get_engine
 from app.core.database import get_db_session
 from app.models.agv import AGV
 from app.repositories.db_init import create_all_tables
@@ -12,6 +13,54 @@ from app.repositories.sql_models import AgvEntity
 
 agv_list: list[AGV] = []
 _loaded = False
+
+
+def _ensure_schema() -> None:
+    create_all_tables()
+    engine = get_engine()
+    inspector = inspect(engine)
+    if "agv" not in inspector.get_table_names():
+        return
+
+    columns = {column["name"] for column in inspector.get_columns("agv")}
+    ddl_statements: list[str] = []
+    if "render_x" not in columns:
+        ddl_statements.append("ALTER TABLE agv ADD COLUMN render_x FLOAT")
+    if "render_y" not in columns:
+        ddl_statements.append("ALTER TABLE agv ADD COLUMN render_y FLOAT")
+    if "current_node" not in columns:
+        ddl_statements.append("ALTER TABLE agv ADD COLUMN current_node VARCHAR(128)")
+    if "current_edge" not in columns:
+        ddl_statements.append("ALTER TABLE agv ADD COLUMN current_edge VARCHAR(128)")
+    if "edge_progress" not in columns:
+        ddl_statements.append("ALTER TABLE agv ADD COLUMN edge_progress FLOAT NOT NULL DEFAULT 0")
+    if "motion_state" not in columns:
+        ddl_statements.append("ALTER TABLE agv ADD COLUMN motion_state VARCHAR(32) NOT NULL DEFAULT 'idle'")
+    if "current_speed" not in columns:
+        ddl_statements.append("ALTER TABLE agv ADD COLUMN current_speed FLOAT NOT NULL DEFAULT 0")
+    if "target_speed" not in columns:
+        ddl_statements.append("ALTER TABLE agv ADD COLUMN target_speed FLOAT NOT NULL DEFAULT 0")
+    if "heading" not in columns:
+        ddl_statements.append("ALTER TABLE agv ADD COLUMN heading FLOAT NOT NULL DEFAULT 0")
+    if "motion_started_at" not in columns:
+        ddl_statements.append("ALTER TABLE agv ADD COLUMN motion_started_at VARCHAR(32)")
+    if "motion_updated_at" not in columns:
+        ddl_statements.append("ALTER TABLE agv ADD COLUMN motion_updated_at VARCHAR(32)")
+    if "motion_duration_ms" not in columns:
+        ddl_statements.append("ALTER TABLE agv ADD COLUMN motion_duration_ms INTEGER NOT NULL DEFAULT 0")
+    if "motion_source_x" not in columns:
+        ddl_statements.append("ALTER TABLE agv ADD COLUMN motion_source_x FLOAT")
+    if "motion_source_y" not in columns:
+        ddl_statements.append("ALTER TABLE agv ADD COLUMN motion_source_y FLOAT")
+    if "motion_target_x" not in columns:
+        ddl_statements.append("ALTER TABLE agv ADD COLUMN motion_target_x FLOAT")
+    if "motion_target_y" not in columns:
+        ddl_statements.append("ALTER TABLE agv ADD COLUMN motion_target_y FLOAT")
+
+    if ddl_statements:
+        with engine.begin() as connection:
+            for statement in ddl_statements:
+                connection.execute(text(statement))
 
 
 def _persist_agv_snapshot(agv: AGV) -> None:
@@ -57,7 +106,7 @@ def _ensure_loaded() -> None:
     global _loaded
     if _loaded:
         return
-    create_all_tables()
+    _ensure_schema()
     _seed_defaults_if_empty()
     _load_cache()
     _loaded = True

@@ -20,6 +20,22 @@ def agv_entity_to_model(entity: AgvEntity) -> AGV:
         status=entity.status,
         task_id=entity.task_id,
         active_fault_event_id=entity.active_fault_event_id,
+        render_x=entity.render_x,
+        render_y=entity.render_y,
+        current_node=entity.current_node,
+        current_edge=entity.current_edge,
+        edge_progress=entity.edge_progress,
+        motion_state=entity.motion_state,
+        current_speed=entity.current_speed,
+        target_speed=entity.target_speed,
+        heading=entity.heading,
+        motion_started_at=entity.motion_started_at,
+        motion_updated_at=entity.motion_updated_at,
+        motion_duration_ms=entity.motion_duration_ms,
+        motion_source_x=entity.motion_source_x,
+        motion_source_y=entity.motion_source_y,
+        motion_target_x=entity.motion_target_x,
+        motion_target_y=entity.motion_target_y,
     )
 
 
@@ -31,6 +47,22 @@ def agv_model_to_entity(model: AGV, entity: AgvEntity | None = None) -> AgvEntit
     entity.status = payload["status"]
     entity.task_id = payload.get("task_id")
     entity.active_fault_event_id = payload.get("active_fault_event_id")
+    entity.render_x = payload.get("render_x")
+    entity.render_y = payload.get("render_y")
+    entity.current_node = payload.get("current_node")
+    entity.current_edge = payload.get("current_edge")
+    entity.edge_progress = float(payload.get("edge_progress", 0.0) or 0.0)
+    entity.motion_state = str(payload.get("motion_state") or "idle")
+    entity.current_speed = float(payload.get("current_speed", 0.0) or 0.0)
+    entity.target_speed = float(payload.get("target_speed", 0.0) or 0.0)
+    entity.heading = float(payload.get("heading", 0.0) or 0.0)
+    entity.motion_started_at = payload.get("motion_started_at")
+    entity.motion_updated_at = payload.get("motion_updated_at")
+    entity.motion_duration_ms = int(payload.get("motion_duration_ms", 0) or 0)
+    entity.motion_source_x = payload.get("motion_source_x")
+    entity.motion_source_y = payload.get("motion_source_y")
+    entity.motion_target_x = payload.get("motion_target_x")
+    entity.motion_target_y = payload.get("motion_target_y")
     return entity
 
 
