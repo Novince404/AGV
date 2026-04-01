@@ -14791,38 +14791,6 @@ onBeforeUnmount(() => {
 
     <EnterpriseSettingsDialog v-if="enterpriseSettingsDialogOpen" :ui="enterpriseSettingsDialogBindings" />
 
-    <div v-if="showFeedbackBell" class="feedback-fab">
-      <div v-if="feedbackBellMenuOpen" class="feedback-fab-menu">
-        <button
-          v-if="showEnterpriseRequestToolbarEntry"
-          class="feedback-fab-menu-item"
-          type="button"
-          @click="openEnterpriseRequestDialogFromBell"
-        >
-          <strong>{{ t('enterprise_request_entry') }}</strong>
-          <span>{{ t('feedback_bell_enterprise_request_hint') }}</span>
-        </button>
-        <button
-          v-if="showPlatformBugFeedbackToolbarEntry"
-          class="feedback-fab-menu-item"
-          type="button"
-          @click="openPlatformBugFeedbackDialogFromBell"
-        >
-          <strong>{{ t('platform_bug_feedback_entry') }}</strong>
-          <span>{{ t('feedback_bell_platform_bug_hint') }}</span>
-        </button>
-      </div>
-      <button
-        class="feedback-fab-button"
-        :class="{ 'is-open': feedbackBellMenuOpen }"
-        type="button"
-        :title="t('feedback_bell_entry')"
-        @click="toggleFeedbackBellMenu"
-      >
-        <span aria-hidden="true">🔔</span>
-      </button>
-    </div>
-
     <div v-if="isPlatformAdminGovernanceMode" class="page-top page-top-governance">
       <div class="page-top-main">
         <button class="page-title-auth" type="button" :title="authTitleButtonTitle" @click="openAuthDialog">
@@ -15569,6 +15537,49 @@ onBeforeUnmount(() => {
               <span>{{ point.order }}</span>
             </div>
             <div class="minimap-viewport" :style="minimapViewportStyle"></div>
+          </div>
+          <div
+            v-if="showFeedbackBell"
+            class="feedback-fab"
+            @mousedown.stop
+            @click.stop
+            @dblclick.stop
+            @wheel.stop
+          >
+            <div v-if="feedbackBellMenuOpen" class="feedback-fab-menu">
+              <button
+                v-if="showEnterpriseRequestToolbarEntry"
+                class="feedback-fab-menu-item"
+                type="button"
+                @click="openEnterpriseRequestDialogFromBell"
+              >
+                <strong>{{ t('enterprise_request_entry') }}</strong>
+                <span>{{ t('feedback_bell_enterprise_request_hint') }}</span>
+              </button>
+              <button
+                v-if="showPlatformBugFeedbackToolbarEntry"
+                class="feedback-fab-menu-item"
+                type="button"
+                @click="openPlatformBugFeedbackDialogFromBell"
+              >
+                <strong>{{ t('platform_bug_feedback_entry') }}</strong>
+                <span>{{ t('feedback_bell_platform_bug_hint') }}</span>
+              </button>
+            </div>
+            <button
+              class="feedback-fab-button"
+              :class="{ 'is-open': feedbackBellMenuOpen }"
+              type="button"
+              :title="t('feedback_bell_entry')"
+              @click.stop="toggleFeedbackBellMenu"
+            >
+              <svg class="feedback-fab-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M8.5 18h7m-8-1.5v-4.2a4.5 4.5 0 1 1 9 0v4.2l1.4 1.7a.7.7 0 0 1-.54 1.14H6.64a.7.7 0 0 1-.54-1.14l1.4-1.7Z"
+                />
+                <path d="M10.2 18.6a1.8 1.8 0 0 0 3.6 0" />
+              </svg>
+            </button>
           </div>
         </section>
       </div>
