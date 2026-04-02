@@ -56,9 +56,20 @@ def _resolve_runtime_topology_nodes(*node_types: str) -> list[dict]:
 def _resolve_nearest_autonomy_target(agv, target_type: str, grid_cols: int, grid_rows: int) -> dict | None:
     candidate_types = ("charge",) if target_type == "charge" else ("parking",)
     best: tuple[int, dict] | None = None
+    fallback: tuple[int, dict] | None = None
     for node in _resolve_runtime_topology_nodes(*candidate_types):
         node_x = int(node.get("x") or 0)
         node_y = int(node.get("y") or 0)
+        payload = {
+            "key": str(node.get("key") or f"{target_type}:{node_x}:{node_y}"),
+            "x": node_x,
+            "y": node_y,
+            "node_type": str(node.get("node_type") or target_type),
+            "label": str(node.get("label") or ""),
+        }
+        manhattan = abs(node_x - int(agv.x)) + abs(node_y - int(agv.y))
+        if fallback is None or manhattan < fallback[0]:
+            fallback = (manhattan, payload)
         path = plan_path(
             AUTONOMY_ALGORITHM,
             int(agv.x),
@@ -74,17 +85,8 @@ def _resolve_nearest_autonomy_target(agv, target_type: str, grid_cols: int, grid
             continue
         distance = max(len(path) - 1, 0)
         if best is None or distance < best[0]:
-            best = (
-                distance,
-                {
-                    "key": str(node.get("key") or f"{target_type}:{node_x}:{node_y}"),
-                    "x": node_x,
-                    "y": node_y,
-                    "node_type": str(node.get("node_type") or target_type),
-                    "label": str(node.get("label") or ""),
-                },
-            )
-    return best[1] if best else None
+            best = (distance, payload)
+    return best[1] if best else (fallback[1] if fallback else None)
 
 
 def _sync_battery_runtime(agv, now: datetime) -> None:
@@ -194,4 +196,3 @@ def sync_agv_autonomy() -> list:
         _sync_idle_timer(agv, now)
         _start_autonomy_if_needed(agv, now, grid_cols, grid_rows)
     return agvs
-

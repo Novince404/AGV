@@ -3622,7 +3622,7 @@ const manualDispatchReady = computed(() => {
   if (dispatchMode.value !== 'manual') return true
   return Boolean(
     selectedBackendAgv.value &&
-      ['idle', 'idle_returning'].includes(String(selectedBackendAgv.value.status || ''))
+      isSchedulableIdleAgvStatus(selectedBackendAgv.value.status)
   )
 })
 const filteredFaultEvents = computed(() => {
@@ -9674,7 +9674,11 @@ function setAllPanelSections(expanded) {
 }
 
 function hasIdleAgv() {
-  return agvs.value.some(agv => ['idle', 'idle_returning'].includes(String(agv?.status || '')))
+  return agvs.value.some(agv => isSchedulableIdleAgvStatus(agv?.status))
+}
+
+function isSchedulableIdleAgvStatus(status) {
+  return ['idle', 'idle_returning'].includes(String(status || ''))
 }
 
 function hasPendingTask() {
@@ -9782,14 +9786,14 @@ function getSelectedManualDispatchAgv(alertOnFailure = true) {
     }
     return null
   }
-  if (selectedBackendAgv.value.status !== 'idle') {
+  if (!isSchedulableIdleAgvStatus(selectedBackendAgv.value.status)) {
     if (alertOnFailure) {
       if (locale.value === 'ja') {
-        window.alert('手動派車では空き AGV のみ指定できます。')
+        window.alert('手動派車では待機中または回庫中の AGV を指定できます。')
       } else if (locale.value === 'zh') {
-        window.alert('手动派车只能指定空闲 AGV。')
+        window.alert('手动派车只能指定空闲或回仓中的 AGV。')
       } else {
-        window.alert('Manual dispatch can only target idle AGVs.')
+        window.alert('Manual dispatch can only target idle or returning AGVs.')
       }
     }
     return null
@@ -9992,7 +9996,7 @@ function onAgvClick(agv, event) {
   mapDraftPrimedMode.value = null
   selectedAgvId.value = agv.id
   if (dispatchMode.value !== 'manual') return
-  if (!['idle', 'idle_returning'].includes(String(agv?.status || ''))) return
+  if (!isSchedulableIdleAgvStatus(agv?.status)) return
   preferredRuntimeDisplayMode.value = 'manual'
   manualDraftPicking.value = false
   syncManualDispatchBuilderState()
@@ -10028,7 +10032,7 @@ function onMapMouseDown(event) {
       if (!autoDraftPicking.value && !startPoint.value) {
         endPoint.value = null
       }
-    } else if (dispatchMode.value === 'manual' && selectedBackendAgv.value?.status === 'idle') {
+    } else if (dispatchMode.value === 'manual' && isSchedulableIdleAgvStatus(selectedBackendAgv.value?.status)) {
       preferredRuntimeDisplayMode.value = 'manual'
       mapDraftPrimedMode.value = 'manual'
       if (!manualDraftPicking.value && manualDispatchStep.value !== 'awaiting_end') {
@@ -13753,7 +13757,7 @@ watch(faultEventFilter, () => {
 })
 
 watch(selectedBackendAgv, agv => {
-  if (dispatchMode.value === 'manual' && agv && agv.status === 'idle' && !trackedManualTaskId.value) {
+  if (dispatchMode.value === 'manual' && agv && isSchedulableIdleAgvStatus(agv.status) && !trackedManualTaskId.value) {
     syncManualDispatchBuilderState()
     return
   }
@@ -13778,7 +13782,7 @@ watch(
       if (manualDispatchStep.value !== 'idle') {
         return
       }
-      if (selectedBackendAgv.value?.status === 'idle' && !taskChainMapPickActive.value) {
+      if (isSchedulableIdleAgvStatus(selectedBackendAgv.value?.status) && !taskChainMapPickActive.value) {
         clearManualDispatchPreview()
       }
       return
@@ -13821,7 +13825,7 @@ watch(
 
     if (trackedTask.agv_id !== selectedBackendAgv.value.id) {
       // Avoid auto-cancel flicker during polling. Only clear tracked preview if user switched to another idle AGV.
-      if (selectedBackendAgv.value.status === 'idle') {
+      if (isSchedulableIdleAgvStatus(selectedBackendAgv.value.status)) {
         trackedManualTaskId.value = null
         manualDispatchStep.value = 'idle'
         clearManualDestination()
@@ -13832,7 +13836,7 @@ watch(
 
     if (
       !['assigned', 'running'].includes(trackedTask.status) &&
-      selectedBackendAgv.value.status === 'idle'
+      isSchedulableIdleAgvStatus(selectedBackendAgv.value.status)
     ) {
       cancelSelection()
     }

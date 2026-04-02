@@ -17,8 +17,8 @@ def get_agv_by_id(agv_id: int) -> AGV | None:
 
 
 def list_idle_agvs() -> list[AGV]:
-    return [agv for agv in agv_list if agv.status == "idle"]
+    return [agv for agv in agv_list if agv.status in {"idle", "idle_returning"}]
 
 
 def get_first_idle_agv() -> AGV | None:
-    return next((agv for agv in agv_list if agv.status == "idle"), None)
+    return next((agv for agv in agv_list if agv.status in {"idle", "idle_returning"}), None)
