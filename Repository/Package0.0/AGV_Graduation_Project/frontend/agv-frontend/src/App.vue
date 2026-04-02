@@ -3530,6 +3530,9 @@ function resolveRenderedBackendAgv(agv, nowMs = agvAnimationNow.value) {
 function formatEnterpriseMotionStateLabel(motionState) {
   const normalized = String(motionState || 'idle').trim().toLowerCase()
   if (locale.value === 'ja') {
+    if (normalized === 'charging') return '充電中'
+    if (normalized === 'waiting_for_charge') return '充電へ移動'
+    if (normalized === 'idle_returning') return '回庫中'
     if (normalized === 'yielding') return '譲り待機'
     if (normalized === 'waiting') return '待機'
     if (normalized === 'running') return '走行'
@@ -3537,12 +3540,18 @@ function formatEnterpriseMotionStateLabel(motionState) {
     return '待機中'
   }
   if (locale.value === 'en') {
+    if (normalized === 'charging') return 'Charging'
+    if (normalized === 'waiting_for_charge') return 'Heading To Charge'
+    if (normalized === 'idle_returning') return 'Returning To Parking'
     if (normalized === 'yielding') return 'Yielding'
     if (normalized === 'waiting') return 'Waiting'
     if (normalized === 'running') return 'Running'
     if (normalized === 'relocating') return 'Relocating'
     return 'Idle'
   }
+  if (normalized === 'charging') return '充电中'
+  if (normalized === 'waiting_for_charge') return '前往充电'
+  if (normalized === 'idle_returning') return '回仓中'
   if (normalized === 'yielding') return '让行等待'
   if (normalized === 'waiting') return '等待中'
   if (normalized === 'running') return '运行中'
@@ -3554,6 +3563,24 @@ function formatEnterpriseAgvRuntimeHint(agv) {
   if (!uiTreatAsEnterpriseRole.value || agv?.source !== 'backend') return ''
   const parts = [`AGV #${agv.id}`]
   parts.push(formatEnterpriseMotionStateLabel(agv.motionState))
+  if (Number.isFinite(Number(agv?.battery_level))) {
+    const batteryText =
+      locale.value === 'ja'
+        ? `充電 ${Math.round(Number(agv.battery_level))}%`
+        : locale.value === 'en'
+          ? `Battery ${Math.round(Number(agv.battery_level))}%`
+          : `电量 ${Math.round(Number(agv.battery_level))}%`
+    parts.push(batteryText)
+  }
+  if (String(agv?.auto_target_type || '').trim()) {
+    if (locale.value === 'ja') {
+      parts.push(agv.auto_target_type === 'charge' ? '目標: 充電点' : '目標: 停車点')
+    } else if (locale.value === 'en') {
+      parts.push(agv.auto_target_type === 'charge' ? 'Target: Charge' : 'Target: Parking')
+    } else {
+      parts.push(agv.auto_target_type === 'charge' ? '目标: 充电点' : '目标: 回仓点')
+    }
+  }
   if (String(agv?.current_edge || '').trim()) {
     if (locale.value === 'ja') {
       parts.push(`辺: ${agv.current_edge}`)
@@ -3593,7 +3620,10 @@ const selectedAgvTask = computed(() => {
 })
 const manualDispatchReady = computed(() => {
   if (dispatchMode.value !== 'manual') return true
-  return Boolean(selectedBackendAgv.value && selectedBackendAgv.value.status === 'idle')
+  return Boolean(
+    selectedBackendAgv.value &&
+      ['idle', 'idle_returning'].includes(String(selectedBackendAgv.value.status || ''))
+  )
 })
 const filteredFaultEvents = computed(() => {
   if (faultEventFilter.value === 'all') return faultEvents.value
@@ -9644,7 +9674,7 @@ function setAllPanelSections(expanded) {
 }
 
 function hasIdleAgv() {
-  return agvs.value.some(agv => agv.status === 'idle')
+  return agvs.value.some(agv => ['idle', 'idle_returning'].includes(String(agv?.status || '')))
 }
 
 function hasPendingTask() {
@@ -9962,7 +9992,7 @@ function onAgvClick(agv, event) {
   mapDraftPrimedMode.value = null
   selectedAgvId.value = agv.id
   if (dispatchMode.value !== 'manual') return
-  if (agv.status !== 'idle') return
+  if (!['idle', 'idle_returning'].includes(String(agv?.status || ''))) return
   preferredRuntimeDisplayMode.value = 'manual'
   manualDraftPicking.value = false
   syncManualDispatchBuilderState()
@@ -15314,13 +15344,19 @@ onBeforeUnmount(() => {
             @wheel.stop
           >
             <div class="legend-title">{{ t('agv_status') }}</div>
-            <div class="legend-row">
-              <div class="legend-item">
-                <span class="legend-dot idle"></span>{{ t('status_idle') }}
-              </div>
-              <div class="legend-item">
-                <span class="legend-dot relocating"></span>{{ t('status_relocating') }}
-                <span class="info-icon" :title="t('status_relocating_desc')">i</span>
+              <div class="legend-row">
+                <div class="legend-item">
+                  <span class="legend-dot idle"></span>{{ t('status_idle') }}
+                </div>
+                <div class="legend-item">
+                  <span class="legend-dot returning"></span>{{ t('status_idle_returning') }}
+                </div>
+                <div class="legend-item">
+                  <span class="legend-dot charging"></span>{{ t('status_waiting_for_charge') }}
+                </div>
+                <div class="legend-item">
+                  <span class="legend-dot relocating"></span>{{ t('status_relocating') }}
+                  <span class="info-icon" :title="t('status_relocating_desc')">i</span>
               </div>
               <div class="legend-item">
                 <span class="legend-dot running"></span>{{ t('status_running') }}
@@ -15564,7 +15600,9 @@ onBeforeUnmount(() => {
                 selected: agv.id === selectedAgvId,
                 'is-enterprise-motion': uiTreatAsEnterpriseRole && agv.source === 'backend',
                 'is-waiting': uiTreatAsEnterpriseRole && agv.source === 'backend' && agv.motionState === 'waiting',
-                'is-yielding': uiTreatAsEnterpriseRole && agv.source === 'backend' && agv.motionState === 'yielding'
+                'is-yielding': uiTreatAsEnterpriseRole && agv.source === 'backend' && agv.motionState === 'yielding',
+                'is-returning': uiTreatAsEnterpriseRole && agv.source === 'backend' && agv.motionState === 'idle_returning',
+                'is-charging': uiTreatAsEnterpriseRole && agv.source === 'backend' && ['waiting_for_charge', 'charging'].includes(agv.motionState)
               }"
               :style="{
                 left: `${agv.displayX * CELL_SIZE + (CELL_SIZE - AGV_SIZE) / 2}px`,
@@ -15709,7 +15747,9 @@ onBeforeUnmount(() => {
               class="minimap-agv"
               :class="{
                 'is-waiting': uiTreatAsEnterpriseRole && agv.source === 'backend' && agv.motionState === 'waiting',
-                'is-yielding': uiTreatAsEnterpriseRole && agv.source === 'backend' && agv.motionState === 'yielding'
+                'is-yielding': uiTreatAsEnterpriseRole && agv.source === 'backend' && agv.motionState === 'yielding',
+                'is-returning': uiTreatAsEnterpriseRole && agv.source === 'backend' && agv.motionState === 'idle_returning',
+                'is-charging': uiTreatAsEnterpriseRole && agv.source === 'backend' && ['waiting_for_charge', 'charging'].includes(agv.motionState)
               }"
               :style="{
                 left: `${agv.displayX * CELL_SIZE * minimapScale + (CELL_SIZE * minimapScale) / 2 - 4}px`,

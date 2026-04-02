@@ -36,6 +36,12 @@ def agv_entity_to_model(entity: AgvEntity) -> AGV:
         motion_source_y=entity.motion_source_y,
         motion_target_x=entity.motion_target_x,
         motion_target_y=entity.motion_target_y,
+        battery_level=entity.battery_level,
+        energy_updated_at=entity.energy_updated_at,
+        idle_since_at=entity.idle_since_at,
+        charge_started_at=entity.charge_started_at,
+        auto_target_node=entity.auto_target_node,
+        auto_target_type=entity.auto_target_type,
     )
 
 
@@ -63,6 +69,12 @@ def agv_model_to_entity(model: AGV, entity: AgvEntity | None = None) -> AgvEntit
     entity.motion_source_y = payload.get("motion_source_y")
     entity.motion_target_x = payload.get("motion_target_x")
     entity.motion_target_y = payload.get("motion_target_y")
+    entity.battery_level = float(payload.get("battery_level", 100.0) or 0.0)
+    entity.energy_updated_at = payload.get("energy_updated_at")
+    entity.idle_since_at = payload.get("idle_since_at")
+    entity.charge_started_at = payload.get("charge_started_at")
+    entity.auto_target_node = payload.get("auto_target_node")
+    entity.auto_target_type = payload.get("auto_target_type")
     return entity
 
 

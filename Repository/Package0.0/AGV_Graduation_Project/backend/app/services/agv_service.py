@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from app.repositories.agv_repository import agv_list, get_agv_by_id, list_agvs
+from app.repositories.agv_repository import agv_list, get_agv_by_id
 from app.repositories.task_repository import list_tasks
 from app.services.operation_audit_service import record_operation_audit
+from app.utils.agv_autonomy import sync_agv_autonomy
 from app.utils.api_error import raise_api_error
 from app.utils.fault_state import (
     create_fault_event,
@@ -41,7 +42,7 @@ def _assert_agv_can_enter_maintenance(agv):
 
 
 def get_agvs():
-    return list_agvs()
+    return sync_agv_autonomy()
 
 
 def emergency_stop_agv(

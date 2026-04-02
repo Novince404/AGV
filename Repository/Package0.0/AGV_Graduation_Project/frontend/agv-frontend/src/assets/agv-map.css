@@ -2940,6 +2940,14 @@ h2 {
   box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.28), 0 6px 16px rgba(127, 29, 29, 0.28);
 }
 
+.agv.is-returning {
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.26), 0 6px 16px rgba(30, 64, 175, 0.26);
+}
+
+.agv.is-charging {
+  box-shadow: 0 0 0 3px rgba(8, 145, 178, 0.28), 0 6px 16px rgba(8, 47, 73, 0.24);
+}
+
 .agv.selected {
   transform: translateY(-4px);
   box-shadow: 0 10px 18px rgba(0, 0, 0, 0.2);
@@ -3656,6 +3664,14 @@ h2 {
 
 .minimap-agv.is-yielding {
   box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.28);
+}
+
+.minimap-agv.is-returning {
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.32);
+}
+
+.minimap-agv.is-charging {
+  box-shadow: 0 0 0 2px rgba(8, 145, 178, 0.32);
 }
 
 .minimap-point-icon {
@@ -4513,6 +4529,14 @@ h2 {
 
 .legend-dot.idle {
   background: #7f8c8d;
+}
+
+.legend-dot.returning {
+  background: #1976d2;
+}
+
+.legend-dot.charging {
+  background: #00838f;
 }
 
 .legend-dot.relocating {

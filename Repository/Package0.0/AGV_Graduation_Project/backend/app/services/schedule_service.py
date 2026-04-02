@@ -3,10 +3,11 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from app.repositories.agv_repository import get_agv_by_id, get_first_idle_agv, list_idle_agvs
+from app.repositories.agv_repository import get_agv_by_id, list_agvs
 from app.repositories.task_repository import get_task_by_id, list_tasks
 from app.services.operation_audit_service import record_operation_audit
 from app.services.task_service import serialize_task_response
+from app.utils.agv_autonomy import sync_agv_autonomy
 from app.utils.agv_movement import move_agv
 from app.utils.api_error import raise_api_error
 from app.utils.path_planner import plan_path
@@ -76,6 +77,19 @@ def _task_requires_bound_agv(task) -> bool:
     return task.dispatch_mode == "manual" or _reason_requires_bound_agv(reason)
 
 
+def _is_schedulable_idle_status(status: str | None) -> bool:
+    return str(status or "").strip().lower() in {"idle", "idle_returning"}
+
+
+def _prepare_agv_for_dispatch(agv) -> None:
+    agv.auto_target_node = None
+    agv.auto_target_type = None
+    agv.charge_started_at = None
+    agv.idle_since_at = None
+    if agv.status == "idle_returning":
+        agv.clear_motion()
+
+
 def _select_schedulable_task(task_id: int | None):
     if task_id is not None:
         task = get_task_by_id(task_id)
@@ -93,13 +107,16 @@ def _select_idle_agv(agv_id: int | None):
         agv = get_agv_by_id(agv_id)
         if not agv:
             raise_api_error(404, "agv_not_found")
-        if agv.status != "idle":
+        if not _is_schedulable_idle_status(agv.status):
             raise_api_error(400, "agv_not_idle")
+        _prepare_agv_for_dispatch(agv)
         return agv
 
-    idle_agv = get_first_idle_agv()
+    idle_agvs = _get_idle_agvs()
+    idle_agv = idle_agvs[0] if idle_agvs else None
     if not idle_agv:
         raise_api_error(400, "no_idle_agv")
+    _prepare_agv_for_dispatch(idle_agv)
     return idle_agv
 
 
@@ -119,7 +136,7 @@ def _get_pending_tasks():
 
 
 def _get_idle_agvs():
-    return list_idle_agvs()
+    return [agv for agv in list_agvs() if _is_schedulable_idle_status(agv.status)]
 
 
 def _path_length(
@@ -452,6 +469,7 @@ def _schedule_task(
     resume_from_current: bool = False,
     actor: dict | None = None,
 ):
+    sync_agv_autonomy()
     algorithm = _normalize_algorithm_name(algorithm)
     schedule_mode = (
         schedule_mode_override

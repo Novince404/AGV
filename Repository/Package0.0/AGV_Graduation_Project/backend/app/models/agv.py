@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 from app.models.tracked_model import TrackedModel
 
 
@@ -26,8 +28,15 @@ class AGV(TrackedModel):
     motion_source_y: float | None = None
     motion_target_x: float | None = None
     motion_target_y: float | None = None
+    battery_level: float = 100.0
+    energy_updated_at: str | None = None
+    idle_since_at: str | None = None
+    charge_started_at: str | None = None
+    auto_target_node: str | None = None
+    auto_target_type: str | None = None
 
     def model_post_init(self, __context) -> None:
+        now_iso = datetime.now().isoformat(timespec="seconds")
         if self.render_x is None:
             self.render_x = float(self.x)
         if self.render_y is None:
@@ -40,6 +49,10 @@ class AGV(TrackedModel):
             self.motion_target_x = float(self.x)
         if self.motion_target_y is None:
             self.motion_target_y = float(self.y)
+        if self.energy_updated_at is None:
+            self.energy_updated_at = now_iso
+        if self.status == "idle" and self.idle_since_at is None and self.task_id is None:
+            self.idle_since_at = now_iso
 
     def apply_motion_fields(self, **fields):
         self.suspend_change_notifications()

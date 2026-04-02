@@ -452,3 +452,134 @@ def move_agv(
 
     thread = threading.Thread(target=run, daemon=True)
     thread.start()
+
+
+def move_agv_to_autonomy_target(
+    agv_id: int,
+    target_x: int,
+    target_y: int,
+    *,
+    target_key: str,
+    target_type: str,
+    algorithm: str,
+    grid_cols: int,
+    grid_rows: int,
+):
+    active_status = "waiting_for_charge" if target_type == "charge" else "idle_returning"
+
+    def should_cancel_autonomy(agv) -> bool:
+        if agv is None:
+            return True
+        if agv.task_id is not None:
+            return True
+        if agv.status in {"fault", "emergency_stop", "maintenance"}:
+            return True
+        if str(getattr(agv, "auto_target_type", "") or "") != target_type:
+            return True
+        if str(getattr(agv, "auto_target_node", "") or "") != target_key:
+            return True
+        return False
+
+    def finalize_target(agv):
+        if target_type == "charge":
+            agv.status = "charging"
+            agv.charge_started_at = now_iso()
+            agv.idle_since_at = None
+            agv.clear_motion(motion_state="charging")
+            return
+        agv.status = "idle"
+        agv.auto_target_node = None
+        agv.auto_target_type = None
+        agv.idle_since_at = now_iso()
+        agv.clear_motion()
+
+    agv = get_agv_by_id(agv_id)
+    if not agv or agv.task_id is not None or agv.status in {"fault", "emergency_stop", "maintenance"}:
+        return False
+
+    agv.auto_target_node = target_key
+    agv.auto_target_type = target_type
+    agv.charge_started_at = None
+    agv.idle_since_at = None
+    agv.status = active_status
+    agv.clear_motion(motion_state=active_status)
+
+    def run():
+        with movement_lock:
+            while True:
+                agv = get_agv_by_id(agv_id)
+                if should_cancel_autonomy(agv):
+                    if agv is not None:
+                        agv.clear_motion(motion_state=agv.status)
+                    return
+
+                path = plan_path(
+                    algorithm,
+                    agv.x,
+                    agv.y,
+                    target_x,
+                    target_y,
+                    grid_cols,
+                    grid_rows,
+                    request_priority=0,
+                    agv_id=agv.id,
+                )
+                if not path:
+                    agv.status = "idle"
+                    agv.auto_target_node = None
+                    agv.auto_target_type = None
+                    agv.clear_motion()
+                    return
+
+                if len(path) <= 1:
+                    finalize_target(agv)
+                    return
+
+                should_replan = False
+                for point in path[1:]:
+                    wait_started_at = time.monotonic()
+                    while True:
+                        agv = get_agv_by_id(agv_id)
+                        if should_cancel_autonomy(agv):
+                            if agv is not None:
+                                agv.clear_motion(motion_state=agv.status)
+                            return
+
+                        source_x = int(agv.x)
+                        source_y = int(agv.y)
+                        topology_conflict = _detect_topology_edge_conflict(agv.id, source_x, source_y, point)
+                        waited_sec = max(time.monotonic() - wait_started_at, 0.0)
+                        if topology_conflict:
+                            _set_waiting_motion_state(agv, active_status, motion_state="yielding")
+                            if waited_sec >= TOPOLOGY_EDGE_REPLAN_INTERVAL_SEC:
+                                should_replan = True
+                                break
+                            time.sleep(MOVE_WAIT_INTERVAL_SEC)
+                            continue
+
+                        next_x, next_y = _point_coordinates(point)
+                        if is_cell_occupied_by_other_agv(agv.id, next_x, next_y):
+                            _set_waiting_motion_state(agv, active_status, motion_state="waiting")
+                            if waited_sec >= MOVE_WAIT_TIMEOUT_SEC:
+                                should_replan = True
+                                break
+                            time.sleep(MOVE_WAIT_INTERVAL_SEC)
+                            continue
+
+                        target_node, target_speed, travel_duration_sec = _begin_motion_segment(agv, point, active_status)
+                        time.sleep(travel_duration_sec)
+                        _finish_motion_segment(agv, next_x, next_y, target_node, active_status, target_speed)
+                        break
+
+                    if should_replan:
+                        break
+
+                if should_replan:
+                    continue
+
+                finalize_target(agv)
+                return
+
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+    return True

@@ -56,6 +56,18 @@ def _ensure_schema() -> None:
         ddl_statements.append("ALTER TABLE agv ADD COLUMN motion_target_x FLOAT")
     if "motion_target_y" not in columns:
         ddl_statements.append("ALTER TABLE agv ADD COLUMN motion_target_y FLOAT")
+    if "battery_level" not in columns:
+        ddl_statements.append("ALTER TABLE agv ADD COLUMN battery_level FLOAT NOT NULL DEFAULT 100")
+    if "energy_updated_at" not in columns:
+        ddl_statements.append("ALTER TABLE agv ADD COLUMN energy_updated_at VARCHAR(32)")
+    if "idle_since_at" not in columns:
+        ddl_statements.append("ALTER TABLE agv ADD COLUMN idle_since_at VARCHAR(32)")
+    if "charge_started_at" not in columns:
+        ddl_statements.append("ALTER TABLE agv ADD COLUMN charge_started_at VARCHAR(32)")
+    if "auto_target_node" not in columns:
+        ddl_statements.append("ALTER TABLE agv ADD COLUMN auto_target_node VARCHAR(128)")
+    if "auto_target_type" not in columns:
+        ddl_statements.append("ALTER TABLE agv ADD COLUMN auto_target_type VARCHAR(32)")
 
     if ddl_statements:
         with engine.begin() as connection:

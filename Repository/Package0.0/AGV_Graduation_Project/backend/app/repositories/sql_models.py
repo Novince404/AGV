@@ -33,6 +33,12 @@ class AgvEntity(Base):
     motion_source_y: Mapped[float | None] = mapped_column(Float, nullable=True)
     motion_target_x: Mapped[float | None] = mapped_column(Float, nullable=True)
     motion_target_y: Mapped[float | None] = mapped_column(Float, nullable=True)
+    battery_level: Mapped[float] = mapped_column(Float, nullable=False, default=100.0)
+    energy_updated_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    idle_since_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    charge_started_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    auto_target_node: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    auto_target_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
 
 class TaskEntity(Base):

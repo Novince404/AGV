@@ -24,6 +24,9 @@ export function useTaskTextFormatters({
       running: '#2e7d32',
       fault: '#c62828',
       relocating: '#ef6c00',
+      idle_returning: '#1976d2',
+      waiting_for_charge: '#8e24aa',
+      charging: '#00838f',
       emergency_stop: '#7b1f2f',
       maintenance: '#546e7a'
     }
@@ -34,15 +37,24 @@ export function useTaskTextFormatters({
     const localized = {
       zh: {
         emergency_stop: faultLocale.value.emergencyStopped,
-        maintenance: '维护中'
+        maintenance: '维护中',
+        idle_returning: '回仓中',
+        waiting_for_charge: '前往充电',
+        charging: '充电中'
       },
       ja: {
         emergency_stop: faultLocale.value.emergencyStopped,
-        maintenance: '整備中'
+        maintenance: '整備中',
+        idle_returning: '回庫中',
+        waiting_for_charge: '充電へ移動',
+        charging: '充電中'
       },
       en: {
         emergency_stop: faultLocale.value.emergencyStopped,
-        maintenance: 'Maintenance'
+        maintenance: 'Maintenance',
+        idle_returning: 'Returning',
+        waiting_for_charge: 'To Charge',
+        charging: 'Charging'
       }
     }
     return localized[locale.value]?.[status] ?? t(`status_${status}`) ?? status
@@ -55,6 +67,9 @@ export function useTaskTextFormatters({
         running: '运行',
         fault: '故障',
         relocating: '就位',
+        idle_returning: '回仓',
+        waiting_for_charge: '充电',
+        charging: '充电',
         emergency_stop: '急停',
         maintenance: '维护'
       },
@@ -63,6 +78,9 @@ export function useTaskTextFormatters({
         running: '運行',
         fault: '故障',
         relocating: '移動',
+        idle_returning: '回庫',
+        waiting_for_charge: '充電',
+        charging: '充電',
         emergency_stop: '急停',
         maintenance: '整備'
       },
@@ -71,6 +89,9 @@ export function useTaskTextFormatters({
         running: 'RUN',
         fault: 'FAULT',
         relocating: 'MOVE',
+        idle_returning: 'RETURN',
+        waiting_for_charge: 'CHARGE',
+        charging: 'CHG',
         emergency_stop: 'STOP',
         maintenance: 'MAIN'
       }

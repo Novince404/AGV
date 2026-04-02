@@ -128,7 +128,11 @@ export function useDispatchScheduler(options) {
     if (manualBoundScheduling.value) return
     if (obstacleEditMode.value || obstacleLayoutDirty.value) return
 
-    const idleAgvIds = new Set(agvs.value.filter(agv => agv.status === 'idle').map(agv => agv.id))
+    const idleAgvIds = new Set(
+      agvs.value
+        .filter(agv => ['idle', 'idle_returning'].includes(String(agv?.status || '')))
+        .map(agv => agv.id)
+    )
     const candidate = tasks.value
       .filter(
         task =>
