@@ -24,6 +24,7 @@ export function useDispatchScheduler(options) {
     nextTick,
     fetchAgvs,
     fetchTasks,
+    buildAuthorizedJsonHeaders,
     hasIdleAgv,
     hasPendingTask,
     resolveTaskDisplayStartMarker,
@@ -44,6 +45,13 @@ export function useDispatchScheduler(options) {
 
   function gridRows() {
     return Number(resolveValue(GRID_ROWS))
+  }
+
+  function buildScheduleHeaders() {
+    if (typeof buildAuthorizedJsonHeaders === 'function') {
+      return buildAuthorizedJsonHeaders()
+    }
+    return { 'Content-Type': 'application/json' }
   }
 
   function resolveTaskDisplayEndMarkerLocal(task) {
@@ -89,7 +97,7 @@ export function useDispatchScheduler(options) {
     try {
       const scheduleRes = await fetch(`${API_BASE}/schedule/with_path`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: buildScheduleHeaders(),
         body: JSON.stringify({
           task_id: null,
           agv_id: null,
@@ -141,7 +149,7 @@ export function useDispatchScheduler(options) {
     try {
       const scheduleRes = await fetch(`${API_BASE}/schedule/with_path`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: buildScheduleHeaders(),
         body: JSON.stringify({
           task_id: candidate.id,
           agv_id: candidate.preferred_agv_id,

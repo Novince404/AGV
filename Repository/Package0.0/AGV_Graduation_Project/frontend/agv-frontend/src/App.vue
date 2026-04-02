@@ -9680,6 +9680,7 @@ const { tryAutoSchedule, tryManualBoundSchedule, scheduleAutoIfReady } = useDisp
   nextTick,
   fetchAgvs,
   fetchTasks,
+  buildAuthorizedJsonHeaders,
   hasIdleAgv,
   hasPendingTask,
   resolveTaskDisplayStartMarker,
