@@ -1482,6 +1482,7 @@
     "json_placeholder": "粘贴 JSON，例如 { \"tasks\": [...] }",
     "json_import_ok": "导入成功",
     "json_import_fail": "导入失败",
+    "json_import_map_hint": "{reason} 如果你当前切换了地图尺寸、异形有效区或障碍布局，请先恢复匹配的演示地图后再导入该任务示例。",
     "queue_pending": "待分配队列",
     "queue_blocked": "不可达队列",
     "queue_retry_all_astar": "一键 A*",

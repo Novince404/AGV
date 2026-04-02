@@ -11289,6 +11289,18 @@ async function importTasksFromJson(rawText = jsonText.value) {
     return
   }
 
+  function buildTaskJsonImportFailureText(detail) {
+    const reasonText = localizeApiErrorDetail(detail, t('json_import_fail'))
+    if (
+      detail &&
+      typeof detail === 'object' &&
+      ['stage_blocked', 'stage_out_of_grid'].includes(String(detail.error_code || ''))
+    ) {
+      return formatInlineMessage(t('json_import_map_hint'), { reason: reasonText })
+    }
+    return reasonText
+  }
+
   try {
     const res = await fetch(`${API_BASE}/task/import_json`, {
       method: 'POST',
@@ -11297,14 +11309,15 @@ async function importTasksFromJson(rawText = jsonText.value) {
     })
     const data = await res.json()
     if (!res.ok) {
-      throw createApiError(data, 'Import failed')
+      jsonStatus.value = buildTaskJsonImportFailureText(data?.detail)
+      return
     }
     jsonStatus.value = t('json_import_ok')
     await fetchTasks()
     await tryAutoSchedule()
   } catch (error) {
     console.error('Import json error:', error)
-    jsonStatus.value = t('json_import_fail')
+    jsonStatus.value = error instanceof Error && error.message ? error.message : t('json_import_fail')
   }
 }
 

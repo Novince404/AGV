@@ -1482,6 +1482,7 @@
     "json_placeholder": "JSON を貼り付けてください。例：{ \"tasks\": [...] }",
     "json_import_ok": "インポート成功",
     "json_import_fail": "インポート失敗",
+    "json_import_map_hint": "{reason} 現在のマップサイズ、異形有効セル、または障害レイアウトを変更している場合は、対応するデモマップに戻してからこのタスクサンプルを取り込んでください。",
     "queue_pending": "未割当キュー",
     "queue_blocked": "到達不可キュー",
     "queue_retry_all_astar": "一括 A* 再試行",

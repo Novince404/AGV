@@ -1482,6 +1482,7 @@
     "json_placeholder": "Paste JSON, for example { \"tasks\": [...] }",
     "json_import_ok": "Import success",
     "json_import_fail": "Import failed",
+    "json_import_map_hint": "{reason} If the current map size, valid-cell shape, or obstacle layout has changed, switch back to the matching demo map before importing this task sample.",
     "queue_pending": "Pending Queue",
     "queue_blocked": "Blocked Queue",
     "queue_retry_all_astar": "Retry All with A*",
