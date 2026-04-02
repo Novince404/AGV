@@ -99,6 +99,8 @@ const API_BASE = (() => {
   }
   return 'http://127.0.0.1:8000'
 })()
+const CLIENT_VARIANT = String(import.meta.env.VITE_CLIENT_VARIANT || 'default').trim().toLowerCase()
+const ENTERPRISE_CLIENT_ALLOWED_ROLES = ['enterprise_admin', 'enterprise_operator', 'enterprise_logistics']
 const CUSTOM_POINTS_STORAGE_KEY = 'agv_custom_points'
 const MAP_DISPLAY_STORAGE_KEY = 'agv_map_display_settings'
 const TASK_TEMPLATE_STORAGE_KEY = 'agv_task_templates'
@@ -152,6 +154,10 @@ function buildFullValidCellList(gridCols = GRID_COLS, gridRows = GRID_ROWS) {
     }
   }
   return cells
+}
+
+function isEnterpriseClientRole(role) {
+  return ENTERPRISE_CLIENT_ALLOWED_ROLES.includes(String(role || '').trim())
 }
 
 const agvs = ref([])
@@ -1057,6 +1063,27 @@ const enterpriseTopologyEditorDraft = ref(createEmptyMapTopology())
 const enterpriseTopologyEditorSelectedNodeKey = ref('')
 const enterpriseTopologyEditorSelectedEdgeKey = ref('')
 const enterpriseTopologyEditorLinkSourceKey = ref('')
+const isEnterpriseClientVariant = CLIENT_VARIANT === 'enterprise'
+const authAllowsGuestMode = computed(() => !isEnterpriseClientVariant)
+const authAllowsPersonalRegister = computed(() => !isEnterpriseClientVariant)
+const authPreviewRoles = computed(() =>
+  isEnterpriseClientVariant
+    ? [...ENTERPRISE_CLIENT_ALLOWED_ROLES]
+    : ['guest', 'personal', 'enterprise_admin', 'enterprise_operator', 'enterprise_logistics', 'platform_admin']
+)
+const authVisibleDemoAccounts = computed(() => {
+  const allowedRoles = new Set(authPreviewRoles.value.filter(role => role !== 'guest'))
+  return authDemoAccounts.filter(account => allowedRoles.has(String(account.role || '').trim()))
+})
+const authAppTitle = computed(() =>
+  isEnterpriseClientVariant ? t('enterprise_client_title') : t('title')
+)
+const authGuestIdentityLabel = computed(() =>
+  isEnterpriseClientVariant ? t('enterprise_client_identity_label') : t('auth_role_guest')
+)
+const authGuestIdentityMeta = computed(() =>
+  isEnterpriseClientVariant ? t('enterprise_client_identity_meta') : 'guest'
+)
 const authRoleLabel = computed(() => t(`auth_role_${authCurrentRole.value}`))
 const authRoleBadgeClass = computed(() => `role-${authCurrentRole.value}`)
 const isPlatformAdmin = computed(() => authCurrentRole.value === 'platform_admin')
@@ -1090,7 +1117,9 @@ const enterpriseUiRoleLabel = computed(() => t(`auth_role_${enterpriseUiRole.val
 const showEnterpriseSettingsToolbarEntry = computed(
   () => authIsEnterpriseRole.value || isPlatformAdminEnterprisePreviewMode.value
 )
-const showPlatformAdminManagementEntries = computed(() => !isPlatformAdminPreviewMode.value)
+const showPlatformAdminManagementEntries = computed(() =>
+  !isEnterpriseClientVariant && !isPlatformAdminPreviewMode.value
+)
 const showEnterpriseRequestToolbarEntry = computed(() =>
   authCanEnterpriseRequestSubmit.value && authIsEnterpriseRole.value && authCurrentAccountStatus.value === 'approved'
 )
@@ -1102,12 +1131,19 @@ const showFeedbackBell = computed(() =>
   !isPlatformAdmin.value &&
   (showEnterpriseRequestToolbarEntry.value || showPlatformBugFeedbackToolbarEntry.value)
 )
-const dashboardUnlocked = computed(() => authAuthenticated.value || authGuestAccepted.value)
+const dashboardUnlocked = computed(() => {
+  if (isEnterpriseClientVariant) {
+    return authAuthenticated.value && isEnterpriseClientRole(authCurrentRole.value)
+  }
+  return authAuthenticated.value || authGuestAccepted.value
+})
 const authModeText = computed(() =>
   authAuthenticated.value ? t(`auth_mode_${authCurrentRole.value}`) : t('auth_mode_guest')
 )
 const authEntryHintText = computed(() => {
-  if (!authAuthenticated.value) return t('auth_entry_hint_guest')
+  if (!authAuthenticated.value) {
+    return isEnterpriseClientVariant ? t('enterprise_client_gate_hint') : t('auth_entry_hint_guest')
+  }
   return t(`auth_entry_hint_${authCurrentRole.value}`)
 })
 const authAccountStatusLabel = computed(() => t(`auth_account_status_${authCurrentAccountStatus.value}`))
@@ -1772,18 +1808,24 @@ const enterpriseApprovalDraftSummaryText = computed(() =>
 const authTitleButtonTitle = computed(() =>
   authAuthenticated.value
     ? `${t('auth_current_identity')}: ${authCurrentDisplayName.value} (${authRoleLabel.value})`
-    : t('auth_open_dialog')
+    : isEnterpriseClientVariant ? t('enterprise_client_title') : t('auth_open_dialog')
 )
 const authModalTitle = computed(() =>
-  dashboardUnlocked.value ? t('auth_title') : t('auth_gate_title')
+  isEnterpriseClientVariant
+    ? (dashboardUnlocked.value ? t('enterprise_client_auth_title') : t('enterprise_client_gate_title'))
+    : (dashboardUnlocked.value ? t('auth_title') : t('auth_gate_title'))
 )
 const authPanelModeText = computed(() =>
-  dashboardUnlocked.value ? t('auth_switch_hint') : t('auth_gate_hint')
+  isEnterpriseClientVariant
+    ? (dashboardUnlocked.value ? t('enterprise_client_switch_hint') : t('enterprise_client_gate_hint'))
+    : (dashboardUnlocked.value ? t('auth_switch_hint') : t('auth_gate_hint'))
 )
 const authPrimaryAccounts = computed(() => {
-  const preferredRoles = ['personal', 'enterprise_operator', 'enterprise_logistics', 'enterprise_admin', 'platform_admin']
+  const preferredRoles = isEnterpriseClientVariant
+    ? ['enterprise_operator', 'enterprise_logistics', 'enterprise_admin']
+    : ['personal', 'enterprise_operator', 'enterprise_logistics', 'enterprise_admin', 'platform_admin']
   return preferredRoles
-    .map(role => authDemoAccounts.find(account => account.role === role))
+    .map(role => authVisibleDemoAccounts.value.find(account => account.role === role))
     .filter(Boolean)
 })
 const authCapabilitySet = computed(() => new Set((authCurrentCapabilities.value ?? []).map(item => String(item))))
@@ -5262,12 +5304,47 @@ function showFloatingToast(message, type = 'info', durationMs = 3200) {
   }, durationMs)
 }
 
+function buildEnterpriseClientRestrictionNotice(role) {
+  const normalizedRole = String(role || '').trim() || 'guest'
+  return {
+    tone: 'warning',
+    title: t('enterprise_client_login_restricted_title'),
+    hint: t('enterprise_client_login_restricted_hint'),
+    detail: formatInlineMessage(t('enterprise_client_login_restricted_detail'), {
+      role: normalizedRole === 'guest' ? authGuestIdentityLabel.value : t(`auth_role_${normalizedRole}`)
+    }),
+    meta: t('enterprise_client_login_restricted_meta')
+  }
+}
+
+async function enforceEnterpriseClientSession(state, { showToast = true } = {}) {
+  if (!isEnterpriseClientVariant || !state?.authenticated) return state
+  const normalizedRole = String(state?.user?.role || state?.role || '').trim()
+  if (isEnterpriseClientRole(normalizedRole)) return state
+  try {
+    await logoutFromAuthSession()
+  } catch {
+    resetAuthStateWithAuthSession()
+  }
+  authGuestAccepted.value = false
+  authPanelOpen.value = true
+  authDialogView.value = 'login'
+  authEnterpriseRegisterFollowup.value = null
+  authLoginRestrictionNotice.value = buildEnterpriseClientRestrictionNotice(normalizedRole)
+  if (showToast) {
+    showFloatingToast(t('enterprise_client_login_restricted_toast'), 'warning')
+  }
+  return null
+}
+
 async function handleAuthLogin() {
   try {
     const state = await loginWithAuthSession()
+    const normalizedState = await enforceEnterpriseClientSession(state)
+    if (!normalizedState) return
     authLoginRestrictionNotice.value = null
-    const nextRole = String(state?.user?.role || state?.role || '').trim()
-    authGuestAccepted.value = Boolean(state?.authenticated)
+    const nextRole = String(normalizedState?.user?.role || normalizedState?.role || '').trim()
+    authGuestAccepted.value = Boolean(normalizedState?.authenticated)
     authPanelOpen.value = false
     authDialogView.value = 'login'
     authEnterpriseRegisterFollowup.value = null
@@ -5275,7 +5352,7 @@ async function handleAuthLogin() {
       applyEnterprisePanelPreset(nextRole, { silent: true })
     }
     await fetchOperationAudits({ force: true })
-    showFloatingToast(buildAuthLoginSuccessMessage(state), 'success')
+    showFloatingToast(buildAuthLoginSuccessMessage(normalizedState), 'success')
   } catch (error) {
     authLoginRestrictionNotice.value = buildAuthLoginRestrictionNotice(error?.detail)
     showFloatingToast(error?.message || t('auth_login_failed'), 'error')
@@ -5310,8 +5387,10 @@ async function handleAuthQuickLogin(account) {
   fillDemoAccount(account)
   try {
     const state = await loginWithAuthSession(account?.username, account?.password)
-    const nextRole = String(state?.user?.role || state?.role || '').trim()
-    authGuestAccepted.value = Boolean(state?.authenticated)
+    const normalizedState = await enforceEnterpriseClientSession(state)
+    if (!normalizedState) return
+    const nextRole = String(normalizedState?.user?.role || normalizedState?.role || '').trim()
+    authGuestAccepted.value = Boolean(normalizedState?.authenticated)
     authPanelOpen.value = false
     authDialogView.value = 'login'
     authEnterpriseRegisterFollowup.value = null
@@ -5319,13 +5398,20 @@ async function handleAuthQuickLogin(account) {
       applyEnterprisePanelPreset(nextRole, { silent: true })
     }
     await fetchOperationAudits({ force: true })
-    showFloatingToast(buildAuthLoginSuccessMessage(state), 'success')
+    showFloatingToast(buildAuthLoginSuccessMessage(normalizedState), 'success')
   } catch (error) {
     showFloatingToast(error?.message || t('auth_login_failed'), 'error')
   }
 }
 
 function enterGuestMode() {
+  if (isEnterpriseClientVariant) {
+    authPanelOpen.value = true
+    authDialogView.value = 'login'
+    authLoginRestrictionNotice.value = buildEnterpriseClientRestrictionNotice('guest')
+    showFloatingToast(t('enterprise_client_login_restricted_toast'), 'warning')
+    return
+  }
   authGuestAccepted.value = true
   authPanelOpen.value = false
   authDialogView.value = 'login'
@@ -5482,7 +5568,10 @@ watch(
 )
 
 function switchAuthDialogView(view) {
-  authDialogView.value = ['login', 'personal-register', 'enterprise-register'].includes(view)
+  const allowedViews = isEnterpriseClientVariant
+    ? ['login', 'enterprise-register']
+    : ['login', 'personal-register', 'enterprise-register']
+  authDialogView.value = allowedViews.includes(view)
     ? view
     : 'login'
   if (authDialogView.value !== 'login') {
@@ -5608,6 +5697,11 @@ function dismissEnterpriseRegisterFollowup() {
 }
 
 async function handlePersonalRegister() {
+  if (isEnterpriseClientVariant) {
+    authLoginRestrictionNotice.value = buildEnterpriseClientRestrictionNotice('personal')
+    showFloatingToast(t('enterprise_client_login_restricted_toast'), 'warning')
+    return
+  }
   const payload = authPersonalRegisterValidation.value.payload
   if (!authPersonalRegisterValidation.value.valid) {
     showFloatingToast(authPersonalRegisterValidation.value.firstMessage || t('auth_personal_register_failed'), 'warning')
@@ -5615,7 +5709,9 @@ async function handlePersonalRegister() {
   }
   try {
     const state = await registerPersonalWithAuthSession(payload)
-    authGuestAccepted.value = Boolean(state?.authenticated)
+    const normalizedState = await enforceEnterpriseClientSession(state)
+    if (!normalizedState) return
+    authGuestAccepted.value = Boolean(normalizedState?.authenticated)
     authPanelOpen.value = false
     authDialogView.value = 'login'
     resetPersonalRegisterForm()
@@ -13373,9 +13469,10 @@ onMounted(() => {
   loadMapDisplaySettings()
   loadPanelSections()
   void fetchUiSettings()
-  void fetchAuthMe().then(state => {
-    authGuestAccepted.value = Boolean(state?.authenticated)
-    if (state?.authenticated && Array.isArray(state?.capabilities) && state.capabilities.includes('audit.view')) {
+  void fetchAuthMe().then(async state => {
+    const normalizedState = await enforceEnterpriseClientSession(state, { showToast: false })
+    authGuestAccepted.value = Boolean(normalizedState?.authenticated)
+    if (normalizedState?.authenticated && Array.isArray(normalizedState?.capabilities) && normalizedState.capabilities.includes('audit.view')) {
       void fetchOperationAudits({ force: true })
     }
   })
@@ -13409,7 +13506,19 @@ onMounted(() => {
   window.addEventListener('mousemove', onGlobalMouseMove)
   window.addEventListener('mouseup', onGlobalMouseUp)
   showGuideCenter.value = showGuideCenterOnLoad.value
+  if (typeof document !== 'undefined') {
+    document.title = authAppTitle.value
+  }
 })
+
+watch(
+  authAppTitle,
+  value => {
+    if (typeof document !== 'undefined' && value) {
+      document.title = value
+    }
+  }
+)
 
 watch(
   [uiTreatAsEnterpriseRole, isPlatformAdminGovernanceMode, dashboardUnlocked],
@@ -13874,6 +13983,7 @@ const authDialogBindings = {
   showAuthGate,
   dashboardUnlocked,
   authPanelOpen,
+  authAppTitle,
   authModalTitle,
   authPanelModeText,
   authRoleBadgeClass,
@@ -13881,6 +13991,8 @@ const authDialogBindings = {
   authCurrentDisplayName,
   authModeText,
   authEntryHintText,
+  authGuestIdentityLabel,
+  authGuestIdentityMeta,
   authCurrentUser,
   authAccountStatusLabel,
   authCurrentOrganizationName,
@@ -13922,9 +14034,13 @@ const authDialogBindings = {
   authCapabilityCards,
   authPrimaryAccounts,
   authDialogView,
+  authAllowsGuestMode,
+  authAllowsPersonalRegister,
+  authPreviewRoles,
   authUsername,
   authPassword,
   authDemoAccounts,
+  authVisibleDemoAccounts,
   authPersonalRegisterForm,
   authEnterpriseRegisterForm,
   authEnterpriseRegisterLoading,

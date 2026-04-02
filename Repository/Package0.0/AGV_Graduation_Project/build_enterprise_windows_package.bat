@@ -1,0 +1,47 @@
+@echo off
+setlocal
+
+echo === AGV Enterprise Client Package Build ===
+set "ROOT_PACKAGE_DIR=%~dp0dist\AGV_Enterprise_Client_v1"
+set "PYI_PACKAGE_DIR=%~dp0backend\dist\AGV_Enterprise_Client"
+set "ENTERPRISE_DOCS_DIR=%~dp0enterprise_client\docs"
+set "DEMO_SOURCE_DIR=%~dp0demo"
+
+call "%~dp0build_frontend_dist_enterprise.bat"
+if errorlevel 1 exit /b 1
+
+cd /d %~dp0backend
+call .\venv\Scripts\activate
+
+python -c "import importlib.util,sys; sys.exit(0 if importlib.util.find_spec('PyInstaller') else 1)"
+if errorlevel 1 (
+  echo PyInstaller is not installed in backend venv.
+  echo Install it with:
+  echo   backend\venv\Scripts\python.exe -m pip install -r backend\requirements-package.txt
+  exit /b 1
+)
+
+python -m PyInstaller .\packaging\backend_enterprise.spec --noconfirm --clean
+if errorlevel 1 (
+  echo Enterprise PyInstaller build failed.
+  exit /b 1
+)
+
+if exist "%ROOT_PACKAGE_DIR%" rmdir /s /q "%ROOT_PACKAGE_DIR%"
+if not exist "%ROOT_PACKAGE_DIR%" mkdir "%ROOT_PACKAGE_DIR%"
+xcopy "%PYI_PACKAGE_DIR%\*" "%ROOT_PACKAGE_DIR%\" /E /I /Y >nul
+if not exist "%ROOT_PACKAGE_DIR%\data" mkdir "%ROOT_PACKAGE_DIR%\data"
+if exist "%~dp0data\agv_enterprise_client.db" (
+  copy /Y "%~dp0data\agv_enterprise_client.db" "%ROOT_PACKAGE_DIR%\data\agv_enterprise_client.db" >nul
+) else if exist "%~dp0data\agv_dispatch.db" (
+  copy /Y "%~dp0data\agv_dispatch.db" "%ROOT_PACKAGE_DIR%\data\agv_enterprise_client.db" >nul
+)
+if not exist "%ROOT_PACKAGE_DIR%\docs" mkdir "%ROOT_PACKAGE_DIR%\docs"
+if exist "%ENTERPRISE_DOCS_DIR%\*" xcopy "%ENTERPRISE_DOCS_DIR%\*" "%ROOT_PACKAGE_DIR%\docs\" /E /I /Y >nul
+if not exist "%ROOT_PACKAGE_DIR%\demo" mkdir "%ROOT_PACKAGE_DIR%\demo"
+if exist "%DEMO_SOURCE_DIR%\json\*" xcopy "%DEMO_SOURCE_DIR%\json\*" "%ROOT_PACKAGE_DIR%\demo\json\" /E /I /Y >nul
+copy /Y "%~dp0start_enterprise_client.bat" "%ROOT_PACKAGE_DIR%\start_enterprise_client.bat" >nul
+
+echo Enterprise client package build completed:
+echo   %ROOT_PACKAGE_DIR%
+endlocal

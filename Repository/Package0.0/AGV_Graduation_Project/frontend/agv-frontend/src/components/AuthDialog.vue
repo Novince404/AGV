@@ -28,7 +28,7 @@
       <div class="auth-dialog-card">
         <div class="auth-dialog-header">
           <div>
-            <div class="auth-dialog-kicker">{{ t('title') }}</div>
+            <div class="auth-dialog-kicker">{{ authAppTitle || t('title') }}</div>
             <h2 class="auth-dialog-title">{{ authModalTitle }}</h2>
             <p class="auth-dialog-hint">{{ authPanelModeText }}</p>
           </div>
@@ -44,10 +44,10 @@
 
         <div class="auth-dialog-current" :class="[authRoleBadgeClass, { guest: !authAuthenticated }]">
           <div class="auth-dialog-current-label">{{ t('auth_current_identity') }}</div>
-          <strong>{{ authAuthenticated ? authCurrentDisplayName : t('auth_role_guest') }}</strong>
+          <strong>{{ authAuthenticated ? authCurrentDisplayName : authGuestIdentityLabel }}</strong>
           <span>{{ authModeText }}</span>
           <small class="auth-dialog-current-hint">{{ authEntryHintText }}</small>
-          <small>{{ authAuthenticated ? authCurrentUser.username : 'guest' }}</small>
+          <small>{{ authAuthenticated ? authCurrentUser.username : authGuestIdentityMeta }}</small>
           <small v-if="authAuthenticated">{{ authAccountStatusLabel }}</small>
           <small v-if="authAuthenticated && authCurrentOrganizationName">{{ authCurrentOrganizationName }}</small>
           <button
@@ -614,6 +614,7 @@
               {{ t('auth_manual_login') }}
             </button>
             <button
+              v-if="authAllowsPersonalRegister"
               class="auth-dialog-segment"
               :class="{ active: authDialogView === 'personal-register' }"
               type="button"
@@ -798,7 +799,7 @@
           </div>
         </template>
 
-        <template v-else-if="authDialogView === 'personal-register'">
+        <template v-else-if="authDialogView === 'personal-register' && authAllowsPersonalRegister">
           <div class="auth-dialog-workspace">
             <div class="auth-dialog-divider">{{ t('auth_personal_register') }}</div>
             <p class="auth-dialog-hint">{{ t('auth_personal_register_hint') }}</p>
@@ -1154,7 +1155,7 @@
 </template>
 
 <script>
-import { computed, defineComponent, reactive, ref, watchEffect } from 'vue'
+import { computed, defineComponent, reactive, ref, unref, watchEffect } from 'vue'
 
 export default defineComponent({
   name: 'AuthDialog',
@@ -1228,15 +1229,22 @@ export default defineComponent({
     const previewIdentityOptions = computed(() => {
       const ui = props.ui || {}
       const t = typeof ui.t === 'function' ? ui.t : key => key
-      const demoAccounts = Array.isArray(ui.authDemoAccounts) ? ui.authDemoAccounts : []
-      const desiredRoles = [
-        'guest',
-        'personal',
-        'enterprise_admin',
-        'enterprise_operator',
-        'enterprise_logistics',
-        'platform_admin'
-      ]
+      const visibleDemoAccounts = unref(ui.authVisibleDemoAccounts)
+      const rawDemoAccounts = unref(ui.authDemoAccounts)
+      const rawPreviewRoles = unref(ui.authPreviewRoles)
+      const demoAccounts = Array.isArray(visibleDemoAccounts)
+        ? visibleDemoAccounts
+        : (Array.isArray(rawDemoAccounts) ? rawDemoAccounts : [])
+      const desiredRoles = Array.isArray(rawPreviewRoles) && rawPreviewRoles.length
+        ? rawPreviewRoles
+        : [
+            'guest',
+            'personal',
+            'enterprise_admin',
+            'enterprise_operator',
+            'enterprise_logistics',
+            'platform_admin'
+          ]
       return desiredRoles
         .map(role => {
           if (role === 'guest') {
@@ -1244,8 +1252,8 @@ export default defineComponent({
               key: 'guest',
               role: 'guest',
               username: 'guest',
-              label: t('auth_role_guest'),
-              meta: t('auth_enter_guest')
+              label: unref(ui.authGuestIdentityLabel) || t('auth_role_guest'),
+              meta: unref(ui.authGuestIdentityMeta) || t('auth_enter_guest')
             }
           }
           const matched = demoAccounts.find(account => account.role === role)
@@ -1267,7 +1275,7 @@ export default defineComponent({
         key: 'guest',
         role: 'guest',
         username: 'guest',
-        label: 'guest',
+        label: unref(props.ui?.authGuestIdentityLabel) || 'guest',
         meta: ''
       }
     })
@@ -1318,14 +1326,14 @@ export default defineComponent({
           hint: t('auth_side_guide_enter_hint')
         }
       ]
-      if (ui.authDialogView === 'personal-register') {
+      if (unref(ui.authAllowsPersonalRegister) && unref(ui.authDialogView) === 'personal-register') {
         items.push({
           key: 'personal-register',
           title: t('auth_side_guide_personal_register_title'),
           hint: t('auth_side_guide_personal_register_hint')
         })
       }
-      if (ui.authDialogView === 'enterprise-register') {
+      if (unref(ui.authDialogView) === 'enterprise-register') {
         items.push({
           key: 'register',
           title: t('auth_side_guide_register_title'),
@@ -1353,11 +1361,14 @@ export default defineComponent({
     watchEffect(() => {
       const ui = props.ui || {}
       const options = previewIdentityOptions.value
-      const desiredDefaultRole = ui.authAuthenticated ? String(ui.authCurrentRole || 'guest') : 'guest'
+      const fallbackRole = options[0]?.role || 'guest'
+      const desiredDefaultRole = unref(ui.authAuthenticated)
+        ? String(unref(ui.authCurrentRole) || fallbackRole)
+        : fallbackRole
       if (!options.some(option => option.role === selectedPreviewRole.value)) {
         selectedPreviewRole.value = options.some(option => option.role === desiredDefaultRole)
           ? desiredDefaultRole
-          : (options[0]?.role || 'guest')
+          : fallbackRole
       }
       Object.assign(exposed, ui, {
         authPreviewIdentityOptions: options,
