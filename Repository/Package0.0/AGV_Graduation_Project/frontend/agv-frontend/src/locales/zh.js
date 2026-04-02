@@ -1638,7 +1638,12 @@
     "taskJson": {
       "singleExample": "填入单段示例",
       "chainExample": "填入阶段示例",
-      "importFile": "导入文件",
+      "actionTitle": "任务 JSON 操作",
+      "actionHint": "可直接导入文本、选择 JSON 文件，或导出当前任务列表。",
+      "importText": "导入文本",
+      "importFile": "导入 JSON 文件",
+      "exportCurrent": "导出当前任务",
+      "clearEditor": "清空文本框",
       "singleLoaded": "已填入单段任务 JSON 示例。",
       "chainLoaded": "已填入阶段任务 JSON 示例。"
     },

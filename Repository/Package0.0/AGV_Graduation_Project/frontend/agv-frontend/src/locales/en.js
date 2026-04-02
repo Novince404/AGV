@@ -1638,7 +1638,12 @@
     "taskJson": {
       "singleExample": "Single Example",
       "chainExample": "Stage Example",
-      "importFile": "Import File",
+      "actionTitle": "Task JSON Actions",
+      "actionHint": "Import from text, load a JSON file, or export the current task list.",
+      "importText": "Import Text",
+      "importFile": "Import JSON File",
+      "exportCurrent": "Export Tasks",
+      "clearEditor": "Clear Editor",
       "singleLoaded": "Loaded a single-task JSON example.",
       "chainLoaded": "Loaded a stage-task JSON example."
     },

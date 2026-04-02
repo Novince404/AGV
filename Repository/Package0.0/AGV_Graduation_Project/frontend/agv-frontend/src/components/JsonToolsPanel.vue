@@ -33,7 +33,11 @@
       :placeholder="t('json_placeholder')"
     ></textarea>
     <div class="json-actions-shell">
-      <div class="json-actions-primary">
+      <div class="json-actions-heading">
+        <strong>{{ taskJsonLocale.actionTitle || t('json_tools') }}</strong>
+        <span>{{ taskJsonLocale.actionHint || t('json_placeholder') }}</span>
+      </div>
+      <div class="json-actions-grid">
         <button
           class="btn-secondary"
           type="button"
@@ -41,7 +45,7 @@
           :title="buildCapabilityLockedTitle('data', authCanJsonWrite)"
           @click="importTasksFromJson"
         >
-          {{ t('import_json') }}
+          {{ taskJsonLocale.importText || t('import_json') }}
         </button>
         <label
           class="btn-secondary file-trigger-button json-file-trigger"
@@ -57,8 +61,6 @@
           />
           <span>{{ taskJsonLocale.importFile || t('import_json') }}</span>
         </label>
-      </div>
-      <div class="json-actions-secondary">
         <button
           class="btn-ghost"
           type="button"
@@ -66,7 +68,7 @@
           :title="buildCapabilityLockedTitle('data', authCanJsonWrite)"
           @click="exportTasksToJsonWithAuth"
         >
-          {{ t('export_json') }}
+          {{ taskJsonLocale.exportCurrent || t('export_json') }}
         </button>
         <button
           class="btn-ghost"
@@ -75,7 +77,7 @@
           :title="buildCapabilityLockedTitle('data', authCanJsonWrite)"
           @click="clearJsonTextWithAuth"
         >
-          {{ t('clear_json') }}
+          {{ taskJsonLocale.clearEditor || t('clear_json') }}
         </button>
       </div>
     </div>

@@ -4582,34 +4582,41 @@ h2 {
 }
 
 .json-actions-shell {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
   margin-top: 12px;
-  flex-wrap: wrap;
 }
 
-.json-actions-primary,
-.json-actions-secondary {
+.json-actions-heading {
   display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.json-actions-heading strong {
+  font-size: 13px;
+  color: #3d352b;
+}
+
+.json-actions-heading span {
+  font-size: 12px;
+  line-height: 1.5;
+  color: #7a6a58;
+}
+
+.json-actions-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
-  flex-wrap: wrap;
 }
 
-.json-actions-primary {
-  flex: 1 1 280px;
-}
-
-.json-actions-secondary {
-  justify-content: flex-end;
-  flex: 0 1 auto;
-}
-
-.json-actions-primary .btn-secondary,
-.json-actions-primary .file-trigger-button,
-.json-actions-secondary .btn-ghost {
-  min-width: 112px;
+.json-actions-grid .btn-secondary,
+.json-actions-grid .file-trigger-button,
+.json-actions-grid .btn-ghost {
+  width: 100%;
+  min-width: 0;
+  justify-content: center;
 }
 
 .json-example-actions {
@@ -4695,20 +4702,12 @@ h2 {
   }
 
   .json-actions-shell {
-    flex-direction: column;
-    align-items: stretch;
+    gap: 8px;
   }
 
-  .json-actions-primary,
-  .json-actions-secondary {
+  .json-actions-grid {
+    grid-template-columns: minmax(0, 1fr);
     width: 100%;
-    justify-content: stretch;
-  }
-
-  .json-actions-primary .btn-secondary,
-  .json-actions-primary .file-trigger-button,
-  .json-actions-secondary .btn-ghost {
-    flex: 1 1 0;
   }
 }
 

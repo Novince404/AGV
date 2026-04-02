@@ -1638,7 +1638,12 @@
     "taskJson": {
       "singleExample": "単段例を入力",
       "chainExample": "段階例を入力",
-      "importFile": "ファイルをインポート",
+      "actionTitle": "タスク JSON 操作",
+      "actionHint": "テキスト、JSON ファイル、現在のタスク一覧の書き出しをここで扱えます。",
+      "importText": "テキストを取り込む",
+      "importFile": "JSON ファイルを取り込む",
+      "exportCurrent": "現在のタスクを書き出す",
+      "clearEditor": "入力欄をクリア",
       "singleLoaded": "単段タスク JSON サンプルを入力しました。",
       "chainLoaded": "段階タスク JSON サンプルを入力しました。"
     },
