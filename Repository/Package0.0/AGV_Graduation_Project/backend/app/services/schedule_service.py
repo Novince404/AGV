@@ -880,7 +880,7 @@ def recover_blocked_task(
         task.dispatch_algorithm = resolved_algorithm
         task.dispatch_reason = f"recover_waiting_for_idle_agv:{resolved_algorithm}"
         return {
-            "message": "Task queued for recovery on any idle AGV",
+            "message": "Task queued for recovery on any idle or returning AGV",
             "queued": True,
             "recover_mode": recover_mode,
             "algorithm": resolved_algorithm,

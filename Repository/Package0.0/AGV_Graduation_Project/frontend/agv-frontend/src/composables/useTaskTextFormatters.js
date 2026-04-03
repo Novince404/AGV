@@ -229,9 +229,9 @@ export function useTaskTextFormatters({
         return obstacleSaveRequiredText()
       }
       if (task.dispatch_algorithm && !hasIdleAgv()) {
-        if (locale.value === 'ja') return `${algorithmText(task.dispatch_algorithm)} で再調度待機中です。空き AGV を待っています。`
-        if (locale.value === 'zh') return `任务将按 ${algorithmText(task.dispatch_algorithm)} 重试，当前正在等待空闲 AGV。`
-        return `Waiting for an idle AGV to retry this task with ${algorithmText(task.dispatch_algorithm)}.`
+        if (locale.value === 'ja') return `${algorithmText(task.dispatch_algorithm)} で再調度待機中です。待機中または回庫中の AGV を待っています。`
+        if (locale.value === 'zh') return `任务将按 ${algorithmText(task.dispatch_algorithm)} 重试，当前正在等待空闲或回仓中的 AGV。`
+        return `Waiting for an idle or returning AGV to retry this task with ${algorithmText(task.dispatch_algorithm)}.`
       }
       if (!hasIdleAgv()) {
         if (agvs.value.some(agv => ['fault', 'emergency_stop'].includes(agv.status))) {
@@ -364,7 +364,7 @@ export function useTaskTextFormatters({
     if (reason.startsWith('recover_waiting_for_idle_agv')) {
       if (locale.value === 'ja') return '改派待機中'
       if (locale.value === 'zh') return '等待改派空闲车'
-      return 'Waiting idle AGV for reassignment'
+      return 'Waiting for reassignment on an idle or returning AGV'
     }
     if (reason.startsWith('retry_from_current_waiting_for_bound_agv')) {
       if (locale.value === 'ja') return '原地復旧待機中'
@@ -409,9 +409,9 @@ export function useTaskTextFormatters({
       if (locale.value === 'zh') return `已进入原车恢复等待，车辆空闲后将按 ${alg} 自动继续。`
       return `Queued for bound AGV recovery. Will resume with ${alg} when idle.`
     }
-    if (locale.value === 'ja') return `改派待機にしました。空き AGV で ${alg} を再試行します。`
-    if (locale.value === 'zh') return `已进入改派等待，空闲 AGV 出现后将按 ${alg} 自动重试。`
-    return `Queued for reassignment. Will retry with ${alg} when any AGV is idle.`
+    if (locale.value === 'ja') return `改派待機にしました。待機中または回庫中の AGV で ${alg} を再試行します。`
+    if (locale.value === 'zh') return `已进入改派等待，空闲或回仓中的 AGV 可用后将按 ${alg} 自动重试。`
+    return `Queued for reassignment. Will retry with ${alg} when any idle or returning AGV is available.`
   }
 
   function countRetryableBlockedTasks(taskGroup) {

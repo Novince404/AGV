@@ -4143,12 +4143,12 @@ const currentTaskBuilderHint = computed(() => {
 
   if (!selectedBackendAgv.value) {
     if (locale.value === 'ja') {
-      return '手動派車では先に空き AGV を選択してください。'
+      return '手動派車では先に待機中または回庫中の AGV を選択してください。'
     }
     if (locale.value === 'zh') {
-      return '手动派车需要先选中一台空闲 AGV。'
+      return '手动派车需要先选中一台空闲或回仓中的 AGV。'
     }
-    return 'Manual dispatch requires selecting one idle AGV first.'
+    return 'Manual dispatch requires selecting one idle or returning AGV first.'
   }
 
   if (taskBuilderMode.value === 'single' && manualDispatchStep.value === 'awaiting_end') {
@@ -4212,12 +4212,12 @@ const chainTaskSubmitText = computed(() => {
 const taskChainMapPickStatusText = computed(() => {
   if (dispatchMode.value === 'manual' && !selectedBackendAgv.value) {
     if (locale.value === 'ja') {
-      return '先に空き AGV を選択してから多段選点を開始してください。'
+      return '先に待機中または回庫中の AGV を選択してから多段選点を開始してください。'
     }
     if (locale.value === 'zh') {
-      return '请先选中一台空闲 AGV，再开始多段选点。'
+      return '请先选中一台空闲或回仓中的 AGV，再开始多段选点。'
     }
-    return 'Select one idle AGV before starting multi-point manual dispatch.'
+    return 'Select one idle or returning AGV before starting multi-point manual dispatch.'
   }
 
   if (!taskChainMapPickActive.value) {
@@ -4381,12 +4381,12 @@ function manualTaskQueuedText(task) {
 function autoTaskQueuedText(task) {
   const taskId = task?.id ?? '?'
   if (locale.value === 'ja') {
-    return `タスク #${taskId} を自動調度キューへ追加しました。空き AGV が出るまで待機します。`
+    return `タスク #${taskId} を自動調度キューへ追加しました。待機中または回庫中の AGV が使えるまで待機します。`
   }
   if (locale.value === 'zh') {
-    return `任务 #${taskId} 已加入自动调度队列，正在等待空闲 AGV。`
+    return `任务 #${taskId} 已加入自动调度队列，正在等待空闲或回仓中的 AGV。`
   }
-  return `Task #${taskId} was added to the auto dispatch queue and is waiting for an idle AGV.`
+  return `Task #${taskId} was added to the auto dispatch queue and is waiting for an idle or returning AGV.`
 }
 
 function mergeTaskDisplayPayload(taskPayload, fallbackTask = null) {
@@ -5234,7 +5234,7 @@ function buildBlockedBatchRetrySummary(total, scheduledCount, queuedCount, faile
     return `到達不可タスク ${total} 件を処理しました。即時再試行 ${scheduledCount} 件、待機 ${queuedCount} 件、失敗 ${failedCount} 件。`
   }
   if (locale.value === 'zh') {
-    return `已处理 ${total} 个不可达任务：立即重试 ${scheduledCount} 个，等待空闲 AGV ${queuedCount} 个，失败 ${failedCount} 个。`
+    return `已处理 ${total} 个不可达任务：立即重试 ${scheduledCount} 个，等待空闲或回仓中的 AGV ${queuedCount} 个，失败 ${failedCount} 个。`
   }
   return `Processed ${total} blocked tasks: ${scheduledCount} retried now, ${queuedCount} queued, ${failedCount} failed.`
 }

@@ -39,6 +39,7 @@ if exist "%~dp0data\agv_enterprise_client.db" (
 if not exist "%ROOT_PACKAGE_DIR%\docs" mkdir "%ROOT_PACKAGE_DIR%\docs"
 if exist "%ENTERPRISE_DOCS_DIR%\*" xcopy "%ENTERPRISE_DOCS_DIR%\*" "%ROOT_PACKAGE_DIR%\docs\" /E /I /Y >nul
 if not exist "%ROOT_PACKAGE_DIR%\demo" mkdir "%ROOT_PACKAGE_DIR%\demo"
+if exist "%DEMO_SOURCE_DIR%\docs\*" xcopy "%DEMO_SOURCE_DIR%\docs\*" "%ROOT_PACKAGE_DIR%\demo\docs\" /E /I /Y >nul
 if exist "%DEMO_SOURCE_DIR%\json\*" xcopy "%DEMO_SOURCE_DIR%\json\*" "%ROOT_PACKAGE_DIR%\demo\json\" /E /I /Y >nul
 copy /Y "%~dp0start_enterprise_client.bat" "%ROOT_PACKAGE_DIR%\start_enterprise_client.bat" >nul
 

@@ -107,9 +107,9 @@ export function useLocaleText(locale) {
 
     if (errorCode === 'recover_waiting_for_idle_agv') {
       const algText = apiAlgorithmText(rawAlgorithm.toLowerCase())
-      if (locale.value === 'ja') return `空き AGV 待機中です。${algText} で改派再試行します。`
-      if (locale.value === 'zh') return `正在等待空闲 AGV，将按 ${algText} 自动改派重试。`
-      return `Waiting for an idle AGV. Will retry reassignment with ${algText}.`
+      if (locale.value === 'ja') return `待機中または回庫中の AGV を待っています。${algText} で改派再試行します。`
+      if (locale.value === 'zh') return `正在等待空闲或回仓中的 AGV，将按 ${algText} 自动改派重试。`
+      return `Waiting for an idle or returning AGV. Will retry reassignment with ${algText}.`
     }
 
     if (errorCode === 'retry_from_current_waiting_for_bound_agv') {
@@ -173,7 +173,7 @@ export function useLocaleText(locale) {
         [/^Task not found$/i, 'task_not_found'],
         [/^Task is not blocked$/i, 'task_not_blocked'],
         [/^Blocked task retry only supports A\*$/i, 'blocked_retry_requires_astar'],
-        [/^No idle AGV$/i, 'no_idle_agv'],
+        [/^No idle(?: or returning)? AGV$/i, 'no_idle_agv'],
         [/^No pending tasks$/i, 'no_pending_tasks'],
         [/^No reachable tasks$/i, 'no_reachable_tasks'],
         [/^Task route unreachable with current algorithm$/i, 'task_route_unreachable'],
@@ -191,7 +191,7 @@ export function useLocaleText(locale) {
       }
 
       const startUnreachableMatch = detail.match(
-        /^No idle AGV can reach the task start with algorithm (simple|astar)$/i
+        /^No idle(?: or returning)? AGV can reach the task start with algorithm (simple|astar)$/i
       )
       if (startUnreachableMatch) {
         const algorithmName = startUnreachableMatch[1].toLowerCase()
