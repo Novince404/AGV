@@ -11400,6 +11400,126 @@ async function createTaskFromTemplate(template) {
   })
 }
 
+function buildImportedTaskScheduleFailureText(task, detail) {
+  return formatInlineMessage(t('json_import_schedule_task_failed'), {
+    id: task?.id ?? '-',
+    reason: localizeApiErrorDetail(detail, t('json_import_fail'))
+  })
+}
+
+function buildImportedTaskScheduleSummary(importedCount, stats) {
+  const summary = formatInlineMessage(t('json_import_schedule_summary'), {
+    imported: importedCount,
+    scheduled: stats.scheduledCount,
+    queued: stats.queuedCount,
+    manual: stats.manualBindingCount,
+    failed: stats.failureMessages.length
+  })
+  const detailParts = []
+  if (stats.manualBindingCount > 0) {
+    detailParts.push(
+      formatInlineMessage(t('json_import_schedule_manual_binding_required'), {
+        count: stats.manualBindingCount
+      })
+    )
+  }
+  if (stats.queuedCount > 0) {
+    detailParts.push(
+      formatInlineMessage(t('json_import_schedule_queued'), {
+        count: stats.queuedCount
+      })
+    )
+  }
+  if (stats.failureMessages.length > 0) {
+    detailParts.push(stats.failureMessages.slice(0, 2).join('；'))
+  }
+  return [summary, ...detailParts].filter(Boolean).join(' ')
+}
+
+async function scheduleImportedTasks(taskIds = []) {
+  const importedTaskIds = [...new Set((taskIds || []).map(id => Number(id)).filter(id => Number.isFinite(id) && id > 0))]
+  const stats = {
+    scheduledCount: 0,
+    queuedCount: 0,
+    manualBindingCount: 0,
+    failureMessages: []
+  }
+
+  if (importedTaskIds.length === 0) {
+    return stats
+  }
+
+  await Promise.all([fetchAgvs(), fetchTasks()])
+
+  for (const taskId of importedTaskIds) {
+    const importedTask = tasks.value.find(task => Number(task?.id) === taskId)
+    if (!importedTask) continue
+
+    const taskStatus = String(importedTask.status || '')
+    if (['assigned', 'running', 'finished'].includes(taskStatus)) {
+      stats.scheduledCount += 1
+      continue
+    }
+    if (!['pending', 'blocked'].includes(taskStatus)) {
+      continue
+    }
+
+    const scheduleMode = String(importedTask.dispatch_mode || 'auto').toLowerCase() === 'manual' ? 'manual' : 'auto'
+    const taskAlgorithm = String(importedTask.dispatch_algorithm || algorithm.value || 'simple').toLowerCase()
+
+    if (scheduleMode === 'manual') {
+      if (!Number.isInteger(importedTask.preferred_agv_id)) {
+        stats.manualBindingCount += 1
+        continue
+      }
+      const boundAgv = agvs.value.find(agv => Number(agv?.id) === Number(importedTask.preferred_agv_id))
+      if (!boundAgv || !isSchedulableIdleAgvStatus(boundAgv.status)) {
+        stats.queuedCount += 1
+        continue
+      }
+    } else if (!hasIdleAgv()) {
+      stats.queuedCount += 1
+      continue
+    }
+
+    try {
+      const scheduleRes = await fetch(`${API_BASE}/schedule/with_path`, {
+        method: 'POST',
+        headers: buildAuthorizedJsonHeaders(),
+        body: JSON.stringify({
+          task_id: importedTask.id,
+          agv_id: scheduleMode === 'manual' ? importedTask.preferred_agv_id : null,
+          schedule_mode: scheduleMode,
+          algorithm: taskAlgorithm,
+          grid_cols: gridColsValue(),
+          grid_rows: gridRowsValue()
+        })
+      })
+      const scheduleData = await scheduleRes.json()
+      if (!scheduleRes.ok) {
+        const errorCode = String(scheduleData?.detail?.error_code || '')
+        if (['no_idle_agv', 'agv_not_idle'].includes(errorCode)) {
+          stats.queuedCount += 1
+        } else {
+          stats.failureMessages.push(buildImportedTaskScheduleFailureText(importedTask, scheduleData?.detail))
+        }
+      } else {
+        stats.scheduledCount += 1
+      }
+    } catch (error) {
+      stats.failureMessages.push(
+        buildImportedTaskScheduleFailureText(importedTask, {
+          detail: error instanceof Error ? error.message : String(error)
+        })
+      )
+    }
+
+    await Promise.all([fetchAgvs(), fetchTasks()])
+  }
+
+  return stats
+}
+
 async function importTasksFromJson(rawText = jsonText.value) {
   const jsonPayload = String(rawText || '').trim()
   if (!jsonPayload) return
@@ -11443,9 +11563,14 @@ async function importTasksFromJson(rawText = jsonText.value) {
       jsonStatus.value = buildTaskJsonImportFailureText(data?.detail)
       return
     }
-    jsonStatus.value = t('json_import_ok')
-    await fetchTasks()
-    await tryAutoSchedule()
+    const scheduleStats = await scheduleImportedTasks(data?.task_ids)
+    jsonStatus.value = buildImportedTaskScheduleSummary(
+      Number(data?.count ?? taskItems.length ?? 0),
+      scheduleStats
+    )
+    if (scheduleStats.failureMessages.length > 0) {
+      showFloatingToast(scheduleStats.failureMessages[0], 'warning', 4200)
+    }
   } catch (error) {
     console.error('Import json error:', error)
     jsonStatus.value = error instanceof Error && error.message ? error.message : t('json_import_fail')

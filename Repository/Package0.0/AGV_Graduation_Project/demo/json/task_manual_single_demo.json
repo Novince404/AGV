@@ -9,8 +9,9 @@
       "grid_rows": 8,
       "priority": 2,
       "dispatch_mode": "manual",
+      "preferred_agv_id": 1,
       "dispatch_algorithm": "simple",
-      "dispatch_reason": "导师演示：手动单段任务"
+      "dispatch_reason": "???????????????? AGV #1?"
     }
   ]
 }
