@@ -92,9 +92,15 @@ const API_BASE = (() => {
     return configured.replace(/\/$/, '')
   }
   if (typeof window !== 'undefined') {
-    const { protocol, hostname, port } = window.location
-    if (port === '8000') {
-      return `${protocol}//${hostname}${port ? `:${port}` : ''}`
+    const { origin, protocol, hostname, port } = window.location
+    const isDevFrontendPort = port === '5173' || port === '4173'
+    if (
+      origin &&
+      /^https?:$/i.test(protocol) &&
+      hostname &&
+      !isDevFrontendPort
+    ) {
+      return origin.replace(/\/$/, '')
     }
   }
   return 'http://127.0.0.1:8000'
