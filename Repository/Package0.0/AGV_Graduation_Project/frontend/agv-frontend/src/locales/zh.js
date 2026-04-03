@@ -756,6 +756,7 @@
     "enterprise_settings_route_topology_help_add": "点击有效网格可新增或选中节点",
     "enterprise_settings_route_topology_help_connect": "先选中节点并开启连线模式，再点另一个节点即可创建连边",
     "enterprise_settings_route_topology_help_select_edge": "可在右侧选中连边并调整方向、车道类型和速度倍率",
+    "enterprise_settings_route_topology_help_blocked": "障碍格会直接显示，且不能放置拓扑节点",
     "enterprise_settings_route_topology_edges_empty": "当前还没有配置连边。",
     "enterprise_settings_route_topology_node_editor": "节点编辑",
     "enterprise_settings_route_topology_node_label": "节点名称",
@@ -1622,6 +1623,8 @@
     "feedback_bell_entry": "反馈入口",
     "feedback_bell_enterprise_request_hint": "向企业内同事提交协同请求或报错",
     "feedback_bell_platform_bug_hint": "向平台管理员提交界面或功能异常反馈",
+    "enterprise_request_new_notification": "你收到了 {count} 条新的内部请求/报错。",
+    "platform_bug_feedback_new_notification": "平台管理员收到 {count} 条新的 Bug 反馈。",
     "taskChain": {
       "title": "阶段任务",
       "hint": "用于 A -> B -> C 这类连续流程，同一任务会按阶段顺序连续执行。",

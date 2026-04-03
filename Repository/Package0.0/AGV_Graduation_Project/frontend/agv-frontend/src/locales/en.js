@@ -756,6 +756,7 @@
     "enterprise_settings_route_topology_help_add": "Click a valid cell to add or select a node",
     "enterprise_settings_route_topology_help_connect": "Select a node, enable connect mode, then click another node to create an edge",
     "enterprise_settings_route_topology_help_select_edge": "Select an edge from the list to adjust direction, lane type, or speed",
+    "enterprise_settings_route_topology_help_blocked": "Blocked cells stay visible and cannot host topology nodes",
     "enterprise_settings_route_topology_edges_empty": "No route edges yet.",
     "enterprise_settings_route_topology_node_editor": "Node Editor",
     "enterprise_settings_route_topology_node_label": "Node label",
@@ -1622,6 +1623,8 @@
     "feedback_bell_entry": "Feedback",
     "feedback_bell_enterprise_request_hint": "Send an internal enterprise request or issue report",
     "feedback_bell_platform_bug_hint": "Send a UI or feature bug report to platform admins",
+    "enterprise_request_new_notification": "You received {count} new internal request(s) or issue report(s).",
+    "platform_bug_feedback_new_notification": "Platform admins received {count} new bug feedback item(s).",
     "taskChain": {
       "title": "Stage Task",
       "hint": "Use one task to execute linked stages such as A -> B -> C in order.",

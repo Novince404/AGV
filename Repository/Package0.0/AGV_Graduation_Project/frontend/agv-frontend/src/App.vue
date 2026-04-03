@@ -506,6 +506,12 @@ const endPoint = ref(null)
 const showGuideCenter = ref(false)
 const showGuideCenterOnLoad = ref(true)
 const feedbackBellMenuOpen = ref(false)
+const enterpriseRequestUnreadIds = ref([])
+const platformBugFeedbackUnreadIds = ref([])
+const enterpriseRequestSeenOpenIds = ref([])
+const platformBugFeedbackSeenOpenIds = ref([])
+const enterpriseRequestNotificationsPrimed = ref(false)
+const platformBugFeedbackNotificationsPrimed = ref(false)
 
 const manualPathToStart = ref([])
 const manualPathToEnd = ref([])
@@ -658,6 +664,7 @@ let mapResizeSectionHighlightTimer = null
 let mapResizeItemHighlightTimer = null
 let accountGovernanceSearchTimer = null
 let authGovernanceSyncTimer = null
+let feedbackPollTimer = null
 let mapPreviewFocusSequence = 0
 let operationAuditRefreshPending = false
 
@@ -2003,10 +2010,29 @@ const platformBugFeedbackLastFetchedText = computed(() =>
     ? formatInlineMessage(t('operations_last_updated'), { at: platformBugFeedbackLastFetchedAt.value })
     : ''
 )
+const currentAuthUserId = computed(() => String(authCurrentUser.value?.id || ''))
+const enterpriseRequestIncomingItems = computed(() =>
+  enterpriseRequestItems.value.filter(item =>
+    String(item?.target_user_id || '') === currentAuthUserId.value &&
+    ['open', 'in_progress'].includes(String(item?.status || ''))
+  )
+)
+const enterpriseRequestOpenCount = computed(() =>
+  enterpriseRequestIncomingItems.value.filter(item => String(item?.status || '') === 'open').length
+)
 const platformBugFeedbackOpenCount = computed(() => Number(platformBugFeedbackSummary.value.open || 0))
 const platformBugFeedbackCanManageSelected = computed(() =>
   authCanPlatformBugManage.value && Boolean(selectedPlatformBugFeedback.value)
 )
+const enterpriseRequestUnreadCount = computed(() => enterpriseRequestUnreadIds.value.length)
+const platformBugFeedbackUnreadCount = computed(() => platformBugFeedbackUnreadIds.value.length)
+const enterpriseRequestBellCount = computed(() =>
+  enterpriseRequestUnreadCount.value > 0 ? enterpriseRequestUnreadCount.value : enterpriseRequestOpenCount.value
+)
+const feedbackBellBadgeCount = computed(() =>
+  enterpriseRequestBellCount.value + (!isPlatformAdmin.value ? 0 : platformBugFeedbackUnreadCount.value)
+)
+const feedbackBellHasAttention = computed(() => feedbackBellBadgeCount.value > 0)
 const enterpriseToolbarStatusBadgeText = computed(() => {
   if (isPlatformAdminEnterprisePreviewMode.value) return ''
   if (!authIsEnterpriseRole.value) return ''
@@ -2894,6 +2920,15 @@ const enterpriseFilteredAuditEntries = computed(() => filteredOperationAudits.va
 const currentMapTopologySummary = computed(() =>
   buildMapTopologySummary(currentMapTopology.value, gridColsValue(), gridRowsValue(), validCells.value)
 )
+const enterpriseRuntimeTopologyNodes = computed(() => {
+  if (!uiTreatAsEnterpriseRole.value || !currentMapTopologySummary.value.enabled) return []
+  return (currentMapTopology.value?.nodes || [])
+    .filter(node => ['station', 'parking', 'charge'].includes(String(node?.node_type || '')))
+    .map(node => ({
+      ...node,
+      badge: formatEnterpriseTopologyNodeBadge(node)
+    }))
+})
 const enterpriseMapWorkspaceCards = computed(() => [
   {
     key: 'profile',
@@ -6251,20 +6286,101 @@ async function fetchEnterpriseRequestRecipients() {
   }
 }
 
-async function fetchEnterpriseRequests({ forceSelectFirst = false, preferredSelectedId = '' } = {}) {
+function resetEnterpriseRequestNotificationState() {
+  enterpriseRequestUnreadIds.value = []
+  enterpriseRequestSeenOpenIds.value = []
+  enterpriseRequestNotificationsPrimed.value = false
+}
+
+function resetPlatformBugFeedbackNotificationState() {
+  platformBugFeedbackUnreadIds.value = []
+  platformBugFeedbackSeenOpenIds.value = []
+  platformBugFeedbackNotificationsPrimed.value = false
+}
+
+function markEnterpriseRequestsSeen() {
+  enterpriseRequestUnreadIds.value = []
+}
+
+function markPlatformBugFeedbackSeen() {
+  platformBugFeedbackUnreadIds.value = []
+}
+
+function updateEnterpriseRequestNotifications(items = [], { prime = false } = {}) {
+  const openTargetedIds = (items || [])
+    .filter(item =>
+      String(item?.target_user_id || '') === currentAuthUserId.value &&
+      String(item?.status || '') === 'open'
+    )
+    .map(item => String(item?.id || ''))
+    .filter(Boolean)
+  const previousSeen = new Set(enterpriseRequestSeenOpenIds.value)
+  if (!enterpriseRequestNotificationsPrimed.value || prime) {
+    enterpriseRequestSeenOpenIds.value = openTargetedIds
+    enterpriseRequestUnreadIds.value = []
+    enterpriseRequestNotificationsPrimed.value = true
+    return
+  }
+  const newIds = openTargetedIds.filter(id => !previousSeen.has(id))
+  if (newIds.length && !enterpriseRequestDialogOpen.value) {
+    enterpriseRequestUnreadIds.value = [...new Set([...enterpriseRequestUnreadIds.value, ...newIds])]
+    showFloatingToast(
+      formatInlineMessage(t('enterprise_request_new_notification'), { count: newIds.length }),
+      'info',
+      3600
+    )
+  }
+  enterpriseRequestSeenOpenIds.value = openTargetedIds
+}
+
+function updatePlatformBugFeedbackNotifications(items = [], { prime = false } = {}) {
+  const openIds = (items || [])
+    .filter(item => String(item?.status || '') === 'open')
+    .map(item => String(item?.id || ''))
+    .filter(Boolean)
+  const previousSeen = new Set(platformBugFeedbackSeenOpenIds.value)
+  if (!platformBugFeedbackNotificationsPrimed.value || prime) {
+    platformBugFeedbackSeenOpenIds.value = openIds
+    platformBugFeedbackUnreadIds.value = []
+    platformBugFeedbackNotificationsPrimed.value = true
+    return
+  }
+  const newIds = openIds.filter(id => !previousSeen.has(id))
+  if (newIds.length && !platformBugFeedbackDialogOpen.value) {
+    platformBugFeedbackUnreadIds.value = [...new Set([...platformBugFeedbackUnreadIds.value, ...newIds])]
+    showFloatingToast(
+      formatInlineMessage(t('platform_bug_feedback_new_notification'), { count: newIds.length }),
+      'info',
+      3600
+    )
+  }
+  platformBugFeedbackSeenOpenIds.value = openIds
+}
+
+async function fetchEnterpriseRequests({
+  forceSelectFirst = false,
+  preferredSelectedId = '',
+  silent = false,
+  background = false,
+  primeNotifications = false,
+  statusOverride = '',
+  categoryOverride = '',
+  searchOverride = ''
+} = {}) {
   if (!authCanEnterpriseRequestSubmit.value) {
     enterpriseRequestItems.value = []
     enterpriseRequestSummary.value = { all: 0, open: 0, in_progress: 0, resolved: 0, closed: 0 }
     enterpriseRequestLastFetchedAt.value = ''
+    resetEnterpriseRequestNotificationState()
     return
   }
   if (enterpriseRequestLoading.value) return
   enterpriseRequestLoading.value = true
   try {
     const params = new URLSearchParams({
-      status: enterpriseRequestStatusFilter.value || 'all',
-      category: enterpriseRequestCategoryFilter.value || 'all',
-      search: String(enterpriseRequestSearch.value || '').trim(),
+      status: String(statusOverride || enterpriseRequestStatusFilter.value || 'all'),
+      category: String(categoryOverride || enterpriseRequestCategoryFilter.value || 'all'),
+      search: String(searchOverride || enterpriseRequestSearch.value || '').trim(),
       limit: '120'
     })
     const response = await fetch(`${API_BASE}/feedback/enterprise/requests?${params.toString()}`, {
@@ -6274,21 +6390,28 @@ async function fetchEnterpriseRequests({ forceSelectFirst = false, preferredSele
     if (!response.ok) {
       throw createApiError(data, 'Enterprise request fetch failed')
     }
-    enterpriseRequestItems.value = Array.isArray(data?.items) ? data.items : []
+    const nextItems = Array.isArray(data?.items) ? data.items : []
+    enterpriseRequestItems.value = nextItems
     enterpriseRequestSummary.value = data?.summary ?? enterpriseRequestSummary.value
     enterpriseRequestLastFetchedAt.value = new Date().toISOString()
-    const preferredId = String(preferredSelectedId || '')
-    if (preferredId && enterpriseRequestItems.value.some(item => String(item.id || '') === preferredId)) {
-      selectedEnterpriseRequestId.value = preferredId
-    } else if (
-      forceSelectFirst ||
-      !enterpriseRequestItems.value.some(item => String(item.id || '') === String(selectedEnterpriseRequestId.value || ''))
-    ) {
-      selectedEnterpriseRequestId.value = String(enterpriseRequestItems.value[0]?.id || '')
+    if (background) {
+      updateEnterpriseRequestNotifications(nextItems, { prime: primeNotifications })
+    } else {
+      const preferredId = String(preferredSelectedId || '')
+      if (preferredId && enterpriseRequestItems.value.some(item => String(item.id || '') === preferredId)) {
+        selectedEnterpriseRequestId.value = preferredId
+      } else if (
+        forceSelectFirst ||
+        !enterpriseRequestItems.value.some(item => String(item.id || '') === String(selectedEnterpriseRequestId.value || ''))
+      ) {
+        selectedEnterpriseRequestId.value = String(enterpriseRequestItems.value[0]?.id || '')
+      }
     }
   } catch (error) {
     console.error('Fetch enterprise requests error:', error)
-    showFloatingToast(error?.message || t('enterprise_request_fetch_failed'), 'error')
+    if (!silent) {
+      showFloatingToast(error?.message || t('enterprise_request_fetch_failed'), 'error')
+    }
   } finally {
     enterpriseRequestLoading.value = false
   }
@@ -6297,6 +6420,7 @@ async function fetchEnterpriseRequests({ forceSelectFirst = false, preferredSele
 async function openEnterpriseRequestDialog({ status = '', category = '', selectedId = '' } = {}) {
   if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'feedback.enterprise.submit', t('enterprise_request_requires_enterprise'))) return
   enterpriseRequestDialogOpen.value = true
+  markEnterpriseRequestsSeen()
   if (String(status || '').trim()) enterpriseRequestStatusFilter.value = String(status).trim()
   if (String(category || '').trim()) enterpriseRequestCategoryFilter.value = String(category).trim()
   try {
@@ -6393,21 +6517,31 @@ async function updateSelectedEnterpriseRequestStatus(status) {
   }
 }
 
-async function fetchPlatformBugFeedback({ forceSelectFirst = false, preferredSelectedId = '' } = {}) {
+async function fetchPlatformBugFeedback({
+  forceSelectFirst = false,
+  preferredSelectedId = '',
+  silent = false,
+  background = false,
+  primeNotifications = false,
+  statusOverride = '',
+  categoryOverride = '',
+  searchOverride = ''
+} = {}) {
   if (!authCanPlatformBugSubmit.value && !authCanPlatformBugManage.value) {
     platformBugFeedbackItems.value = []
     platformBugFeedbackSummary.value = { all: 0, open: 0, in_progress: 0, resolved: 0, closed: 0 }
     platformBugFeedbackLastFetchedAt.value = ''
     platformBugFeedbackManagementMode.value = false
+    resetPlatformBugFeedbackNotificationState()
     return
   }
   if (platformBugFeedbackLoading.value) return
   platformBugFeedbackLoading.value = true
   try {
     const params = new URLSearchParams({
-      status: platformBugFeedbackStatusFilter.value || 'all',
-      category: platformBugFeedbackCategoryFilter.value || 'all',
-      search: String(platformBugFeedbackSearch.value || '').trim(),
+      status: String(statusOverride || platformBugFeedbackStatusFilter.value || 'all'),
+      category: String(categoryOverride || platformBugFeedbackCategoryFilter.value || 'all'),
+      search: String(searchOverride || platformBugFeedbackSearch.value || '').trim(),
       limit: '120'
     })
     const response = await fetch(`${API_BASE}/feedback/platform-bugs?${params.toString()}`, {
@@ -6417,22 +6551,29 @@ async function fetchPlatformBugFeedback({ forceSelectFirst = false, preferredSel
     if (!response.ok) {
       throw createApiError(data, 'Platform bug feedback fetch failed')
     }
-    platformBugFeedbackItems.value = Array.isArray(data?.items) ? data.items : []
+    const nextItems = Array.isArray(data?.items) ? data.items : []
+    platformBugFeedbackItems.value = nextItems
     platformBugFeedbackSummary.value = data?.summary ?? platformBugFeedbackSummary.value
     platformBugFeedbackManagementMode.value = Boolean(data?.management)
     platformBugFeedbackLastFetchedAt.value = new Date().toISOString()
-    const preferredId = String(preferredSelectedId || '')
-    if (preferredId && platformBugFeedbackItems.value.some(item => String(item.id || '') === preferredId)) {
-      selectedPlatformBugFeedbackId.value = preferredId
-    } else if (
-      forceSelectFirst ||
-      !platformBugFeedbackItems.value.some(item => String(item.id || '') === String(selectedPlatformBugFeedbackId.value || ''))
-    ) {
-      selectedPlatformBugFeedbackId.value = String(platformBugFeedbackItems.value[0]?.id || '')
+    if (background) {
+      updatePlatformBugFeedbackNotifications(nextItems, { prime: primeNotifications })
+    } else {
+      const preferredId = String(preferredSelectedId || '')
+      if (preferredId && platformBugFeedbackItems.value.some(item => String(item.id || '') === preferredId)) {
+        selectedPlatformBugFeedbackId.value = preferredId
+      } else if (
+        forceSelectFirst ||
+        !platformBugFeedbackItems.value.some(item => String(item.id || '') === String(selectedPlatformBugFeedbackId.value || ''))
+      ) {
+        selectedPlatformBugFeedbackId.value = String(platformBugFeedbackItems.value[0]?.id || '')
+      }
     }
   } catch (error) {
     console.error('Fetch platform bug feedback error:', error)
-    showFloatingToast(error?.message || t('platform_bug_feedback_fetch_failed'), 'error')
+    if (!silent) {
+      showFloatingToast(error?.message || t('platform_bug_feedback_fetch_failed'), 'error')
+    }
   } finally {
     platformBugFeedbackLoading.value = false
   }
@@ -6450,6 +6591,7 @@ async function openPlatformBugFeedbackDialog({ status = '', category = '', selec
     return
   }
   platformBugFeedbackDialogOpen.value = true
+  markPlatformBugFeedbackSeen()
   if (String(status || '').trim()) platformBugFeedbackStatusFilter.value = String(status).trim()
   if (String(category || '').trim()) platformBugFeedbackCategoryFilter.value = String(category).trim()
   await fetchPlatformBugFeedback({ forceSelectFirst: !String(selectedId || '').trim(), preferredSelectedId: selectedId })
@@ -8011,6 +8153,10 @@ function isEnterpriseTopologyCellValid(x, y) {
   return validCellSet.value.has(blockedCellKey(x, y))
 }
 
+function isEnterpriseTopologyCellBlocked(x, y) {
+  return blockedCellSet.value.has(blockedCellKey(x, y))
+}
+
 function isEnterpriseMapEditorCellBlocked(x, y) {
   return enterpriseMapEditorDraftBlockedCellSet.value.has(blockedCellKey(x, y))
 }
@@ -8182,6 +8328,7 @@ function removeSelectedEnterpriseTopologyEdge() {
 function applyEnterpriseTopologyCell(cell) {
   if (!cell) return
   if (!isValidMapCell(cell.x, cell.y)) return
+  if (isEnterpriseTopologyCellBlocked(cell.x, cell.y)) return
   const existingNode = findMapTopologyNodeAtCell(enterpriseTopologyEditorDraft.value, cell.x, cell.y)
   if (!authCanMapWrite.value) {
     if (existingNode) selectEnterpriseTopologyNode(existingNode.key)
@@ -10517,6 +10664,45 @@ async function openEnterpriseRequestDialogFromBell() {
 async function openPlatformBugFeedbackDialogFromBell() {
   closeFeedbackBellMenu()
   await openPlatformBugFeedbackDialog()
+}
+
+async function refreshFeedbackNotifications({ prime = false } = {}) {
+  const jobs = []
+  if (authAuthenticated.value && authCanEnterpriseRequestSubmit.value && !enterpriseRequestDialogOpen.value) {
+    jobs.push(fetchEnterpriseRequests({
+      background: true,
+      silent: true,
+      primeNotifications: prime,
+      statusOverride: 'all',
+      categoryOverride: 'all',
+      searchOverride: ''
+    }))
+  }
+  if (authAuthenticated.value && authCanPlatformBugManage.value && !platformBugFeedbackDialogOpen.value) {
+    jobs.push(fetchPlatformBugFeedback({
+      background: true,
+      silent: true,
+      primeNotifications: prime,
+      statusOverride: 'all',
+      categoryOverride: 'all',
+      searchOverride: ''
+    }))
+  }
+  if (!jobs.length) return
+  await Promise.all(jobs)
+}
+
+function stopFeedbackPolling() {
+  if (!feedbackPollTimer) return
+  clearInterval(feedbackPollTimer)
+  feedbackPollTimer = null
+}
+
+function ensureFeedbackPolling() {
+  if (feedbackPollTimer || typeof window === 'undefined') return
+  feedbackPollTimer = setInterval(() => {
+    void refreshFeedbackNotifications()
+  }, 12000)
 }
 
 function onPanelScroll() {
@@ -13807,6 +13993,7 @@ watch([authAuthenticated, authCanEnterpriseRequestSubmit], ([authenticated, canS
   enterpriseRequestSummary.value = { all: 0, open: 0, in_progress: 0, resolved: 0, closed: 0 }
   enterpriseRequestLastFetchedAt.value = ''
   resetEnterpriseRequestDraft()
+  resetEnterpriseRequestNotificationState()
 })
 
 watch([authAuthenticated, authCanPlatformBugSubmit, authCanPlatformBugManage], ([authenticated, canSubmit, canManage]) => {
@@ -13822,7 +14009,29 @@ watch([authAuthenticated, authCanPlatformBugSubmit, authCanPlatformBugManage], (
   platformBugFeedbackSummary.value = { all: 0, open: 0, in_progress: 0, resolved: 0, closed: 0 }
   platformBugFeedbackLastFetchedAt.value = ''
   platformBugFeedbackManagementMode.value = false
+  resetPlatformBugFeedbackNotificationState()
 })
+
+watch(currentAuthUserId, (nextUserId, previousUserId) => {
+  if (nextUserId === previousUserId) return
+  resetEnterpriseRequestNotificationState()
+  resetPlatformBugFeedbackNotificationState()
+})
+
+watch(
+  [authAuthenticated, authCanEnterpriseRequestSubmit, authCanPlatformBugManage],
+  ([authenticated, canEnterpriseRequest, canManagePlatformBug]) => {
+    if (!authenticated || (!canEnterpriseRequest && !canManagePlatformBug)) {
+      stopFeedbackPolling()
+      resetEnterpriseRequestNotificationState()
+      resetPlatformBugFeedbackNotificationState()
+      return
+    }
+    void refreshFeedbackNotifications({ prime: true })
+    ensureFeedbackPolling()
+  },
+  { immediate: true }
+)
 
 watch([isPlatformAdminGovernanceMode, authCanPlatformBugManage], ([isGovernance, canManage]) => {
   if (!isGovernance || !canManage) return
@@ -14953,6 +15162,8 @@ const enterpriseSettingsDialogBindings = {
   showMarkerIcons,
   showPathArrows,
   showMinimap,
+  showStatusLegend,
+  statusLegendLayout,
   compareFloatingOpacity,
   resetMapView,
   enterpriseActiveTasks,
@@ -15160,6 +15371,7 @@ const enterpriseSettingsDialogBindings = {
   buildMapProfileApplyTitle,
   isEnterpriseMapEditorCellValid,
   isEnterpriseTopologyCellValid,
+  isEnterpriseTopologyCellBlocked,
   isEnterpriseMapEditorCellBlocked,
   isEnterpriseMapEditorCellLocked,
   canResizeEnterpriseMapEditorTo,
@@ -15231,6 +15443,7 @@ onBeforeUnmount(() => {
   if (timer) clearInterval(timer)
   stopEnterpriseAgvMotionPolling()
   stopAgvAnimationLoop()
+  stopFeedbackPolling()
   if (authGovernanceSyncTimer) {
     clearInterval(authGovernanceSyncTimer)
     authGovernanceSyncTimer = null
@@ -15655,6 +15868,19 @@ onBeforeUnmount(() => {
                 height: `${CELL_SIZE}px`
               }"
             ></div>
+            <div
+              v-for="node in enterpriseRuntimeTopologyNodes"
+              :key="`topology-node-${node.key}`"
+              class="map-topology-node"
+              :class="`is-${node.node_type}`"
+              :style="{
+                left: `${node.x * CELL_SIZE + (CELL_SIZE - 22) / 2}px`,
+                top: `${node.y * CELL_SIZE + (CELL_SIZE - 22) / 2}px`
+              }"
+              :title="node.label || t(`enterprise_settings_route_topology_node_type_${node.node_type}`)"
+            >
+              <span>{{ node.badge }}</span>
+            </div>
 
             <div
               v-for="focusCell in mapPreviewFocusCells"
@@ -15993,6 +16219,19 @@ onBeforeUnmount(() => {
             </svg>
             <div class="minimap-label">{{ t('map_overview') }}</div>
             <div
+              v-for="node in enterpriseRuntimeTopologyNodes"
+              :key="`mini-topology-${node.key}`"
+              class="minimap-topology-node"
+              :class="`is-${node.node_type}`"
+              :style="{
+                left: `${node.x * CELL_SIZE * minimapScale + (CELL_SIZE * minimapScale - 10) / 2}px`,
+                top: `${node.y * CELL_SIZE * minimapScale + (CELL_SIZE * minimapScale - 10) / 2}px`
+              }"
+              :title="node.label || t(`enterprise_settings_route_topology_node_type_${node.node_type}`)"
+            >
+              <span>{{ node.badge }}</span>
+            </div>
+            <div
               v-for="agv in displayAgvs"
               :key="`mini-${agv.id}`"
               class="minimap-agv"
@@ -16060,10 +16299,14 @@ onBeforeUnmount(() => {
               <button
                 v-if="showEnterpriseRequestToolbarEntry"
                 class="feedback-fab-menu-item"
+                :class="{ 'has-alert': enterpriseRequestBellCount > 0 }"
                 type="button"
                 @click="openEnterpriseRequestDialogFromBell"
               >
-                <strong>{{ t('enterprise_request_entry') }}</strong>
+                <strong>
+                  {{ t('enterprise_request_entry') }}
+                  <span v-if="enterpriseRequestBellCount > 0" class="feedback-fab-menu-badge">{{ enterpriseRequestBellCount }}</span>
+                </strong>
                 <span>{{ t('feedback_bell_enterprise_request_hint') }}</span>
               </button>
               <button
@@ -16078,11 +16321,12 @@ onBeforeUnmount(() => {
             </div>
             <button
               class="feedback-fab-button"
-              :class="{ 'is-open': feedbackBellMenuOpen }"
+              :class="{ 'is-open': feedbackBellMenuOpen, 'has-attention': feedbackBellHasAttention }"
               type="button"
               :title="t('feedback_bell_entry')"
               @click.stop="toggleFeedbackBellMenu"
             >
+              <span v-if="feedbackBellBadgeCount > 0" class="feedback-fab-badge">{{ feedbackBellBadgeCount }}</span>
               <svg class="feedback-fab-icon" viewBox="0 0 24 24" aria-hidden="true">
                 <path
                   d="M8.5 18h7m-8-1.5v-4.2a4.5 4.5 0 1 1 9 0v4.2l1.4 1.7a.7.7 0 0 1-.54 1.14H6.64a.7.7 0 0 1-.54-1.14l1.4-1.7Z"

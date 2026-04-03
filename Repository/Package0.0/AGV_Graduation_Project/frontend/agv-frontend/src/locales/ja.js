@@ -982,6 +982,7 @@
     "enterprise_settings_route_topology_help_add": "有効セルをクリックするとノードを追加または選択できます",
     "enterprise_settings_route_topology_help_connect": "ノードを選択して接続モードを開始し、別のノードをクリックするとエッジを作成できます",
     "enterprise_settings_route_topology_help_select_edge": "右側の一覧でエッジを選ぶと方向・車線種別・速度倍率を調整できます",
+    "enterprise_settings_route_topology_help_blocked": "障害セルは表示されたままで、トポロジーノードは配置できません",
     "enterprise_settings_route_topology_edges_empty": "まだ路網エッジがありません。",
     "enterprise_settings_route_topology_node_editor": "ノード編集",
     "enterprise_settings_route_topology_node_label": "ノード名",
@@ -1622,6 +1623,8 @@
     "feedback_bell_entry": "フィードバック",
     "feedback_bell_enterprise_request_hint": "企業内メンバーへ協同依頼や不具合報告を送信",
     "feedback_bell_platform_bug_hint": "画面や機能の不具合を平台管理者へ送信",
+    "enterprise_request_new_notification": "新しい企業内依頼/不具合報告が {count} 件届きました。",
+    "platform_bug_feedback_new_notification": "プラットフォーム管理者宛ての新しい Bug フィードバックが {count} 件届きました。",
     "taskChain": {
       "title": "段階タスク",
       "hint": "A -> B -> C のような連続工程に使用し、同一タスクが段階順に連続実行されます。",

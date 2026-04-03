@@ -1619,6 +1619,17 @@
                   <input v-model="showMinimap" type="checkbox" />
                   <span>{{ settingsLocale.showMinimap }}</span>
                 </label>
+                <label class="map-setting-row">
+                  <input v-model="showStatusLegend" type="checkbox" />
+                  <span>{{ settingsLocale.showAgvStatus }}</span>
+                </label>
+                <label v-if="showStatusLegend" class="auth-field">
+                  <span>{{ settingsLocale.agvLegendLayout }}</span>
+                  <select v-model="statusLegendLayout" class="auth-input">
+                    <option value="horizontal">{{ settingsLocale.agvLegendLayoutHorizontal }}</option>
+                    <option value="vertical">{{ settingsLocale.agvLegendLayoutVertical }}</option>
+                  </select>
+                </label>
               </section>
 
               <section class="enterprise-settings-subsection enterprise-page-settings-group">
@@ -2073,6 +2084,7 @@
                   <span class="point-badge enterprise-settings-chip">{{ t('enterprise_settings_route_topology_help_add') }}</span>
                   <span class="point-badge enterprise-settings-chip enterprise-settings-chip-muted">{{ t('enterprise_settings_route_topology_help_connect') }}</span>
                   <span class="point-badge enterprise-settings-chip enterprise-settings-chip-muted">{{ t('enterprise_settings_route_topology_help_select_edge') }}</span>
+                  <span class="point-badge enterprise-settings-chip enterprise-settings-chip-muted">{{ t('enterprise_settings_route_topology_help_blocked') }}</span>
                 </div>
                 <div v-if="!authCanMapWrite" class="empty-note">
                   {{ t('enterprise_settings_route_topology_readonly_hint') }}
@@ -2105,14 +2117,26 @@
                             :class="{
                               'is-valid': isEnterpriseTopologyCellValid(col - 1, row - 1),
                               'is-void': !isEnterpriseTopologyCellValid(col - 1, row - 1),
+                              'is-blocked': isEnterpriseTopologyCellBlocked(col - 1, row - 1),
                               'has-node': !!enterpriseTopologyNodesByCell[`${col - 1},${row - 1}`],
+                              'has-station-node': enterpriseTopologyNodesByCell[`${col - 1},${row - 1}`]?.node_type === 'station',
+                              'has-parking-node': enterpriseTopologyNodesByCell[`${col - 1},${row - 1}`]?.node_type === 'parking',
+                              'has-charge-node': enterpriseTopologyNodesByCell[`${col - 1},${row - 1}`]?.node_type === 'charge',
                               'is-link-source': enterpriseTopologyLinkSourceNode && enterpriseTopologyLinkSourceNode.key === enterpriseTopologyNodesByCell[`${col - 1},${row - 1}`]?.key,
                               'is-selected': enterpriseTopologySelectedNode && enterpriseTopologySelectedNode.key === enterpriseTopologyNodesByCell[`${col - 1},${row - 1}`]?.key
                             }"
-                            :disabled="!isEnterpriseTopologyCellValid(col - 1, row - 1)"
+                            :disabled="!isEnterpriseTopologyCellValid(col - 1, row - 1) || isEnterpriseTopologyCellBlocked(col - 1, row - 1)"
                             @click="applyEnterpriseTopologyCell({ x: col - 1, y: row - 1 })"
                           >
-                            <span v-if="enterpriseTopologyNodesByCell[`${col - 1},${row - 1}`]" class="enterprise-route-topology-node-badge">
+                            <span
+                              v-if="enterpriseTopologyNodesByCell[`${col - 1},${row - 1}`]"
+                              class="enterprise-route-topology-node-badge"
+                              :class="{
+                                'is-station': enterpriseTopologyNodesByCell[`${col - 1},${row - 1}`]?.node_type === 'station',
+                                'is-parking': enterpriseTopologyNodesByCell[`${col - 1},${row - 1}`]?.node_type === 'parking',
+                                'is-charge': enterpriseTopologyNodesByCell[`${col - 1},${row - 1}`]?.node_type === 'charge'
+                              }"
+                            >
                               {{ formatEnterpriseTopologyNodeBadge(enterpriseTopologyNodesByCell[`${col - 1},${row - 1}`]) }}
                             </span>
                           </button>
