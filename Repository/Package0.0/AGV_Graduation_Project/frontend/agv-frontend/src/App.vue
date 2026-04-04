@@ -365,6 +365,57 @@ function formatEnterpriseTopologyNodeBadge(node) {
   return label ? label.slice(0, 2).toUpperCase() : 'N'
 }
 
+function isSpecialTopologyNodeType(nodeType) {
+  return ['station', 'parking', 'charge'].includes(String(nodeType || ''))
+}
+
+function buildRuntimeTopologyEdgeGeometry(topology, cellSize = CELL_SIZE) {
+  const normalized = topology && typeof topology === 'object' ? topology : createEmptyMapTopology()
+  const nodeMap = Object.fromEntries((normalized.nodes || []).map(node => [String(node.key), node]))
+  const groupedEdges = new Map()
+
+  for (const edge of normalized.edges || []) {
+    const source = nodeMap[String(edge?.source || '')]
+    const target = nodeMap[String(edge?.target || '')]
+    if (!source || !target) continue
+    const pairKey = [String(source.key), String(target.key)].sort().join('::')
+    if (!groupedEdges.has(pairKey)) {
+      groupedEdges.set(pairKey, [])
+    }
+    groupedEdges.get(pairKey).push({ edge, source, target })
+  }
+
+  return Array.from(groupedEdges.values()).flatMap(group => {
+    const total = group.length
+    return group.map((item, index) => {
+      const sourceCenterX = item.source.x * cellSize + cellSize / 2
+      const sourceCenterY = item.source.y * cellSize + cellSize / 2
+      const targetCenterX = item.target.x * cellSize + cellSize / 2
+      const targetCenterY = item.target.y * cellSize + cellSize / 2
+      const dx = targetCenterX - sourceCenterX
+      const dy = targetCenterY - sourceCenterY
+      const length = Math.hypot(dx, dy) || 1
+      const normalX = dx / length
+      const normalY = dy / length
+      const perpendicularX = -normalY
+      const perpendicularY = normalX
+      const edgeInset = Math.min(12, Math.max(7, cellSize * 0.22))
+      const offsetIndex = index - (total - 1) / 2
+      const laneOffset = offsetIndex * Math.min(8, Math.max(4, cellSize * 0.16))
+      return {
+        key: String(item.edge.key || `${item.source.key}-${item.target.key}-${index}`),
+        x1: sourceCenterX + normalX * edgeInset + perpendicularX * laneOffset,
+        y1: sourceCenterY + normalY * edgeInset + perpendicularY * laneOffset,
+        x2: targetCenterX - normalX * edgeInset + perpendicularX * laneOffset,
+        y2: targetCenterY - normalY * edgeInset + perpendicularY * laneOffset,
+        laneType: String(item.edge.lane_type || 'main'),
+        direction: String(item.edge.direction || 'bidirectional'),
+        speedMultiplier: Number(item.edge.speed_multiplier || 1)
+      }
+    })
+  })
+}
+
 function formatMapProfileTopologySummary(profile) {
   const summary = profile?.topology_summary || {}
   const nodeCount = Number(summary.node_count || 0)
@@ -552,6 +603,7 @@ const statusLegendOpacity = ref(0.55)
 const showMarkerIcons = ref(true)
 const showPathArrows = ref(false)
 const showMinimap = ref(true)
+const topologyViewMode = ref('standard')
 const obstacleEditMode = ref(false)
 const obstacleMapSaving = ref(false)
 const syncedBlockedCells = ref([...DEFAULT_BLOCKED_CELLS])
@@ -2931,15 +2983,32 @@ const enterpriseFilteredAuditEntries = computed(() => filteredOperationAudits.va
 const currentMapTopologySummary = computed(() =>
   buildMapTopologySummary(currentMapTopology.value, gridColsValue(), gridRowsValue(), validCells.value)
 )
+const enterpriseTopologyViewAvailable = computed(() =>
+  uiTreatAsEnterpriseRole.value && currentMapTopologySummary.value.enabled
+)
+const enterprisePureTopologyViewEnabled = computed(() =>
+  enterpriseTopologyViewAvailable.value && topologyViewMode.value === 'pure'
+)
 const enterpriseRuntimeTopologyNodes = computed(() => {
   if (!uiTreatAsEnterpriseRole.value || !currentMapTopologySummary.value.enabled) return []
   return (currentMapTopology.value?.nodes || [])
-    .filter(node => ['station', 'parking', 'charge'].includes(String(node?.node_type || '')))
+    .filter(node => enterprisePureTopologyViewEnabled.value || isSpecialTopologyNodeType(node?.node_type))
     .map(node => ({
       ...node,
-      badge: formatEnterpriseTopologyNodeBadge(node)
+      badge: isSpecialTopologyNodeType(node?.node_type) ? formatEnterpriseTopologyNodeBadge(node) : '',
+      isSpecial: isSpecialTopologyNodeType(node?.node_type)
     }))
 })
+const enterpriseRuntimeTopologyEdges = computed(() =>
+  enterprisePureTopologyViewEnabled.value
+    ? buildRuntimeTopologyEdgeGeometry(currentMapTopology.value, CELL_SIZE)
+    : []
+)
+const enterpriseRuntimeMinimapTopologyEdges = computed(() =>
+  enterprisePureTopologyViewEnabled.value
+    ? buildRuntimeTopologyEdgeGeometry(currentMapTopology.value, CELL_SIZE * minimapScale.value)
+    : []
+)
 const enterpriseMapWorkspaceCards = computed(() => [
   {
     key: 'profile',
@@ -5207,6 +5276,7 @@ const {
   statusLegendLayout,
   statusLegendOpacity,
   showMinimap,
+  topologyViewMode,
   showGuideCenterOnLoad,
   compareDisplayMode,
   compareFloatingOpacity,
@@ -14188,7 +14258,7 @@ watch(showFloatingCompare, visible => {
   stopFloatingCompareRefresh()
 })
 
-watch([showAutoPath, showMarkerIcons, showPathArrows, showStatusLegend, statusLegendLayout, statusLegendOpacity, showMinimap, showGuideCenterOnLoad, compareDisplayMode, compareFloatingOpacity], () => {
+watch([showAutoPath, showMarkerIcons, showPathArrows, showStatusLegend, statusLegendLayout, statusLegendOpacity, showMinimap, topologyViewMode, showGuideCenterOnLoad, compareDisplayMode, compareFloatingOpacity], () => {
   saveMapDisplaySettings()
 })
 
@@ -14810,6 +14880,8 @@ const mapSettingsPanelBindings = {
   showMarkerIcons,
   showPathArrows,
   showMinimap,
+  enterpriseTopologyViewAvailable,
+  topologyViewMode,
   showGuideCenterOnLoad,
   authCanMapWrite,
   buildCapabilityReadonlyHint,
@@ -15176,6 +15248,8 @@ const enterpriseSettingsDialogBindings = {
   showMinimap,
   showStatusLegend,
   statusLegendLayout,
+  enterpriseTopologyViewAvailable,
+  topologyViewMode,
   compareFloatingOpacity,
   resetMapView,
   enterpriseActiveTasks,
@@ -15845,7 +15919,11 @@ onBeforeUnmount(() => {
             </div>
           </div>
 
-          <div class="map-stage" :class="{ 'is-irregular': mapIsIrregular }" :style="mapStageStyle">
+          <div
+            class="map-stage"
+            :class="{ 'is-irregular': mapIsIrregular, 'is-topology-pure': enterprisePureTopologyViewEnabled }"
+            :style="mapStageStyle"
+          >
             <div
               v-for="cell in mapValidCells"
               :key="`valid-${cell.x}-${cell.y}`"
@@ -15879,11 +15957,28 @@ onBeforeUnmount(() => {
                 height: `${CELL_SIZE}px`
               }"
             ></div>
+            <svg
+              v-if="enterpriseRuntimeTopologyEdges.length"
+              class="map-topology-edge-layer"
+              :width="mapWidth"
+              :height="mapHeight"
+            >
+              <line
+                v-for="edge in enterpriseRuntimeTopologyEdges"
+                :key="`runtime-topology-edge-${edge.key}`"
+                class="map-topology-edge"
+                :class="[`is-${edge.laneType}`, { 'is-one-way': edge.direction !== 'bidirectional' }]"
+                :x1="edge.x1"
+                :y1="edge.y1"
+                :x2="edge.x2"
+                :y2="edge.y2"
+              />
+            </svg>
             <div
               v-for="node in enterpriseRuntimeTopologyNodes"
               :key="`topology-node-${node.key}`"
               class="map-topology-node"
-              :class="`is-${node.node_type}`"
+              :class="[`is-${node.node_type}`, { 'is-waypoint': !node.isSpecial }]"
               :style="{
                 left: `${node.x * CELL_SIZE + (CELL_SIZE - 22) / 2}px`,
                 top: `${node.y * CELL_SIZE + (CELL_SIZE - 22) / 2}px`
@@ -16131,6 +16226,7 @@ onBeforeUnmount(() => {
             v-if="showMinimap"
             ref="minimapRef"
             class="minimap"
+            :class="{ 'is-topology-pure': enterprisePureTopologyViewEnabled }"
             :style="{ width: `${MINIMAP_WIDTH}px`, height: `${minimapHeight}px` }"
             @click.stop
             @dblclick.stop
@@ -16139,7 +16235,7 @@ onBeforeUnmount(() => {
           >
             <div
               class="minimap-grid"
-              :class="{ 'is-irregular': mapIsIrregular }"
+              :class="{ 'is-irregular': mapIsIrregular, 'is-topology-pure': enterprisePureTopologyViewEnabled }"
               :style="{
                 backgroundSize: `${CELL_SIZE * minimapScale}px ${CELL_SIZE * minimapScale}px`
               }"
@@ -16177,6 +16273,23 @@ onBeforeUnmount(() => {
                 height: `${CELL_SIZE * minimapScale}px`
               }"
             ></div>
+            <svg
+              v-if="enterpriseRuntimeMinimapTopologyEdges.length"
+              class="minimap-topology-edge-layer"
+              :width="MINIMAP_WIDTH"
+              :height="minimapHeight"
+            >
+              <line
+                v-for="edge in enterpriseRuntimeMinimapTopologyEdges"
+                :key="`mini-runtime-topology-edge-${edge.key}`"
+                class="minimap-topology-edge"
+                :class="[`is-${edge.laneType}`, { 'is-one-way': edge.direction !== 'bidirectional' }]"
+                :x1="edge.x1"
+                :y1="edge.y1"
+                :x2="edge.x2"
+                :y2="edge.y2"
+              />
+            </svg>
             <svg class="minimap-path-layer" :width="MINIMAP_WIDTH" :height="minimapHeight">
               <polyline
                 class="path-to-start minimap-path"
@@ -16233,7 +16346,7 @@ onBeforeUnmount(() => {
               v-for="node in enterpriseRuntimeTopologyNodes"
               :key="`mini-topology-${node.key}`"
               class="minimap-topology-node"
-              :class="`is-${node.node_type}`"
+              :class="[`is-${node.node_type}`, { 'is-waypoint': !node.isSpecial }]"
               :style="{
                 left: `${node.x * CELL_SIZE * minimapScale + (CELL_SIZE * minimapScale - 10) / 2}px`,
                 top: `${node.y * CELL_SIZE * minimapScale + (CELL_SIZE * minimapScale - 10) / 2}px`

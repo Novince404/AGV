@@ -1619,6 +1619,16 @@
                   <input v-model="showMinimap" type="checkbox" />
                   <span>{{ settingsLocale.showMinimap }}</span>
                 </label>
+                <label v-if="enterpriseTopologyViewAvailable" class="auth-field">
+                  <span>{{ settingsLocale.topologyViewMode }}</span>
+                  <select v-model="topologyViewMode" class="auth-input">
+                    <option value="standard">{{ settingsLocale.topologyViewModeStandard }}</option>
+                    <option value="pure">{{ settingsLocale.topologyViewModePure }}</option>
+                  </select>
+                </label>
+                <p v-if="enterpriseTopologyViewAvailable" class="panel-hint">
+                  {{ settingsLocale.topologyViewModeHint }}
+                </p>
                 <label class="map-setting-row">
                   <input v-model="showStatusLegend" type="checkbox" />
                   <span>{{ settingsLocale.showAgvStatus }}</span>

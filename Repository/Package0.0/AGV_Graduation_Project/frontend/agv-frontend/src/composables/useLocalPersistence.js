@@ -16,6 +16,7 @@ export function useLocalPersistence(options) {
     statusLegendLayout,
     statusLegendOpacity,
     showMinimap,
+    topologyViewMode,
     showGuideCenterOnLoad,
     compareDisplayMode,
     compareFloatingOpacity,
@@ -217,6 +218,9 @@ export function useLocalPersistence(options) {
       if (typeof parsed?.showMinimap === 'boolean') {
         showMinimap.value = parsed.showMinimap
       }
+      if (parsed?.topologyViewMode === 'standard' || parsed?.topologyViewMode === 'pure') {
+        topologyViewMode.value = parsed.topologyViewMode
+      }
       if (typeof parsed?.showGuideCenterOnLoad === 'boolean') {
         showGuideCenterOnLoad.value = parsed.showGuideCenterOnLoad
       }
@@ -243,6 +247,7 @@ export function useLocalPersistence(options) {
           statusLegendLayout: statusLegendLayout.value,
           statusLegendOpacity: statusLegendOpacity.value,
           showMinimap: showMinimap.value,
+          topologyViewMode: topologyViewMode.value,
           showGuideCenterOnLoad: showGuideCenterOnLoad.value,
           dispatchMode: dispatchMode.value,
           compareDisplayMode: compareDisplayMode.value,

@@ -27,6 +27,22 @@
         <input v-model="showMinimap" type="checkbox" />
         <span>{{ settingsLocale.showMinimap }}</span>
       </label>
+      <div v-if="enterpriseTopologyViewAvailable" class="map-settings-select-group">
+        <label class="map-settings-select-label" for="topology-view-mode">
+          {{ settingsLocale.topologyViewMode }}
+        </label>
+        <select
+          id="topology-view-mode"
+          v-model="topologyViewMode"
+          class="map-settings-select"
+        >
+          <option value="standard">{{ settingsLocale.topologyViewModeStandard }}</option>
+          <option value="pure">{{ settingsLocale.topologyViewModePure }}</option>
+        </select>
+      </div>
+      <p v-if="enterpriseTopologyViewAvailable" class="panel-hint map-settings-hint">
+        {{ settingsLocale.topologyViewModeHint }}
+      </p>
     </div>
     <div v-if="!authCanMapWrite" class="permission-gate-card compact">
       <div class="empty-note">

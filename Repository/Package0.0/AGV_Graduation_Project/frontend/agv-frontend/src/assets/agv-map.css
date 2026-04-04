@@ -2846,6 +2846,17 @@ h2 {
   background-image: none;
 }
 
+.map-stage.is-topology-pure {
+  background:
+    radial-gradient(circle at top, rgba(255, 248, 235, 0.88), rgba(250, 244, 234, 0.78));
+  background-image: none;
+}
+
+.map-stage.is-topology-pure .map-valid-cell {
+  background: rgba(244, 237, 225, 0.2);
+  box-shadow: inset 0 0 0 1px rgba(214, 196, 171, 0.12);
+}
+
 .map-valid-cell,
 .void-cell,
 .blocked-cell,
@@ -2929,6 +2940,54 @@ h2 {
   opacity: 0.92;
 }
 
+.map-topology-edge-layer,
+.minimap-topology-edge-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.map-topology-edge,
+.minimap-topology-edge {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.map-topology-edge {
+  stroke-width: 4;
+  opacity: 0.9;
+  filter: drop-shadow(0 3px 6px rgba(57, 44, 30, 0.14));
+}
+
+.minimap-topology-edge {
+  stroke-width: 1.6;
+  opacity: 0.9;
+}
+
+.map-topology-edge.is-main,
+.minimap-topology-edge.is-main {
+  stroke: rgba(59, 130, 246, 0.96);
+}
+
+.map-topology-edge.is-branch,
+.minimap-topology-edge.is-branch {
+  stroke: rgba(20, 184, 166, 0.92);
+}
+
+.map-topology-edge.is-service,
+.minimap-topology-edge.is-service {
+  stroke: rgba(245, 158, 11, 0.92);
+}
+
+.map-topology-edge.is-one-way,
+.minimap-topology-edge.is-one-way {
+  stroke-dasharray: 8 6;
+}
+
 .map-topology-node,
 .minimap-topology-node {
   position: absolute;
@@ -2971,6 +3030,18 @@ h2 {
   box-shadow: 0 0 0 2px rgba(255, 209, 148, 0.28);
 }
 
+.map-topology-node.is-waypoint {
+  width: 16px;
+  height: 16px;
+  border-color: rgba(59, 130, 246, 0.34);
+  background: rgba(239, 246, 255, 0.92);
+  box-shadow: 0 2px 5px rgba(59, 130, 246, 0.14);
+}
+
+.map-topology-node.is-waypoint span {
+  display: none;
+}
+
 .minimap-topology-node {
   width: 10px;
   height: 10px;
@@ -2997,6 +3068,14 @@ h2 {
 .minimap-topology-node.is-charge {
   border-color: rgba(202, 126, 28, 0.42);
   background: rgba(255, 236, 208, 0.98);
+}
+
+.minimap-topology-node.is-waypoint {
+  width: 7px;
+  height: 7px;
+  border-color: rgba(59, 130, 246, 0.28);
+  background: rgba(239, 246, 255, 0.88);
+  box-shadow: 0 1px 3px rgba(59, 130, 246, 0.1);
 }
 
 .minimap-void-cell {
@@ -3829,6 +3908,17 @@ h2 {
 .minimap-grid.is-irregular {
   background-color: transparent;
   background-image: none;
+}
+
+.minimap-grid.is-topology-pure {
+  background:
+    radial-gradient(circle at top, rgba(255, 248, 235, 0.9), rgba(250, 244, 234, 0.82));
+  background-image: none;
+}
+
+.minimap.is-topology-pure .minimap-valid-cell {
+  background: rgba(244, 237, 225, 0.18);
+  box-shadow: inset 0 0 0 1px rgba(214, 196, 171, 0.08);
 }
 
 .minimap-label {
