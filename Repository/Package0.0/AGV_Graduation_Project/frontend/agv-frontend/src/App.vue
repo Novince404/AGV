@@ -1206,6 +1206,17 @@ const shortcutGuideEntries = computed(() => [
       : t('shortcut_editor_unassigned_key')
   })
 ])
+const guideCenterStatusEntries = computed(() => [
+  `${t('status_idle')}：${t('status_idle_desc')}`,
+  `${t('status_idle_returning')}：${t('status_idle_returning_desc')}`,
+  `${t('status_waiting_for_charge')}：${t('status_waiting_for_charge_desc')}`,
+  `${t('status_relocating')}：${t('status_relocating_desc')}`,
+  `${t('status_running')}：${t('status_running_desc')}`,
+  `${t('status_waiting')}：${t('status_waiting_desc')}`,
+  `${t('status_yielding')}：${t('status_yielding_desc')}`,
+  `${t('status_fault')}：${t('status_fault_desc')}`,
+  `${faultLocale.value.emergencyStopped || t('status_emergency_stop')}：${t('status_emergency_stop_desc')}`
+])
 const shortcutEditorActionDefinitions = computed(() => [
   {
     key: 'selection_cancel',
@@ -14907,6 +14918,7 @@ const guideCenterDialogBindings = {
   closeGuideCenter,
   guideCenterLocale,
   shortcutGuideEntries,
+  statusGuideEntries: guideCenterStatusEntries,
   panelLocale
 }
 
@@ -15820,7 +15832,6 @@ onBeforeUnmount(() => {
               </div>
               <div class="legend-item">
                 <span class="legend-dot relocating"></span>{{ t('status_relocating') }}
-                <span class="info-icon" :title="t('status_relocating_desc')">i</span>
               </div>
               <div class="legend-item">
                 <span class="legend-dot running"></span>{{ t('status_running') }}

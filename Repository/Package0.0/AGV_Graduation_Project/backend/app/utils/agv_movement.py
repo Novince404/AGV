@@ -662,80 +662,136 @@ def move_agv_to_autonomy_target(
     agv.clear_motion(motion_state=active_status)
 
     def run():
-        with movement_lock:
-            while True:
-                agv = get_agv_by_id(agv_id)
-                if should_cancel_autonomy(agv):
-                    if agv is not None:
-                        agv.clear_motion(motion_state=agv.status)
-                    return
+        while True:
+            agv = get_agv_by_id(agv_id)
+            if should_cancel_autonomy(agv):
+                if agv is not None:
+                    agv.clear_motion(motion_state=agv.status)
+                return
 
-                path = plan_path(
-                    algorithm,
-                    agv.x,
-                    agv.y,
-                    target_x,
-                    target_y,
-                    grid_cols,
-                    grid_rows,
-                    request_priority=0,
-                    agv_id=agv.id,
-                )
-                if not path:
-                    agv.status = "idle"
-                    agv.auto_target_node = None
-                    agv.auto_target_type = None
-                    agv.clear_motion()
-                    return
+            path = plan_path(
+                algorithm,
+                agv.x,
+                agv.y,
+                target_x,
+                target_y,
+                grid_cols,
+                grid_rows,
+                request_priority=0,
+                agv_id=agv.id,
+            )
+            if not path:
+                agv.status = "idle"
+                agv.auto_target_node = None
+                agv.auto_target_type = None
+                agv.clear_motion()
+                return
 
-                if len(path) <= 1:
-                    finalize_target(agv)
-                    return
+            if len(path) <= 1:
+                finalize_target(agv)
+                return
 
-                should_replan = False
-                for point in path[1:]:
-                    wait_started_at = time.monotonic()
-                    while True:
-                        agv = get_agv_by_id(agv_id)
-                        if should_cancel_autonomy(agv):
-                            if agv is not None:
-                                agv.clear_motion(motion_state=agv.status)
-                            return
+            should_replan = False
+            for point in path[1:]:
+                wait_started_at = time.monotonic()
+                while True:
+                    agv = get_agv_by_id(agv_id)
+                    if should_cancel_autonomy(agv):
+                        if agv is not None:
+                            agv.clear_motion(motion_state=agv.status)
+                        return
 
-                        source_x = int(agv.x)
-                        source_y = int(agv.y)
+                    source_x = int(agv.x)
+                    source_y = int(agv.y)
+                    next_x, next_y = _point_coordinates(point)
+                    topology_conflict = None
+                    blocking_agv = None
+                    moved = False
+                    target_node = _build_grid_node_key(next_x, next_y)
+                    target_speed = 0.0
+                    travel_duration_sec = CELL_TRAVEL_DURATION_SEC
+
+                    with movement_lock:
                         topology_conflict = _detect_topology_edge_conflict(agv.id, source_x, source_y, point)
-                        waited_sec = max(time.monotonic() - wait_started_at, 0.0)
-                        if topology_conflict:
-                            _set_waiting_motion_state(agv, active_status, motion_state="yielding")
-                            if waited_sec >= TOPOLOGY_EDGE_REPLAN_INTERVAL_SEC:
+                        if topology_conflict is None:
+                            blocking_agv = _find_blocking_agv_at_position(agv.id, next_x, next_y)
+                        if topology_conflict is None and blocking_agv is None:
+                            target_node, target_speed, travel_duration_sec = _begin_motion_segment(agv, point, active_status)
+                            moved = True
+
+                    waited_sec = max(time.monotonic() - wait_started_at, 0.0)
+                    if moved:
+                        time.sleep(travel_duration_sec)
+                        _finish_motion_segment(agv, next_x, next_y, target_node, active_status, target_speed)
+                        break
+
+                    if topology_conflict is not None:
+                        reroute_preferred = _should_reroute_for_blocker(
+                            agv,
+                            None,
+                            topology_conflict.get("blocker_agv_id"),
+                            topology_conflict.get("blocker_task_id"),
+                        )
+                        _set_waiting_motion_state(agv, active_status, motion_state="yielding" if reroute_preferred else "waiting")
+                        if waited_sec >= TOPOLOGY_EDGE_REPLAN_INTERVAL_SEC and reroute_preferred:
+                            time.sleep(
+                                _topology_retry_backoff(
+                                    agv,
+                                    None,
+                                    topology_conflict.get("blocker_agv_id"),
+                                    topology_conflict.get("blocker_task_id"),
+                                )
+                            )
+                            should_replan = True
+                            break
+                        if waited_sec >= MOVE_WAIT_TIMEOUT_SEC:
+                            should_replan = True
+                            break
+                        time.sleep(MOVE_WAIT_INTERVAL_SEC)
+                        continue
+
+                    if blocking_agv is not None:
+                        topology_cell_conflict = _build_topology_segment_conflict(source_x, source_y, point, blocking_agv)
+                        if topology_cell_conflict is not None:
+                            reroute_preferred = _should_reroute_for_blocker(
+                                agv,
+                                None,
+                                topology_cell_conflict.get("blocker_agv_id"),
+                                topology_cell_conflict.get("blocker_task_id"),
+                            )
+                            _set_waiting_motion_state(agv, active_status, motion_state="yielding" if reroute_preferred else "waiting")
+                            if waited_sec >= TOPOLOGY_OCCUPIED_NODE_REPLAN_INTERVAL_SEC and reroute_preferred:
+                                time.sleep(
+                                    _topology_retry_backoff(
+                                        agv,
+                                        None,
+                                        topology_cell_conflict.get("blocker_agv_id"),
+                                        topology_cell_conflict.get("blocker_task_id"),
+                                    )
+                                )
                                 should_replan = True
                                 break
-                            time.sleep(MOVE_WAIT_INTERVAL_SEC)
-                            continue
-
-                        next_x, next_y = _point_coordinates(point)
-                        if is_cell_occupied_by_other_agv(agv.id, next_x, next_y):
-                            _set_waiting_motion_state(agv, active_status, motion_state="waiting")
                             if waited_sec >= MOVE_WAIT_TIMEOUT_SEC:
                                 should_replan = True
                                 break
                             time.sleep(MOVE_WAIT_INTERVAL_SEC)
                             continue
 
-                        target_node, target_speed, travel_duration_sec = _begin_motion_segment(agv, point, active_status)
-                        time.sleep(travel_duration_sec)
-                        _finish_motion_segment(agv, next_x, next_y, target_node, active_status, target_speed)
-                        break
-
-                    if should_replan:
-                        break
+                        _set_waiting_motion_state(agv, active_status, motion_state="waiting")
+                        if waited_sec >= MOVE_WAIT_TIMEOUT_SEC:
+                            should_replan = True
+                            break
+                        time.sleep(MOVE_WAIT_INTERVAL_SEC)
+                        continue
 
                 if should_replan:
-                    continue
+                    break
 
-                finalize_target(agv)
-                return
+            if should_replan:
+                continue
+
+            finalize_target(agv)
+            return
 
     thread = threading.Thread(target=run, daemon=True)
     thread.start()

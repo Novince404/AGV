@@ -40,6 +40,19 @@
           <div class="guide-line">{{ guideCenterLocale.workflowManual }}</div>
           <div class="guide-line">{{ guideCenterLocale.workflowForm }}</div>
         </div>
+        <div
+          v-if="Array.isArray(statusGuideEntries) && statusGuideEntries.length"
+          class="guide-section"
+        >
+          <div class="guide-section-title">{{ guideCenterLocale.statusTitle }}</div>
+          <div
+            v-for="entry in statusGuideEntries"
+            :key="`guide-status-${entry}`"
+            class="guide-line"
+          >
+            {{ entry }}
+          </div>
+        </div>
       </div>
     </section>
   </div>
