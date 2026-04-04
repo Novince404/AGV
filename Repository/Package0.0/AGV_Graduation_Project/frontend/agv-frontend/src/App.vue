@@ -15808,19 +15808,19 @@ onBeforeUnmount(() => {
             @wheel.stop
           >
             <div class="legend-title">{{ t('agv_status') }}</div>
-              <div class="legend-row">
-                <div class="legend-item">
-                  <span class="legend-dot idle"></span>{{ t('status_idle') }}
-                </div>
-                <div class="legend-item">
-                  <span class="legend-dot returning"></span>{{ t('status_idle_returning') }}
-                </div>
-                <div class="legend-item">
-                  <span class="legend-dot charging"></span>{{ t('status_waiting_for_charge') }}
-                </div>
-                <div class="legend-item">
-                  <span class="legend-dot relocating"></span>{{ t('status_relocating') }}
-                  <span class="info-icon" :title="t('status_relocating_desc')">i</span>
+            <div class="legend-row">
+              <div class="legend-item">
+                <span class="legend-dot idle"></span>{{ t('status_idle') }}
+              </div>
+              <div class="legend-item">
+                <span class="legend-dot returning"></span>{{ t('status_idle_returning') }}
+              </div>
+              <div class="legend-item">
+                <span class="legend-dot charging"></span>{{ t('status_waiting_for_charge') }}
+              </div>
+              <div class="legend-item">
+                <span class="legend-dot relocating"></span>{{ t('status_relocating') }}
+                <span class="info-icon" :title="t('status_relocating_desc')">i</span>
               </div>
               <div class="legend-item">
                 <span class="legend-dot running"></span>{{ t('status_running') }}
