@@ -57,6 +57,17 @@ export function useLocaleText(locale) {
       return `Cell is still occupied. Replanning and auto retrying (${retryCount}).`
     }
 
+    if (reason.startsWith('topology_edge_waiting:')) {
+      if (locale.value === 'ja') return '路網エッジまたは目標ノードが他の AGV に占有されているため、一時的に待機しています。'
+      if (locale.value === 'zh') return '当前拓扑路段或目标节点被其他 AGV 占用，任务正在等待可通行路段。'
+      return 'The selected topology edge or target node is occupied by another AGV. Waiting for the route to clear.'
+    }
+
+    if (reason.startsWith('topology_edge_reroute:')) {
+      if (locale.value === 'ja') return '路网占用冲突を検知したため、別の利用可能なエッジへ迂回するよう再計算しています。'
+      if (locale.value === 'zh') return '当前拓扑路段存在会车或占用冲突，正在重算路线并尝试改走其他可用边。'
+      return 'A topology occupancy conflict was detected. Replanning and trying an alternate edge.'
+    }
     if (reason === 'cell_occupied_timeout' || reason.startsWith('cell_occupied_timeout:')) {
       if (locale.value === 'ja') return '前方セル占有が長時間続いたため、タスクを中断して復旧待ちにしました。'
       if (locale.value === 'zh') return '前方格子被占用超时，任务已中断并进入待恢复状态。'

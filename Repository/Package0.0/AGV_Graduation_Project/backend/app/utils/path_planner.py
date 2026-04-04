@@ -13,8 +13,12 @@ TOPOLOGY_LANE_COST_FACTORS = {
     "branch": 1.08,
     "service": 1.16,
 }
-TOPOLOGY_OCCUPIED_EDGE_PENALTY = 32.0
-TOPOLOGY_OCCUPIED_NODE_PENALTY = 10.0
+TOPOLOGY_OCCUPIED_EDGE_PENALTY = 72.0
+TOPOLOGY_OCCUPIED_NODE_PENALTY = 22.0
+TOPOLOGY_ENTRY_EXIT_PENALTY = 0.65
+TOPOLOGY_SAME_NODE_TRANSFER_PENALTY = 1.25
+TOPOLOGY_MAX_ENTRY_CANDIDATES = 4
+TOPOLOGY_GRID_FALLBACK_MARGIN = 1.25
 
 
 def _build_point(x: int, y: int, **meta):
@@ -49,6 +53,12 @@ def _merge_path_segments(*segments: list[dict]) -> list[dict]:
 
 def _reverse_path(path: list[dict]) -> list[dict]:
     return [_build_point(int(point["x"]), int(point["y"])) for point in reversed(path or [])]
+
+
+def _path_step_cost(path: list[dict]) -> int:
+    if not path:
+        return 0
+    return max(len(path) - 1, 0)
 
 
 def _trace_simple_candidate(
@@ -347,7 +357,7 @@ def resolve_topology_segment_metadata(
     }
 
 
-def _find_nearest_topology_node(
+def _find_topology_node_candidates(
     x: int,
     y: int,
     *,
@@ -357,10 +367,18 @@ def _find_nearest_topology_node(
     grid_cols: int,
     grid_rows: int,
     blocked: set[tuple[int, int]],
+    limit: int = TOPOLOGY_MAX_ENTRY_CANDIDATES,
 ):
     exact = node_by_position.get((int(x), int(y)))
     if exact:
-        return exact, [_build_point(x, y)]
+        return [
+            {
+                "node": exact,
+                "path": [_build_point(x, y)],
+                "distance": 0,
+                "exact": True,
+            }
+        ]
 
     candidates: list[tuple[int, int, dict, list[dict]]] = []
     for node in node_by_key.values():
@@ -381,11 +399,18 @@ def _find_nearest_topology_node(
         candidates.append((distance, manhattan, node, path))
 
     if not candidates:
-        return None, []
+        return []
 
     candidates.sort(key=lambda item: (item[0], item[1], str(item[2]["key"])))
-    _, _, node, path = candidates[0]
-    return node, path
+    return [
+        {
+            "node": node,
+            "path": path,
+            "distance": distance,
+            "exact": distance == 0,
+        }
+        for distance, _, node, path in candidates[: max(int(limit), 1)]
+    ]
 
 
 def _build_topology_path_points(node_path: list[str], edge_path: list[dict], node_by_key: dict[str, dict]) -> list[dict]:
@@ -406,6 +431,61 @@ def _build_topology_path_points(node_path: list[str], edge_path: list[dict], nod
             )
         )
     return points
+
+
+def _plan_topology_node_path(
+    start_key: str,
+    goal_key: str,
+    *,
+    outgoing: dict[str, list[dict]],
+    edge_blockers: dict[str, dict],
+    occupied_nodes: set[str],
+    request_priority: int,
+    avoid_edge_keys: set[str],
+    avoid_node_keys: set[str],
+):
+    distances = {start_key: 0.0}
+    came_from: dict[str, tuple[str, dict]] = {}
+    heap: list[tuple[float, str]] = [(0.0, start_key)]
+    visited: set[str] = set()
+
+    while heap:
+        current_cost, current_key = heapq.heappop(heap)
+        if current_key in visited:
+            continue
+        visited.add(current_key)
+        if current_key == goal_key:
+            break
+
+        for edge in outgoing.get(current_key, []):
+            edge_key = str(edge["key"])
+            next_key = str(edge["to"])
+            if edge_key in avoid_edge_keys:
+                continue
+            if next_key in avoid_node_keys and next_key != goal_key:
+                continue
+
+            edge_cost = _topology_edge_cost(edge, edge_blockers, occupied_nodes, request_priority, goal_key)
+            next_cost = current_cost + edge_cost
+            if next_cost < distances.get(next_key, float("inf")):
+                distances[next_key] = next_cost
+                came_from[next_key] = (current_key, edge)
+                heapq.heappush(heap, (next_cost, next_key))
+
+    if goal_key not in distances:
+        return [], [], float("inf")
+
+    node_path = [goal_key]
+    edge_path: list[dict] = []
+    current_key = goal_key
+    while current_key != start_key:
+        previous_key, edge = came_from[current_key]
+        edge_path.append(edge)
+        node_path.append(previous_key)
+        current_key = previous_key
+    node_path.reverse()
+    edge_path.reverse()
+    return node_path, edge_path, float(distances[goal_key])
 
 
 def _topology_edge_cost(edge: dict, edge_blockers: dict[str, dict], occupied_nodes: set[str], request_priority: int, goal_key: str):
@@ -438,6 +518,8 @@ def _plan_topology_path(
     topology: dict | None,
     request_priority: int,
     agv_id: int | None,
+    avoid_edge_keys: set[str] | None = None,
+    avoid_node_keys: set[str] | None = None,
 ):
     topology_payload = topology
     if topology_payload is None:
@@ -447,7 +529,7 @@ def _plan_topology_path(
     if len(node_by_key) < 2 or not any(outgoing.values()):
         return []
 
-    start_node, prefix_path = _find_nearest_topology_node(
+    start_candidates = _find_topology_node_candidates(
         sx,
         sy,
         node_by_position=node_by_position,
@@ -457,7 +539,7 @@ def _plan_topology_path(
         grid_rows=grid_rows,
         blocked=blocked,
     )
-    end_node, target_to_node_path = _find_nearest_topology_node(
+    end_candidates = _find_topology_node_candidates(
         ex,
         ey,
         node_by_position=node_by_position,
@@ -467,64 +549,82 @@ def _plan_topology_path(
         grid_rows=grid_rows,
         blocked=blocked,
     )
-    if start_node is None or end_node is None:
+    if not start_candidates or not end_candidates:
         return []
-
-    suffix_path = _reverse_path(target_to_node_path)
 
     reservations = _build_live_topology_reservations(agv_id)
     edge_blockers = reservations["edge_blockers"]
     occupied_nodes = reservations["occupied_nodes"]
+    direct_grid_path = _plan_grid_path(algorithm, sx, sy, ex, ey, grid_cols, grid_rows, blocked)
+    direct_grid_cost = float("inf") if not direct_grid_path else float(_path_step_cost(direct_grid_path))
 
-    start_key = str(start_node["key"])
-    goal_key = str(end_node["key"])
+    normalized_avoid_edges = {str(item).strip() for item in (avoid_edge_keys or set()) if str(item).strip()}
+    normalized_avoid_nodes = {str(item).strip() for item in (avoid_node_keys or set()) if str(item).strip()}
 
-    distances = {start_key: 0.0}
-    came_from: dict[str, tuple[str, dict]] = {}
-    heap: list[tuple[float, str]] = [(0.0, start_key)]
-    visited: set[str] = set()
+    best_payload = None
+    for start_candidate in start_candidates:
+        start_node = start_candidate["node"]
+        prefix_path = start_candidate["path"]
+        start_key = str(start_node["key"])
 
-    while heap:
-        current_cost, current_key = heapq.heappop(heap)
-        if current_key in visited:
-            continue
-        visited.add(current_key)
-        if current_key == goal_key:
-            break
+        for end_candidate in end_candidates:
+            end_node = end_candidate["node"]
+            goal_key = str(end_node["key"])
+            node_path, edge_path, topology_cost = _plan_topology_node_path(
+                start_key,
+                goal_key,
+                outgoing=outgoing,
+                edge_blockers=edge_blockers,
+                occupied_nodes=occupied_nodes,
+                request_priority=request_priority,
+                avoid_edge_keys=normalized_avoid_edges,
+                avoid_node_keys=normalized_avoid_nodes,
+            )
+            if not node_path:
+                continue
 
-        for edge in outgoing.get(current_key, []):
-            next_key = str(edge["to"])
-            edge_cost = _topology_edge_cost(edge, edge_blockers, occupied_nodes, request_priority, goal_key)
-            next_cost = current_cost + edge_cost
-            if next_cost < distances.get(next_key, float("inf")):
-                distances[next_key] = next_cost
-                came_from[next_key] = (current_key, edge)
-                heapq.heappush(heap, (next_cost, next_key))
+            suffix_path = _reverse_path(end_candidate["path"])
+            candidate_total_cost = float(start_candidate["distance"]) + topology_cost + float(end_candidate["distance"])
+            if not start_candidate["exact"]:
+                candidate_total_cost += TOPOLOGY_ENTRY_EXIT_PENALTY
+            if not end_candidate["exact"]:
+                candidate_total_cost += TOPOLOGY_ENTRY_EXIT_PENALTY
+            if len(node_path) == 1 and (not start_candidate["exact"] or not end_candidate["exact"]):
+                candidate_total_cost += TOPOLOGY_SAME_NODE_TRANSFER_PENALTY
 
-    if goal_key not in distances:
+            topology_points = _build_topology_path_points(node_path, edge_path, node_by_key)
+            candidate_path = _merge_path_segments(
+                prefix_path or [_build_point(sx, sy)],
+                topology_points,
+                suffix_path or [_build_point(int(end_node["x"]), int(end_node["y"]))],
+            )
+
+            candidate_length = _path_step_cost(candidate_path)
+            candidate_key = (
+                round(candidate_total_cost, 4),
+                candidate_length,
+                len(edge_path),
+                str(start_key),
+                str(goal_key),
+            )
+            if best_payload is None or candidate_key < best_payload["key"]:
+                best_payload = {
+                    "key": candidate_key,
+                    "total_cost": candidate_total_cost,
+                    "path": candidate_path,
+                }
+
+    if best_payload is None:
         return []
 
-    node_path = [goal_key]
-    edge_path: list[dict] = []
-    current_key = goal_key
-    while current_key != start_key:
-        previous_key, edge = came_from[current_key]
-        edge_path.append(edge)
-        node_path.append(previous_key)
-        current_key = previous_key
-    node_path.reverse()
-    edge_path.reverse()
+    if direct_grid_cost != float("inf"):
+        if (
+            best_payload["total_cost"] > direct_grid_cost + TOPOLOGY_GRID_FALLBACK_MARGIN
+            and _path_step_cost(best_payload["path"]) > direct_grid_cost + 1
+        ):
+            return []
 
-    topology_points = _build_topology_path_points(node_path, edge_path, node_by_key)
-
-    start_anchor = _build_point(int(start_node["x"]), int(start_node["y"]))
-    end_anchor = _build_point(int(end_node["x"]), int(end_node["y"]))
-
-    suffix_grid_path = suffix_path
-    if not suffix_grid_path:
-        suffix_grid_path = [end_anchor]
-
-    return _merge_path_segments(prefix_path or [_build_point(sx, sy)], topology_points, suffix_grid_path or [end_anchor])
+    return best_payload["path"]
 
 
 def plan_path(
@@ -540,6 +640,8 @@ def plan_path(
     topology: dict | None = None,
     request_priority: int = 0,
     agv_id: int | None = None,
+    avoid_edge_keys: set[str] | None = None,
+    avoid_node_keys: set[str] | None = None,
 ):
     if blocked is None:
         blocked = get_navigation_blocked_cells(grid_cols, grid_rows)
@@ -556,6 +658,8 @@ def plan_path(
         topology=topology,
         request_priority=request_priority,
         agv_id=agv_id,
+        avoid_edge_keys=avoid_edge_keys,
+        avoid_node_keys=avoid_node_keys,
     )
     if topology_path:
         return topology_path
