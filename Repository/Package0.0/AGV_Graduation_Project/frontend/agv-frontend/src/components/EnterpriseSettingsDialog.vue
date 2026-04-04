@@ -2224,6 +2224,27 @@
                         </option>
                       </select>
                     </label>
+                    <label
+                      v-if="enterpriseTopologySelectedNode.node_type !== 'waypoint'"
+                      class="auth-field"
+                    >
+                      <span>{{ t('enterprise_settings_route_topology_node_capacity') }}</span>
+                      <input
+                        class="auth-input"
+                        :value="formatTopologyNodeCapacity(enterpriseTopologySelectedNode)"
+                        min="1"
+                        step="1"
+                        type="number"
+                        :disabled="!authCanMapWrite"
+                        @input="updateEnterpriseTopologyNode({ capacity: Number($event.target.value || 1) })"
+                      />
+                    </label>
+                    <p
+                      v-if="enterpriseTopologySelectedNode.node_type !== 'waypoint'"
+                      class="panel-hint"
+                    >
+                      {{ t('enterprise_settings_route_topology_node_capacity_hint') }}
+                    </p>
                     <div class="enterprise-settings-actions">
                       <button class="btn-ghost" type="button" :disabled="!authCanMapWrite" @click="toggleEnterpriseTopologyLinkSource">
                         {{

@@ -9,6 +9,7 @@ class MapTopologyNode(TrackedModel):
     y: int
     label: str | None = None
     node_type: str = "waypoint"
+    capacity: int = 1
 
 
 class MapTopologyEdge(TrackedModel):

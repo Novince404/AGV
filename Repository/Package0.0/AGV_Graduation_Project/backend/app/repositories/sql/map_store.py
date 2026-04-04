@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import inspect, select, text
 from sqlalchemy.orm import selectinload
 
+from app.core.database import get_engine
 from app.core.database import get_db_session
 from app.repositories.db_init import create_all_tables
 from app.repositories.sql_models import (
@@ -17,6 +18,22 @@ from app.repositories.sql_models import (
 _LAYOUT_ID = 1
 _layout_cache: dict[str, object] | None = None
 _loaded = False
+
+
+def _ensure_schema() -> None:
+    create_all_tables()
+    engine = get_engine()
+    inspector = inspect(engine)
+    ddl_statements: list[str] = []
+    if "map_layout_topology_node" in inspector.get_table_names():
+        columns = {column["name"] for column in inspector.get_columns("map_layout_topology_node")}
+        if "capacity" not in columns:
+            ddl_statements.append("ALTER TABLE map_layout_topology_node ADD COLUMN capacity INTEGER NOT NULL DEFAULT 1")
+
+    if ddl_statements:
+        with engine.begin() as connection:
+            for statement in ddl_statements:
+                connection.execute(text(statement))
 
 
 def _query_layout():
@@ -52,6 +69,7 @@ def _build_topology_state(entity: MapLayoutEntity) -> dict[str, object]:
             "y": int(node.y),
             "label": node.label,
             "node_type": str(node.node_type or "waypoint"),
+            "capacity": int(getattr(node, "capacity", 1) or 1),
         }
         for node in entity.topology_nodes
     ]
@@ -114,6 +132,7 @@ def _persist_layout_snapshot(layout_state: dict[str, object]) -> None:
                 y=int(node["y"]),
                 label=node.get("label"),
                 node_type=str(node.get("node_type") or "waypoint"),
+                capacity=int(node.get("capacity") or 1),
             )
             for node in topology["nodes"]
         ]
@@ -178,7 +197,7 @@ def _ensure_loaded(
     global _loaded
     if _loaded:
         return
-    create_all_tables()
+    _ensure_schema()
     _seed_defaults_if_empty(default_grid_cols, default_grid_rows, default_blocked_cells, default_valid_cells)
     _load_cache()
     _loaded = True

@@ -7,6 +7,12 @@ from app.repositories.map_repository import set_layout_state as persist_runtime_
 DEFAULT_GRID_COLS = 10
 DEFAULT_GRID_ROWS = 8
 DEFAULT_MAP_PROFILE_KEY = "warehouse_demo_10x8"
+TOPOLOGY_NODE_DEFAULT_CAPACITY = {
+    "waypoint": 1,
+    "station": 2,
+    "parking": 4,
+    "charge": 4,
+}
 
 # Fixed shelf layout for the current warehouse demo map.
 DEFAULT_BLOCKED_CELLS = {
@@ -197,6 +203,20 @@ def create_empty_map_topology() -> dict[str, object]:
     }
 
 
+def get_topology_node_default_capacity(node_type: str) -> int:
+    normalized = str(node_type or "waypoint").strip().lower()
+    return max(int(TOPOLOGY_NODE_DEFAULT_CAPACITY.get(normalized, 1)), 1)
+
+
+def normalize_topology_node_capacity(node_type: str, capacity) -> int:
+    default_capacity = get_topology_node_default_capacity(node_type)
+    try:
+        normalized = int(capacity)
+    except (TypeError, ValueError):
+        return default_capacity
+    return max(normalized, 1)
+
+
 def _coerce_topology_mapping(item) -> dict:
     if item is None:
         return {}
@@ -258,6 +278,7 @@ def normalize_map_topology_payload(
                 "y": y,
                 "label": label,
                 "node_type": node_type,
+                "capacity": normalize_topology_node_capacity(node_type, item.get("capacity")),
             }
         )
         seen_node_keys.add(node_key)
@@ -359,6 +380,7 @@ def build_map_topology_signature(
                     int(node["y"]),
                     str(node.get("label") or ""),
                     str(node.get("node_type") or "waypoint"),
+                    int(node.get("capacity") or get_topology_node_default_capacity(node.get("node_type") or "waypoint")),
                 )
                 for node in normalized["nodes"]
             )

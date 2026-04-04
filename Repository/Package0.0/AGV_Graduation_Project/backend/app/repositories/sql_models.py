@@ -182,6 +182,7 @@ class MapLayoutTopologyNodeEntity(Base):
     y: Mapped[int] = mapped_column(Integer, nullable=False)
     label: Mapped[str | None] = mapped_column(String(128), nullable=True)
     node_type: Mapped[str] = mapped_column(String(32), nullable=False, default="waypoint")
+    capacity: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 
     layout: Mapped["MapLayoutEntity"] = relationship(back_populates="topology_nodes")
 
@@ -308,6 +309,7 @@ class MapProfileTopologyNodeEntity(Base):
     y: Mapped[int] = mapped_column(Integer, nullable=False)
     label: Mapped[str | None] = mapped_column(String(128), nullable=True)
     node_type: Mapped[str] = mapped_column(String(32), nullable=False, default="waypoint")
+    capacity: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 
     profile: Mapped["MapProfileEntity"] = relationship(back_populates="topology_nodes")
 

@@ -236,6 +236,24 @@ function createEmptyMapTopology() {
   }
 }
 
+const TOPOLOGY_NODE_DEFAULT_CAPACITY = {
+  waypoint: 1,
+  station: 2,
+  parking: 4,
+  charge: 4
+}
+
+function getTopologyNodeDefaultCapacity(nodeType) {
+  const normalized = String(nodeType || 'waypoint').trim().toLowerCase()
+  return Math.max(Number(TOPOLOGY_NODE_DEFAULT_CAPACITY[normalized] || 1), 1)
+}
+
+function normalizeTopologyNodeCapacity(nodeType, capacity) {
+  const numeric = Number(capacity)
+  if (!Number.isFinite(numeric)) return getTopologyNodeDefaultCapacity(nodeType)
+  return Math.max(Math.round(numeric), 1)
+}
+
 function normalizeMapTopology(topology, gridCols = gridColsValue(), gridRows = gridRowsValue(), nextValidCells = validCells.value) {
   const normalizedValidCells = normalizeValidCellList(nextValidCells, gridCols, gridRows)
   const validCellKeySet = new Set(normalizedValidCells.map(cell => blockedCellKey(cell.x, cell.y)))
@@ -266,7 +284,8 @@ function normalizeMapTopology(topology, gridCols = gridColsValue(), gridRows = g
       x,
       y,
       label: String(node?.label || '').trim() || null,
-      node_type: nodeType
+      node_type: nodeType,
+      capacity: normalizeTopologyNodeCapacity(nodeType, node?.capacity)
     })
     seenNodeKeys.add(key)
     seenNodeCells.add(cellKey)
@@ -363,6 +382,10 @@ function formatEnterpriseTopologyNodeBadge(node) {
   if (node.node_type === 'charge') return 'C'
   const label = String(node.label || '').trim()
   return label ? label.slice(0, 2).toUpperCase() : 'N'
+}
+
+function formatTopologyNodeCapacity(node) {
+  return normalizeTopologyNodeCapacity(node?.node_type, node?.capacity)
 }
 
 function isSpecialTopologyNodeType(nodeType) {
@@ -545,6 +568,8 @@ const taskCardCollapsed = ref({})
 const summaryZoomArmed = ref(false)
 
 const selectedAgvId = ref(null)
+const topologyStationDockDialogOpen = ref(false)
+const topologyStationDockNodeKey = ref('')
 const trackedManualTaskId = ref(null)
 const manualDispatchStep = ref('idle')
 const manualPreviewMinVisibleUntil = ref(0)
@@ -2989,14 +3014,57 @@ const enterpriseTopologyViewAvailable = computed(() =>
 const enterprisePureTopologyViewEnabled = computed(() =>
   enterpriseTopologyViewAvailable.value && topologyViewMode.value === 'pure'
 )
+const enterpriseTopologyRuntimeOccupancyMap = computed(() => {
+  if (!uiTreatAsEnterpriseRole.value || !currentMapTopologySummary.value.enabled) return {}
+  const byKey = Object.create(null)
+  const nodeByPosition = new Map(
+    (currentMapTopology.value?.nodes || []).map(node => [blockedCellKey(node.x, node.y), node])
+  )
+  for (const agv of displayAgvs.value) {
+    const currentNodeKey = String(agv?.current_node || '').trim()
+    const activeEdgeKey = String(agv?.current_edge || '').trim()
+    let targetNode = currentNodeKey
+      ? (currentMapTopology.value?.nodes || []).find(node => node.key === currentNodeKey) || null
+      : null
+    if (!targetNode && !activeEdgeKey) {
+      const positionKey = blockedCellKey(Math.round(Number(agv?.x || 0)), Math.round(Number(agv?.y || 0)))
+      targetNode = nodeByPosition.get(positionKey) || null
+    }
+    if (!targetNode) continue
+    const key = String(targetNode.key || '')
+    if (!key) continue
+    if (!byKey[key]) {
+      byKey[key] = {
+        count: 0,
+        agvs: []
+      }
+    }
+    byKey[key].count += 1
+    byKey[key].agvs.push({
+      id: agv.id,
+      status: String(agv.status || ''),
+      motionState: String(agv.motionState || agv.status || ''),
+      label: `AGV #${agv.id}`,
+      selectable: agv.source === 'backend' && isSchedulableIdleAgvStatus(agv?.status),
+      source: agv.source || 'backend'
+    })
+  }
+  Object.values(byKey).forEach(entry => {
+    entry.agvs.sort((a, b) => Number(a.id) - Number(b.id))
+  })
+  return byKey
+})
 const enterpriseRuntimeTopologyNodes = computed(() => {
   if (!uiTreatAsEnterpriseRole.value || !currentMapTopologySummary.value.enabled) return []
   return (currentMapTopology.value?.nodes || [])
     .filter(node => enterprisePureTopologyViewEnabled.value || isSpecialTopologyNodeType(node?.node_type))
     .map(node => ({
       ...node,
+      capacity: formatTopologyNodeCapacity(node),
       badge: isSpecialTopologyNodeType(node?.node_type) ? formatEnterpriseTopologyNodeBadge(node) : '',
-      isSpecial: isSpecialTopologyNodeType(node?.node_type)
+      isSpecial: isSpecialTopologyNodeType(node?.node_type),
+      occupancyCount: Number(enterpriseTopologyRuntimeOccupancyMap.value[node.key]?.count || 0),
+      occupiedAgvs: enterpriseTopologyRuntimeOccupancyMap.value[node.key]?.agvs || []
     }))
 })
 const enterpriseRuntimeTopologyEdges = computed(() =>
@@ -3008,6 +3076,12 @@ const enterpriseRuntimeMinimapTopologyEdges = computed(() =>
   enterprisePureTopologyViewEnabled.value
     ? buildRuntimeTopologyEdgeGeometry(currentMapTopology.value, CELL_SIZE * minimapScale.value)
     : []
+)
+const selectedTopologyStationDockNode = computed(() =>
+  enterpriseRuntimeTopologyNodes.value.find(node => node.key === topologyStationDockNodeKey.value) || null
+)
+const selectedTopologyStationDockAgvs = computed(() =>
+  selectedTopologyStationDockNode.value?.occupiedAgvs || []
 )
 const enterpriseMapWorkspaceCards = computed(() => [
   {
@@ -3754,6 +3828,62 @@ function formatEnterpriseAgvRuntimeHint(agv) {
     }
   }
   return parts.join(' · ')
+}
+
+function formatTopologyNodeTitle(node) {
+  if (!node) return ''
+  return String(node.label || '').trim() || t(`enterprise_settings_route_topology_node_type_${node.node_type}`)
+}
+
+function formatTopologyNodeOccupancyTitle(node) {
+  if (!node) return ''
+  const lines = [formatTopologyNodeTitle(node)]
+  if (isSpecialTopologyNodeType(node?.node_type)) {
+    lines.push(
+      formatInlineMessage(t('topology_station_dialog_capacity_line'), {
+        count: String(Number(node.occupancyCount || 0)),
+        capacity: String(formatTopologyNodeCapacity(node))
+      })
+    )
+  }
+  if (Array.isArray(node.occupiedAgvs) && node.occupiedAgvs.length) {
+    lines.push(
+      formatInlineMessage(t('topology_station_dialog_hover_ids'), {
+        ids: node.occupiedAgvs.map(agv => agv.label).join(', ')
+      })
+    )
+  }
+  return lines.join('\n')
+}
+
+function openTopologyStationDockDialog(node) {
+  if (!node || !isSpecialTopologyNodeType(node?.node_type)) return
+  topologyStationDockNodeKey.value = String(node.key || '')
+  topologyStationDockDialogOpen.value = Boolean(topologyStationDockNodeKey.value)
+}
+
+function closeTopologyStationDockDialog() {
+  topologyStationDockDialogOpen.value = false
+  topologyStationDockNodeKey.value = ''
+}
+
+function selectAgvFromTopologyStationDock(agv) {
+  if (!agv || !agv.selectable) return
+  const stationTitle = formatTopologyNodeTitle(selectedTopologyStationDockNode.value || {})
+  selectedAgvId.value = Number(agv.id)
+  dispatchMode.value = 'manual'
+  preferredRuntimeDisplayMode.value = 'manual'
+  manualDraftPicking.value = false
+  syncManualDispatchBuilderState()
+  clearManualDestination()
+  closeTopologyStationDockDialog()
+  showFloatingToast(
+    formatInlineMessage(t('topology_station_dialog_select_success'), {
+      agv: `AGV #${Number(agv.id)}`,
+      node: stationTitle
+    }),
+    'success'
+  )
 }
 
 const enterpriseAgvMotionActive = computed(() =>
@@ -8352,10 +8482,14 @@ function updateEnterpriseTopologyNode(patch = {}) {
   if (!authCanMapWrite.value) return
   const selectedKey = enterpriseTopologyEditorSelectedNodeKey.value
   if (!selectedKey) return
+  const nextPatch = { ...patch }
+  if (Object.prototype.hasOwnProperty.call(nextPatch, 'node_type') && !Object.prototype.hasOwnProperty.call(nextPatch, 'capacity')) {
+    nextPatch.capacity = getTopologyNodeDefaultCapacity(nextPatch.node_type)
+  }
   enterpriseTopologyEditorDraft.value = normalizeMapTopology({
     ...enterpriseTopologyEditorDraft.value,
     nodes: (enterpriseTopologyEditorDraft.value?.nodes || []).map(node =>
-      node.key === selectedKey ? { ...node, ...patch } : node
+      node.key === selectedKey ? { ...node, ...nextPatch } : node
     )
   }, gridColsValue(), gridRowsValue(), validCells.value)
 }
@@ -15477,6 +15611,7 @@ const enterpriseSettingsDialogBindings = {
   removeSelectedEnterpriseTopologyEdge,
   saveEnterpriseTopologyEditorDraft,
   formatEnterpriseTopologyNodeBadge,
+  formatTopologyNodeCapacity,
   formatMapProfileTopologySummary,
   isCellOccupied,
   applyMapProfile,
@@ -15579,6 +15714,73 @@ onBeforeUnmount(() => {
     />
 
     <EnterpriseSettingsDialog v-if="enterpriseSettingsDialogOpen" :ui="enterpriseSettingsDialogBindings" />
+
+    <div
+      v-if="topologyStationDockDialogOpen && selectedTopologyStationDockNode"
+      class="auth-dialog-backdrop"
+      @click.self="closeTopologyStationDockDialog"
+    >
+      <section class="auth-dialog-card topology-station-dialog-card" role="dialog" aria-modal="true">
+        <header class="auth-dialog-header">
+          <div>
+            <div class="auth-dialog-kicker">{{ t('topology_station_dialog_kicker') }}</div>
+            <h2 class="auth-dialog-title">{{ formatTopologyNodeTitle(selectedTopologyStationDockNode) }}</h2>
+            <p class="auth-dialog-hint">
+              {{
+                formatInlineMessage(t('topology_station_dialog_hint'), {
+                  count: String(Number(selectedTopologyStationDockNode.occupancyCount || 0)),
+                  capacity: String(formatTopologyNodeCapacity(selectedTopologyStationDockNode))
+                })
+              }}
+            </p>
+          </div>
+          <button class="auth-dialog-close" type="button" @click="closeTopologyStationDockDialog">×</button>
+        </header>
+
+        <div class="auth-dialog-grid topology-station-dialog-grid">
+          <section class="auth-dialog-card topology-station-dialog-section">
+            <div class="auth-dialog-kicker">{{ t('topology_station_dialog_runtime_title') }}</div>
+            <div class="topology-station-dialog-meta">
+              <span class="point-badge">{{ t(`enterprise_settings_route_topology_node_type_${selectedTopologyStationDockNode.node_type}`) }}</span>
+              <span class="point-badge enterprise-settings-chip-muted">
+                {{
+                  formatInlineMessage(t('topology_station_dialog_capacity_line'), {
+                    count: String(Number(selectedTopologyStationDockNode.occupancyCount || 0)),
+                    capacity: String(formatTopologyNodeCapacity(selectedTopologyStationDockNode))
+                  })
+                }}
+              </span>
+            </div>
+            <p class="panel-hint">{{ t('topology_station_dialog_select_hint') }}</p>
+          </section>
+
+          <section class="auth-dialog-card topology-station-dialog-section">
+            <div class="auth-dialog-kicker">{{ t('topology_station_dialog_agv_title') }}</div>
+            <div v-if="selectedTopologyStationDockAgvs.length" class="topology-station-dialog-list">
+              <article
+                v-for="agv in selectedTopologyStationDockAgvs"
+                :key="`topology-station-agv-${selectedTopologyStationDockNode.key}-${agv.id}`"
+                class="topology-station-dialog-item"
+              >
+                <div class="topology-station-dialog-copy">
+                  <strong>{{ agv.label }}</strong>
+                  <span>{{ formatEnterpriseMotionStateLabel(agv.motionState || agv.status) }}</span>
+                </div>
+                <button
+                  class="btn-secondary topology-station-dialog-action"
+                  type="button"
+                  :disabled="!agv.selectable"
+                  @click="selectAgvFromTopologyStationDock(agv)"
+                >
+                  {{ agv.selectable ? t('topology_station_dialog_select_action') : t('topology_station_dialog_select_disabled') }}
+                </button>
+              </article>
+            </div>
+            <p v-else class="panel-hint">{{ t('topology_station_dialog_empty') }}</p>
+          </section>
+        </div>
+      </section>
+    </div>
 
     <div v-if="isPlatformAdminGovernanceMode" class="page-top page-top-governance">
       <div class="page-top-main">
@@ -15978,14 +16180,26 @@ onBeforeUnmount(() => {
               v-for="node in enterpriseRuntimeTopologyNodes"
               :key="`topology-node-${node.key}`"
               class="map-topology-node"
-              :class="[`is-${node.node_type}`, { 'is-waypoint': !node.isSpecial }]"
+              :class="[
+                `is-${node.node_type}`,
+                {
+                  'is-waypoint': !node.isSpecial,
+                  'is-clickable': node.isSpecial,
+                  'is-occupied': node.occupancyCount > 0
+                }
+              ]"
               :style="{
                 left: `${node.x * CELL_SIZE + (CELL_SIZE - 22) / 2}px`,
                 top: `${node.y * CELL_SIZE + (CELL_SIZE - 22) / 2}px`
               }"
-              :title="node.label || t(`enterprise_settings_route_topology_node_type_${node.node_type}`)"
+              :title="formatTopologyNodeOccupancyTitle(node)"
+              @mousedown.stop
+              @click.stop="openTopologyStationDockDialog(node)"
             >
               <span>{{ node.badge }}</span>
+              <small v-if="node.isSpecial" class="map-topology-node-count">
+                {{ node.occupancyCount }}/{{ node.capacity }}
+              </small>
             </div>
 
             <div
@@ -16351,7 +16565,7 @@ onBeforeUnmount(() => {
                 left: `${node.x * CELL_SIZE * minimapScale + (CELL_SIZE * minimapScale - 10) / 2}px`,
                 top: `${node.y * CELL_SIZE * minimapScale + (CELL_SIZE * minimapScale - 10) / 2}px`
               }"
-              :title="node.label || t(`enterprise_settings_route_topology_node_type_${node.node_type}`)"
+              :title="formatTopologyNodeOccupancyTitle(node)"
             >
               <span>{{ node.badge }}</span>
             </div>

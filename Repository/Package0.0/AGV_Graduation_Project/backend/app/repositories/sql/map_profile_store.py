@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import inspect, select, text
 from sqlalchemy.orm import selectinload
 
+from app.core.database import get_engine
 from app.core.database import get_db_session
 from app.models.map_profile import MapProfile, MapProfileCell
 from app.models.map_topology import MapTopology, MapTopologyEdge, MapTopologyNode
@@ -18,6 +19,22 @@ from app.repositories.sql_models import (
 
 map_profiles: list[MapProfile] = []
 _loaded = False
+
+
+def _ensure_schema() -> None:
+    create_all_tables()
+    engine = get_engine()
+    inspector = inspect(engine)
+    ddl_statements: list[str] = []
+    if "map_profile_topology_node" in inspector.get_table_names():
+        columns = {column["name"] for column in inspector.get_columns("map_profile_topology_node")}
+        if "capacity" not in columns:
+            ddl_statements.append("ALTER TABLE map_profile_topology_node ADD COLUMN capacity INTEGER NOT NULL DEFAULT 1")
+
+    if ddl_statements:
+        with engine.begin() as connection:
+            for statement in ddl_statements:
+                connection.execute(text(statement))
 
 
 def _bind_profile(profile: MapProfile) -> MapProfile:
@@ -42,6 +59,7 @@ def _entity_to_topology(entity: MapProfileEntity) -> MapTopology | None:
             y=int(node.y),
             label=node.label,
             node_type=str(node.node_type or "waypoint"),
+            capacity=int(getattr(node, "capacity", 1) or 1),
         )
         for node in entity.topology_nodes
     ]
@@ -108,6 +126,7 @@ def _model_to_entity(profile: MapProfile, entity: MapProfileEntity | None = None
             y=int(node.y),
             label=node.label,
             node_type=str(node.node_type or "waypoint"),
+            capacity=int(getattr(node, "capacity", 1) or 1),
         )
         for node in (topology.nodes if topology is not None else [])
     ]
@@ -146,7 +165,7 @@ def _ensure_loaded() -> None:
     global _loaded
     if _loaded:
         return
-    create_all_tables()
+    _ensure_schema()
     _load_cache()
     _loaded = True
 

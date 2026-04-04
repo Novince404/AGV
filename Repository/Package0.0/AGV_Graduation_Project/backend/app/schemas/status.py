@@ -16,6 +16,7 @@ class MapTopologyNodePayload(BaseModel):
     y: int
     label: str | None = None
     node_type: Literal["waypoint", "station", "parking", "charge"] = "waypoint"
+    capacity: int | None = None
 
 
 class MapTopologyEdgePayload(BaseModel):

@@ -5,7 +5,11 @@ from collections import defaultdict
 
 from app.repositories.agv_repository import list_agvs
 from app.repositories.task_repository import list_tasks
-from app.utils.warehouse_map import get_map_layout_state, get_navigation_blocked_cells
+from app.utils.warehouse_map import (
+    get_map_layout_state,
+    get_navigation_blocked_cells,
+    get_topology_node_default_capacity,
+)
 
 
 TOPOLOGY_LANE_COST_FACTORS = {
@@ -15,6 +19,7 @@ TOPOLOGY_LANE_COST_FACTORS = {
 }
 TOPOLOGY_OCCUPIED_EDGE_PENALTY = 72.0
 TOPOLOGY_OCCUPIED_NODE_PENALTY = 22.0
+TOPOLOGY_PARTIAL_NODE_USAGE_PENALTY = 3.0
 TOPOLOGY_ENTRY_EXIT_PENALTY = 0.65
 TOPOLOGY_SAME_NODE_TRANSFER_PENALTY = 1.25
 TOPOLOGY_MAX_ENTRY_CANDIDATES = 4
@@ -217,7 +222,7 @@ def _build_task_priority_map() -> dict[int, int]:
 def _build_live_topology_reservations(exclude_agv_id: int | None = None):
     task_priorities = _build_task_priority_map()
     occupied_positions: set[tuple[int, int]] = set()
-    occupied_nodes: set[str] = set()
+    occupied_node_counts: dict[str, int] = defaultdict(int)
     edge_blockers: dict[str, dict[str, int | str | None]] = {}
 
     for agv in list_agvs():
@@ -233,7 +238,7 @@ def _build_live_topology_reservations(exclude_agv_id: int | None = None):
         occupied_positions.add((int(agv.x), int(agv.y)))
         node_key = str(getattr(agv, "current_node", "") or "").strip()
         if node_key:
-            occupied_nodes.add(node_key)
+            occupied_node_counts[node_key] += 1
 
         edge_key = str(getattr(agv, "current_edge", "") or "").strip()
         if not edge_key:
@@ -251,7 +256,7 @@ def _build_live_topology_reservations(exclude_agv_id: int | None = None):
 
     return {
         "occupied_positions": occupied_positions,
-        "occupied_nodes": occupied_nodes,
+        "occupied_node_counts": dict(occupied_node_counts),
         "edge_blockers": edge_blockers,
     }
 
@@ -277,6 +282,10 @@ def _build_topology_indexes(topology: dict | None):
             "y": int(node.get("y", 0)),
             "label": node.get("label"),
             "node_type": str(node.get("node_type") or "waypoint"),
+            "capacity": max(
+                int(node.get("capacity") or get_topology_node_default_capacity(node.get("node_type") or "waypoint")),
+                1,
+            ),
         }
         node_by_key[key] = payload
         node_by_position[(payload["x"], payload["y"])] = payload
@@ -439,7 +448,8 @@ def _plan_topology_node_path(
     *,
     outgoing: dict[str, list[dict]],
     edge_blockers: dict[str, dict],
-    occupied_nodes: set[str],
+    occupied_node_counts: dict[str, int],
+    node_by_key: dict[str, dict],
     request_priority: int,
     avoid_edge_keys: set[str],
     avoid_node_keys: set[str],
@@ -465,7 +475,7 @@ def _plan_topology_node_path(
             if next_key in avoid_node_keys and next_key != goal_key:
                 continue
 
-            edge_cost = _topology_edge_cost(edge, edge_blockers, occupied_nodes, request_priority, goal_key)
+            edge_cost = _topology_edge_cost(edge, edge_blockers, occupied_node_counts, node_by_key, request_priority, goal_key)
             next_cost = current_cost + edge_cost
             if next_cost < distances.get(next_key, float("inf")):
                 distances[next_key] = next_cost
@@ -488,7 +498,14 @@ def _plan_topology_node_path(
     return node_path, edge_path, float(distances[goal_key])
 
 
-def _topology_edge_cost(edge: dict, edge_blockers: dict[str, dict], occupied_nodes: set[str], request_priority: int, goal_key: str):
+def _topology_edge_cost(
+    edge: dict,
+    edge_blockers: dict[str, dict],
+    occupied_node_counts: dict[str, int],
+    node_by_key: dict[str, dict],
+    request_priority: int,
+    goal_key: str,
+):
     base_cost = max(float(edge.get("weight") or 1.0), 0.1)
     speed_multiplier = max(float(edge.get("speed_multiplier") or 1.0), 0.1)
     lane_factor = TOPOLOGY_LANE_COST_FACTORS.get(str(edge.get("lane_type") or "main"), 1.0)
@@ -499,8 +516,17 @@ def _topology_edge_cost(edge: dict, edge_blockers: dict[str, dict], occupied_nod
         blocker_priority = max(int(blocker.get("priority") or 0), 0)
         total_cost += TOPOLOGY_OCCUPIED_EDGE_PENALTY + max(blocker_priority - max(int(request_priority or 0), 0), 0) * 6
 
-    if str(edge["to"]) in occupied_nodes and str(edge["to"]) != str(goal_key):
-        total_cost += TOPOLOGY_OCCUPIED_NODE_PENALTY
+    target_key = str(edge["to"])
+    if target_key != str(goal_key):
+        occupied_count = max(int(occupied_node_counts.get(target_key, 0) or 0), 0)
+        target_capacity = max(
+            int((node_by_key.get(target_key) or {}).get("capacity") or get_topology_node_default_capacity((node_by_key.get(target_key) or {}).get("node_type") or "waypoint")),
+            1,
+        )
+        if occupied_count >= target_capacity:
+            total_cost += TOPOLOGY_OCCUPIED_NODE_PENALTY
+        elif occupied_count > 0:
+            total_cost += TOPOLOGY_PARTIAL_NODE_USAGE_PENALTY * occupied_count
 
     return total_cost
 
@@ -554,7 +580,7 @@ def _plan_topology_path(
 
     reservations = _build_live_topology_reservations(agv_id)
     edge_blockers = reservations["edge_blockers"]
-    occupied_nodes = reservations["occupied_nodes"]
+    occupied_node_counts = reservations["occupied_node_counts"]
     direct_grid_path = _plan_grid_path(algorithm, sx, sy, ex, ey, grid_cols, grid_rows, blocked)
     direct_grid_cost = float("inf") if not direct_grid_path else float(_path_step_cost(direct_grid_path))
 
@@ -575,7 +601,8 @@ def _plan_topology_path(
                 goal_key,
                 outgoing=outgoing,
                 edge_blockers=edge_blockers,
-                occupied_nodes=occupied_nodes,
+                occupied_node_counts=occupied_node_counts,
+                node_by_key=node_by_key,
                 request_priority=request_priority,
                 avoid_edge_keys=normalized_avoid_edges,
                 avoid_node_keys=normalized_avoid_nodes,

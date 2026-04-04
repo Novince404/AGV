@@ -50,6 +50,7 @@ from app.utils.warehouse_map import (
     get_map_presets_payload,
     get_valid_cell_payload,
     get_valid_cells,
+    get_topology_node_default_capacity,
     normalize_map_topology_payload,
     set_layout_cells,
 )
@@ -234,6 +235,7 @@ def _topology_payload_to_model(topology_payload: dict[str, object] | None) -> Ma
                 y=int(node["y"]),
                 label=node.get("label"),
                 node_type=str(node.get("node_type") or "waypoint"),
+                capacity=int(node.get("capacity") or get_topology_node_default_capacity(node.get("node_type") or "waypoint")),
             )
             for node in normalized.get("nodes", [])
         ],

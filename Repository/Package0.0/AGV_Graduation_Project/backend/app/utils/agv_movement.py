@@ -13,6 +13,7 @@ from app.utils.task_chain import (
     set_stage_paths,
     sync_task_stage_fields,
 )
+from app.utils.warehouse_map import get_map_layout_state, get_topology_node_default_capacity
 movement_lock = threading.Lock()
 MOVE_WAIT_INTERVAL_SEC = 0.25
 MOVE_WAIT_TIMEOUT_SEC = 12
@@ -172,12 +173,35 @@ def _detect_topology_edge_conflict(agv_id: int, source_x: int, source_y: int, po
 
 
 def _find_blocking_agv_at_position(agv_id: int, x: int, y: int):
+    matching_agvs = []
     for other in list_agvs():
         if int(other.id) == int(agv_id) or other.status == "maintenance":
             continue
         if int(other.x) == int(x) and int(other.y) == int(y):
-            return other
-    return None
+            matching_agvs.append(other)
+    if not matching_agvs:
+        return None
+
+    state = get_map_layout_state()
+    topology = state.get("topology") or {}
+    special_node = next(
+        (
+            node
+            for node in topology.get("nodes", []) or []
+            if int(node.get("x") or -1) == int(x)
+            and int(node.get("y") or -1) == int(y)
+            and str(node.get("node_type") or "waypoint") in {"station", "parking", "charge"}
+        ),
+        None,
+    )
+    if special_node is not None:
+        capacity = max(
+            int(special_node.get("capacity") or get_topology_node_default_capacity(special_node.get("node_type") or "waypoint")),
+            1,
+        )
+        if len(matching_agvs) < capacity:
+            return None
+    return matching_agvs[0]
 
 
 def _get_task_priority(task) -> int:

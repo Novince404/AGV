@@ -5,7 +5,11 @@ from datetime import datetime
 from app.repositories.agv_repository import list_agvs
 from app.utils.agv_movement import move_agv_to_autonomy_target, now_iso
 from app.utils.path_planner import plan_path
-from app.utils.warehouse_map import get_current_grid_size, get_map_layout_state
+from app.utils.warehouse_map import (
+    get_current_grid_size,
+    get_map_layout_state,
+    get_topology_node_default_capacity,
+)
 
 
 IDLE_RETURN_TIMEOUT_SEC = 12.0
@@ -49,12 +53,33 @@ def _resolve_runtime_topology_nodes(*node_types: str) -> list[dict]:
             continue
         node_type = str(node.get("node_type") or "waypoint").strip().lower()
         if node_type in requested:
-            nodes.append(node)
+            nodes.append(
+                {
+                    **node,
+                    "capacity": max(
+                        int(node.get("capacity") or get_topology_node_default_capacity(node_type)),
+                        1,
+                    ),
+                }
+            )
     return nodes
+
+
+def _build_runtime_topology_occupancy_counts() -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for agv in list_agvs():
+        if getattr(agv, "status", None) == "maintenance":
+            continue
+        node_key = str(getattr(agv, "current_node", "") or "").strip()
+        if not node_key:
+            continue
+        counts[node_key] = counts.get(node_key, 0) + 1
+    return counts
 
 
 def _resolve_nearest_autonomy_target(agv, target_type: str, grid_cols: int, grid_rows: int) -> dict | None:
     candidate_types = ("charge",) if target_type == "charge" else ("parking",)
+    occupancy_counts = _build_runtime_topology_occupancy_counts()
     best: tuple[int, dict] | None = None
     fallback: tuple[int, dict] | None = None
     for node in _resolve_runtime_topology_nodes(*candidate_types):
@@ -66,10 +91,14 @@ def _resolve_nearest_autonomy_target(agv, target_type: str, grid_cols: int, grid
             "y": node_y,
             "node_type": str(node.get("node_type") or target_type),
             "label": str(node.get("label") or ""),
+            "capacity": max(int(node.get("capacity") or 1), 1),
         }
         manhattan = abs(node_x - int(agv.x)) + abs(node_y - int(agv.y))
         if fallback is None or manhattan < fallback[0]:
             fallback = (manhattan, payload)
+        current_occupancy = max(int(occupancy_counts.get(payload["key"], 0) or 0), 0)
+        if payload["key"] != str(getattr(agv, "current_node", "") or "") and current_occupancy >= payload["capacity"]:
+            continue
         path = plan_path(
             AUTONOMY_ALGORITHM,
             int(agv.x),
