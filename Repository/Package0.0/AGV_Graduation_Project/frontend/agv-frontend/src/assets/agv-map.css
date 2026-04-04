@@ -1949,6 +1949,7 @@ h2 {
   font-weight: 700;
   line-height: 1.2;
   box-shadow: 0 2px 6px rgba(63, 86, 112, 0.14);
+  pointer-events: none;
 }
 
 .enterprise-route-topology-node-badge.is-station {

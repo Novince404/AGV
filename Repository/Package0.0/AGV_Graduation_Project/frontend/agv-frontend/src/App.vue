@@ -8542,14 +8542,12 @@ function removeSelectedEnterpriseTopologyEdge() {
 
 function applyEnterpriseTopologyCell(cell) {
   if (!cell) return
-  if (!isValidMapCell(cell.x, cell.y)) return
-  if (isEnterpriseTopologyCellBlocked(cell.x, cell.y)) return
   const existingNode = findMapTopologyNodeAtCell(enterpriseTopologyEditorDraft.value, cell.x, cell.y)
-  if (!authCanMapWrite.value) {
-    if (existingNode) selectEnterpriseTopologyNode(existingNode.key)
-    return
-  }
   if (existingNode) {
+    if (!authCanMapWrite.value) {
+      selectEnterpriseTopologyNode(existingNode.key)
+      return
+    }
     if (enterpriseTopologyEditorLinkSourceKey.value && enterpriseTopologyEditorLinkSourceKey.value !== existingNode.key) {
       const edgeKey = buildMapTopologyEdgeKey(
         enterpriseTopologyEditorDraft.value,
@@ -8579,6 +8577,9 @@ function applyEnterpriseTopologyCell(cell) {
     selectEnterpriseTopologyNode(existingNode.key)
     return
   }
+  if (!isValidMapCell(cell.x, cell.y)) return
+  if (isEnterpriseTopologyCellBlocked(cell.x, cell.y)) return
+  if (!authCanMapWrite.value) return
 
   const nodeKey = buildMapTopologyNodeKey(enterpriseTopologyEditorDraft.value, cell.x, cell.y)
   enterpriseTopologyEditorDraft.value = normalizeMapTopology({

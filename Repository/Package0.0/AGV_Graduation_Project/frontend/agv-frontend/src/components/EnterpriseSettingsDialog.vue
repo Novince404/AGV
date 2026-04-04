@@ -2135,7 +2135,7 @@
                               'is-link-source': enterpriseTopologyLinkSourceNode && enterpriseTopologyLinkSourceNode.key === enterpriseTopologyNodesByCell[`${col - 1},${row - 1}`]?.key,
                               'is-selected': enterpriseTopologySelectedNode && enterpriseTopologySelectedNode.key === enterpriseTopologyNodesByCell[`${col - 1},${row - 1}`]?.key
                             }"
-                            :disabled="!isEnterpriseTopologyCellValid(col - 1, row - 1) || isEnterpriseTopologyCellBlocked(col - 1, row - 1)"
+                            :disabled="!isEnterpriseTopologyCellValid(col - 1, row - 1) || (isEnterpriseTopologyCellBlocked(col - 1, row - 1) && !enterpriseTopologyNodesByCell[`${col - 1},${row - 1}`])"
                             @click="applyEnterpriseTopologyCell({ x: col - 1, y: row - 1 })"
                           >
                             <span
