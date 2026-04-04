@@ -26,6 +26,14 @@ TOPOLOGY_MAX_ENTRY_CANDIDATES = 4
 TOPOLOGY_GRID_FALLBACK_MARGIN = 1.25
 
 
+def _is_topology_edge_hard_blocked_for_request(edge: dict, edge_blockers: dict[str, dict], request_priority: int) -> bool:
+    blocker = edge_blockers.get(str(edge.get("key") or ""))
+    if blocker is None:
+        return False
+    blocker_priority = max(int(blocker.get("priority") or 0), 0)
+    return blocker_priority > max(int(request_priority or 0), 0)
+
+
 def _build_point(x: int, y: int, **meta):
     point = {"x": int(x), "y": int(y)}
     for key, value in meta.items():
@@ -473,6 +481,8 @@ def _plan_topology_node_path(
             if edge_key in avoid_edge_keys:
                 continue
             if next_key in avoid_node_keys and next_key != goal_key:
+                continue
+            if _is_topology_edge_hard_blocked_for_request(edge, edge_blockers, request_priority):
                 continue
 
             edge_cost = _topology_edge_cost(edge, edge_blockers, occupied_node_counts, node_by_key, request_priority, goal_key)

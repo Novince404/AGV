@@ -13,7 +13,11 @@ from app.utils.task_chain import (
     set_stage_paths,
     sync_task_stage_fields,
 )
-from app.utils.warehouse_map import get_map_layout_state, get_topology_node_default_capacity
+from app.utils.warehouse_map import (
+    get_map_layout_state,
+    get_navigation_blocked_cells,
+    get_topology_node_default_capacity,
+)
 movement_lock = threading.Lock()
 MOVE_WAIT_INTERVAL_SEC = 0.25
 MOVE_WAIT_TIMEOUT_SEC = 12
@@ -211,9 +215,155 @@ def _get_task_priority(task) -> int:
         return 0
 
 
+def _task_order_timestamp(task) -> float:
+    for field_name in ("started_at", "assigned_at", "created_at"):
+        raw_value = str(getattr(task, field_name, "") or "").strip()
+        if not raw_value:
+            continue
+        try:
+            return datetime.fromisoformat(raw_value).timestamp()
+        except Exception:
+            continue
+    return float("inf")
+
+
+def _path_cost(path) -> int:
+    if not path:
+        return 0
+    return max(len(path) - 1, 0)
+
+
+def _estimate_remaining_task_path_cost(agv, task, avoid_edge_keys: set[str] | None = None, avoid_node_keys: set[str] | None = None) -> float:
+    if agv is None or task is None:
+        return float("inf")
+
+    state = get_map_layout_state()
+    grid_cols = int(state.get("grid_cols") or 0)
+    grid_rows = int(state.get("grid_rows") or 0)
+    if grid_cols <= 0 or grid_rows <= 0:
+        return float("inf")
+
+    blocked = get_navigation_blocked_cells(grid_cols, grid_rows)
+    topology = state.get("topology")
+    priority = _get_task_priority(task)
+    stage = sync_task_stage_fields(task)
+    running_from_current = getattr(task, "status", None) == "running" or getattr(agv, "status", None) == "running"
+
+    if running_from_current:
+        path_to_end = plan_path(
+            "astar",
+            int(agv.x),
+            int(agv.y),
+            int(stage.end_x),
+            int(stage.end_y),
+            grid_cols,
+            grid_rows,
+            blocked,
+            topology=topology,
+            request_priority=priority,
+            agv_id=int(agv.id),
+            avoid_edge_keys=avoid_edge_keys,
+            avoid_node_keys=avoid_node_keys,
+        )
+        return float("inf") if not path_to_end else float(_path_cost(path_to_end))
+
+    path_to_start = plan_path(
+        "astar",
+        int(agv.x),
+        int(agv.y),
+        int(stage.start_x),
+        int(stage.start_y),
+        grid_cols,
+        grid_rows,
+        blocked,
+        topology=topology,
+        request_priority=priority,
+        agv_id=int(agv.id),
+        avoid_edge_keys=avoid_edge_keys,
+        avoid_node_keys=avoid_node_keys,
+    )
+    path_to_end = plan_path(
+        "astar",
+        int(stage.start_x),
+        int(stage.start_y),
+        int(stage.end_x),
+        int(stage.end_y),
+        grid_cols,
+        grid_rows,
+        blocked,
+        topology=topology,
+        request_priority=priority,
+        agv_id=int(agv.id),
+        avoid_edge_keys=avoid_edge_keys,
+        avoid_node_keys=avoid_node_keys,
+    )
+    if not path_to_start or not path_to_end:
+        return float("inf")
+    return float(_path_cost(path_to_start) + _path_cost(path_to_end))
+
+
+def _should_current_agv_reroute(agv, task, conflict: dict | None) -> bool:
+    if conflict is None:
+        return True
+
+    blocker_agv_id = conflict.get("blocker_agv_id")
+    blocker_task_id = conflict.get("blocker_task_id")
+    if blocker_agv_id is None:
+        return True
+
+    current_priority = _get_task_priority(task)
+    blocker_task = get_task_by_id(blocker_task_id) if blocker_task_id is not None else None
+    blocker_priority = _get_task_priority(blocker_task)
+
+    if blocker_priority != current_priority:
+        return blocker_priority > current_priority
+
+    avoid_edge_keys = {str(conflict.get("edge_key") or "").strip()} if str(conflict.get("edge_key") or "").strip() else set()
+    avoid_node_keys = {str(conflict.get("target_node") or "").strip()} if str(conflict.get("target_node") or "").strip() else set()
+
+    current_detour_cost = _estimate_remaining_task_path_cost(
+        agv,
+        task,
+        avoid_edge_keys=avoid_edge_keys,
+        avoid_node_keys=avoid_node_keys,
+    )
+    blocker_agv = get_agv_by_id(int(blocker_agv_id))
+    blocker_detour_cost = _estimate_remaining_task_path_cost(
+        blocker_agv,
+        blocker_task,
+        avoid_edge_keys=avoid_edge_keys,
+        avoid_node_keys=avoid_node_keys,
+    )
+
+    current_has_detour = current_detour_cost != float("inf")
+    blocker_has_detour = blocker_detour_cost != float("inf")
+    if current_has_detour != blocker_has_detour:
+        return current_has_detour
+    if current_has_detour and blocker_has_detour:
+        if abs(current_detour_cost - blocker_detour_cost) >= 1:
+            return current_detour_cost < blocker_detour_cost
+
+    current_order = _task_order_timestamp(task)
+    blocker_order = _task_order_timestamp(blocker_task)
+    if current_order != blocker_order:
+        return current_order > blocker_order
+    return int(getattr(agv, "id", 0) or 0) > int(blocker_agv_id)
+
+
 def _should_reroute_for_blocker(agv, task, blocker_agv_id: int | None, blocker_task_id: int | None = None) -> bool:
     if blocker_agv_id is None:
         return True
+    if task is not None:
+        return _should_current_agv_reroute(
+            agv,
+            task,
+            {
+                "edge_key": "",
+                "target_node": "",
+                "blocker_agv_id": blocker_agv_id,
+                "blocker_task_id": blocker_task_id,
+            },
+        )
 
     current_priority = _get_task_priority(task)
     blocker_task = get_task_by_id(blocker_task_id) if blocker_task_id is not None else None
@@ -384,11 +534,10 @@ def move_to_point_with_collision_guard(agv, task, point, algorithm: str, active_
                 waiting_noted = True
 
             _set_waiting_motion_state(agv, active_status, motion_state="yielding")
-            if waited_sec >= TOPOLOGY_EDGE_REPLAN_INTERVAL_SEC and _should_reroute_for_blocker(
+            if waited_sec >= TOPOLOGY_EDGE_REPLAN_INTERVAL_SEC and _should_current_agv_reroute(
                 agv,
                 task,
-                topology_conflict.get("blocker_agv_id"),
-                topology_conflict.get("blocker_task_id"),
+                topology_conflict,
             ):
                 time.sleep(_topology_retry_backoff(agv, task, topology_conflict.get("blocker_agv_id"), topology_conflict.get("blocker_task_id")))
                 task.dispatch_reason = _build_topology_retry_reason(topology_conflict)
@@ -409,11 +558,10 @@ def move_to_point_with_collision_guard(agv, task, point, algorithm: str, active_
                     task.dispatch_reason = _build_topology_wait_reason(topology_cell_conflict)
                     waiting_noted = True
 
-                reroute_preferred = _should_reroute_for_blocker(
+                reroute_preferred = _should_current_agv_reroute(
                     agv,
                     task,
-                    topology_cell_conflict.get("blocker_agv_id"),
-                    topology_cell_conflict.get("blocker_task_id"),
+                    topology_cell_conflict,
                 )
                 _set_waiting_motion_state(agv, active_status, motion_state="yielding" if reroute_preferred else "waiting")
                 if waited_sec >= TOPOLOGY_OCCUPIED_NODE_REPLAN_INTERVAL_SEC and reroute_preferred:

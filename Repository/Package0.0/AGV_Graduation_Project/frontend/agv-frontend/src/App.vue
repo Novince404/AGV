@@ -3886,6 +3886,24 @@ function selectAgvFromTopologyStationDock(agv) {
   )
 }
 
+function resolveEnterpriseRuntimeTopologyNodeForAgv(agv) {
+  if (!uiTreatAsEnterpriseRole.value || !currentMapTopologySummary.value.enabled || agv?.source !== 'backend') return null
+  const topologyNodes = currentMapTopology.value?.nodes || []
+  const currentNodeKey = String(agv?.current_node || '').trim()
+  if (currentNodeKey) {
+    const byKey = topologyNodes.find(node => String(node.key || '') === currentNodeKey)
+    if (byKey) return byKey
+  }
+  const positionKey = blockedCellKey(Math.round(Number(agv?.x || 0)), Math.round(Number(agv?.y || 0)))
+  return topologyNodes.find(node => blockedCellKey(node.x, node.y) === positionKey) || null
+}
+
+function shouldHideEnterpriseAgvMarker(agv) {
+  const topologyNode = resolveEnterpriseRuntimeTopologyNodeForAgv(agv)
+  if (!topologyNode || !isSpecialTopologyNodeType(topologyNode.node_type)) return false
+  return !isBackendAgvMotionActive(agv, agvAnimationNow.value)
+}
+
 const enterpriseAgvMotionActive = computed(() =>
   agvs.value.some(agv => isBackendAgvMotionActive(agv, agvAnimationNow.value))
 )
@@ -3893,17 +3911,25 @@ const enterpriseAgvMotionActive = computed(() =>
 const displayAgvs = computed(() => {
   const backendAgvs = agvs.value
     .filter(agv => agv.status !== 'maintenance')
-    .map(agv => resolveRenderedBackendAgv(agv))
+    .map(agv => {
+      const rendered = resolveRenderedBackendAgv(agv)
+      return {
+        ...rendered,
+        hideOnMap: shouldHideEnterpriseAgvMarker(rendered),
+      }
+    })
   const localDisplayAgvs = localAgvs.value.map(agv => ({
     ...agv,
     displayX: normalizeAgvMotionNumber(agv?.x),
     displayY: normalizeAgvMotionNumber(agv?.y),
     displayHeading: 0,
     displayProgress: 1,
-    motionState: String(agv?.status || 'idle')
+    motionState: String(agv?.status || 'idle'),
+    hideOnMap: false
   }))
   return [...backendAgvs, ...localDisplayAgvs]
 })
+const visibleMapAgvs = computed(() => displayAgvs.value.filter(agv => !agv.hideOnMap))
 const selectedAgvTask = computed(() => {
   if (!selectedBackendAgv.value) return null
   return (
@@ -16391,7 +16417,7 @@ onBeforeUnmount(() => {
             />
 
             <div
-              v-for="agv in displayAgvs"
+              v-for="agv in visibleMapAgvs"
               :key="agv.id"
               class="agv"
               :class="{
@@ -16571,7 +16597,7 @@ onBeforeUnmount(() => {
               <span>{{ node.badge }}</span>
             </div>
             <div
-              v-for="agv in displayAgvs"
+              v-for="agv in visibleMapAgvs"
               :key="`mini-${agv.id}`"
               class="minimap-agv"
               :class="{
