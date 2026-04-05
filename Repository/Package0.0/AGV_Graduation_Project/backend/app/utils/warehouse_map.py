@@ -214,7 +214,7 @@ def normalize_topology_node_capacity(node_type: str, capacity) -> int:
         normalized = int(capacity)
     except (TypeError, ValueError):
         return default_capacity
-    return max(normalized, 1)
+    return max(normalized, default_capacity)
 
 
 def _coerce_topology_mapping(item) -> dict:

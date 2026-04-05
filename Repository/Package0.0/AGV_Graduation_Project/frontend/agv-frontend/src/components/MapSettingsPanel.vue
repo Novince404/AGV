@@ -708,6 +708,40 @@
         />
       </div>
     </div>
+    <div class="map-settings-group">
+      <div class="map-settings-subtitle">{{ settingsLocale.autonomyGroup }}</div>
+      <p class="panel-hint map-settings-hint">{{ settingsLocale.autonomyGroupHint }}</p>
+      <div class="map-settings-select-group">
+        <label class="map-settings-select-label" for="idle-return-timeout">
+          {{ settingsLocale.idleReturnTimeoutSec }}
+        </label>
+        <input
+          id="idle-return-timeout"
+          v-model.number="idleReturnTimeoutSec"
+          class="map-settings-select"
+          type="number"
+          min="5"
+          max="600"
+          step="1"
+        />
+      </div>
+      <p class="panel-hint map-settings-hint">{{ settingsLocale.idleReturnTimeoutSecHint }}</p>
+      <div class="map-settings-select-group">
+        <label class="map-settings-select-label" for="idle-charge-timeout">
+          {{ settingsLocale.idleChargeTimeoutSec }}
+        </label>
+        <input
+          id="idle-charge-timeout"
+          v-model.number="idleChargeTimeoutSec"
+          class="map-settings-select"
+          type="number"
+          min="5"
+          max="600"
+          step="1"
+        />
+      </div>
+      <p class="panel-hint map-settings-hint">{{ settingsLocale.idleChargeTimeoutSecHint }}</p>
+    </div>
     <button class="map-settings-action" type="button" @click="resetMapView">
       {{ settingsLocale.resetView }}
     </button>

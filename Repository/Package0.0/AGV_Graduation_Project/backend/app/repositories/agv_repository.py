@@ -31,8 +31,13 @@ def get_first_idle_agv():
     return _store.get_first_idle_agv()
 
 
+def create_agv(agv):
+    return _store.create_agv(agv)
+
+
 __all__ = [
     "agv_list",
+    "create_agv",
     "get_agv_by_id",
     "get_first_idle_agv",
     "list_agvs",

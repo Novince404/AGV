@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Request
 
 from app.services import agv_service, auth_service
-from app.schemas.agv import EmergencyStopRequest
+from app.schemas.agv import AgvCreateRequest, EmergencyStopRequest
 
 
 router = APIRouter(prefix="/agv", tags=["AGV"])
@@ -14,6 +14,12 @@ agv_list = agv_service.agv_list
 @router.get("/list")
 def get_agvs():
     return agv_service.get_agvs()
+
+
+@router.post("/create")
+def create_agv(req: AgvCreateRequest, request: Request):
+    actor = auth_service.require_actor_capability(request, "dispatch.write")
+    return agv_service.create_agv(req.x, req.y, actor=actor)
 
 
 @router.post("/{agv_id}/emergency-stop")

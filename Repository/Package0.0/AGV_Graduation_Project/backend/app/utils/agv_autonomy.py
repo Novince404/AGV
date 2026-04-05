@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from app.repositories.agv_repository import list_agvs
+from app.repositories.ui_settings_repository import get_ui_settings as get_ui_settings_store
 from app.utils.agv_movement import move_agv_to_autonomy_target, now_iso
 from app.utils.path_planner import plan_path
 from app.utils.warehouse_map import (
@@ -12,7 +13,8 @@ from app.utils.warehouse_map import (
 )
 
 
-IDLE_RETURN_TIMEOUT_SEC = 12.0
+DEFAULT_IDLE_RETURN_TIMEOUT_SEC = 12.0
+DEFAULT_IDLE_CHARGE_TIMEOUT_SEC = 45.0
 LOW_BATTERY_THRESHOLD = 24.0
 CHARGE_RELEASE_THRESHOLD = 88.0
 BATTERY_IDLE_DRAIN_PER_SEC = 0.01
@@ -21,6 +23,12 @@ BATTERY_CHARGE_PER_SEC = 6.0
 AUTONOMY_ALGORITHM = "astar"
 AUTONOMY_BLOCKING_STATUSES = {"fault", "emergency_stop", "maintenance"}
 AUTONOMY_MOVING_STATUSES = {"running", "relocating", "idle_returning", "waiting_for_charge"}
+
+
+AUTONOMY_UI_SETTINGS_DEFAULTS = {
+    "idle_return_timeout_sec": DEFAULT_IDLE_RETURN_TIMEOUT_SEC,
+    "idle_charge_timeout_sec": DEFAULT_IDLE_CHARGE_TIMEOUT_SEC,
+}
 
 
 def _parse_iso(value: str | None) -> datetime | None:
@@ -41,6 +49,22 @@ def _seconds_since(value: str | None, now: datetime) -> float:
 
 def _clamp_battery(value: float) -> float:
     return round(min(max(float(value), 0.0), 100.0), 2)
+
+
+def _get_autonomy_policy_settings() -> dict:
+    payload = get_ui_settings_store(AUTONOMY_UI_SETTINGS_DEFAULTS)
+    try:
+        idle_return_timeout_sec = max(5.0, min(600.0, float(payload.get("idle_return_timeout_sec", DEFAULT_IDLE_RETURN_TIMEOUT_SEC))))
+    except Exception:
+        idle_return_timeout_sec = DEFAULT_IDLE_RETURN_TIMEOUT_SEC
+    try:
+        idle_charge_timeout_sec = max(5.0, min(600.0, float(payload.get("idle_charge_timeout_sec", DEFAULT_IDLE_CHARGE_TIMEOUT_SEC))))
+    except Exception:
+        idle_charge_timeout_sec = DEFAULT_IDLE_CHARGE_TIMEOUT_SEC
+    return {
+        "idle_return_timeout_sec": idle_return_timeout_sec,
+        "idle_charge_timeout_sec": idle_charge_timeout_sec,
+    }
 
 
 def _resolve_runtime_topology_nodes(*node_types: str) -> list[dict]:
@@ -162,14 +186,43 @@ def _sync_idle_timer(agv, now: datetime) -> None:
         agv.idle_since_at = None
 
 
-def _start_autonomy_if_needed(agv, now: datetime, grid_cols: int, grid_rows: int) -> None:
+def _start_autonomy_if_needed(agv, now: datetime, grid_cols: int, grid_rows: int, policy_settings: dict) -> None:
     if agv.task_id is not None or agv.status in AUTONOMY_BLOCKING_STATUSES or agv.status == "charging":
         return
 
     battery_level = float(getattr(agv, "battery_level", 100.0) or 100.0)
     current_node = str(getattr(agv, "current_node", "") or "")
+    idle_elapsed = _seconds_since(getattr(agv, "idle_since_at", None), now)
+    idle_charge_timeout_sec = float(policy_settings.get("idle_charge_timeout_sec", DEFAULT_IDLE_CHARGE_TIMEOUT_SEC) or DEFAULT_IDLE_CHARGE_TIMEOUT_SEC)
+    idle_return_timeout_sec = float(policy_settings.get("idle_return_timeout_sec", DEFAULT_IDLE_RETURN_TIMEOUT_SEC) or DEFAULT_IDLE_RETURN_TIMEOUT_SEC)
 
     if battery_level <= LOW_BATTERY_THRESHOLD:
+        target = _resolve_nearest_autonomy_target(agv, "charge", grid_cols, grid_rows)
+        if target and str(target["key"]) != current_node and agv.auto_target_type != "charge":
+            if move_agv_to_autonomy_target(
+                agv.id,
+                target["x"],
+                target["y"],
+                target_key=target["key"],
+                target_type="charge",
+                algorithm=AUTONOMY_ALGORITHM,
+                grid_cols=grid_cols,
+                grid_rows=grid_rows,
+            ):
+                agv.idle_since_at = None
+        elif target and str(target["key"]) == current_node and agv.status != "charging":
+            agv.status = "charging"
+            agv.charge_started_at = now.isoformat(timespec="seconds")
+            agv.auto_target_node = str(target["key"])
+            agv.auto_target_type = "charge"
+            agv.clear_motion(motion_state="charging")
+        return
+
+    if (
+        agv.status == "idle"
+        and idle_elapsed >= idle_charge_timeout_sec
+        and battery_level < CHARGE_RELEASE_THRESHOLD
+    ):
         target = _resolve_nearest_autonomy_target(agv, "charge", grid_cols, grid_rows)
         if target and str(target["key"]) != current_node and agv.auto_target_type != "charge":
             if move_agv_to_autonomy_target(
@@ -194,8 +247,7 @@ def _start_autonomy_if_needed(agv, now: datetime, grid_cols: int, grid_rows: int
     if agv.status != "idle":
         return
 
-    idle_elapsed = _seconds_since(getattr(agv, "idle_since_at", None), now)
-    if idle_elapsed < IDLE_RETURN_TIMEOUT_SEC:
+    if idle_elapsed < idle_return_timeout_sec:
         return
 
     target = _resolve_nearest_autonomy_target(agv, "parking", grid_cols, grid_rows)
@@ -217,11 +269,12 @@ def _start_autonomy_if_needed(agv, now: datetime, grid_cols: int, grid_rows: int
 def sync_agv_autonomy() -> list:
     grid_cols, grid_rows = get_current_grid_size()
     now = datetime.now()
+    policy_settings = _get_autonomy_policy_settings()
     agvs = list_agvs()
     for agv in agvs:
         _sync_battery_runtime(agv, now)
         if _release_from_charging_if_ready(agv, now):
             continue
         _sync_idle_timer(agv, now)
-        _start_autonomy_if_needed(agv, now, grid_cols, grid_rows)
+        _start_autonomy_if_needed(agv, now, grid_cols, grid_rows, policy_settings)
     return agvs

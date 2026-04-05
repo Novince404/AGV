@@ -15,6 +15,8 @@ export function useLocalPersistence(options) {
     showStatusLegend,
     statusLegendLayout,
     statusLegendOpacity,
+    idleReturnTimeoutSec,
+    idleChargeTimeoutSec,
     showMinimap,
     topologyViewMode,
     showGuideCenterOnLoad,
@@ -215,6 +217,12 @@ export function useLocalPersistence(options) {
       if (typeof parsed?.statusLegendOpacity === 'number') {
         statusLegendOpacity.value = clampValue(parsed.statusLegendOpacity, 0.2, 0.9)
       }
+      if (typeof parsed?.idleReturnTimeoutSec === 'number') {
+        idleReturnTimeoutSec.value = clampValue(parsed.idleReturnTimeoutSec, 5, 600)
+      }
+      if (typeof parsed?.idleChargeTimeoutSec === 'number') {
+        idleChargeTimeoutSec.value = clampValue(parsed.idleChargeTimeoutSec, 5, 600)
+      }
       if (typeof parsed?.showMinimap === 'boolean') {
         showMinimap.value = parsed.showMinimap
       }
@@ -246,6 +254,8 @@ export function useLocalPersistence(options) {
           showStatusLegend: showStatusLegend.value,
           statusLegendLayout: statusLegendLayout.value,
           statusLegendOpacity: statusLegendOpacity.value,
+          idleReturnTimeoutSec: idleReturnTimeoutSec.value,
+          idleChargeTimeoutSec: idleChargeTimeoutSec.value,
           showMinimap: showMinimap.value,
           topologyViewMode: topologyViewMode.value,
           showGuideCenterOnLoad: showGuideCenterOnLoad.value,

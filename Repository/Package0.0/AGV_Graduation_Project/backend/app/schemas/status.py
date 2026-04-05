@@ -91,6 +91,8 @@ class UiSettingsUpdateRequest(BaseModel):
     show_status_legend: bool = True
     status_legend_layout: Literal["horizontal", "vertical"] = "horizontal"
     status_legend_opacity: float = 0.55
+    idle_return_timeout_sec: float = 12.0
+    idle_charge_timeout_sec: float = 45.0
     compare_display_mode: Literal["panel", "floating"] = "panel"
     panel_sections: UiPanelSectionsPayload = UiPanelSectionsPayload()
 

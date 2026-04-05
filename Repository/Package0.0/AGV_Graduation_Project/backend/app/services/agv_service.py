@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from app.repositories.agv_repository import agv_list, get_agv_by_id
+from app.models.agv import AGV
+from app.repositories.agv_repository import agv_list, create_agv as create_agv_store, get_agv_by_id, list_agvs
 from app.repositories.task_repository import list_tasks
 from app.services.operation_audit_service import record_operation_audit
 from app.utils.agv_autonomy import sync_agv_autonomy
@@ -11,6 +12,7 @@ from app.utils.fault_state import (
     resolve_latest_open_event_for_agv,
 )
 from app.utils.task_chain import mark_task_blocked
+from app.utils.warehouse_map import get_blocked_cells, get_current_grid_size, get_map_layout_state, get_valid_cells
 
 
 #
@@ -43,6 +45,62 @@ def _assert_agv_can_enter_maintenance(agv):
 
 def get_agvs():
     return sync_agv_autonomy()
+
+
+def create_agv(x: int, y: int, actor: dict | None = None):
+    grid_cols, grid_rows = get_current_grid_size()
+    target_x = int(x)
+    target_y = int(y)
+
+    if not (0 <= target_x < grid_cols and 0 <= target_y < grid_rows):
+        raise_api_error(400, "agv_create_out_of_grid")
+
+    valid_cells = get_valid_cells(grid_cols, grid_rows)
+    if (target_x, target_y) not in valid_cells:
+        raise_api_error(400, "agv_create_invalid_cell")
+
+    blocked_cells = get_blocked_cells(grid_cols, grid_rows)
+    if (target_x, target_y) in blocked_cells:
+        raise_api_error(400, "agv_create_blocked_cell")
+
+    if any(item.status != "maintenance" and int(item.x) == target_x and int(item.y) == target_y for item in list_agvs()):
+        raise_api_error(400, "agv_create_occupied_cell")
+
+    topology = (get_map_layout_state().get("topology") or {}).get("nodes", []) or []
+    current_node = next(
+        (
+            str(node.get("key") or "").strip()
+            for node in topology
+            if int(node.get("x") or -1) == target_x and int(node.get("y") or -1) == target_y
+        ),
+        f"grid:{target_x}:{target_y}",
+    )
+
+    created = create_agv_store(
+        AGV(
+            id=0,
+            x=target_x,
+            y=target_y,
+            status="idle",
+            current_node=current_node,
+        )
+    )
+    created.clear_motion()
+    record_operation_audit(
+        "agv",
+        created.id,
+        "create",
+        actor,
+        {
+            "spawn_x": target_x,
+            "spawn_y": target_y,
+            "source": "map_double_click",
+        },
+    )
+    return {
+        "message": "AGV created",
+        "agv": created,
+    }
 
 
 def emergency_stop_agv(

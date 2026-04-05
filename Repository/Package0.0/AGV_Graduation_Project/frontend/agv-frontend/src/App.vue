@@ -168,7 +168,6 @@ function isEnterpriseClientRole(role) {
 
 const agvs = ref([])
 const agvAnimationNow = ref(Date.now())
-const localAgvs = ref([])
 const tasks = ref([])
 const blockedCells = ref([...DEFAULT_BLOCKED_CELLS])
 const validCells = ref(buildFullValidCellList(GRID_COLS, GRID_ROWS))
@@ -251,7 +250,7 @@ function getTopologyNodeDefaultCapacity(nodeType) {
 function normalizeTopologyNodeCapacity(nodeType, capacity) {
   const numeric = Number(capacity)
   if (!Number.isFinite(numeric)) return getTopologyNodeDefaultCapacity(nodeType)
-  return Math.max(Math.round(numeric), 1)
+  return Math.max(Math.round(numeric), getTopologyNodeDefaultCapacity(nodeType))
 }
 
 function normalizeMapTopology(topology, gridCols = gridColsValue(), gridRows = gridRowsValue(), nextValidCells = validCells.value) {
@@ -567,6 +566,7 @@ const taskQueueViewFilter = ref('all')
 const taskCardCollapsed = ref({})
 const summaryZoomArmed = ref(false)
 
+const localAgvs = ref([])
 const selectedAgvId = ref(null)
 const topologyStationDockDialogOpen = ref(false)
 const topologyStationDockNodeKey = ref('')
@@ -625,6 +625,8 @@ const showMapSettings = ref(false)
 const showStatusLegend = ref(true)
 const statusLegendLayout = ref('horizontal')
 const statusLegendOpacity = ref(0.55)
+const idleReturnTimeoutSec = ref(12)
+const idleChargeTimeoutSec = ref(45)
 const showMarkerIcons = ref(true)
 const showPathArrows = ref(false)
 const showMinimap = ref(true)
@@ -686,6 +688,7 @@ const comfyRenderBuiltinTemplateKey = ref('')
 const comfyRenderBuiltinTemplatesOverviewVisible = ref(false)
 const comfyRenderAvailableCheckpoints = ref([])
 const comfyRenderCheckpointsLoading = ref(false)
+let localNextId = 1000
 const comfyRenderPromptText = ref('')
 const comfyRenderInputJsonText = ref('')
 const comfyRenderWorkflowJsonText = ref('')
@@ -716,7 +719,6 @@ let taskBuilderJumpTimer = null
 let agvRecoveryJumpTimer = null
 let faultSelectedAgvPulseTimer = null
 let floatingToastTimer = null
-let localNextId = 1000
 const autoScheduling = ref(false)
 const autoScheduleGuard = ref(false)
 const manualBoundScheduling = ref(false)
@@ -1235,6 +1237,16 @@ const authEntryHintText = computed(() => {
     return isEnterpriseClientVariant ? t('enterprise_client_gate_hint') : t('auth_entry_hint_guest')
   }
   return t(`auth_entry_hint_${authCurrentRole.value}`)
+})
+const runtimeHintText = computed(() => {
+  const base = t('hint')
+  if (uiTreatAsEnterpriseRole.value) {
+    return `${base} ${t('hint_double_click_enterprise')}`
+  }
+  if (effectiveSurfaceRole.value === 'personal') {
+    return `${base} ${t('hint_double_click_personal')}`
+  }
+  return `${base} ${t('hint_double_click_guest')}`
 })
 const authAccountStatusLabel = computed(() => t(`auth_account_status_${authCurrentAccountStatus.value}`))
 const shortcutPreferenceScopeKey = computed(() => {
@@ -5431,6 +5443,8 @@ const {
   showStatusLegend,
   statusLegendLayout,
   statusLegendOpacity,
+  idleReturnTimeoutSec,
+  idleChargeTimeoutSec,
   showMinimap,
   topologyViewMode,
   showGuideCenterOnLoad,
@@ -5465,6 +5479,8 @@ const {
   showStatusLegend,
   statusLegendLayout,
   statusLegendOpacity,
+  idleReturnTimeoutSec,
+  idleChargeTimeoutSec,
   compareDisplayMode,
   clampValue
 })
@@ -10481,6 +10497,95 @@ function blockedCellAlertText() {
   return 'Blocked or inactive cells cannot be used as start, end, or transfer points.'
 }
 
+function getGridManhattanDistance(fromX, fromY, toX, toY) {
+  return Math.abs(Number(fromX) - Number(toX)) + Math.abs(Number(fromY) - Number(toY))
+}
+
+function findNearestSchedulableBackendAgv(x, y) {
+  const candidates = agvs.value
+    .filter(agv => isSchedulableIdleAgvStatus(agv?.status) && agv.status !== 'maintenance')
+    .map(agv => ({
+      agv,
+      distance: getGridManhattanDistance(agv?.x, agv?.y, x, y)
+    }))
+    .sort((a, b) => {
+      if (a.distance !== b.distance) return a.distance - b.distance
+      return Number(a.agv?.id || 0) - Number(b.agv?.id || 0)
+    })
+  return candidates[0]?.agv ?? null
+}
+
+async function createBackendAgvAtCell(x, y) {
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'dispatch.write', buildCapabilityDeniedMessage('dispatch'))) {
+    return
+  }
+  try {
+    const res = await fetch(`${API_BASE}/agv/create`, {
+      method: 'POST',
+      headers: buildAuthorizedJsonHeaders(),
+      body: JSON.stringify({ x, y })
+    })
+    const data = await res.json()
+    if (!res.ok) {
+      throw createApiError(data, 'Create AGV failed')
+    }
+    await fetchAgvs()
+    const createdId = Number(data?.agv?.id)
+    if (Number.isFinite(createdId) && createdId > 0) {
+      selectedAgvId.value = createdId
+      dispatchMode.value = 'manual'
+      preferredRuntimeDisplayMode.value = 'manual'
+      manualDraftPicking.value = false
+      syncManualDispatchBuilderState()
+      clearManualDestination()
+    }
+    showFloatingToast(
+      formatInlineMessage(t('agv_create_success'), {
+        id: String(createdId || '?'),
+        x: String(x),
+        y: String(y)
+      }),
+      'success'
+    )
+  } catch (error) {
+    showFloatingToast(error?.message || t('agv_create_failed'), 'error')
+  }
+}
+
+async function dispatchNearestEnterpriseAgvToCell(x, y) {
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'dispatch.write', buildCapabilityDeniedMessage('dispatch'))) {
+    return
+  }
+  const agv = findNearestSchedulableBackendAgv(x, y)
+  if (!agv) {
+    showFloatingToast(t('enterprise_double_click_no_agv'), 'warning')
+    return
+  }
+  if (Number(agv.x) === Number(x) && Number(agv.y) === Number(y)) {
+    showFloatingToast(formatInlineMessage(t('enterprise_double_click_same_cell'), { id: String(agv.id) }), 'info')
+    return
+  }
+  selectedAgvId.value = Number(agv.id)
+  dispatchMode.value = 'manual'
+  preferredRuntimeDisplayMode.value = 'manual'
+  manualDraftPicking.value = false
+  syncManualDispatchBuilderState()
+  clearManualDestination()
+  startPoint.value = { x: Number(agv.x), y: Number(agv.y) }
+  endPoint.value = { x: Number(x), y: Number(y) }
+  manualDispatchStep.value = 'running'
+  bumpManualPreviewMinVisible()
+  showFloatingToast(
+    formatInlineMessage(t('enterprise_double_click_dispatching'), {
+      id: String(agv.id),
+      x: String(x),
+      y: String(y)
+    }),
+    'info'
+  )
+  await createTaskAndSchedule(Number(agv.id))
+}
+
 function onAgvClick(agv, event) {
   event.stopPropagation()
   if (agv.source !== 'backend') return
@@ -10570,7 +10675,14 @@ function onMapDoubleClick(event) {
     return
   }
   if (isCellOccupied(x, y)) return
-
+  if (uiTreatAsEnterpriseRole.value) {
+    void dispatchNearestEnterpriseAgvToCell(x, y)
+    return
+  }
+  if (effectiveSurfaceRole.value === 'personal') {
+    void createBackendAgvAtCell(x, y)
+    return
+  }
   localAgvs.value.push({
     id: localNextId++,
     x,
@@ -14419,7 +14531,7 @@ watch(showFloatingCompare, visible => {
   stopFloatingCompareRefresh()
 })
 
-watch([showAutoPath, showMarkerIcons, showPathArrows, showStatusLegend, statusLegendLayout, statusLegendOpacity, showMinimap, topologyViewMode, showGuideCenterOnLoad, compareDisplayMode, compareFloatingOpacity], () => {
+watch([showAutoPath, showMarkerIcons, showPathArrows, showStatusLegend, statusLegendLayout, statusLegendOpacity, idleReturnTimeoutSec, idleChargeTimeoutSec, showMinimap, topologyViewMode, showGuideCenterOnLoad, compareDisplayMode, compareFloatingOpacity], () => {
   saveMapDisplaySettings()
 })
 
@@ -15044,6 +15156,8 @@ const mapSettingsPanelBindings = {
   enterpriseTopologyViewAvailable,
   topologyViewMode,
   showGuideCenterOnLoad,
+  idleReturnTimeoutSec,
+  idleChargeTimeoutSec,
   authCanMapWrite,
   buildCapabilityReadonlyHint,
   buildEnterprisePanelReadonlyHint,
@@ -15411,6 +15525,8 @@ const enterpriseSettingsDialogBindings = {
   statusLegendLayout,
   enterpriseTopologyViewAvailable,
   topologyViewMode,
+  idleReturnTimeoutSec,
+  idleChargeTimeoutSec,
   compareFloatingOpacity,
   resetMapView,
   enterpriseActiveTasks,
@@ -15637,6 +15753,7 @@ const enterpriseSettingsDialogBindings = {
   removeSelectedEnterpriseTopologyNode,
   removeSelectedEnterpriseTopologyEdge,
   saveEnterpriseTopologyEditorDraft,
+  getTopologyNodeDefaultCapacity,
   formatEnterpriseTopologyNodeBadge,
   formatTopologyNodeCapacity,
   formatMapProfileTopologySummary,
@@ -15952,7 +16069,7 @@ onBeforeUnmount(() => {
             <span>{{ t('account_governance_entry') }}</span>
           </button>
         </div>
-        <p class="toolbar-hint">{{ t('hint') }}</p>
+        <p class="toolbar-hint">{{ runtimeHintText }}</p>
         <p v-if="toolbarGuideHintText" class="toolbar-hint toolbar-hint-secondary">{{ toolbarGuideHintText }}</p>
       </div>
 

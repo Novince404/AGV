@@ -1679,6 +1679,30 @@
                   <span>{{ t('enterprise_settings_page_settings_guide_auto_open') }}</span>
                 </label>
                 <p class="panel-hint">{{ t('enterprise_settings_page_settings_guide_auto_open_hint') }}</p>
+                <label class="auth-field">
+                  <span>{{ settingsLocale.idleReturnTimeoutSec }}</span>
+                  <input
+                    v-model.number="idleReturnTimeoutSec"
+                    class="auth-input"
+                    type="number"
+                    min="5"
+                    max="600"
+                    step="1"
+                  />
+                </label>
+                <p class="panel-hint">{{ settingsLocale.idleReturnTimeoutSecHint }}</p>
+                <label class="auth-field">
+                  <span>{{ settingsLocale.idleChargeTimeoutSec }}</span>
+                  <input
+                    v-model.number="idleChargeTimeoutSec"
+                    class="auth-input"
+                    type="number"
+                    min="5"
+                    max="600"
+                    step="1"
+                  />
+                </label>
+                <p class="panel-hint">{{ settingsLocale.idleChargeTimeoutSecHint }}</p>
                 <div class="enterprise-page-settings-shortcut-list">
                   <div
                     v-for="entry in shortcutGuideEntries"
@@ -2232,11 +2256,11 @@
                       <input
                         class="auth-input"
                         :value="formatTopologyNodeCapacity(enterpriseTopologySelectedNode)"
-                        min="1"
+                        :min="getTopologyNodeDefaultCapacity(enterpriseTopologySelectedNode.node_type)"
                         step="1"
                         type="number"
                         :disabled="!authCanMapWrite"
-                        @input="updateEnterpriseTopologyNode({ capacity: Number($event.target.value || 1) })"
+                        @input="updateEnterpriseTopologyNode({ capacity: Number($event.target.value || getTopologyNodeDefaultCapacity(enterpriseTopologySelectedNode.node_type)) })"
                       />
                     </label>
                     <p

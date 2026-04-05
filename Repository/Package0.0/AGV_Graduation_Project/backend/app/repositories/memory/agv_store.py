@@ -22,3 +22,10 @@ def list_idle_agvs() -> list[AGV]:
 
 def get_first_idle_agv() -> AGV | None:
     return next((agv for agv in agv_list if agv.status in {"idle", "idle_returning"}), None)
+
+
+def create_agv(agv: AGV) -> AGV:
+    next_id = max((item.id for item in agv_list), default=0) + 1
+    created = AGV(**{**agv.model_dump(), "id": next_id})
+    agv_list.append(created)
+    return created

@@ -144,8 +144,18 @@ def get_first_idle_agv() -> AGV | None:
     return next((agv for agv in agv_list if agv.status in {"idle", "idle_returning"}), None)
 
 
+def create_agv(agv: AGV) -> AGV:
+    _ensure_loaded()
+    next_id = max((item.id for item in agv_list), default=0) + 1
+    created = _bind_agv(AGV(**{**agv.model_dump(), "id": next_id}))
+    agv_list.append(created)
+    _persist_agv_snapshot(created)
+    return created
+
+
 __all__ = [
     "agv_list",
+    "create_agv",
     "get_agv_by_id",
     "get_first_idle_agv",
     "list_agvs",

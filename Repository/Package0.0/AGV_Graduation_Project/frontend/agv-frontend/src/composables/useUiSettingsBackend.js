@@ -14,6 +14,8 @@ export function useUiSettingsBackend(options) {
     showStatusLegend,
     statusLegendLayout,
     statusLegendOpacity,
+    idleReturnTimeoutSec,
+    idleChargeTimeoutSec,
     compareDisplayMode,
     clampValue
   } = options
@@ -65,6 +67,12 @@ export function useUiSettingsBackend(options) {
       if (typeof payload?.status_legend_opacity === 'number') {
         statusLegendOpacity.value = clampValue(payload.status_legend_opacity, 0.2, 0.9)
       }
+      if (typeof payload?.idle_return_timeout_sec === 'number') {
+        idleReturnTimeoutSec.value = clampValue(payload.idle_return_timeout_sec, 5, 600)
+      }
+      if (typeof payload?.idle_charge_timeout_sec === 'number') {
+        idleChargeTimeoutSec.value = clampValue(payload.idle_charge_timeout_sec, 5, 600)
+      }
       if (payload?.compare_display_mode === 'panel' || payload?.compare_display_mode === 'floating') {
         compareDisplayMode.value = payload.compare_display_mode
       }
@@ -85,6 +93,8 @@ export function useUiSettingsBackend(options) {
       show_status_legend: showStatusLegend.value,
       status_legend_layout: statusLegendLayout.value,
       status_legend_opacity: Number(statusLegendOpacity.value),
+      idle_return_timeout_sec: Number(idleReturnTimeoutSec.value),
+      idle_charge_timeout_sec: Number(idleChargeTimeoutSec.value),
       compare_display_mode: compareDisplayMode.value,
       panel_sections: normalizePanelSections(panelSections.value)
     }
@@ -150,7 +160,7 @@ export function useUiSettingsBackend(options) {
   }
 
   watch(
-    [showMinimap, showMarkerIcons, showPathArrows, showStatusLegend, statusLegendLayout, statusLegendOpacity, compareDisplayMode],
+    [showMinimap, showMarkerIcons, showPathArrows, showStatusLegend, statusLegendLayout, statusLegendOpacity, idleReturnTimeoutSec, idleChargeTimeoutSec, compareDisplayMode],
     () => {
       scheduleUiSettingsPersist()
     }

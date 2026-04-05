@@ -63,6 +63,8 @@ DEFAULT_UI_SETTINGS = {
     "show_status_legend": True,
     "status_legend_layout": "horizontal",
     "status_legend_opacity": 0.55,
+    "idle_return_timeout_sec": 12.0,
+    "idle_charge_timeout_sec": 45.0,
     "compare_display_mode": "panel",
     "panel_sections": {
         "control": True,
@@ -516,6 +518,8 @@ def _normalize_ui_settings(payload) -> dict:
         else dict(payload["panel_sections"])
     )
     opacity = max(0.2, min(0.9, float(payload.status_legend_opacity)))
+    idle_return_timeout_sec = max(5.0, min(600.0, float(payload.idle_return_timeout_sec)))
+    idle_charge_timeout_sec = max(5.0, min(600.0, float(payload.idle_charge_timeout_sec)))
     return {
         "show_minimap": bool(payload.show_minimap),
         "show_marker_icons": bool(payload.show_marker_icons),
@@ -523,6 +527,8 @@ def _normalize_ui_settings(payload) -> dict:
         "show_status_legend": bool(payload.show_status_legend),
         "status_legend_layout": payload.status_legend_layout,
         "status_legend_opacity": opacity,
+        "idle_return_timeout_sec": idle_return_timeout_sec,
+        "idle_charge_timeout_sec": idle_charge_timeout_sec,
         "compare_display_mode": payload.compare_display_mode,
         "panel_sections": {
             "control": bool(sections.get("control", DEFAULT_UI_SETTINGS["panel_sections"]["control"])),

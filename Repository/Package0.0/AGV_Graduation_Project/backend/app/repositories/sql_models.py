@@ -340,6 +340,8 @@ class UiSettingsEntity(Base):
     show_status_legend: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     status_legend_layout: Mapped[str] = mapped_column(String(16), nullable=False, default="horizontal")
     status_legend_opacity: Mapped[float] = mapped_column(Float, nullable=False, default=0.55)
+    idle_return_timeout_sec: Mapped[float] = mapped_column(Float, nullable=False, default=12.0)
+    idle_charge_timeout_sec: Mapped[float] = mapped_column(Float, nullable=False, default=45.0)
     compare_display_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="panel")
     panel_sections: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
 
