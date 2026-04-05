@@ -99,6 +99,48 @@ def _same_point_coordinates(a, b) -> bool:
     return int(a.get("x", -1)) == int(b.get("x", -2)) and int(a.get("y", -1)) == int(b.get("y", -2))
 
 
+def _get_special_topology_node_at_position(x: int, y: int) -> dict | None:
+    state = get_map_layout_state()
+    topology = state.get("topology") or {}
+    for node in topology.get("nodes", []) or []:
+        if not isinstance(node, dict):
+            continue
+        if int(node.get("x") or -1) != int(x) or int(node.get("y") or -1) != int(y):
+            continue
+        node_type = str(node.get("node_type") or "waypoint")
+        if node_type not in {"station", "parking", "charge"}:
+            continue
+        return {
+            "key": str(node.get("key") or _build_grid_node_key(x, y)),
+            "node_type": node_type,
+            "capacity": normalize_topology_node_capacity(node_type, node.get("capacity")),
+        }
+    return None
+
+
+def _special_topology_node_has_spare_capacity(x: int, y: int, *, exclude_agv_id: int | None = None) -> dict | None:
+    special_node = _get_special_topology_node_at_position(x, y)
+    if special_node is None:
+        return None
+
+    occupancy = 0
+    for other in list_agvs():
+        try:
+            other_id = int(other.id)
+        except Exception:
+            continue
+        if exclude_agv_id is not None and other_id == int(exclude_agv_id):
+            continue
+        if getattr(other, "status", None) == "maintenance":
+            continue
+        if int(other.x) == int(x) and int(other.y) == int(y):
+            occupancy += 1
+
+    if occupancy < int(special_node["capacity"]):
+        return special_node
+    return None
+
+
 def _build_topology_wait_reason(conflict: dict) -> str:
     edge_key = str(conflict.get("edge_key") or "topology")
     target_node = str(conflict.get("target_node") or "")
@@ -156,6 +198,7 @@ def _detect_topology_edge_conflict(agv_id: int, source_x: int, source_y: int, po
     edge_key = str(segment.get("edge_key") or "").strip()
     if not edge_key or edge_key.startswith("grid:"):
         return None
+    special_target = _special_topology_node_has_spare_capacity(target_x, target_y, exclude_agv_id=agv_id)
 
     for other in list_agvs():
         if int(other.id) == int(agv_id) or other.status == "maintenance":
@@ -163,6 +206,12 @@ def _detect_topology_edge_conflict(agv_id: int, source_x: int, source_y: int, po
         other_edge = str(getattr(other, "current_edge", "") or "").strip()
         if other_edge != edge_key:
             continue
+        if special_target is not None:
+            blocker_target_key = str(
+                getattr(other, "auto_target_node", "") or getattr(other, "current_node", "") or ""
+            ).strip()
+            if blocker_target_key == str(special_target["key"]):
+                continue
         blocker_task = get_task_by_id(other.task_id) if getattr(other, "task_id", None) is not None else None
         return {
             "edge_key": edge_key,
@@ -187,24 +236,9 @@ def _find_blocking_agv_at_position(agv_id: int, x: int, y: int):
     if not matching_agvs:
         return None
 
-    state = get_map_layout_state()
-    topology = state.get("topology") or {}
-    special_node = next(
-        (
-            node
-            for node in topology.get("nodes", []) or []
-            if int(node.get("x") or -1) == int(x)
-            and int(node.get("y") or -1) == int(y)
-            and str(node.get("node_type") or "waypoint") in {"station", "parking", "charge"}
-        ),
-        None,
-    )
+    special_node = _get_special_topology_node_at_position(x, y)
     if special_node is not None:
-        capacity = normalize_topology_node_capacity(
-            special_node.get("node_type") or "waypoint",
-            special_node.get("capacity"),
-        )
-        if len(matching_agvs) < capacity:
+        if len(matching_agvs) < int(special_node["capacity"]):
             return None
     return matching_agvs[0]
 
