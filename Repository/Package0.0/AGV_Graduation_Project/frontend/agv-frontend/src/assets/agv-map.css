@@ -1759,6 +1759,16 @@ h2 {
   padding: 8px 10px;
 }
 
+.enterprise-topology-edge-editor {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 12px;
+}
+
+.enterprise-topology-edge-editor__field {
+  margin-bottom: 0;
+}
+
 .enterprise-map-editor-draft-summary {
   font-size: 14px;
   font-weight: 700;
@@ -6594,6 +6604,10 @@ h2 {
   }
 
   .enterprise-map-editor-draft-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .enterprise-topology-edge-editor {
     grid-template-columns: 1fr;
   }
 

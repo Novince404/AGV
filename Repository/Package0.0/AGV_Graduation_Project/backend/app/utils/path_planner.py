@@ -28,6 +28,12 @@ TOPOLOGY_ENTRY_TURNBACK_PENALTY = 1.6
 TOPOLOGY_EXIT_TURNBACK_PENALTY = 0.8
 TOPOLOGY_MAX_ENTRY_CANDIDATES = 4
 TOPOLOGY_GRID_FALLBACK_MARGIN = 1.25
+TOPOLOGY_RUNTIME_LANE_FACTORS = {
+    "main": 1.0,
+    "branch": 1.03,
+    "service": 1.08,
+}
+TOPOLOGY_RUNTIME_EQUAL_MARGIN = 0.05
 
 
 def _is_topology_edge_hard_blocked_for_request(edge: dict, edge_blockers: dict[str, dict], request_priority: int) -> bool:
@@ -503,6 +509,56 @@ def _compute_topology_candidate_progress_penalty(
     return penalty
 
 
+def _topology_edge_runtime_cost(edge: dict, node_by_key: dict[str, dict]) -> float:
+    source_node = node_by_key.get(str(edge.get("from") or ""))
+    target_node = node_by_key.get(str(edge.get("to") or ""))
+    if source_node is None or target_node is None:
+        return max(float(edge.get("weight") or 1.0), 0.1)
+
+    distance = max(
+        abs(int(target_node["x"]) - int(source_node["x"])),
+        abs(int(target_node["y"]) - int(source_node["y"])),
+        1,
+    )
+    speed_multiplier = max(float(edge.get("speed_multiplier") or 1.0), 0.1)
+    lane_factor = TOPOLOGY_RUNTIME_LANE_FACTORS.get(str(edge.get("lane_type") or "main"), 1.0)
+    return (float(distance) * lane_factor) / speed_multiplier
+
+
+def _estimate_topology_candidate_runtime_cost(
+    sx: int,
+    sy: int,
+    ex: int,
+    ey: int,
+    *,
+    start_candidate: dict,
+    end_candidate: dict,
+    node_path: list[str],
+    edge_path: list[dict],
+    node_by_key: dict[str, dict],
+) -> float:
+    runtime_cost = float(start_candidate["distance"]) + float(end_candidate["distance"])
+    if not start_candidate["exact"]:
+        runtime_cost += TOPOLOGY_ENTRY_EXIT_PENALTY * 0.45
+    if not end_candidate["exact"]:
+        runtime_cost += TOPOLOGY_ENTRY_EXIT_PENALTY * 0.45
+    if not edge_path:
+        runtime_cost += TOPOLOGY_SAME_NODE_TRANSFER_PENALTY + 1.0
+    else:
+        runtime_cost += sum(_topology_edge_runtime_cost(edge, node_by_key) for edge in edge_path)
+    runtime_cost += _compute_topology_candidate_progress_penalty(
+        sx,
+        sy,
+        ex,
+        ey,
+        start_candidate=start_candidate,
+        end_candidate=end_candidate,
+        node_path=node_path,
+        node_by_key=node_by_key,
+    )
+    return runtime_cost
+
+
 def _plan_topology_node_path(
     start_key: str,
     goal_key: str,
@@ -672,6 +728,8 @@ def _plan_topology_path(
             )
             if not node_path:
                 continue
+            if not edge_path and (not start_candidate["exact"] or not end_candidate["exact"]):
+                continue
 
             suffix_path = _reverse_path(end_candidate["path"])
             candidate_total_cost = float(start_candidate["distance"]) + topology_cost + float(end_candidate["distance"])
@@ -681,7 +739,7 @@ def _plan_topology_path(
                 candidate_total_cost += TOPOLOGY_ENTRY_EXIT_PENALTY
             if len(node_path) == 1 and (not start_candidate["exact"] or not end_candidate["exact"]):
                 candidate_total_cost += TOPOLOGY_SAME_NODE_TRANSFER_PENALTY
-            candidate_total_cost += _compute_topology_candidate_progress_penalty(
+            candidate_progress_penalty = _compute_topology_candidate_progress_penalty(
                 sx,
                 sy,
                 ex,
@@ -689,6 +747,18 @@ def _plan_topology_path(
                 start_candidate=start_candidate,
                 end_candidate=end_candidate,
                 node_path=node_path,
+                node_by_key=node_by_key,
+            )
+            candidate_total_cost += candidate_progress_penalty
+            candidate_runtime_cost = _estimate_topology_candidate_runtime_cost(
+                sx,
+                sy,
+                ex,
+                ey,
+                start_candidate=start_candidate,
+                end_candidate=end_candidate,
+                node_path=node_path,
+                edge_path=edge_path,
                 node_by_key=node_by_key,
             )
 
@@ -701,6 +771,7 @@ def _plan_topology_path(
 
             candidate_length = _path_step_cost(candidate_path)
             candidate_key = (
+                round(candidate_runtime_cost, 4),
                 round(candidate_total_cost, 4),
                 candidate_length,
                 len(edge_path),
@@ -711,6 +782,8 @@ def _plan_topology_path(
                 best_payload = {
                     "key": candidate_key,
                     "total_cost": candidate_total_cost,
+                    "runtime_cost": candidate_runtime_cost,
+                    "edge_count": len(edge_path),
                     "path": candidate_path,
                 }
 
@@ -718,8 +791,15 @@ def _plan_topology_path(
         return []
 
     if direct_grid_cost != float("inf"):
+        if best_payload.get("edge_count", 0) <= 0:
+            return []
         if (
             best_payload["total_cost"] > direct_grid_cost + TOPOLOGY_GRID_FALLBACK_MARGIN
+            and _path_step_cost(best_payload["path"]) > direct_grid_cost + 1
+        ):
+            return []
+        if (
+            best_payload.get("runtime_cost", float("inf")) >= direct_grid_cost - TOPOLOGY_RUNTIME_EQUAL_MARGIN
             and _path_step_cost(best_payload["path"]) > direct_grid_cost + 1
         ):
             return []

@@ -2397,64 +2397,66 @@
 
                   <div v-if="enterpriseTopologySelectedEdge" class="enterprise-map-editor-draft-card">
                     <div class="map-settings-info-label">{{ t('enterprise_settings_route_topology_edge_editor') }}</div>
-                    <label class="auth-field">
-                      <span>{{ t('enterprise_settings_route_topology_edge_direction') }}</span>
-                      <select
-                        class="auth-input"
-                        :value="enterpriseTopologySelectedEdge.direction"
-                        :disabled="!authCanMapWrite"
-                        @change="updateEnterpriseTopologyEdge({ direction: $event.target.value })"
-                      >
-                        <option
-                          v-for="option in enterpriseTopologyEdgeDirectionOptions"
-                          :key="`enterprise-topology-direction-${option.value}`"
-                          :value="option.value"
+                    <div class="enterprise-topology-edge-editor">
+                      <label class="auth-field enterprise-topology-edge-editor__field">
+                        <span>{{ t('enterprise_settings_route_topology_edge_direction') }}</span>
+                        <select
+                          class="auth-input"
+                          :value="enterpriseTopologySelectedEdge.direction"
+                          :disabled="!authCanMapWrite"
+                          @change="updateEnterpriseTopologyEdge({ direction: $event.target.value })"
                         >
-                          {{ option.label }}
-                        </option>
-                      </select>
-                    </label>
-                    <label class="auth-field">
-                      <span>{{ t('enterprise_settings_route_topology_lane_type') }}</span>
-                      <select
-                        class="auth-input"
-                        :value="enterpriseTopologySelectedEdge.lane_type"
-                        :disabled="!authCanMapWrite"
-                        @change="updateEnterpriseTopologyEdge({ lane_type: $event.target.value })"
-                      >
-                        <option
-                          v-for="option in enterpriseTopologyLaneTypeOptions"
-                          :key="`enterprise-topology-lane-${option.value}`"
-                          :value="option.value"
+                          <option
+                            v-for="option in enterpriseTopologyEdgeDirectionOptions"
+                            :key="`enterprise-topology-direction-${option.value}`"
+                            :value="option.value"
+                          >
+                            {{ option.label }}
+                          </option>
+                        </select>
+                      </label>
+                      <label class="auth-field enterprise-topology-edge-editor__field">
+                        <span>{{ t('enterprise_settings_route_topology_lane_type') }}</span>
+                        <select
+                          class="auth-input"
+                          :value="enterpriseTopologySelectedEdge.lane_type"
+                          :disabled="!authCanMapWrite"
+                          @change="updateEnterpriseTopologyEdge({ lane_type: $event.target.value })"
                         >
-                          {{ option.label }}
-                        </option>
-                      </select>
-                    </label>
-                    <label class="auth-field">
-                      <span>{{ t('enterprise_settings_route_topology_edge_weight') }}</span>
-                      <input
-                        class="auth-input"
-                        :value="enterpriseTopologySelectedEdge.weight"
-                        min="0.1"
-                        step="0.1"
-                        type="number"
-                        :disabled="!authCanMapWrite"
-                        @input="updateEnterpriseTopologyEdge({ weight: Number($event.target.value || 1) })"
-                      />
-                    </label>
-                    <label class="auth-field">
-                      <span>{{ t('enterprise_settings_route_topology_edge_speed_multiplier') }}</span>
-                      <input
-                        class="auth-input"
-                        :value="enterpriseTopologySelectedEdge.speed_multiplier"
-                        min="0.1"
-                        step="0.1"
-                        type="number"
-                        :disabled="!authCanMapWrite"
-                        @input="updateEnterpriseTopologyEdge({ speed_multiplier: Number($event.target.value || 1) })"
-                      />
-                    </label>
+                          <option
+                            v-for="option in enterpriseTopologyLaneTypeOptions"
+                            :key="`enterprise-topology-lane-${option.value}`"
+                            :value="option.value"
+                          >
+                            {{ option.label }}
+                          </option>
+                        </select>
+                      </label>
+                      <label class="auth-field enterprise-topology-edge-editor__field">
+                        <span>{{ t('enterprise_settings_route_topology_edge_weight') }}</span>
+                        <input
+                          class="auth-input"
+                          :value="enterpriseTopologySelectedEdge.weight"
+                          min="0.1"
+                          step="0.1"
+                          type="number"
+                          :disabled="!authCanMapWrite"
+                          @input="updateEnterpriseTopologyEdge({ weight: Number($event.target.value || 1) })"
+                        />
+                      </label>
+                      <label class="auth-field enterprise-topology-edge-editor__field">
+                        <span>{{ t('enterprise_settings_route_topology_edge_speed_multiplier') }}</span>
+                        <input
+                          class="auth-input"
+                          :value="enterpriseTopologySelectedEdge.speed_multiplier"
+                          min="0.1"
+                          step="0.1"
+                          type="number"
+                          :disabled="!authCanMapWrite"
+                          @input="updateEnterpriseTopologyEdge({ speed_multiplier: Number($event.target.value || 1) })"
+                        />
+                      </label>
+                    </div>
                     <div class="enterprise-settings-actions">
                       <button class="btn-delete" type="button" :disabled="!authCanMapWrite" @click="removeSelectedEnterpriseTopologyEdge">
                         {{ t('enterprise_settings_route_topology_delete_edge') }}
