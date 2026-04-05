@@ -25,6 +25,8 @@ MOVE_WAIT_TIMEOUT_SEC = 12
 TOPOLOGY_EDGE_REPLAN_INTERVAL_SEC = 1.2
 TOPOLOGY_OCCUPIED_NODE_REPLAN_INTERVAL_SEC = 1.4
 TOPOLOGY_DEADLOCK_BREAK_TIMEOUT_SEC = 4.5
+TOPOLOGY_FOLLOW_LOOKAHEAD_CELLS = 1.65
+TOPOLOGY_FOLLOW_MIN_GAP_CELLS = 0.75
 CELL_TRAVEL_DURATION_SEC = 0.9
 DEFAULT_CELL_SPEED = 1.0
 
@@ -90,6 +92,20 @@ def _segment_heading(source_x: int, source_y: int, target_x: int, target_y: int)
     return round(degrees(atan2(dy, dx)), 2)
 
 
+def _segment_direction(source_x: int, source_y: int, target_x: int, target_y: int) -> tuple[int, int]:
+    dx = int(target_x) - int(source_x)
+    dy = int(target_y) - int(source_y)
+    if dx > 0:
+        dx = 1
+    elif dx < 0:
+        dx = -1
+    if dy > 0:
+        dy = 1
+    elif dy < 0:
+        dy = -1
+    return dx, dy
+
+
 def _point_coordinates(point) -> tuple[int, int]:
     return int(point["x"]), int(point["y"])
 
@@ -98,6 +114,27 @@ def _same_point_coordinates(a, b) -> bool:
     if not a or not b:
         return False
     return int(a.get("x", -1)) == int(b.get("x", -2)) and int(a.get("y", -1)) == int(b.get("y", -2))
+
+
+def _estimate_runtime_axis_position(agv, *, horizontal: bool) -> float:
+    source_value = float(getattr(agv, "motion_source_x" if horizontal else "motion_source_y", getattr(agv, "x" if horizontal else "y", 0)) or 0)
+    target_value = float(getattr(agv, "motion_target_x" if horizontal else "motion_target_y", getattr(agv, "x" if horizontal else "y", 0)) or 0)
+    started_ms = None
+    duration_ms = 0.0
+    try:
+        started_ms = datetime.fromisoformat(str(getattr(agv, "motion_started_at", "") or "")).timestamp() * 1000.0
+    except Exception:
+        started_ms = None
+    try:
+        duration_ms = max(float(getattr(agv, "motion_duration_ms", 0) or 0), 0.0)
+    except Exception:
+        duration_ms = 0.0
+    if started_ms is None or duration_ms <= 0:
+        return float(getattr(agv, "render_x" if horizontal else "render_y", getattr(agv, "x" if horizontal else "y", 0)) or 0)
+
+    now_ms = time.time() * 1000.0
+    progress = max(0.0, min(1.0, (now_ms - started_ms) / duration_ms))
+    return source_value + (target_value - source_value) * progress
 
 
 def _get_special_topology_node_at_position(x: int, y: int) -> dict | None:
@@ -139,6 +176,72 @@ def _special_topology_node_has_spare_capacity(x: int, y: int, *, exclude_agv_id:
 
     if occupancy < int(special_node["capacity"]):
         return special_node
+    return None
+
+
+def _detect_same_corridor_follow_conflict(agv_id: int, source_x: int, source_y: int, point: dict):
+    target_x, target_y = _point_coordinates(point)
+    segment = resolve_topology_segment_metadata(
+        source_x,
+        source_y,
+        target_x,
+        target_y,
+        edge_key=point.get("topology_edge_key"),
+    )
+    edge_key = str(segment.get("edge_key") or "").strip()
+    if not edge_key or edge_key.startswith("grid:"):
+        return None
+
+    direction_x, direction_y = _segment_direction(source_x, source_y, target_x, target_y)
+    if direction_x == 0 and direction_y == 0:
+        return None
+
+    horizontal = direction_y == 0
+    axis_sign = direction_x if horizontal else direction_y
+    source_axis = float(source_x if horizontal else source_y)
+    target_axis = float(target_x if horizontal else target_y)
+    candidate_front_axis = target_axis + TOPOLOGY_FOLLOW_MIN_GAP_CELLS * axis_sign
+
+    for other in list_agvs():
+        if int(other.id) == int(agv_id) or getattr(other, "status", None) == "maintenance":
+            continue
+
+        other_source_x = int(getattr(other, "motion_source_x", getattr(other, "x", 0)) or getattr(other, "x", 0))
+        other_source_y = int(getattr(other, "motion_source_y", getattr(other, "y", 0)) or getattr(other, "y", 0))
+        other_target_x = int(getattr(other, "motion_target_x", getattr(other, "x", 0)) or getattr(other, "x", 0))
+        other_target_y = int(getattr(other, "motion_target_y", getattr(other, "y", 0)) or getattr(other, "y", 0))
+        other_direction_x, other_direction_y = _segment_direction(other_source_x, other_source_y, other_target_x, other_target_y)
+        if (other_direction_x, other_direction_y) != (direction_x, direction_y):
+            continue
+
+        if horizontal:
+            if not (other_source_y == source_y and other_target_y == target_y):
+                continue
+        else:
+            if not (other_source_x == source_x and other_target_x == target_x):
+                continue
+
+        other_axis = _estimate_runtime_axis_position(other, horizontal=horizontal)
+        relative_axis = (other_axis - source_axis) * axis_sign
+        if relative_axis < 0:
+            continue
+        if relative_axis > TOPOLOGY_FOLLOW_LOOKAHEAD_CELLS:
+            continue
+
+        blocker_front_relative = (candidate_front_axis - source_axis) * axis_sign
+        if relative_axis <= blocker_front_relative:
+            blocker_task = get_task_by_id(other.task_id) if getattr(other, "task_id", None) is not None else None
+            return {
+                "edge_key": edge_key,
+                "lane_type": str(segment.get("lane_type") or "main"),
+                "speed_multiplier": float(segment.get("speed_multiplier") or 1.0),
+                "target_node": str(segment.get("target_node") or _build_grid_node_key(target_x, target_y)),
+                "blocker_node": str(getattr(other, "current_node", "") or _build_grid_node_key(int(other.x), int(other.y))),
+                "blocker_agv_id": int(other.id),
+                "blocker_task_id": int(other.task_id) if getattr(other, "task_id", None) is not None else None,
+                "blocker_priority": int(getattr(blocker_task, "priority", 0) or 0) if blocker_task else 0,
+                "blocker_motion_state": str(getattr(other, "motion_state", "") or getattr(other, "status", "") or "idle"),
+            }
     return None
 
 
@@ -578,6 +681,8 @@ def move_to_point_with_collision_guard(agv, task, point, algorithm: str, active_
         with movement_lock:
             topology_conflict = _detect_topology_edge_conflict(agv.id, source_x, source_y, point)
             if topology_conflict is None:
+                topology_conflict = _detect_same_corridor_follow_conflict(agv.id, source_x, source_y, point)
+            if topology_conflict is None:
                 blocking_agv = _find_blocking_agv_at_position(agv.id, target_x, target_y)
             if topology_conflict is None and blocking_agv is None:
                 target_node, target_speed, travel_duration_sec = _begin_motion_segment(agv, point, active_status)
@@ -966,6 +1071,8 @@ def move_agv_to_autonomy_target(
                         )
                         if not allow_direct_charge_entry:
                             topology_conflict = _detect_topology_edge_conflict(agv.id, source_x, source_y, point)
+                            if topology_conflict is None:
+                                topology_conflict = _detect_same_corridor_follow_conflict(agv.id, source_x, source_y, point)
                             if topology_conflict is None:
                                 blocking_agv = _find_blocking_agv_at_position(agv.id, next_x, next_y)
                         if topology_conflict is None and blocking_agv is None:
