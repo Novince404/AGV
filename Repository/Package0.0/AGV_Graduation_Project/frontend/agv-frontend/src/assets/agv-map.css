@@ -1750,13 +1750,6 @@ h2 {
   margin-bottom: 0;
 }
 
-.enterprise-topology-node-editor__grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
-  gap: 10px;
-  align-items: end;
-}
-
 .enterprise-topology-node-editor__hint {
   border-radius: 10px;
   background: rgba(131, 96, 60, 0.08);

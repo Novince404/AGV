@@ -2283,6 +2283,23 @@
                     <div class="map-settings-info-label">{{ t('enterprise_settings_route_topology_node_editor') }}</div>
                     <div class="enterprise-topology-node-editor">
                       <label class="auth-field enterprise-topology-node-editor__full">
+                        <span>{{ t('enterprise_settings_route_topology_node_type') }}</span>
+                        <select
+                          class="auth-input"
+                          :value="enterpriseTopologySelectedNode.node_type"
+                          :disabled="!authCanMapWrite"
+                          @change="updateEnterpriseTopologyNode({ node_type: $event.target.value })"
+                        >
+                          <option
+                            v-for="option in enterpriseTopologyNodeTypeOptions"
+                            :key="`enterprise-topology-type-${option.value}`"
+                            :value="option.value"
+                          >
+                            {{ option.label }}
+                          </option>
+                        </select>
+                      </label>
+                      <label class="auth-field enterprise-topology-node-editor__full">
                         <span>{{ t('enterprise_settings_route_topology_node_label') }}</span>
                         <input
                           class="auth-input"
@@ -2292,40 +2309,21 @@
                           @input="updateEnterpriseTopologyNode({ label: $event.target.value })"
                         />
                       </label>
-                      <div class="enterprise-topology-node-editor__grid">
-                        <label class="auth-field">
-                          <span>{{ t('enterprise_settings_route_topology_node_type') }}</span>
-                          <select
-                            class="auth-input"
-                            :value="enterpriseTopologySelectedNode.node_type"
-                            :disabled="!authCanMapWrite"
-                            @change="updateEnterpriseTopologyNode({ node_type: $event.target.value })"
-                          >
-                            <option
-                              v-for="option in enterpriseTopologyNodeTypeOptions"
-                              :key="`enterprise-topology-type-${option.value}`"
-                              :value="option.value"
-                            >
-                              {{ option.label }}
-                            </option>
-                          </select>
-                        </label>
-                        <label
-                          v-if="enterpriseTopologySelectedNode.node_type !== 'waypoint'"
-                          class="auth-field"
-                        >
-                          <span>{{ t('enterprise_settings_route_topology_node_capacity') }}</span>
-                          <input
-                            class="auth-input"
-                            :value="formatTopologyNodeCapacity(enterpriseTopologySelectedNode)"
-                            :min="getTopologyNodeDefaultCapacity(enterpriseTopologySelectedNode.node_type)"
-                            step="1"
-                            type="number"
-                            :disabled="!authCanMapWrite"
-                            @input="updateEnterpriseTopologyNode({ capacity: Number($event.target.value || getTopologyNodeDefaultCapacity(enterpriseTopologySelectedNode.node_type)) })"
-                          />
-                        </label>
-                      </div>
+                      <label
+                        v-if="enterpriseTopologySelectedNode.node_type !== 'waypoint'"
+                        class="auth-field enterprise-topology-node-editor__full"
+                      >
+                        <span>{{ t('enterprise_settings_route_topology_node_capacity') }}</span>
+                        <input
+                          class="auth-input"
+                          :value="formatTopologyNodeCapacity(enterpriseTopologySelectedNode)"
+                          :min="getTopologyNodeDefaultCapacity(enterpriseTopologySelectedNode.node_type)"
+                          step="1"
+                          type="number"
+                          :disabled="!authCanMapWrite"
+                          @input="updateEnterpriseTopologyNode({ capacity: Number($event.target.value || getTopologyNodeDefaultCapacity(enterpriseTopologySelectedNode.node_type)) })"
+                        />
+                      </label>
                       <div
                         v-if="enterpriseTopologySelectedNode.node_type !== 'waypoint'"
                         class="enterprise-topology-node-editor__hint"
