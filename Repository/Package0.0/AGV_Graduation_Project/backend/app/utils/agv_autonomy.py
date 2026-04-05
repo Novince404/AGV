@@ -20,6 +20,8 @@ LOW_BATTERY_THRESHOLD = 24.0
 CHARGE_RELEASE_THRESHOLD = 88.0
 BATTERY_IDLE_DRAIN_PER_SEC = 0.01
 BATTERY_ACTIVE_DRAIN_PER_SEC = 0.16
+BATTERY_WAITING_DRAIN_PER_SEC = 0.05
+BATTERY_PARKING_IDLE_DRAIN_PER_SEC = 0.003
 BATTERY_CHARGE_PER_SEC = 6.0
 AUTONOMY_ALGORITHM = "astar"
 AUTONOMY_BLOCKING_STATUSES = {"fault", "emergency_stop", "maintenance"}
@@ -29,6 +31,11 @@ AUTONOMY_MOVING_STATUSES = {"running", "relocating", "idle_returning", "waiting_
 AUTONOMY_UI_SETTINGS_DEFAULTS = {
     "idle_return_timeout_sec": DEFAULT_IDLE_RETURN_TIMEOUT_SEC,
     "idle_charge_timeout_sec": DEFAULT_IDLE_CHARGE_TIMEOUT_SEC,
+    "battery_active_drain_per_sec": BATTERY_ACTIVE_DRAIN_PER_SEC,
+    "battery_waiting_drain_per_sec": BATTERY_WAITING_DRAIN_PER_SEC,
+    "battery_idle_drain_per_sec": BATTERY_IDLE_DRAIN_PER_SEC,
+    "battery_parking_idle_drain_per_sec": BATTERY_PARKING_IDLE_DRAIN_PER_SEC,
+    "battery_charge_per_sec": BATTERY_CHARGE_PER_SEC,
 }
 
 
@@ -62,9 +69,34 @@ def _get_autonomy_policy_settings() -> dict:
         idle_charge_timeout_sec = max(5.0, min(600.0, float(payload.get("idle_charge_timeout_sec", DEFAULT_IDLE_CHARGE_TIMEOUT_SEC))))
     except Exception:
         idle_charge_timeout_sec = DEFAULT_IDLE_CHARGE_TIMEOUT_SEC
+    try:
+        battery_active_drain_per_sec = max(0.01, min(10.0, float(payload.get("battery_active_drain_per_sec", BATTERY_ACTIVE_DRAIN_PER_SEC))))
+    except Exception:
+        battery_active_drain_per_sec = BATTERY_ACTIVE_DRAIN_PER_SEC
+    try:
+        battery_waiting_drain_per_sec = max(0.0, min(5.0, float(payload.get("battery_waiting_drain_per_sec", BATTERY_WAITING_DRAIN_PER_SEC))))
+    except Exception:
+        battery_waiting_drain_per_sec = BATTERY_WAITING_DRAIN_PER_SEC
+    try:
+        battery_idle_drain_per_sec = max(0.0, min(2.0, float(payload.get("battery_idle_drain_per_sec", BATTERY_IDLE_DRAIN_PER_SEC))))
+    except Exception:
+        battery_idle_drain_per_sec = BATTERY_IDLE_DRAIN_PER_SEC
+    try:
+        battery_parking_idle_drain_per_sec = max(0.0, min(2.0, float(payload.get("battery_parking_idle_drain_per_sec", BATTERY_PARKING_IDLE_DRAIN_PER_SEC))))
+    except Exception:
+        battery_parking_idle_drain_per_sec = BATTERY_PARKING_IDLE_DRAIN_PER_SEC
+    try:
+        battery_charge_per_sec = max(0.1, min(20.0, float(payload.get("battery_charge_per_sec", BATTERY_CHARGE_PER_SEC))))
+    except Exception:
+        battery_charge_per_sec = BATTERY_CHARGE_PER_SEC
     return {
         "idle_return_timeout_sec": idle_return_timeout_sec,
         "idle_charge_timeout_sec": idle_charge_timeout_sec,
+        "battery_active_drain_per_sec": battery_active_drain_per_sec,
+        "battery_waiting_drain_per_sec": battery_waiting_drain_per_sec,
+        "battery_idle_drain_per_sec": battery_idle_drain_per_sec,
+        "battery_parking_idle_drain_per_sec": battery_parking_idle_drain_per_sec,
+        "battery_charge_per_sec": battery_charge_per_sec,
     }
 
 
@@ -140,7 +172,40 @@ def _resolve_nearest_autonomy_target(agv, target_type: str, grid_cols: int, grid
     return best[1] if best else (fallback[1] if fallback else None)
 
 
-def _sync_battery_runtime(agv, now: datetime) -> None:
+def _build_runtime_topology_node_indexes() -> tuple[dict[str, dict], dict[tuple[int, int], dict]]:
+    state = get_map_layout_state()
+    topology = state.get("topology") or {}
+    node_by_key: dict[str, dict] = {}
+    node_by_position: dict[tuple[int, int], dict] = {}
+    for node in topology.get("nodes", []) or []:
+        if not isinstance(node, dict):
+            continue
+        key = str(node.get("key") or "").strip()
+        if not key:
+            continue
+        payload = {
+            **node,
+            "node_type": str(node.get("node_type") or "waypoint").strip().lower(),
+            "capacity": normalize_topology_node_capacity(node.get("node_type") or "waypoint", node.get("capacity")),
+        }
+        node_by_key[key] = payload
+        node_by_position[(int(node.get("x") or 0), int(node.get("y") or 0))] = payload
+    return node_by_key, node_by_position
+
+
+def _resolve_runtime_topology_node_for_agv(agv, node_by_key: dict[str, dict], node_by_position: dict[tuple[int, int], dict]) -> dict | None:
+    current_node = str(getattr(agv, "current_node", "") or "").strip()
+    if current_node:
+        by_key = node_by_key.get(current_node)
+        if by_key is not None:
+            return by_key
+    try:
+        return node_by_position.get((int(agv.x), int(agv.y)))
+    except Exception:
+        return None
+
+
+def _sync_battery_runtime(agv, now: datetime, policy_settings: dict, node_by_key: dict[str, dict], node_by_position: dict[tuple[int, int], dict]) -> None:
     elapsed = _seconds_since(getattr(agv, "energy_updated_at", None), now)
     battery_level = float(getattr(agv, "battery_level", 100.0) or 100.0)
     if elapsed <= 0:
@@ -148,12 +213,23 @@ def _sync_battery_runtime(agv, now: datetime) -> None:
             agv.energy_updated_at = now.isoformat(timespec="seconds")
         return
 
+    motion_state = str(getattr(agv, "motion_state", "") or getattr(agv, "status", "") or "idle").strip().lower()
+    runtime_node = _resolve_runtime_topology_node_for_agv(agv, node_by_key, node_by_position)
+    runtime_node_type = str((runtime_node or {}).get("node_type") or "").strip().lower()
+
     if agv.status == "charging":
-        battery_level += BATTERY_CHARGE_PER_SEC * elapsed
+        battery_level += float(policy_settings.get("battery_charge_per_sec", BATTERY_CHARGE_PER_SEC)) * elapsed
+    elif motion_state in {"waiting", "yielding"}:
+        battery_level -= float(policy_settings.get("battery_waiting_drain_per_sec", BATTERY_WAITING_DRAIN_PER_SEC)) * elapsed
     elif agv.status in AUTONOMY_MOVING_STATUSES:
-        battery_level -= BATTERY_ACTIVE_DRAIN_PER_SEC * elapsed
+        battery_level -= float(policy_settings.get("battery_active_drain_per_sec", BATTERY_ACTIVE_DRAIN_PER_SEC)) * elapsed
     elif agv.status == "idle":
-        battery_level -= BATTERY_IDLE_DRAIN_PER_SEC * elapsed
+        if runtime_node_type == "parking":
+            battery_level -= float(
+                policy_settings.get("battery_parking_idle_drain_per_sec", BATTERY_PARKING_IDLE_DRAIN_PER_SEC)
+            ) * elapsed
+        else:
+            battery_level -= float(policy_settings.get("battery_idle_drain_per_sec", BATTERY_IDLE_DRAIN_PER_SEC)) * elapsed
 
     agv.battery_level = _clamp_battery(battery_level)
     agv.energy_updated_at = now.isoformat(timespec="seconds")
@@ -268,9 +344,10 @@ def sync_agv_autonomy() -> list:
     grid_cols, grid_rows = get_current_grid_size()
     now = datetime.now()
     policy_settings = _get_autonomy_policy_settings()
+    node_by_key, node_by_position = _build_runtime_topology_node_indexes()
     agvs = list_agvs()
     for agv in agvs:
-        _sync_battery_runtime(agv, now)
+        _sync_battery_runtime(agv, now, policy_settings, node_by_key, node_by_position)
         if _release_from_charging_if_ready(agv, now):
             continue
         _sync_idle_timer(agv, now)

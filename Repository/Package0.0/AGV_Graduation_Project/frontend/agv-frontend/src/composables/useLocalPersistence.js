@@ -17,6 +17,11 @@ export function useLocalPersistence(options) {
     statusLegendOpacity,
     idleReturnTimeoutSec,
     idleChargeTimeoutSec,
+    batteryActiveDrainPerSec,
+    batteryWaitingDrainPerSec,
+    batteryIdleDrainPerSec,
+    batteryParkingIdleDrainPerSec,
+    batteryChargePerSec,
     showMinimap,
     topologyViewMode,
     showGuideCenterOnLoad,
@@ -223,6 +228,21 @@ export function useLocalPersistence(options) {
       if (typeof parsed?.idleChargeTimeoutSec === 'number') {
         idleChargeTimeoutSec.value = clampValue(parsed.idleChargeTimeoutSec, 5, 600)
       }
+      if (typeof parsed?.batteryActiveDrainPerSec === 'number') {
+        batteryActiveDrainPerSec.value = clampValue(parsed.batteryActiveDrainPerSec, 0.01, 10)
+      }
+      if (typeof parsed?.batteryWaitingDrainPerSec === 'number') {
+        batteryWaitingDrainPerSec.value = clampValue(parsed.batteryWaitingDrainPerSec, 0, 5)
+      }
+      if (typeof parsed?.batteryIdleDrainPerSec === 'number') {
+        batteryIdleDrainPerSec.value = clampValue(parsed.batteryIdleDrainPerSec, 0, 2)
+      }
+      if (typeof parsed?.batteryParkingIdleDrainPerSec === 'number') {
+        batteryParkingIdleDrainPerSec.value = clampValue(parsed.batteryParkingIdleDrainPerSec, 0, 2)
+      }
+      if (typeof parsed?.batteryChargePerSec === 'number') {
+        batteryChargePerSec.value = clampValue(parsed.batteryChargePerSec, 0.1, 20)
+      }
       if (typeof parsed?.showMinimap === 'boolean') {
         showMinimap.value = parsed.showMinimap
       }
@@ -256,6 +276,11 @@ export function useLocalPersistence(options) {
           statusLegendOpacity: statusLegendOpacity.value,
           idleReturnTimeoutSec: idleReturnTimeoutSec.value,
           idleChargeTimeoutSec: idleChargeTimeoutSec.value,
+          batteryActiveDrainPerSec: batteryActiveDrainPerSec.value,
+          batteryWaitingDrainPerSec: batteryWaitingDrainPerSec.value,
+          batteryIdleDrainPerSec: batteryIdleDrainPerSec.value,
+          batteryParkingIdleDrainPerSec: batteryParkingIdleDrainPerSec.value,
+          batteryChargePerSec: batteryChargePerSec.value,
           showMinimap: showMinimap.value,
           topologyViewMode: topologyViewMode.value,
           showGuideCenterOnLoad: showGuideCenterOnLoad.value,

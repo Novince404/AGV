@@ -627,6 +627,11 @@ const statusLegendLayout = ref('horizontal')
 const statusLegendOpacity = ref(0.55)
 const idleReturnTimeoutSec = ref(12)
 const idleChargeTimeoutSec = ref(45)
+const batteryActiveDrainPerSec = ref(0.16)
+const batteryWaitingDrainPerSec = ref(0.05)
+const batteryIdleDrainPerSec = ref(0.01)
+const batteryParkingIdleDrainPerSec = ref(0.003)
+const batteryChargePerSec = ref(6)
 const showMarkerIcons = ref(true)
 const showPathArrows = ref(false)
 const showMinimap = ref(true)
@@ -3057,6 +3062,7 @@ const enterpriseTopologyRuntimeOccupancyMap = computed(() => {
       status: String(agv.status || ''),
       motionState: String(agv.motionState || agv.status || ''),
       label: `AGV #${agv.id}`,
+      batteryLevel: Number.isFinite(Number(agv?.battery_level)) ? Number(agv.battery_level) : null,
       selectable: agv.source === 'backend' && isSchedulableIdleAgvStatus(agv?.status),
       source: agv.source || 'backend'
     })
@@ -3808,19 +3814,20 @@ function formatEnterpriseMotionStateLabel(motionState) {
   return '空闲'
 }
 
+function formatAgvBatteryText(agv) {
+  if (!Number.isFinite(Number(agv?.battery_level))) return ''
+  const percent = Math.round(Number(agv.battery_level))
+  if (locale.value === 'ja') return `充電 ${percent}%`
+  if (locale.value === 'en') return `Battery ${percent}%`
+  return `电量 ${percent}%`
+}
+
 function formatEnterpriseAgvRuntimeHint(agv) {
   if (!uiTreatAsEnterpriseRole.value || agv?.source !== 'backend') return ''
   const parts = [`AGV #${agv.id}`]
   parts.push(formatEnterpriseMotionStateLabel(agv.motionState))
-  if (Number.isFinite(Number(agv?.battery_level))) {
-    const batteryText =
-      locale.value === 'ja'
-        ? `充電 ${Math.round(Number(agv.battery_level))}%`
-        : locale.value === 'en'
-          ? `Battery ${Math.round(Number(agv.battery_level))}%`
-          : `电量 ${Math.round(Number(agv.battery_level))}%`
-    parts.push(batteryText)
-  }
+  const batteryText = formatAgvBatteryText(agv)
+  if (batteryText) parts.push(batteryText)
   if (String(agv?.auto_target_type || '').trim()) {
     if (locale.value === 'ja') {
       parts.push(agv.auto_target_type === 'charge' ? '目標: 充電点' : '目標: 停車点')
@@ -4823,7 +4830,11 @@ const algorithmHintText = computed(() => {
 })
 const selectedAgvSummaryText = computed(() => {
   if (!selectedAgv.value) return panelSummaryLocale.value.noAgv
-  return `#${selectedAgv.value.id} / ${statusText(selectedAgv.value.status)} / (${selectedAgv.value.x},${selectedAgv.value.y})`
+  const parts = [`#${selectedAgv.value.id}`, statusText(selectedAgv.value.status)]
+  const batteryText = formatAgvBatteryText(selectedAgv.value)
+  if (batteryText) parts.push(batteryText)
+  parts.push(`(${selectedAgv.value.x},${selectedAgv.value.y})`)
+  return parts.join(' / ')
 })
 const compactSelectedAgvText = computed(() => {
   if (!selectedAgv.value) return panelSummaryLocale.value.noAgvCompact
@@ -4835,7 +4846,10 @@ const toolbarSelectedAgvText = computed(() => {
     if (locale.value === 'zh') return '未选车'
     return 'No AGV'
   }
-  return `#${selectedAgv.value.id} ${compactStatusText(selectedAgv.value.status)}`
+  const batteryText = formatAgvBatteryText(selectedAgv.value)
+  return batteryText
+    ? `#${selectedAgv.value.id} ${compactStatusText(selectedAgv.value.status)} · ${Math.round(Number(selectedAgv.value.battery_level))}%`
+    : `#${selectedAgv.value.id} ${compactStatusText(selectedAgv.value.status)}`
 })
 const toolbarSelectedAgvTitle = computed(() => {
   if (!selectedAgv.value) return selectedAgvSummaryText.value
@@ -5445,6 +5459,11 @@ const {
   statusLegendOpacity,
   idleReturnTimeoutSec,
   idleChargeTimeoutSec,
+  batteryActiveDrainPerSec,
+  batteryWaitingDrainPerSec,
+  batteryIdleDrainPerSec,
+  batteryParkingIdleDrainPerSec,
+  batteryChargePerSec,
   showMinimap,
   topologyViewMode,
   showGuideCenterOnLoad,
@@ -5481,6 +5500,11 @@ const {
   statusLegendOpacity,
   idleReturnTimeoutSec,
   idleChargeTimeoutSec,
+  batteryActiveDrainPerSec,
+  batteryWaitingDrainPerSec,
+  batteryIdleDrainPerSec,
+  batteryParkingIdleDrainPerSec,
+  batteryChargePerSec,
   compareDisplayMode,
   clampValue
 })
@@ -14594,7 +14618,26 @@ watch(showFloatingCompare, visible => {
   stopFloatingCompareRefresh()
 })
 
-watch([showAutoPath, showMarkerIcons, showPathArrows, showStatusLegend, statusLegendLayout, statusLegendOpacity, idleReturnTimeoutSec, idleChargeTimeoutSec, showMinimap, topologyViewMode, showGuideCenterOnLoad, compareDisplayMode, compareFloatingOpacity], () => {
+watch([
+  showAutoPath,
+  showMarkerIcons,
+  showPathArrows,
+  showStatusLegend,
+  statusLegendLayout,
+  statusLegendOpacity,
+  idleReturnTimeoutSec,
+  idleChargeTimeoutSec,
+  batteryActiveDrainPerSec,
+  batteryWaitingDrainPerSec,
+  batteryIdleDrainPerSec,
+  batteryParkingIdleDrainPerSec,
+  batteryChargePerSec,
+  showMinimap,
+  topologyViewMode,
+  showGuideCenterOnLoad,
+  compareDisplayMode,
+  compareFloatingOpacity
+], () => {
   saveMapDisplaySettings()
 })
 
@@ -15221,6 +15264,11 @@ const mapSettingsPanelBindings = {
   showGuideCenterOnLoad,
   idleReturnTimeoutSec,
   idleChargeTimeoutSec,
+  batteryActiveDrainPerSec,
+  batteryWaitingDrainPerSec,
+  batteryIdleDrainPerSec,
+  batteryParkingIdleDrainPerSec,
+  batteryChargePerSec,
   authCanMapWrite,
   buildCapabilityReadonlyHint,
   buildEnterprisePanelReadonlyHint,
@@ -15590,6 +15638,11 @@ const enterpriseSettingsDialogBindings = {
   topologyViewMode,
   idleReturnTimeoutSec,
   idleChargeTimeoutSec,
+  batteryActiveDrainPerSec,
+  batteryWaitingDrainPerSec,
+  batteryIdleDrainPerSec,
+  batteryParkingIdleDrainPerSec,
+  batteryChargePerSec,
   compareFloatingOpacity,
   resetMapView,
   enterpriseActiveTasks,
@@ -15972,6 +16025,7 @@ onBeforeUnmount(() => {
                 <div class="topology-station-dialog-copy">
                   <strong>{{ agv.label }}</strong>
                   <span>{{ formatEnterpriseMotionStateLabel(agv.motionState || agv.status) }}</span>
+                  <span v-if="Number.isFinite(Number(agv.batteryLevel))">{{ formatAgvBatteryText({ battery_level: agv.batteryLevel }) }}</span>
                 </div>
                 <button
                   class="btn-secondary topology-station-dialog-action"

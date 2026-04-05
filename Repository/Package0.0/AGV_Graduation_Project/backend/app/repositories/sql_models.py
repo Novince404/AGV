@@ -342,6 +342,11 @@ class UiSettingsEntity(Base):
     status_legend_opacity: Mapped[float] = mapped_column(Float, nullable=False, default=0.55)
     idle_return_timeout_sec: Mapped[float] = mapped_column(Float, nullable=False, default=12.0)
     idle_charge_timeout_sec: Mapped[float] = mapped_column(Float, nullable=False, default=45.0)
+    battery_active_drain_per_sec: Mapped[float] = mapped_column(Float, nullable=False, default=0.16)
+    battery_waiting_drain_per_sec: Mapped[float] = mapped_column(Float, nullable=False, default=0.05)
+    battery_idle_drain_per_sec: Mapped[float] = mapped_column(Float, nullable=False, default=0.01)
+    battery_parking_idle_drain_per_sec: Mapped[float] = mapped_column(Float, nullable=False, default=0.003)
+    battery_charge_per_sec: Mapped[float] = mapped_column(Float, nullable=False, default=6.0)
     compare_display_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="panel")
     panel_sections: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
 

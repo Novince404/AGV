@@ -16,6 +16,11 @@ export function useUiSettingsBackend(options) {
     statusLegendOpacity,
     idleReturnTimeoutSec,
     idleChargeTimeoutSec,
+    batteryActiveDrainPerSec,
+    batteryWaitingDrainPerSec,
+    batteryIdleDrainPerSec,
+    batteryParkingIdleDrainPerSec,
+    batteryChargePerSec,
     compareDisplayMode,
     clampValue
   } = options
@@ -73,6 +78,21 @@ export function useUiSettingsBackend(options) {
       if (typeof payload?.idle_charge_timeout_sec === 'number') {
         idleChargeTimeoutSec.value = clampValue(payload.idle_charge_timeout_sec, 5, 600)
       }
+      if (typeof payload?.battery_active_drain_per_sec === 'number') {
+        batteryActiveDrainPerSec.value = clampValue(payload.battery_active_drain_per_sec, 0.01, 10)
+      }
+      if (typeof payload?.battery_waiting_drain_per_sec === 'number') {
+        batteryWaitingDrainPerSec.value = clampValue(payload.battery_waiting_drain_per_sec, 0, 5)
+      }
+      if (typeof payload?.battery_idle_drain_per_sec === 'number') {
+        batteryIdleDrainPerSec.value = clampValue(payload.battery_idle_drain_per_sec, 0, 2)
+      }
+      if (typeof payload?.battery_parking_idle_drain_per_sec === 'number') {
+        batteryParkingIdleDrainPerSec.value = clampValue(payload.battery_parking_idle_drain_per_sec, 0, 2)
+      }
+      if (typeof payload?.battery_charge_per_sec === 'number') {
+        batteryChargePerSec.value = clampValue(payload.battery_charge_per_sec, 0.1, 20)
+      }
       if (payload?.compare_display_mode === 'panel' || payload?.compare_display_mode === 'floating') {
         compareDisplayMode.value = payload.compare_display_mode
       }
@@ -95,6 +115,11 @@ export function useUiSettingsBackend(options) {
       status_legend_opacity: Number(statusLegendOpacity.value),
       idle_return_timeout_sec: Number(idleReturnTimeoutSec.value),
       idle_charge_timeout_sec: Number(idleChargeTimeoutSec.value),
+      battery_active_drain_per_sec: Number(batteryActiveDrainPerSec.value),
+      battery_waiting_drain_per_sec: Number(batteryWaitingDrainPerSec.value),
+      battery_idle_drain_per_sec: Number(batteryIdleDrainPerSec.value),
+      battery_parking_idle_drain_per_sec: Number(batteryParkingIdleDrainPerSec.value),
+      battery_charge_per_sec: Number(batteryChargePerSec.value),
       compare_display_mode: compareDisplayMode.value,
       panel_sections: normalizePanelSections(panelSections.value)
     }
@@ -160,7 +185,22 @@ export function useUiSettingsBackend(options) {
   }
 
   watch(
-    [showMinimap, showMarkerIcons, showPathArrows, showStatusLegend, statusLegendLayout, statusLegendOpacity, idleReturnTimeoutSec, idleChargeTimeoutSec, compareDisplayMode],
+    [
+      showMinimap,
+      showMarkerIcons,
+      showPathArrows,
+      showStatusLegend,
+      statusLegendLayout,
+      statusLegendOpacity,
+      idleReturnTimeoutSec,
+      idleChargeTimeoutSec,
+      batteryActiveDrainPerSec,
+      batteryWaitingDrainPerSec,
+      batteryIdleDrainPerSec,
+      batteryParkingIdleDrainPerSec,
+      batteryChargePerSec,
+      compareDisplayMode
+    ],
     () => {
       scheduleUiSettingsPersist()
     }

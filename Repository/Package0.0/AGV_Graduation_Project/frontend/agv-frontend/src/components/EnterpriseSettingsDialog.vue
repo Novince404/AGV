@@ -1703,6 +1703,66 @@
                   />
                 </label>
                 <p class="panel-hint">{{ settingsLocale.idleChargeTimeoutSecHint }}</p>
+                <label class="auth-field">
+                  <span>{{ settingsLocale.batteryActiveDrainPerSec }}</span>
+                  <input
+                    v-model.number="batteryActiveDrainPerSec"
+                    class="auth-input"
+                    type="number"
+                    min="0.01"
+                    max="10"
+                    step="0.01"
+                  />
+                </label>
+                <p class="panel-hint">{{ settingsLocale.batteryActiveDrainPerSecHint }}</p>
+                <label class="auth-field">
+                  <span>{{ settingsLocale.batteryWaitingDrainPerSec }}</span>
+                  <input
+                    v-model.number="batteryWaitingDrainPerSec"
+                    class="auth-input"
+                    type="number"
+                    min="0"
+                    max="5"
+                    step="0.01"
+                  />
+                </label>
+                <p class="panel-hint">{{ settingsLocale.batteryWaitingDrainPerSecHint }}</p>
+                <label class="auth-field">
+                  <span>{{ settingsLocale.batteryIdleDrainPerSec }}</span>
+                  <input
+                    v-model.number="batteryIdleDrainPerSec"
+                    class="auth-input"
+                    type="number"
+                    min="0"
+                    max="2"
+                    step="0.001"
+                  />
+                </label>
+                <p class="panel-hint">{{ settingsLocale.batteryIdleDrainPerSecHint }}</p>
+                <label class="auth-field">
+                  <span>{{ settingsLocale.batteryParkingIdleDrainPerSec }}</span>
+                  <input
+                    v-model.number="batteryParkingIdleDrainPerSec"
+                    class="auth-input"
+                    type="number"
+                    min="0"
+                    max="2"
+                    step="0.001"
+                  />
+                </label>
+                <p class="panel-hint">{{ settingsLocale.batteryParkingIdleDrainPerSecHint }}</p>
+                <label class="auth-field">
+                  <span>{{ settingsLocale.batteryChargePerSec }}</span>
+                  <input
+                    v-model.number="batteryChargePerSec"
+                    class="auth-input"
+                    type="number"
+                    min="0.1"
+                    max="20"
+                    step="0.1"
+                  />
+                </label>
+                <p class="panel-hint">{{ settingsLocale.batteryChargePerSecHint }}</p>
                 <div class="enterprise-page-settings-shortcut-list">
                   <div
                     v-for="entry in shortcutGuideEntries"

@@ -25,6 +25,16 @@ def _ensure_schema() -> None:
         ddl_statements.append("ALTER TABLE ui_settings ADD COLUMN idle_return_timeout_sec FLOAT NOT NULL DEFAULT 12")
     if "idle_charge_timeout_sec" not in columns:
         ddl_statements.append("ALTER TABLE ui_settings ADD COLUMN idle_charge_timeout_sec FLOAT NOT NULL DEFAULT 45")
+    if "battery_active_drain_per_sec" not in columns:
+        ddl_statements.append("ALTER TABLE ui_settings ADD COLUMN battery_active_drain_per_sec FLOAT NOT NULL DEFAULT 0.16")
+    if "battery_waiting_drain_per_sec" not in columns:
+        ddl_statements.append("ALTER TABLE ui_settings ADD COLUMN battery_waiting_drain_per_sec FLOAT NOT NULL DEFAULT 0.05")
+    if "battery_idle_drain_per_sec" not in columns:
+        ddl_statements.append("ALTER TABLE ui_settings ADD COLUMN battery_idle_drain_per_sec FLOAT NOT NULL DEFAULT 0.01")
+    if "battery_parking_idle_drain_per_sec" not in columns:
+        ddl_statements.append("ALTER TABLE ui_settings ADD COLUMN battery_parking_idle_drain_per_sec FLOAT NOT NULL DEFAULT 0.003")
+    if "battery_charge_per_sec" not in columns:
+        ddl_statements.append("ALTER TABLE ui_settings ADD COLUMN battery_charge_per_sec FLOAT NOT NULL DEFAULT 6")
     if ddl_statements:
         with engine.begin() as connection:
             for statement in ddl_statements:
@@ -41,6 +51,11 @@ def _entity_to_payload(entity: UiSettingsEntity) -> dict:
         "status_legend_opacity": float(entity.status_legend_opacity),
         "idle_return_timeout_sec": float(entity.idle_return_timeout_sec),
         "idle_charge_timeout_sec": float(entity.idle_charge_timeout_sec),
+        "battery_active_drain_per_sec": float(entity.battery_active_drain_per_sec),
+        "battery_waiting_drain_per_sec": float(entity.battery_waiting_drain_per_sec),
+        "battery_idle_drain_per_sec": float(entity.battery_idle_drain_per_sec),
+        "battery_parking_idle_drain_per_sec": float(entity.battery_parking_idle_drain_per_sec),
+        "battery_charge_per_sec": float(entity.battery_charge_per_sec),
         "compare_display_mode": entity.compare_display_mode,
         "panel_sections": dict(entity.panel_sections or {}),
     }
@@ -55,6 +70,11 @@ def _apply_payload(entity: UiSettingsEntity, payload: dict) -> UiSettingsEntity:
     entity.status_legend_opacity = float(payload["status_legend_opacity"])
     entity.idle_return_timeout_sec = float(payload.get("idle_return_timeout_sec", 12.0))
     entity.idle_charge_timeout_sec = float(payload.get("idle_charge_timeout_sec", 45.0))
+    entity.battery_active_drain_per_sec = float(payload.get("battery_active_drain_per_sec", 0.16))
+    entity.battery_waiting_drain_per_sec = float(payload.get("battery_waiting_drain_per_sec", 0.05))
+    entity.battery_idle_drain_per_sec = float(payload.get("battery_idle_drain_per_sec", 0.01))
+    entity.battery_parking_idle_drain_per_sec = float(payload.get("battery_parking_idle_drain_per_sec", 0.003))
+    entity.battery_charge_per_sec = float(payload.get("battery_charge_per_sec", 6.0))
     entity.compare_display_mode = str(payload["compare_display_mode"])
     entity.panel_sections = dict(payload.get("panel_sections") or {})
     return entity

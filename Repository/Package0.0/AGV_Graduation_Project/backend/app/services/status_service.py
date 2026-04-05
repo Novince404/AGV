@@ -65,6 +65,11 @@ DEFAULT_UI_SETTINGS = {
     "status_legend_opacity": 0.55,
     "idle_return_timeout_sec": 12.0,
     "idle_charge_timeout_sec": 45.0,
+    "battery_active_drain_per_sec": 0.16,
+    "battery_waiting_drain_per_sec": 0.05,
+    "battery_idle_drain_per_sec": 0.01,
+    "battery_parking_idle_drain_per_sec": 0.003,
+    "battery_charge_per_sec": 6.0,
     "compare_display_mode": "panel",
     "panel_sections": {
         "control": True,
@@ -520,6 +525,11 @@ def _normalize_ui_settings(payload) -> dict:
     opacity = max(0.2, min(0.9, float(payload.status_legend_opacity)))
     idle_return_timeout_sec = max(5.0, min(600.0, float(payload.idle_return_timeout_sec)))
     idle_charge_timeout_sec = max(5.0, min(600.0, float(payload.idle_charge_timeout_sec)))
+    battery_active_drain_per_sec = max(0.01, min(10.0, float(payload.battery_active_drain_per_sec)))
+    battery_waiting_drain_per_sec = max(0.0, min(5.0, float(payload.battery_waiting_drain_per_sec)))
+    battery_idle_drain_per_sec = max(0.0, min(2.0, float(payload.battery_idle_drain_per_sec)))
+    battery_parking_idle_drain_per_sec = max(0.0, min(2.0, float(payload.battery_parking_idle_drain_per_sec)))
+    battery_charge_per_sec = max(0.1, min(20.0, float(payload.battery_charge_per_sec)))
     return {
         "show_minimap": bool(payload.show_minimap),
         "show_marker_icons": bool(payload.show_marker_icons),
@@ -529,6 +539,11 @@ def _normalize_ui_settings(payload) -> dict:
         "status_legend_opacity": opacity,
         "idle_return_timeout_sec": idle_return_timeout_sec,
         "idle_charge_timeout_sec": idle_charge_timeout_sec,
+        "battery_active_drain_per_sec": battery_active_drain_per_sec,
+        "battery_waiting_drain_per_sec": battery_waiting_drain_per_sec,
+        "battery_idle_drain_per_sec": battery_idle_drain_per_sec,
+        "battery_parking_idle_drain_per_sec": battery_parking_idle_drain_per_sec,
+        "battery_charge_per_sec": battery_charge_per_sec,
         "compare_display_mode": payload.compare_display_mode,
         "panel_sections": {
             "control": bool(sections.get("control", DEFAULT_UI_SETTINGS["panel_sections"]["control"])),

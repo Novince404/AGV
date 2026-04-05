@@ -741,6 +741,81 @@
         />
       </div>
       <p class="panel-hint map-settings-hint">{{ settingsLocale.idleChargeTimeoutSecHint }}</p>
+      <div class="map-settings-select-group">
+        <label class="map-settings-select-label" for="battery-active-drain">
+          {{ settingsLocale.batteryActiveDrainPerSec }}
+        </label>
+        <input
+          id="battery-active-drain"
+          v-model.number="batteryActiveDrainPerSec"
+          class="map-settings-select"
+          type="number"
+          min="0.01"
+          max="10"
+          step="0.01"
+        />
+      </div>
+      <p class="panel-hint map-settings-hint">{{ settingsLocale.batteryActiveDrainPerSecHint }}</p>
+      <div class="map-settings-select-group">
+        <label class="map-settings-select-label" for="battery-waiting-drain">
+          {{ settingsLocale.batteryWaitingDrainPerSec }}
+        </label>
+        <input
+          id="battery-waiting-drain"
+          v-model.number="batteryWaitingDrainPerSec"
+          class="map-settings-select"
+          type="number"
+          min="0"
+          max="5"
+          step="0.01"
+        />
+      </div>
+      <p class="panel-hint map-settings-hint">{{ settingsLocale.batteryWaitingDrainPerSecHint }}</p>
+      <div class="map-settings-select-group">
+        <label class="map-settings-select-label" for="battery-idle-drain">
+          {{ settingsLocale.batteryIdleDrainPerSec }}
+        </label>
+        <input
+          id="battery-idle-drain"
+          v-model.number="batteryIdleDrainPerSec"
+          class="map-settings-select"
+          type="number"
+          min="0"
+          max="2"
+          step="0.001"
+        />
+      </div>
+      <p class="panel-hint map-settings-hint">{{ settingsLocale.batteryIdleDrainPerSecHint }}</p>
+      <div class="map-settings-select-group">
+        <label class="map-settings-select-label" for="battery-parking-idle-drain">
+          {{ settingsLocale.batteryParkingIdleDrainPerSec }}
+        </label>
+        <input
+          id="battery-parking-idle-drain"
+          v-model.number="batteryParkingIdleDrainPerSec"
+          class="map-settings-select"
+          type="number"
+          min="0"
+          max="2"
+          step="0.001"
+        />
+      </div>
+      <p class="panel-hint map-settings-hint">{{ settingsLocale.batteryParkingIdleDrainPerSecHint }}</p>
+      <div class="map-settings-select-group">
+        <label class="map-settings-select-label" for="battery-charge-rate">
+          {{ settingsLocale.batteryChargePerSec }}
+        </label>
+        <input
+          id="battery-charge-rate"
+          v-model.number="batteryChargePerSec"
+          class="map-settings-select"
+          type="number"
+          min="0.1"
+          max="20"
+          step="0.1"
+        />
+      </div>
+      <p class="panel-hint map-settings-hint">{{ settingsLocale.batteryChargePerSecHint }}</p>
     </div>
     <button class="map-settings-action" type="button" @click="resetMapView">
       {{ settingsLocale.resetView }}
