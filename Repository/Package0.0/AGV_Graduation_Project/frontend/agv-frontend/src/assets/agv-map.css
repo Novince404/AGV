@@ -1741,6 +1741,31 @@ h2 {
   padding: 8px 10px;
 }
 
+.enterprise-topology-node-editor {
+  display: grid;
+  gap: 10px;
+}
+
+.enterprise-topology-node-editor__full {
+  margin-bottom: 0;
+}
+
+.enterprise-topology-node-editor__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+  gap: 10px;
+  align-items: end;
+}
+
+.enterprise-topology-node-editor__hint {
+  border-radius: 10px;
+  background: rgba(131, 96, 60, 0.08);
+  color: var(--muted-text);
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 8px 10px;
+}
+
 .enterprise-map-editor-draft-summary {
   font-size: 14px;
   font-weight: 700;
