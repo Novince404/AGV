@@ -141,6 +141,22 @@ def _special_topology_node_has_spare_capacity(x: int, y: int, *, exclude_agv_id:
     return None
 
 
+def _can_directly_enter_special_target(
+    agv_id: int,
+    next_x: int,
+    next_y: int,
+    *,
+    final_target_x: int,
+    final_target_y: int,
+    target_type: str,
+) -> bool:
+    if str(target_type or "") != "charge":
+        return False
+    if int(next_x) != int(final_target_x) or int(next_y) != int(final_target_y):
+        return False
+    return _special_topology_node_has_spare_capacity(next_x, next_y, exclude_agv_id=agv_id) is not None
+
+
 def _build_topology_wait_reason(conflict: dict) -> str:
     edge_key = str(conflict.get("edge_key") or "topology")
     target_node = str(conflict.get("target_node") or "")
@@ -919,9 +935,18 @@ def move_agv_to_autonomy_target(
                     travel_duration_sec = CELL_TRAVEL_DURATION_SEC
 
                     with movement_lock:
-                        topology_conflict = _detect_topology_edge_conflict(agv.id, source_x, source_y, point)
-                        if topology_conflict is None:
-                            blocking_agv = _find_blocking_agv_at_position(agv.id, next_x, next_y)
+                        allow_direct_charge_entry = _can_directly_enter_special_target(
+                            agv.id,
+                            next_x,
+                            next_y,
+                            final_target_x=target_x,
+                            final_target_y=target_y,
+                            target_type=target_type,
+                        )
+                        if not allow_direct_charge_entry:
+                            topology_conflict = _detect_topology_edge_conflict(agv.id, source_x, source_y, point)
+                            if topology_conflict is None:
+                                blocking_agv = _find_blocking_agv_at_position(agv.id, next_x, next_y)
                         if topology_conflict is None and blocking_agv is None:
                             target_node, target_speed, travel_duration_sec = _begin_motion_segment(agv, point, active_status)
                             moved = True
