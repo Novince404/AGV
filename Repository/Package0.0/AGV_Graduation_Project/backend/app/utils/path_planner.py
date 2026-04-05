@@ -21,12 +21,12 @@ TOPOLOGY_LANE_COST_FACTORS = {
 TOPOLOGY_OCCUPIED_EDGE_PENALTY = 72.0
 TOPOLOGY_OCCUPIED_NODE_PENALTY = 22.0
 TOPOLOGY_PARTIAL_NODE_USAGE_PENALTY = 3.0
-TOPOLOGY_ENTRY_EXIT_PENALTY = 0.65
+TOPOLOGY_ENTRY_EXIT_PENALTY = 0.4
 TOPOLOGY_SAME_NODE_TRANSFER_PENALTY = 1.25
 TOPOLOGY_ENTRY_RETREAT_PENALTY = 0.9
 TOPOLOGY_ENTRY_TURNBACK_PENALTY = 1.6
 TOPOLOGY_EXIT_TURNBACK_PENALTY = 0.8
-TOPOLOGY_MAX_ENTRY_CANDIDATES = 4
+TOPOLOGY_MAX_ENTRY_CANDIDATES = 8
 TOPOLOGY_GRID_FALLBACK_MARGIN = 1.25
 TOPOLOGY_RUNTIME_LANE_FACTORS = {
     "main": 1.0,
@@ -539,9 +539,9 @@ def _estimate_topology_candidate_runtime_cost(
 ) -> float:
     runtime_cost = float(start_candidate["distance"]) + float(end_candidate["distance"])
     if not start_candidate["exact"]:
-        runtime_cost += TOPOLOGY_ENTRY_EXIT_PENALTY * 0.45
+        runtime_cost += TOPOLOGY_ENTRY_EXIT_PENALTY * 0.15
     if not end_candidate["exact"]:
-        runtime_cost += TOPOLOGY_ENTRY_EXIT_PENALTY * 0.45
+        runtime_cost += TOPOLOGY_ENTRY_EXIT_PENALTY * 0.15
     if not edge_path:
         runtime_cost += TOPOLOGY_SAME_NODE_TRANSFER_PENALTY + 1.0
     else:
@@ -555,7 +555,7 @@ def _estimate_topology_candidate_runtime_cost(
         end_candidate=end_candidate,
         node_path=node_path,
         node_by_key=node_by_key,
-    )
+    ) * 0.25
     return runtime_cost
 
 
