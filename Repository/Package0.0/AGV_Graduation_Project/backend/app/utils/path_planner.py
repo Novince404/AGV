@@ -466,6 +466,161 @@ def _estimate_runtime_cost_for_path(path: list[dict], *, topology: dict | None =
     return float(total)
 
 
+def _find_topology_edge_position_candidates(
+    x: int,
+    y: int,
+    *,
+    topology_payload: dict,
+    node_by_key: dict[str, dict],
+) -> list[dict]:
+    candidates: list[dict] = []
+    seen: set[tuple[str, int, int]] = set()
+    point_x = int(x)
+    point_y = int(y)
+
+    for edge in topology_payload.get("edges", []) or []:
+        if not isinstance(edge, dict):
+            continue
+        source_key = str(edge.get("source") or "").strip()
+        target_key = str(edge.get("target") or "").strip()
+        source_node = node_by_key.get(source_key)
+        target_node = node_by_key.get(target_key)
+        if source_node is None or target_node is None:
+            continue
+
+        sx = int(source_node["x"])
+        sy = int(source_node["y"])
+        tx = int(target_node["x"])
+        ty = int(target_node["y"])
+        on_horizontal = sy == ty == point_y and min(sx, tx) <= point_x <= max(sx, tx)
+        on_vertical = sx == tx == point_x and min(sy, ty) <= point_y <= max(sy, ty)
+        if not on_horizontal and not on_vertical:
+            continue
+        if (point_x, point_y) in {(sx, sy), (tx, ty)}:
+            continue
+
+        edge_key = str(edge.get("key") or f"{source_key}->{target_key}")
+        dedupe_key = (edge_key, point_x, point_y)
+        if dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+
+        source_distance = _manhattan_distance(point_x, point_y, sx, sy)
+        target_distance = _manhattan_distance(point_x, point_y, tx, ty)
+        total_length = max(source_distance + target_distance, 1)
+        candidates.append(
+            {
+                "kind": "edge",
+                "node": {
+                    "x": point_x,
+                    "y": point_y,
+                    "label": edge_key,
+                },
+                "path": [_build_point(point_x, point_y)],
+                "distance": 0,
+                "exact": True,
+                "edge_key": edge_key,
+                "direction": str(edge.get("direction") or "bidirectional"),
+                "lane_type": str(edge.get("lane_type") or "main"),
+                "speed_multiplier": float(edge.get("speed_multiplier") or 1.0),
+                "source_key": source_key,
+                "target_key": target_key,
+                "source_distance": float(source_distance),
+                "target_distance": float(target_distance),
+                "offset_from_source": float(source_distance),
+                "total_length": float(total_length),
+            }
+        )
+
+    return candidates
+
+
+def _build_augmented_topology_graph(
+    node_by_key: dict[str, dict],
+    outgoing: dict[str, list[dict]],
+    *,
+    start_candidate: dict,
+    end_candidate: dict,
+) -> tuple[dict[str, dict], dict[str, list[dict]], str, str]:
+    augmented_node_by_key = {str(key): dict(value) for key, value in node_by_key.items()}
+    augmented_outgoing: dict[str, list[dict]] = {
+        str(key): [{**edge} for edge in edges]
+        for key, edges in outgoing.items()
+    }
+
+    def ensure_node(key: str, candidate: dict):
+        augmented_node_by_key[key] = {
+            "key": key,
+            "x": int(candidate["node"]["x"]),
+            "y": int(candidate["node"]["y"]),
+            "label": str(candidate["node"].get("label") or key),
+            "node_type": "waypoint",
+            "capacity": 1,
+        }
+        augmented_outgoing.setdefault(key, [])
+
+    def edge_payload(from_key: str, to_key: str, candidate: dict, distance: float) -> dict:
+        return {
+            "key": str(candidate["edge_key"]),
+            "from": str(from_key),
+            "to": str(to_key),
+            "direction": "bidirectional",
+            "lane_type": str(candidate["lane_type"]),
+            "weight": max(float(distance), 0.1),
+            "speed_multiplier": max(float(candidate["speed_multiplier"]), 0.1),
+        }
+
+    if start_candidate.get("kind") == "edge":
+        start_key = f"virtual:start:{start_candidate['edge_key']}:{int(start_candidate['node']['x'])}:{int(start_candidate['node']['y'])}"
+        ensure_node(start_key, start_candidate)
+        direction = str(start_candidate["direction"])
+        if direction in {"bidirectional", "reverse"} and float(start_candidate["source_distance"]) > 0:
+            augmented_outgoing[start_key].append(
+                edge_payload(start_key, str(start_candidate["source_key"]), start_candidate, float(start_candidate["source_distance"]))
+            )
+        if direction in {"bidirectional", "forward"} and float(start_candidate["target_distance"]) > 0:
+            augmented_outgoing[start_key].append(
+                edge_payload(start_key, str(start_candidate["target_key"]), start_candidate, float(start_candidate["target_distance"]))
+            )
+    else:
+        start_key = str(start_candidate["node"]["key"])
+
+    if end_candidate.get("kind") == "edge":
+        end_key = f"virtual:end:{end_candidate['edge_key']}:{int(end_candidate['node']['x'])}:{int(end_candidate['node']['y'])}"
+        ensure_node(end_key, end_candidate)
+        direction = str(end_candidate["direction"])
+        if direction in {"bidirectional", "forward"} and float(end_candidate["source_distance"]) > 0:
+            augmented_outgoing.setdefault(str(end_candidate["source_key"]), []).append(
+                edge_payload(str(end_candidate["source_key"]), end_key, end_candidate, float(end_candidate["source_distance"]))
+            )
+        if direction in {"bidirectional", "reverse"} and float(end_candidate["target_distance"]) > 0:
+            augmented_outgoing.setdefault(str(end_candidate["target_key"]), []).append(
+                edge_payload(str(end_candidate["target_key"]), end_key, end_candidate, float(end_candidate["target_distance"]))
+            )
+    else:
+        end_key = str(end_candidate["node"]["key"])
+
+    if start_candidate.get("kind") == "edge" and end_candidate.get("kind") == "edge":
+        if str(start_candidate["edge_key"]) == str(end_candidate["edge_key"]):
+            start_offset = float(start_candidate["offset_from_source"])
+            end_offset = float(end_candidate["offset_from_source"])
+            direction = str(start_candidate["direction"])
+            direct_distance = abs(end_offset - start_offset)
+            if direct_distance <= 0:
+                augmented_outgoing.setdefault(start_key, [])
+            else:
+                if end_offset > start_offset and direction in {"bidirectional", "forward"}:
+                    augmented_outgoing.setdefault(start_key, []).append(
+                        edge_payload(start_key, end_key, start_candidate, direct_distance)
+                    )
+                if end_offset < start_offset and direction in {"bidirectional", "reverse"}:
+                    augmented_outgoing.setdefault(start_key, []).append(
+                        edge_payload(start_key, end_key, start_candidate, direct_distance)
+                    )
+
+    return augmented_node_by_key, augmented_outgoing, start_key, end_key
+
+
 def _find_topology_node_candidates(
     x: int,
     y: int,
@@ -476,6 +631,7 @@ def _find_topology_node_candidates(
     grid_cols: int,
     grid_rows: int,
     blocked: set[tuple[int, int]],
+    topology_payload: dict | None = None,
     limit: int = TOPOLOGY_MAX_ENTRY_CANDIDATES,
 ):
     exact = node_by_position.get((int(x), int(y)))
@@ -489,7 +645,18 @@ def _find_topology_node_candidates(
             }
         ]
 
-    candidates: list[tuple[int, int, dict, list[dict]]] = []
+    topology_payload = topology_payload or {}
+    exact_edge_candidates = _find_topology_edge_position_candidates(
+        int(x),
+        int(y),
+        topology_payload=topology_payload,
+        node_by_key=node_by_key,
+    )
+
+    candidates: list[tuple[int, int, int, str, dict]] = []
+    for candidate in exact_edge_candidates:
+        candidates.append((0, 0, 0, str(candidate["edge_key"]), candidate))
+
     for node in node_by_key.values():
         path = _plan_grid_path(
             algorithm,
@@ -505,21 +672,27 @@ def _find_topology_node_candidates(
             continue
         distance = max(len(path) - 1, 0)
         manhattan = abs(int(node["x"]) - int(x)) + abs(int(node["y"]) - int(y))
-        candidates.append((distance, manhattan, node, path))
+        candidates.append(
+            (
+                distance,
+                manhattan,
+                1,
+                str(node["key"]),
+                {
+                    "kind": "node",
+                    "node": node,
+                    "path": path,
+                    "distance": distance,
+                    "exact": distance == 0,
+                },
+            )
+        )
 
     if not candidates:
         return []
 
-    candidates.sort(key=lambda item: (item[0], item[1], str(item[2]["key"])))
-    return [
-        {
-            "node": node,
-            "path": path,
-            "distance": distance,
-            "exact": distance == 0,
-        }
-        for distance, _, node, path in candidates[: max(int(limit), 1)]
-    ]
+    candidates.sort(key=lambda item: (item[0], item[1], item[2], item[3]))
+    return [candidate for _, _, _, _, candidate in candidates[: max(int(limit), 1)]]
 
 
 def _build_topology_path_points(node_path: list[str], edge_path: list[dict], node_by_key: dict[str, dict]) -> list[dict]:
@@ -760,6 +933,7 @@ def _plan_topology_path(
         grid_cols=grid_cols,
         grid_rows=grid_rows,
         blocked=blocked,
+        topology_payload=topology_payload,
     )
     end_candidates = _find_topology_node_candidates(
         ex,
@@ -770,6 +944,7 @@ def _plan_topology_path(
         grid_cols=grid_cols,
         grid_rows=grid_rows,
         blocked=blocked,
+        topology_payload=topology_payload,
     )
     if not start_candidates or not end_candidates:
         return []
@@ -792,18 +967,22 @@ def _plan_topology_path(
     for start_candidate in start_candidates:
         start_node = start_candidate["node"]
         prefix_path = start_candidate["path"]
-        start_key = str(start_node["key"])
 
         for end_candidate in end_candidates:
             end_node = end_candidate["node"]
-            goal_key = str(end_node["key"])
+            augmented_node_by_key, augmented_outgoing, start_key, goal_key = _build_augmented_topology_graph(
+                node_by_key,
+                outgoing,
+                start_candidate=start_candidate,
+                end_candidate=end_candidate,
+            )
             node_path, edge_path, topology_cost = _plan_topology_node_path(
                 start_key,
                 goal_key,
-                outgoing=outgoing,
+                outgoing=augmented_outgoing,
                 edge_blockers=edge_blockers,
                 occupied_node_counts=occupied_node_counts,
-                node_by_key=node_by_key,
+                node_by_key=augmented_node_by_key,
                 request_priority=request_priority,
                 avoid_edge_keys=normalized_avoid_edges,
                 avoid_node_keys=normalized_avoid_nodes,
@@ -829,7 +1008,7 @@ def _plan_topology_path(
                 start_candidate=start_candidate,
                 end_candidate=end_candidate,
                 node_path=node_path,
-                node_by_key=node_by_key,
+                node_by_key=augmented_node_by_key,
             )
             candidate_total_cost += candidate_progress_penalty
             candidate_runtime_cost = _estimate_topology_candidate_runtime_cost(
@@ -841,10 +1020,10 @@ def _plan_topology_path(
                 end_candidate=end_candidate,
                 node_path=node_path,
                 edge_path=edge_path,
-                node_by_key=node_by_key,
+                node_by_key=augmented_node_by_key,
             )
 
-            topology_points = _build_topology_path_points(node_path, edge_path, node_by_key)
+            topology_points = _build_topology_path_points(node_path, edge_path, augmented_node_by_key)
             candidate_path = _merge_path_segments(
                 prefix_path or [_build_point(sx, sy)],
                 topology_points,
