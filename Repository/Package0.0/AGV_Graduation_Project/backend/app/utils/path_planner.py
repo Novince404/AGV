@@ -9,6 +9,7 @@ from app.utils.warehouse_map import (
     get_map_layout_state,
     get_navigation_blocked_cells,
     get_topology_node_default_capacity,
+    normalize_topology_node_capacity,
 )
 
 
@@ -290,10 +291,7 @@ def _build_topology_indexes(topology: dict | None):
             "y": int(node.get("y", 0)),
             "label": node.get("label"),
             "node_type": str(node.get("node_type") or "waypoint"),
-            "capacity": max(
-                int(node.get("capacity") or get_topology_node_default_capacity(node.get("node_type") or "waypoint")),
-                1,
-            ),
+            "capacity": normalize_topology_node_capacity(node.get("node_type") or "waypoint", node.get("capacity")),
         }
         node_by_key[key] = payload
         node_by_position[(payload["x"], payload["y"])] = payload
@@ -529,9 +527,9 @@ def _topology_edge_cost(
     target_key = str(edge["to"])
     if target_key != str(goal_key):
         occupied_count = max(int(occupied_node_counts.get(target_key, 0) or 0), 0)
-        target_capacity = max(
-            int((node_by_key.get(target_key) or {}).get("capacity") or get_topology_node_default_capacity((node_by_key.get(target_key) or {}).get("node_type") or "waypoint")),
-            1,
+        target_capacity = normalize_topology_node_capacity(
+            (node_by_key.get(target_key) or {}).get("node_type") or "waypoint",
+            (node_by_key.get(target_key) or {}).get("capacity"),
         )
         if occupied_count >= target_capacity:
             total_cost += TOPOLOGY_OCCUPIED_NODE_PENALTY

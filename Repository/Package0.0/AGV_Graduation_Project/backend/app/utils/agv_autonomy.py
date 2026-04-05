@@ -10,6 +10,7 @@ from app.utils.warehouse_map import (
     get_current_grid_size,
     get_map_layout_state,
     get_topology_node_default_capacity,
+    normalize_topology_node_capacity,
 )
 
 
@@ -80,10 +81,7 @@ def _resolve_runtime_topology_nodes(*node_types: str) -> list[dict]:
             nodes.append(
                 {
                     **node,
-                    "capacity": max(
-                        int(node.get("capacity") or get_topology_node_default_capacity(node_type)),
-                        1,
-                    ),
+                    "capacity": normalize_topology_node_capacity(node_type, node.get("capacity")),
                 }
             )
     return nodes
@@ -115,7 +113,7 @@ def _resolve_nearest_autonomy_target(agv, target_type: str, grid_cols: int, grid
             "y": node_y,
             "node_type": str(node.get("node_type") or target_type),
             "label": str(node.get("label") or ""),
-            "capacity": max(int(node.get("capacity") or 1), 1),
+            "capacity": normalize_topology_node_capacity(node.get("node_type") or target_type, node.get("capacity")),
         }
         manhattan = abs(node_x - int(agv.x)) + abs(node_y - int(agv.y))
         if fallback is None or manhattan < fallback[0]:

@@ -17,6 +17,7 @@ from app.utils.warehouse_map import (
     get_map_layout_state,
     get_navigation_blocked_cells,
     get_topology_node_default_capacity,
+    normalize_topology_node_capacity,
 )
 movement_lock = threading.Lock()
 MOVE_WAIT_INTERVAL_SEC = 0.25
@@ -199,9 +200,9 @@ def _find_blocking_agv_at_position(agv_id: int, x: int, y: int):
         None,
     )
     if special_node is not None:
-        capacity = max(
-            int(special_node.get("capacity") or get_topology_node_default_capacity(special_node.get("node_type") or "waypoint")),
-            1,
+        capacity = normalize_topology_node_capacity(
+            special_node.get("node_type") or "waypoint",
+            special_node.get("capacity"),
         )
         if len(matching_agvs) < capacity:
             return None

@@ -10552,6 +10552,74 @@ async function createBackendAgvAtCell(x, y) {
   }
 }
 
+async function createAndScheduleDirectManualTask(manualAgv, start, end, reason = 'double_click_relocation') {
+  if (!manualAgv || !start || !end) return false
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'dispatch.write', buildCapabilityDeniedMessage('dispatch'))) {
+    return false
+  }
+  if (!(await ensureBlockedCellsSynced())) {
+    window.alert(obstacleSaveRequiredText())
+    return false
+  }
+  try {
+    autoScheduleGuard.value = true
+    const createRes = await fetch(`${API_BASE}/task/create`, {
+      method: 'POST',
+      headers: buildAuthorizedJsonHeaders(),
+      body: JSON.stringify({
+        start_x: Number(start.x),
+        start_y: Number(start.y),
+        end_x: Number(end.x),
+        end_y: Number(end.y),
+        grid_cols: gridColsValue(),
+        grid_rows: gridRowsValue(),
+        priority: taskPriority.value,
+        ...buildManualTaskCreateMeta(manualAgv, reason)
+      })
+    })
+    const createData = await createRes.json()
+    if (!createRes.ok) {
+      throw createApiError(createData, 'Task create failed')
+    }
+    const scheduleRes = await fetch(`${API_BASE}/schedule/with_path`, {
+      method: 'POST',
+      headers: buildAuthorizedJsonHeaders(),
+      body: JSON.stringify({
+        task_id: createData.task.id,
+        agv_id: Number(manualAgv.id),
+        schedule_mode: 'manual',
+        algorithm: algorithm.value,
+        grid_cols: gridColsValue(),
+        grid_rows: gridRowsValue()
+      })
+    })
+    const scheduleData = await scheduleRes.json()
+    if (!scheduleRes.ok) {
+      await handleManualScheduleFailure(createData.task.id, scheduleData)
+      return false
+    }
+    selectedAgvId.value = Number(manualAgv.id)
+    preferredRuntimeDisplayMode.value = 'manual'
+    startPoint.value = { x: Number(start.x), y: Number(start.y) }
+    endPoint.value = { x: Number(end.x), y: Number(end.y) }
+    applyTaskDisplayMarkers(scheduleData.task, createData.task)
+    manualPathToStart.value = scheduleData.path_to_start ?? []
+    manualPathToEnd.value = scheduleData.path_to_end ?? scheduleData.path ?? []
+    trackedManualTaskId.value = scheduleData.task.id
+    manualDraftPicking.value = false
+    manualDispatchStep.value = 'running'
+    bumpManualPreviewMinVisible()
+    await Promise.all([fetchAgvs(), fetchTasks()])
+    return true
+  } catch (error) {
+    console.error('Direct manual schedule error:', error)
+    showFloatingToast(error instanceof Error ? error.message : String(error), 'error')
+    return false
+  } finally {
+    autoScheduleGuard.value = false
+  }
+}
+
 async function dispatchNearestEnterpriseAgvToCell(x, y) {
   if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'dispatch.write', buildCapabilityDeniedMessage('dispatch'))) {
     return
@@ -10565,16 +10633,6 @@ async function dispatchNearestEnterpriseAgvToCell(x, y) {
     showFloatingToast(formatInlineMessage(t('enterprise_double_click_same_cell'), { id: String(agv.id) }), 'info')
     return
   }
-  selectedAgvId.value = Number(agv.id)
-  dispatchMode.value = 'manual'
-  preferredRuntimeDisplayMode.value = 'manual'
-  manualDraftPicking.value = false
-  syncManualDispatchBuilderState()
-  clearManualDestination()
-  startPoint.value = { x: Number(agv.x), y: Number(agv.y) }
-  endPoint.value = { x: Number(x), y: Number(y) }
-  manualDispatchStep.value = 'running'
-  bumpManualPreviewMinVisible()
   showFloatingToast(
     formatInlineMessage(t('enterprise_double_click_dispatching'), {
       id: String(agv.id),
@@ -10583,7 +10641,12 @@ async function dispatchNearestEnterpriseAgvToCell(x, y) {
     }),
     'info'
   )
-  await createTaskAndSchedule(Number(agv.id))
+  await createAndScheduleDirectManualTask(
+    agv,
+    { x: Number(agv.x), y: Number(agv.y) },
+    { x: Number(x), y: Number(y) },
+    'double_click_relocation'
+  )
 }
 
 function onAgvClick(agv, event) {
