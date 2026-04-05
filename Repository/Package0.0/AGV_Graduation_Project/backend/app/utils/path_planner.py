@@ -23,6 +23,9 @@ TOPOLOGY_OCCUPIED_NODE_PENALTY = 22.0
 TOPOLOGY_PARTIAL_NODE_USAGE_PENALTY = 3.0
 TOPOLOGY_ENTRY_EXIT_PENALTY = 0.65
 TOPOLOGY_SAME_NODE_TRANSFER_PENALTY = 1.25
+TOPOLOGY_ENTRY_RETREAT_PENALTY = 0.9
+TOPOLOGY_ENTRY_TURNBACK_PENALTY = 1.6
+TOPOLOGY_EXIT_TURNBACK_PENALTY = 0.8
 TOPOLOGY_MAX_ENTRY_CANDIDATES = 4
 TOPOLOGY_GRID_FALLBACK_MARGIN = 1.25
 
@@ -47,6 +50,14 @@ def _same_point(a: dict | None, b: dict | None) -> bool:
     if not a or not b:
         return False
     return int(a.get("x", -1)) == int(b.get("x", -2)) and int(a.get("y", -1)) == int(b.get("y", -2))
+
+
+def _manhattan_distance(ax: int, ay: int, bx: int, by: int) -> int:
+    return abs(int(ax) - int(bx)) + abs(int(ay) - int(by))
+
+
+def _vector_dot(ax: int, ay: int, bx: int, by: int) -> int:
+    return int(ax) * int(bx) + int(ay) * int(by)
 
 
 def _merge_path_segments(*segments: list[dict]) -> list[dict]:
@@ -448,6 +459,50 @@ def _build_topology_path_points(node_path: list[str], edge_path: list[dict], nod
     return points
 
 
+def _compute_topology_candidate_progress_penalty(
+    sx: int,
+    sy: int,
+    ex: int,
+    ey: int,
+    *,
+    start_candidate: dict,
+    end_candidate: dict,
+    node_path: list[str],
+    node_by_key: dict[str, dict],
+) -> float:
+    penalty = 0.0
+    start_goal_distance = _manhattan_distance(sx, sy, ex, ey)
+
+    start_node = start_candidate["node"]
+    if not start_candidate["exact"]:
+        entry_goal_distance = _manhattan_distance(start_node["x"], start_node["y"], ex, ey)
+        if entry_goal_distance > start_goal_distance:
+            penalty += min((entry_goal_distance - start_goal_distance) * 0.35, TOPOLOGY_ENTRY_RETREAT_PENALTY)
+
+    if not start_candidate["exact"] and len(node_path) > 1:
+        next_node = node_by_key.get(node_path[1])
+        if next_node is not None:
+            entry_dx = int(start_node["x"]) - int(sx)
+            entry_dy = int(start_node["y"]) - int(sy)
+            topology_dx = int(next_node["x"]) - int(start_node["x"])
+            topology_dy = int(next_node["y"]) - int(start_node["y"])
+            if _vector_dot(entry_dx, entry_dy, topology_dx, topology_dy) < 0:
+                penalty += TOPOLOGY_ENTRY_TURNBACK_PENALTY
+
+    if not end_candidate["exact"] and len(node_path) > 1:
+        end_node = end_candidate["node"]
+        previous_node = node_by_key.get(node_path[-2])
+        if previous_node is not None:
+            topology_dx = int(end_node["x"]) - int(previous_node["x"])
+            topology_dy = int(end_node["y"]) - int(previous_node["y"])
+            exit_dx = int(ex) - int(end_node["x"])
+            exit_dy = int(ey) - int(end_node["y"])
+            if _vector_dot(topology_dx, topology_dy, exit_dx, exit_dy) < 0:
+                penalty += TOPOLOGY_EXIT_TURNBACK_PENALTY
+
+    return penalty
+
+
 def _plan_topology_node_path(
     start_key: str,
     goal_key: str,
@@ -626,6 +681,16 @@ def _plan_topology_path(
                 candidate_total_cost += TOPOLOGY_ENTRY_EXIT_PENALTY
             if len(node_path) == 1 and (not start_candidate["exact"] or not end_candidate["exact"]):
                 candidate_total_cost += TOPOLOGY_SAME_NODE_TRANSFER_PENALTY
+            candidate_total_cost += _compute_topology_candidate_progress_penalty(
+                sx,
+                sy,
+                ex,
+                ey,
+                start_candidate=start_candidate,
+                end_candidate=end_candidate,
+                node_path=node_path,
+                node_by_key=node_by_key,
+            )
 
             topology_points = _build_topology_path_points(node_path, edge_path, node_by_key)
             candidate_path = _merge_path_segments(

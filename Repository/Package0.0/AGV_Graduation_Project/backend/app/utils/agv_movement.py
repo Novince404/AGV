@@ -24,6 +24,7 @@ MOVE_WAIT_INTERVAL_SEC = 0.25
 MOVE_WAIT_TIMEOUT_SEC = 12
 TOPOLOGY_EDGE_REPLAN_INTERVAL_SEC = 1.2
 TOPOLOGY_OCCUPIED_NODE_REPLAN_INTERVAL_SEC = 1.4
+TOPOLOGY_DEADLOCK_BREAK_TIMEOUT_SEC = 4.5
 CELL_TRAVEL_DURATION_SEC = 0.9
 DEFAULT_CELL_SPEED = 1.0
 
@@ -160,10 +161,13 @@ def _can_directly_enter_special_target(
 def _build_topology_wait_reason(conflict: dict) -> str:
     edge_key = str(conflict.get("edge_key") or "topology")
     target_node = str(conflict.get("target_node") or "")
+    blocker_node = str(conflict.get("blocker_node") or "")
     blocker_agv_id = conflict.get("blocker_agv_id")
     parts = [f"edge={edge_key}"]
     if target_node:
         parts.append(f"node={target_node}")
+    if blocker_node and blocker_node != target_node:
+        parts.append(f"node={blocker_node}")
     if blocker_agv_id is not None:
         parts.append(f"agv={int(blocker_agv_id)}")
     return f"topology_edge_waiting:{';'.join(parts)}"
@@ -172,10 +176,13 @@ def _build_topology_wait_reason(conflict: dict) -> str:
 def _build_topology_retry_reason(conflict: dict) -> str:
     edge_key = str(conflict.get("edge_key") or "topology")
     target_node = str(conflict.get("target_node") or "")
+    blocker_node = str(conflict.get("blocker_node") or "")
     blocker_agv_id = conflict.get("blocker_agv_id")
     parts = [f"edge={edge_key}"]
     if target_node:
         parts.append(f"node={target_node}")
+    if blocker_node and blocker_node != target_node:
+        parts.append(f"node={blocker_node}")
     if blocker_agv_id is not None:
         parts.append(f"agv={int(blocker_agv_id)}")
     return f"topology_edge_reroute:{';'.join(parts)}"
@@ -234,6 +241,7 @@ def _detect_topology_edge_conflict(agv_id: int, source_x: int, source_y: int, po
             "lane_type": str(segment.get("lane_type") or "main"),
             "speed_multiplier": float(segment.get("speed_multiplier") or 1.0),
             "target_node": str(segment.get("target_node") or _build_grid_node_key(target_x, target_y)),
+            "blocker_node": str(getattr(other, "current_node", "") or _build_grid_node_key(int(other.x), int(other.y))),
             "blocker_agv_id": int(other.id),
             "blocker_task_id": int(other.task_id) if getattr(other, "task_id", None) is not None else None,
             "blocker_priority": int(getattr(blocker_task, "priority", 0) or 0) if blocker_task else 0,
@@ -370,7 +378,11 @@ def _should_current_agv_reroute(agv, task, conflict: dict | None) -> bool:
         return blocker_priority > current_priority
 
     avoid_edge_keys = {str(conflict.get("edge_key") or "").strip()} if str(conflict.get("edge_key") or "").strip() else set()
-    avoid_node_keys = {str(conflict.get("target_node") or "").strip()} if str(conflict.get("target_node") or "").strip() else set()
+    avoid_node_keys = {
+        str(item).strip()
+        for item in {conflict.get("target_node"), conflict.get("blocker_node")}
+        if str(item or "").strip()
+    }
 
     current_detour_cost = _estimate_remaining_task_path_cost(
         agv,
@@ -456,6 +468,7 @@ def _build_topology_segment_conflict(source_x: int, source_y: int, point: dict, 
         "lane_type": str(segment.get("lane_type") or "main"),
         "speed_multiplier": float(segment.get("speed_multiplier") or 1.0),
         "target_node": str(segment.get("target_node") or _build_grid_node_key(target_x, target_y)),
+        "blocker_node": str(getattr(blocker_agv, "current_node", "") or _build_grid_node_key(int(blocker_agv.x), int(blocker_agv.y))),
         "blocker_agv_id": int(blocker_agv.id),
         "blocker_task_id": blocker_task_id,
         "blocker_priority": _get_task_priority(blocker_task),
@@ -594,6 +607,10 @@ def move_to_point_with_collision_guard(agv, task, point, algorithm: str, active_
                 task.dispatch_reason = _build_topology_retry_reason(topology_conflict)
                 agv.clear_motion(motion_state=active_status)
                 return "retry"
+            if waited_sec >= TOPOLOGY_DEADLOCK_BREAK_TIMEOUT_SEC:
+                task.dispatch_reason = _build_topology_retry_reason(topology_conflict)
+                agv.clear_motion(motion_state=active_status)
+                return "retry"
             if waited_sec >= MOVE_WAIT_TIMEOUT_SEC:
                 task.dispatch_reason = _build_topology_retry_reason(topology_conflict)
                 agv.clear_motion(motion_state=active_status)
@@ -624,6 +641,10 @@ def move_to_point_with_collision_guard(agv, task, point, algorithm: str, active_
                             topology_cell_conflict.get("blocker_task_id"),
                         )
                     )
+                    task.dispatch_reason = _build_topology_retry_reason(topology_cell_conflict)
+                    agv.clear_motion(motion_state=active_status)
+                    return "retry"
+                if waited_sec >= TOPOLOGY_DEADLOCK_BREAK_TIMEOUT_SEC:
                     task.dispatch_reason = _build_topology_retry_reason(topology_cell_conflict)
                     agv.clear_motion(motion_state=active_status)
                     return "retry"
@@ -976,6 +997,9 @@ def move_agv_to_autonomy_target(
                             )
                             should_replan = True
                             break
+                        if waited_sec >= TOPOLOGY_DEADLOCK_BREAK_TIMEOUT_SEC:
+                            should_replan = True
+                            break
                         if waited_sec >= MOVE_WAIT_TIMEOUT_SEC:
                             should_replan = True
                             break
@@ -1001,6 +1025,9 @@ def move_agv_to_autonomy_target(
                                         topology_cell_conflict.get("blocker_task_id"),
                                     )
                                 )
+                                should_replan = True
+                                break
+                            if waited_sec >= TOPOLOGY_DEADLOCK_BREAK_TIMEOUT_SEC:
                                 should_replan = True
                                 break
                             if waited_sec >= MOVE_WAIT_TIMEOUT_SEC:
