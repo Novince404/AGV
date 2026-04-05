@@ -363,6 +363,61 @@ def resolve_topology_segment_metadata(
     source_node = node_by_position.get((int(source_x), int(source_y)))
     target_node = node_by_position.get((int(target_x), int(target_y)))
     if not source_node or not target_node:
+        source_segment_x = int(source_x)
+        source_segment_y = int(source_y)
+        target_segment_x = int(target_x)
+        target_segment_y = int(target_y)
+        for raw_edge in topology_payload.get("edges", []) or []:
+            if not isinstance(raw_edge, dict):
+                continue
+            raw_source_key = str(raw_edge.get("source") or "").strip()
+            raw_target_key = str(raw_edge.get("target") or "").strip()
+            raw_source_node = node_by_key.get(raw_source_key)
+            raw_target_node = node_by_key.get(raw_target_key)
+            if raw_source_node is None or raw_target_node is None:
+                continue
+
+            sx_node = int(raw_source_node["x"])
+            sy_node = int(raw_source_node["y"])
+            tx_node = int(raw_target_node["x"])
+            ty_node = int(raw_target_node["y"])
+
+            horizontal = sy_node == ty_node and source_segment_y == target_segment_y == sy_node
+            vertical = sx_node == tx_node and source_segment_x == target_segment_x == sx_node
+            if not horizontal and not vertical:
+                continue
+
+            min_x, max_x = sorted((sx_node, tx_node))
+            min_y, max_y = sorted((sy_node, ty_node))
+            if not (min_x <= source_segment_x <= max_x and min_x <= target_segment_x <= max_x):
+                continue
+            if not (min_y <= source_segment_y <= max_y and min_y <= target_segment_y <= max_y):
+                continue
+
+            step_dx = int(target_segment_x) - int(source_segment_x)
+            step_dy = int(target_segment_y) - int(source_segment_y)
+            if abs(step_dx) + abs(step_dy) != 1:
+                continue
+
+            corridor_dx = 0 if sx_node == tx_node else (1 if tx_node > sx_node else -1)
+            corridor_dy = 0 if sy_node == ty_node else (1 if ty_node > sy_node else -1)
+            direction = str(raw_edge.get("direction") or "bidirectional")
+            if direction == "forward" and (step_dx, step_dy) != (corridor_dx, corridor_dy):
+                continue
+            if direction == "reverse" and (step_dx, step_dy) != (-corridor_dx, -corridor_dy):
+                continue
+
+            if edge_key and str(raw_edge.get("key") or "") != str(edge_key):
+                continue
+
+            return {
+                "source_node": fallback_source,
+                "target_node": fallback_target,
+                "edge_key": str(raw_edge.get("key") or fallback_edge),
+                "lane_type": str(raw_edge.get("lane_type") or "main"),
+                "speed_multiplier": float(raw_edge.get("speed_multiplier") or 1.0),
+            }
+
         return {
             "source_node": fallback_source,
             "target_node": fallback_target,
@@ -387,6 +442,28 @@ def resolve_topology_segment_metadata(
         "lane_type": str(selected_edge["lane_type"]) if selected_edge else "grid",
         "speed_multiplier": float(selected_edge["speed_multiplier"]) if selected_edge else 1.0,
     }
+
+
+def _estimate_runtime_cost_for_path(path: list[dict], *, topology: dict | None = None) -> float:
+    if not path or len(path) <= 1:
+        return 0.0
+    total = 0.0
+    for source_point, target_point in zip(path, path[1:]):
+        segment = resolve_topology_segment_metadata(
+            int(source_point["x"]),
+            int(source_point["y"]),
+            int(target_point["x"]),
+            int(target_point["y"]),
+            edge_key=target_point.get("topology_edge_key"),
+            topology=topology,
+        )
+        lane_type = str(segment.get("lane_type") or "grid")
+        speed_multiplier = max(float(segment.get("speed_multiplier") or 1.0), 0.1)
+        if lane_type == "grid" or str(segment.get("edge_key") or "").startswith("grid:"):
+            total += 1.0
+        else:
+            total += TOPOLOGY_RUNTIME_LANE_FACTORS.get(lane_type, 1.0) / speed_multiplier
+    return float(total)
 
 
 def _find_topology_node_candidates(
@@ -702,6 +779,11 @@ def _plan_topology_path(
     occupied_node_counts = reservations["occupied_node_counts"]
     direct_grid_path = _plan_grid_path(algorithm, sx, sy, ex, ey, grid_cols, grid_rows, blocked)
     direct_grid_cost = float("inf") if not direct_grid_path else float(_path_step_cost(direct_grid_path))
+    direct_grid_runtime_cost = (
+        float("inf")
+        if not direct_grid_path
+        else _estimate_runtime_cost_for_path(direct_grid_path, topology=topology_payload)
+    )
 
     normalized_avoid_edges = {str(item).strip() for item in (avoid_edge_keys or set()) if str(item).strip()}
     normalized_avoid_nodes = {str(item).strip() for item in (avoid_node_keys or set()) if str(item).strip()}
@@ -799,7 +881,7 @@ def _plan_topology_path(
         ):
             return []
         if (
-            best_payload.get("runtime_cost", float("inf")) >= direct_grid_cost - TOPOLOGY_RUNTIME_EQUAL_MARGIN
+            best_payload.get("runtime_cost", float("inf")) >= direct_grid_runtime_cost - TOPOLOGY_RUNTIME_EQUAL_MARGIN
             and _path_step_cost(best_payload["path"]) > direct_grid_cost + 1
         ):
             return []
