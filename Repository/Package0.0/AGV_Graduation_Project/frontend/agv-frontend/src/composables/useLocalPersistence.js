@@ -13,8 +13,14 @@ export function useLocalPersistence(options) {
     showMarkerIcons,
     showPathArrows,
     showStatusLegend,
+    showTopologyEdgeSpeed,
+    showRuntimeSegmentType,
+    showRuntimeConflictReason,
     statusLegendLayout,
     statusLegendOpacity,
+    baseSpeed,
+    followDistance,
+    deadlockTimeoutSec,
     idleReturnTimeoutSec,
     idleChargeTimeoutSec,
     batteryActiveDrainPerSec,
@@ -216,11 +222,29 @@ export function useLocalPersistence(options) {
       if (typeof parsed?.showStatusLegend === 'boolean') {
         showStatusLegend.value = parsed.showStatusLegend
       }
+      if (typeof parsed?.showTopologyEdgeSpeed === 'boolean') {
+        showTopologyEdgeSpeed.value = parsed.showTopologyEdgeSpeed
+      }
+      if (typeof parsed?.showRuntimeSegmentType === 'boolean') {
+        showRuntimeSegmentType.value = parsed.showRuntimeSegmentType
+      }
+      if (typeof parsed?.showRuntimeConflictReason === 'boolean') {
+        showRuntimeConflictReason.value = parsed.showRuntimeConflictReason
+      }
       if (parsed?.statusLegendLayout === 'horizontal' || parsed?.statusLegendLayout === 'vertical') {
         statusLegendLayout.value = parsed.statusLegendLayout
       }
       if (typeof parsed?.statusLegendOpacity === 'number') {
         statusLegendOpacity.value = clampValue(parsed.statusLegendOpacity, 0.2, 0.9)
+      }
+      if (typeof parsed?.baseSpeed === 'number') {
+        baseSpeed.value = clampValue(parsed.baseSpeed, 0.2, 6)
+      }
+      if (typeof parsed?.followDistance === 'number') {
+        followDistance.value = clampValue(parsed.followDistance, 0.25, 3)
+      }
+      if (typeof parsed?.deadlockTimeoutSec === 'number') {
+        deadlockTimeoutSec.value = clampValue(parsed.deadlockTimeoutSec, 1, 20)
       }
       if (typeof parsed?.idleReturnTimeoutSec === 'number') {
         idleReturnTimeoutSec.value = clampValue(parsed.idleReturnTimeoutSec, 5, 600)
@@ -272,8 +296,14 @@ export function useLocalPersistence(options) {
           showMarkerIcons: showMarkerIcons.value,
           showPathArrows: showPathArrows.value,
           showStatusLegend: showStatusLegend.value,
+          showTopologyEdgeSpeed: showTopologyEdgeSpeed.value,
+          showRuntimeSegmentType: showRuntimeSegmentType.value,
+          showRuntimeConflictReason: showRuntimeConflictReason.value,
           statusLegendLayout: statusLegendLayout.value,
           statusLegendOpacity: statusLegendOpacity.value,
+          baseSpeed: baseSpeed.value,
+          followDistance: followDistance.value,
+          deadlockTimeoutSec: deadlockTimeoutSec.value,
           idleReturnTimeoutSec: idleReturnTimeoutSec.value,
           idleChargeTimeoutSec: idleChargeTimeoutSec.value,
           batteryActiveDrainPerSec: batteryActiveDrainPerSec.value,

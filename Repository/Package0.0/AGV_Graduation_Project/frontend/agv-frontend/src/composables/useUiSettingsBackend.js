@@ -12,8 +12,14 @@ export function useUiSettingsBackend(options) {
     showMarkerIcons,
     showPathArrows,
     showStatusLegend,
+    showTopologyEdgeSpeed,
+    showRuntimeSegmentType,
+    showRuntimeConflictReason,
     statusLegendLayout,
     statusLegendOpacity,
+    baseSpeed,
+    followDistance,
+    deadlockTimeoutSec,
     idleReturnTimeoutSec,
     idleChargeTimeoutSec,
     batteryActiveDrainPerSec,
@@ -66,11 +72,29 @@ export function useUiSettingsBackend(options) {
       if (typeof payload?.show_status_legend === 'boolean') {
         showStatusLegend.value = payload.show_status_legend
       }
+      if (typeof payload?.show_topology_edge_speed === 'boolean') {
+        showTopologyEdgeSpeed.value = payload.show_topology_edge_speed
+      }
+      if (typeof payload?.show_runtime_segment_type === 'boolean') {
+        showRuntimeSegmentType.value = payload.show_runtime_segment_type
+      }
+      if (typeof payload?.show_runtime_conflict_reason === 'boolean') {
+        showRuntimeConflictReason.value = payload.show_runtime_conflict_reason
+      }
       if (payload?.status_legend_layout === 'horizontal' || payload?.status_legend_layout === 'vertical') {
         statusLegendLayout.value = payload.status_legend_layout
       }
       if (typeof payload?.status_legend_opacity === 'number') {
         statusLegendOpacity.value = clampValue(payload.status_legend_opacity, 0.2, 0.9)
+      }
+      if (typeof payload?.base_speed === 'number') {
+        baseSpeed.value = clampValue(payload.base_speed, 0.2, 6)
+      }
+      if (typeof payload?.follow_distance === 'number') {
+        followDistance.value = clampValue(payload.follow_distance, 0.25, 3)
+      }
+      if (typeof payload?.deadlock_timeout_sec === 'number') {
+        deadlockTimeoutSec.value = clampValue(payload.deadlock_timeout_sec, 1, 20)
       }
       if (typeof payload?.idle_return_timeout_sec === 'number') {
         idleReturnTimeoutSec.value = clampValue(payload.idle_return_timeout_sec, 5, 600)
@@ -111,8 +135,14 @@ export function useUiSettingsBackend(options) {
       show_marker_icons: showMarkerIcons.value,
       show_path_arrows: showPathArrows.value,
       show_status_legend: showStatusLegend.value,
+      show_topology_edge_speed: showTopologyEdgeSpeed.value,
+      show_runtime_segment_type: showRuntimeSegmentType.value,
+      show_runtime_conflict_reason: showRuntimeConflictReason.value,
       status_legend_layout: statusLegendLayout.value,
       status_legend_opacity: Number(statusLegendOpacity.value),
+      base_speed: Number(baseSpeed.value),
+      follow_distance: Number(followDistance.value),
+      deadlock_timeout_sec: Number(deadlockTimeoutSec.value),
       idle_return_timeout_sec: Number(idleReturnTimeoutSec.value),
       idle_charge_timeout_sec: Number(idleChargeTimeoutSec.value),
       battery_active_drain_per_sec: Number(batteryActiveDrainPerSec.value),
@@ -190,8 +220,14 @@ export function useUiSettingsBackend(options) {
       showMarkerIcons,
       showPathArrows,
       showStatusLegend,
+      showTopologyEdgeSpeed,
+      showRuntimeSegmentType,
+      showRuntimeConflictReason,
       statusLegendLayout,
       statusLegendOpacity,
+      baseSpeed,
+      followDistance,
+      deadlockTimeoutSec,
       idleReturnTimeoutSec,
       idleChargeTimeoutSec,
       batteryActiveDrainPerSec,

@@ -623,8 +623,14 @@ const mapViewportHeight = ref(mapHeight.value)
 const isMapPanning = ref(false)
 const showMapSettings = ref(false)
 const showStatusLegend = ref(true)
+const showTopologyEdgeSpeed = ref(false)
+const showRuntimeSegmentType = ref(false)
+const showRuntimeConflictReason = ref(false)
 const statusLegendLayout = ref('horizontal')
 const statusLegendOpacity = ref(0.55)
+const baseSpeed = ref(1.11)
+const followDistance = ref(0.75)
+const deadlockTimeoutSec = ref(4.5)
 const idleReturnTimeoutSec = ref(12)
 const idleChargeTimeoutSec = ref(45)
 const batteryActiveDrainPerSec = ref(0.16)
@@ -1311,6 +1317,12 @@ const guideCenterStatusEntries = computed(() => [
   `${t('status_fault')}：${t('status_fault_desc')}`,
   `${faultLocale.value.emergencyStopped || t('status_emergency_stop')}：${t('status_emergency_stop_desc')}`
 ])
+const guideCenterTopologyEntries = computed(() => [
+  guideCenterLocale.value.topologyDefinition,
+  guideCenterLocale.value.topologyBaseSpeed,
+  guideCenterLocale.value.topologyLaneHint,
+  guideCenterLocale.value.topologyYieldHint
+].filter(Boolean))
 const shortcutEditorActionDefinitions = computed(() => [
   {
     key: 'selection_cancel',
@@ -3031,6 +3043,13 @@ const enterpriseTopologyViewAvailable = computed(() =>
 const enterprisePureTopologyViewEnabled = computed(() =>
   enterpriseTopologyViewAvailable.value && topologyViewMode.value === 'pure'
 )
+const topologyEdgeByKey = computed(() =>
+  Object.fromEntries(
+    (currentMapTopology.value?.edges || [])
+      .filter(edge => edge && edge.key)
+      .map(edge => [String(edge.key), edge])
+  )
+)
 const enterpriseTopologyRuntimeOccupancyMap = computed(() => {
   if (!uiTreatAsEnterpriseRole.value || !currentMapTopologySummary.value.enabled) return {}
   const byKey = Object.create(null)
@@ -3748,6 +3767,8 @@ function isBackendAgvMotionActive(agv, nowMs = Date.now()) {
 
 function resolveRenderedBackendAgv(agv, nowMs = agvAnimationNow.value) {
   const enterpriseMotionEnabled = isEnterpriseContinuousMotionEnabled()
+  const currentEdgeKey = String(agv?.current_edge || '').trim()
+  const currentEdgeMeta = currentEdgeKey ? topologyEdgeByKey.value[currentEdgeKey] || null : null
   const sourceX = normalizeAgvMotionNumber(agv?.motion_source_x, normalizeAgvMotionNumber(agv?.render_x, agv?.x))
   const sourceY = normalizeAgvMotionNumber(agv?.motion_source_y, normalizeAgvMotionNumber(agv?.render_y, agv?.y))
   const targetX = normalizeAgvMotionNumber(agv?.motion_target_x, agv?.x)
@@ -3774,6 +3795,16 @@ function resolveRenderedBackendAgv(agv, nowMs = agvAnimationNow.value) {
   return {
     ...agv,
     source: 'backend',
+    segmentMode:
+      String(agv?.segment_mode || '').trim() ||
+      (currentEdgeKey && !currentEdgeKey.startsWith('grid:') ? 'topology' : 'grid'),
+    currentLaneType:
+      String(agv?.current_lane_type || '').trim() ||
+      String(currentEdgeMeta?.lane_type || (currentEdgeKey && !currentEdgeKey.startsWith('grid:') ? 'main' : 'grid')),
+    currentSpeedMultiplier: normalizeAgvMotionNumber(
+      agv?.current_speed_multiplier,
+      normalizeAgvMotionNumber(currentEdgeMeta?.speed_multiplier, 1)
+    ),
     displayX,
     displayY,
     displayHeading: heading,
@@ -3822,6 +3853,60 @@ function formatAgvBatteryText(agv) {
   return `电量 ${percent}%`
 }
 
+function formatEnterpriseRuntimeSegmentLabel(agv) {
+  const segmentMode = String(agv?.segmentMode || 'grid').trim().toLowerCase()
+  if (segmentMode !== 'topology') {
+    if (locale.value === 'ja') return '区間: 基础段'
+    if (locale.value === 'en') return 'Segment: Base'
+    return '当前段: 基础段'
+  }
+  const laneType = String(agv?.currentLaneType || 'main').trim().toLowerCase()
+  const laneLabel = t(`enterprise_settings_route_topology_lane_type_${laneType}`)
+  if (locale.value === 'ja') return `区間: 主幹道 · ${laneLabel}`
+  if (locale.value === 'en') return `Segment: Trunk · ${laneLabel}`
+  return `当前段: 主干道 · ${laneLabel}`
+}
+
+function formatEnterpriseRuntimeSpeedText(agv) {
+  const currentSpeed = Number(agv?.current_speed)
+  if (!Number.isFinite(currentSpeed) || currentSpeed <= 0) return ''
+  const multiplier = Number(agv?.currentSpeedMultiplier)
+  if (locale.value === 'ja') {
+    return Number.isFinite(multiplier)
+      ? `速度 ${currentSpeed.toFixed(2)} 格/秒 · 倍率 x${multiplier.toFixed(2)}`
+      : `速度 ${currentSpeed.toFixed(2)} 格/秒`
+  }
+  if (locale.value === 'en') {
+    return Number.isFinite(multiplier)
+      ? `Speed ${currentSpeed.toFixed(2)} cells/s · x${multiplier.toFixed(2)}`
+      : `Speed ${currentSpeed.toFixed(2)} cells/s`
+  }
+  return Number.isFinite(multiplier)
+    ? `速度 ${currentSpeed.toFixed(2)} 格/秒 · 倍率 x${multiplier.toFixed(2)}`
+    : `速度 ${currentSpeed.toFixed(2)} 格/秒`
+}
+
+function resolveAgvRuntimeConflictReason(agv) {
+  const agvId = Number(agv?.id)
+  if (!Number.isFinite(agvId)) return ''
+  const activeTask = tasks.value.find(task => Number(task?.agv_id) === agvId && !['finished', 'cancelled'].includes(String(task?.status || '')))
+  const localized = localizeDispatchReason(activeTask?.dispatch_reason)
+  return String(localized || '').trim()
+}
+
+function formatTopologyEdgeDebugTitle(edge) {
+  if (!edge) return ''
+  const laneLabel = t(`enterprise_settings_route_topology_lane_type_${edge.laneType || 'main'}`)
+  const directionLabel = t(`enterprise_settings_route_topology_direction_${edge.direction || 'bidirectional'}`)
+  if (locale.value === 'ja') {
+    return `${laneLabel} · ${directionLabel} · 倍率 x${Number(edge.speedMultiplier || 1).toFixed(2)}`
+  }
+  if (locale.value === 'en') {
+    return `${laneLabel} · ${directionLabel} · x${Number(edge.speedMultiplier || 1).toFixed(2)}`
+  }
+  return `${laneLabel} · ${directionLabel} · 倍率 x${Number(edge.speedMultiplier || 1).toFixed(2)}`
+}
+
 function formatEnterpriseAgvRuntimeHint(agv) {
   if (!uiTreatAsEnterpriseRole.value || agv?.source !== 'backend') return ''
   const parts = [`AGV #${agv.id}`]
@@ -3845,6 +3930,17 @@ function formatEnterpriseAgvRuntimeHint(agv) {
     } else {
       parts.push(`路段: ${agv.current_edge}`)
     }
+  }
+  if (showRuntimeSegmentType.value) {
+    parts.push(formatEnterpriseRuntimeSegmentLabel(agv))
+  }
+  if (showTopologyEdgeSpeed.value) {
+    const speedText = formatEnterpriseRuntimeSpeedText(agv)
+    if (speedText) parts.push(speedText)
+  }
+  if (showRuntimeConflictReason.value) {
+    const reasonText = resolveAgvRuntimeConflictReason(agv)
+    if (reasonText) parts.push(reasonText)
   }
   return parts.join(' · ')
 }
@@ -5455,8 +5551,14 @@ const {
   showMarkerIcons,
   showPathArrows,
   showStatusLegend,
+  showTopologyEdgeSpeed,
+  showRuntimeSegmentType,
+  showRuntimeConflictReason,
   statusLegendLayout,
   statusLegendOpacity,
+  baseSpeed,
+  followDistance,
+  deadlockTimeoutSec,
   idleReturnTimeoutSec,
   idleChargeTimeoutSec,
   batteryActiveDrainPerSec,
@@ -14623,8 +14725,14 @@ watch([
   showMarkerIcons,
   showPathArrows,
   showStatusLegend,
+  showTopologyEdgeSpeed,
+  showRuntimeSegmentType,
+  showRuntimeConflictReason,
   statusLegendLayout,
   statusLegendOpacity,
+  baseSpeed,
+  followDistance,
+  deadlockTimeoutSec,
   idleReturnTimeoutSec,
   idleChargeTimeoutSec,
   batteryActiveDrainPerSec,
@@ -15259,9 +15367,15 @@ const mapSettingsPanelBindings = {
   showMarkerIcons,
   showPathArrows,
   showMinimap,
+  showTopologyEdgeSpeed,
+  showRuntimeSegmentType,
+  showRuntimeConflictReason,
   enterpriseTopologyViewAvailable,
   topologyViewMode,
   showGuideCenterOnLoad,
+  baseSpeed,
+  followDistance,
+  deadlockTimeoutSec,
   idleReturnTimeoutSec,
   idleChargeTimeoutSec,
   batteryActiveDrainPerSec,
@@ -15377,6 +15491,7 @@ const guideCenterDialogBindings = {
   guideCenterLocale,
   shortcutGuideEntries,
   statusGuideEntries: guideCenterStatusEntries,
+  topologyGuideEntries: guideCenterTopologyEntries,
   panelLocale
 }
 
@@ -15633,9 +15748,15 @@ const enterpriseSettingsDialogBindings = {
   showPathArrows,
   showMinimap,
   showStatusLegend,
+  showTopologyEdgeSpeed,
+  showRuntimeSegmentType,
+  showRuntimeConflictReason,
   statusLegendLayout,
   enterpriseTopologyViewAvailable,
   topologyViewMode,
+  baseSpeed,
+  followDistance,
+  deadlockTimeoutSec,
   idleReturnTimeoutSec,
   idleChargeTimeoutSec,
   batteryActiveDrainPerSec,
@@ -16435,7 +16556,9 @@ onBeforeUnmount(() => {
                 :y1="edge.y1"
                 :x2="edge.x2"
                 :y2="edge.y2"
-              />
+              >
+                <title v-if="showTopologyEdgeSpeed">{{ formatTopologyEdgeDebugTitle(edge) }}</title>
+              </line>
             </svg>
             <div
               v-for="node in enterpriseRuntimeTopologyNodes"
@@ -16763,7 +16886,9 @@ onBeforeUnmount(() => {
                 :y1="edge.y1"
                 :x2="edge.x2"
                 :y2="edge.y2"
-              />
+              >
+                <title v-if="showTopologyEdgeSpeed">{{ formatTopologyEdgeDebugTitle(edge) }}</title>
+              </line>
             </svg>
             <svg class="minimap-path-layer" :width="MINIMAP_WIDTH" :height="minimapHeight">
               <polyline

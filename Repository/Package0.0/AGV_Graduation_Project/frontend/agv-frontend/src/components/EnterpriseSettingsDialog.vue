@@ -1680,6 +1680,42 @@
                 </label>
                 <p class="panel-hint">{{ t('enterprise_settings_page_settings_guide_auto_open_hint') }}</p>
                 <label class="auth-field">
+                  <span>{{ settingsLocale.baseSpeed }}</span>
+                  <input
+                    v-model.number="baseSpeed"
+                    class="auth-input"
+                    type="number"
+                    min="0.2"
+                    max="6"
+                    step="0.01"
+                  />
+                </label>
+                <p class="panel-hint">{{ settingsLocale.baseSpeedHint }}</p>
+                <label class="auth-field">
+                  <span>{{ settingsLocale.followDistance }}</span>
+                  <input
+                    v-model.number="followDistance"
+                    class="auth-input"
+                    type="number"
+                    min="0.25"
+                    max="3"
+                    step="0.05"
+                  />
+                </label>
+                <p class="panel-hint">{{ settingsLocale.followDistanceHint }}</p>
+                <label class="auth-field">
+                  <span>{{ settingsLocale.deadlockTimeoutSec }}</span>
+                  <input
+                    v-model.number="deadlockTimeoutSec"
+                    class="auth-input"
+                    type="number"
+                    min="1"
+                    max="20"
+                    step="0.5"
+                  />
+                </label>
+                <p class="panel-hint">{{ settingsLocale.deadlockTimeoutSecHint }}</p>
+                <label class="auth-field">
                   <span>{{ settingsLocale.idleReturnTimeoutSec }}</span>
                   <input
                     v-model.number="idleReturnTimeoutSec"
@@ -1763,6 +1799,20 @@
                   />
                 </label>
                 <p class="panel-hint">{{ settingsLocale.batteryChargePerSecHint }}</p>
+                <div class="enterprise-settings-subtitle">{{ settingsLocale.runtimeDebugGroup }}</div>
+                <p class="panel-hint">{{ settingsLocale.runtimeDebugGroupHint }}</p>
+                <label class="map-setting-row">
+                  <input v-model="showRuntimeSegmentType" type="checkbox" />
+                  <span>{{ settingsLocale.showRuntimeSegmentType }}</span>
+                </label>
+                <label class="map-setting-row">
+                  <input v-model="showTopologyEdgeSpeed" type="checkbox" />
+                  <span>{{ settingsLocale.showTopologyEdgeSpeed }}</span>
+                </label>
+                <label class="map-setting-row">
+                  <input v-model="showRuntimeConflictReason" type="checkbox" />
+                  <span>{{ settingsLocale.showRuntimeConflictReason }}</span>
+                </label>
                 <div class="enterprise-page-settings-shortcut-list">
                   <div
                     v-for="entry in shortcutGuideEntries"

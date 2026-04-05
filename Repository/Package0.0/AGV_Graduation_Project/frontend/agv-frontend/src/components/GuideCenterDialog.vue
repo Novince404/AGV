@@ -53,6 +53,19 @@
             {{ entry }}
           </div>
         </div>
+        <div
+          v-if="Array.isArray(topologyGuideEntries) && topologyGuideEntries.length"
+          class="guide-section"
+        >
+          <div class="guide-section-title">{{ guideCenterLocale.topologyTitle }}</div>
+          <div
+            v-for="entry in topologyGuideEntries"
+            :key="`guide-topology-${entry}`"
+            class="guide-line"
+          >
+            {{ entry }}
+          </div>
+        </div>
       </div>
     </section>
   </div>

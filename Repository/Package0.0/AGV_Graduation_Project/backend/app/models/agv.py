@@ -18,6 +18,9 @@ class AGV(TrackedModel):
     current_edge: str | None = None
     edge_progress: float = 0.0
     motion_state: str = "idle"
+    segment_mode: str = "grid"
+    current_lane_type: str | None = None
+    current_speed_multiplier: float = 1.0
     current_speed: float = 0.0
     target_speed: float = 0.0
     heading: float = 0.0
@@ -72,6 +75,9 @@ class AGV(TrackedModel):
             current_edge=None,
             edge_progress=0.0,
             motion_state=motion_state,
+            segment_mode="grid",
+            current_lane_type=None,
+            current_speed_multiplier=1.0,
             current_speed=0.0,
             target_speed=0.0,
             heading=0.0,

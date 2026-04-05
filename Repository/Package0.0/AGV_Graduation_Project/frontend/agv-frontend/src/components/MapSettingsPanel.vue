@@ -712,6 +712,51 @@
       <div class="map-settings-subtitle">{{ settingsLocale.autonomyGroup }}</div>
       <p class="panel-hint map-settings-hint">{{ settingsLocale.autonomyGroupHint }}</p>
       <div class="map-settings-select-group">
+        <label class="map-settings-select-label" for="base-speed">
+          {{ settingsLocale.baseSpeed }}
+        </label>
+        <input
+          id="base-speed"
+          v-model.number="baseSpeed"
+          class="map-settings-select"
+          type="number"
+          min="0.2"
+          max="6"
+          step="0.01"
+        />
+      </div>
+      <p class="panel-hint map-settings-hint">{{ settingsLocale.baseSpeedHint }}</p>
+      <div class="map-settings-select-group">
+        <label class="map-settings-select-label" for="follow-distance">
+          {{ settingsLocale.followDistance }}
+        </label>
+        <input
+          id="follow-distance"
+          v-model.number="followDistance"
+          class="map-settings-select"
+          type="number"
+          min="0.25"
+          max="3"
+          step="0.05"
+        />
+      </div>
+      <p class="panel-hint map-settings-hint">{{ settingsLocale.followDistanceHint }}</p>
+      <div class="map-settings-select-group">
+        <label class="map-settings-select-label" for="deadlock-timeout">
+          {{ settingsLocale.deadlockTimeoutSec }}
+        </label>
+        <input
+          id="deadlock-timeout"
+          v-model.number="deadlockTimeoutSec"
+          class="map-settings-select"
+          type="number"
+          min="1"
+          max="20"
+          step="0.5"
+        />
+      </div>
+      <p class="panel-hint map-settings-hint">{{ settingsLocale.deadlockTimeoutSecHint }}</p>
+      <div class="map-settings-select-group">
         <label class="map-settings-select-label" for="idle-return-timeout">
           {{ settingsLocale.idleReturnTimeoutSec }}
         </label>
@@ -816,6 +861,20 @@
         />
       </div>
       <p class="panel-hint map-settings-hint">{{ settingsLocale.batteryChargePerSecHint }}</p>
+      <div class="map-settings-subtitle">{{ settingsLocale.runtimeDebugGroup }}</div>
+      <p class="panel-hint map-settings-hint">{{ settingsLocale.runtimeDebugGroupHint }}</p>
+      <label class="map-setting-row">
+        <input v-model="showRuntimeSegmentType" type="checkbox" />
+        <span>{{ settingsLocale.showRuntimeSegmentType }}</span>
+      </label>
+      <label class="map-setting-row">
+        <input v-model="showTopologyEdgeSpeed" type="checkbox" />
+        <span>{{ settingsLocale.showTopologyEdgeSpeed }}</span>
+      </label>
+      <label class="map-setting-row">
+        <input v-model="showRuntimeConflictReason" type="checkbox" />
+        <span>{{ settingsLocale.showRuntimeConflictReason }}</span>
+      </label>
     </div>
     <button class="map-settings-action" type="button" @click="resetMapView">
       {{ settingsLocale.resetView }}

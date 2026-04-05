@@ -61,8 +61,14 @@ DEFAULT_UI_SETTINGS = {
     "show_marker_icons": True,
     "show_path_arrows": False,
     "show_status_legend": True,
+    "show_topology_edge_speed": False,
+    "show_runtime_segment_type": False,
+    "show_runtime_conflict_reason": False,
     "status_legend_layout": "horizontal",
     "status_legend_opacity": 0.55,
+    "base_speed": 1.11,
+    "follow_distance": 0.75,
+    "deadlock_timeout_sec": 4.5,
     "idle_return_timeout_sec": 12.0,
     "idle_charge_timeout_sec": 45.0,
     "battery_active_drain_per_sec": 0.16,
@@ -523,6 +529,9 @@ def _normalize_ui_settings(payload) -> dict:
         else dict(payload["panel_sections"])
     )
     opacity = max(0.2, min(0.9, float(payload.status_legend_opacity)))
+    base_speed = max(0.2, min(6.0, float(payload.base_speed)))
+    follow_distance = max(0.25, min(3.0, float(payload.follow_distance)))
+    deadlock_timeout_sec = max(1.0, min(20.0, float(payload.deadlock_timeout_sec)))
     idle_return_timeout_sec = max(5.0, min(600.0, float(payload.idle_return_timeout_sec)))
     idle_charge_timeout_sec = max(5.0, min(600.0, float(payload.idle_charge_timeout_sec)))
     battery_active_drain_per_sec = max(0.01, min(10.0, float(payload.battery_active_drain_per_sec)))
@@ -535,8 +544,14 @@ def _normalize_ui_settings(payload) -> dict:
         "show_marker_icons": bool(payload.show_marker_icons),
         "show_path_arrows": bool(payload.show_path_arrows),
         "show_status_legend": bool(payload.show_status_legend),
+        "show_topology_edge_speed": bool(payload.show_topology_edge_speed),
+        "show_runtime_segment_type": bool(payload.show_runtime_segment_type),
+        "show_runtime_conflict_reason": bool(payload.show_runtime_conflict_reason),
         "status_legend_layout": payload.status_legend_layout,
         "status_legend_opacity": opacity,
+        "base_speed": base_speed,
+        "follow_distance": follow_distance,
+        "deadlock_timeout_sec": deadlock_timeout_sec,
         "idle_return_timeout_sec": idle_return_timeout_sec,
         "idle_charge_timeout_sec": idle_charge_timeout_sec,
         "battery_active_drain_per_sec": battery_active_drain_per_sec,

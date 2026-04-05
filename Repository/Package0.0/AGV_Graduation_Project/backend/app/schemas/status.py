@@ -89,8 +89,14 @@ class UiSettingsUpdateRequest(BaseModel):
     show_marker_icons: bool = True
     show_path_arrows: bool = False
     show_status_legend: bool = True
+    show_topology_edge_speed: bool = False
+    show_runtime_segment_type: bool = False
+    show_runtime_conflict_reason: bool = False
     status_legend_layout: Literal["horizontal", "vertical"] = "horizontal"
     status_legend_opacity: float = 0.55
+    base_speed: float = 1.11
+    follow_distance: float = 0.75
+    deadlock_timeout_sec: float = 4.5
     idle_return_timeout_sec: float = 12.0
     idle_charge_timeout_sec: float = 45.0
     battery_active_drain_per_sec: float = 0.16

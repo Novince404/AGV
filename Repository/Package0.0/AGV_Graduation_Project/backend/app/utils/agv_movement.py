@@ -5,6 +5,7 @@ from math import atan2, degrees
 
 from app.repositories.agv_repository import get_agv_by_id, list_agvs
 from app.repositories.task_repository import get_task_by_id
+from app.repositories.ui_settings_repository import get_ui_settings as get_ui_settings_store
 from app.utils.path_planner import plan_path, resolve_topology_segment_metadata
 from app.utils.task_chain import (
     advance_task_stage,
@@ -29,6 +30,12 @@ TOPOLOGY_FOLLOW_LOOKAHEAD_CELLS = 1.65
 TOPOLOGY_FOLLOW_MIN_GAP_CELLS = 0.75
 CELL_TRAVEL_DURATION_SEC = 0.9
 DEFAULT_CELL_SPEED = 1.0
+DEFAULT_BASE_SPEED = round(DEFAULT_CELL_SPEED / CELL_TRAVEL_DURATION_SEC, 2)
+RUNTIME_MOTION_UI_SETTINGS_DEFAULTS = {
+    "base_speed": DEFAULT_BASE_SPEED,
+    "follow_distance": TOPOLOGY_FOLLOW_MIN_GAP_CELLS,
+    "deadlock_timeout_sec": TOPOLOGY_DEADLOCK_BREAK_TIMEOUT_SEC,
+}
 
 
 def now_iso():
@@ -106,6 +113,28 @@ def _segment_direction(source_x: int, source_y: int, target_x: int, target_y: in
     return dx, dy
 
 
+def _get_runtime_motion_settings() -> dict:
+    payload = get_ui_settings_store(RUNTIME_MOTION_UI_SETTINGS_DEFAULTS)
+    try:
+        base_speed = max(0.2, min(6.0, float(payload.get("base_speed", DEFAULT_BASE_SPEED))))
+    except Exception:
+        base_speed = DEFAULT_BASE_SPEED
+    try:
+        follow_distance = max(0.25, min(3.0, float(payload.get("follow_distance", TOPOLOGY_FOLLOW_MIN_GAP_CELLS))))
+    except Exception:
+        follow_distance = TOPOLOGY_FOLLOW_MIN_GAP_CELLS
+    try:
+        deadlock_timeout_sec = max(1.0, min(20.0, float(payload.get("deadlock_timeout_sec", TOPOLOGY_DEADLOCK_BREAK_TIMEOUT_SEC))))
+    except Exception:
+        deadlock_timeout_sec = TOPOLOGY_DEADLOCK_BREAK_TIMEOUT_SEC
+    return {
+        "base_speed": base_speed,
+        "follow_distance": follow_distance,
+        "follow_lookahead_cells": max(1.65, follow_distance * 2.0, follow_distance + 0.9),
+        "deadlock_timeout_sec": deadlock_timeout_sec,
+    }
+
+
 def _point_coordinates(point) -> tuple[int, int]:
     return int(point["x"]), int(point["y"])
 
@@ -179,7 +208,14 @@ def _special_topology_node_has_spare_capacity(x: int, y: int, *, exclude_agv_id:
     return None
 
 
-def _detect_same_corridor_follow_conflict(agv_id: int, source_x: int, source_y: int, point: dict):
+def _detect_same_corridor_follow_conflict(
+    agv_id: int,
+    source_x: int,
+    source_y: int,
+    point: dict,
+    *,
+    motion_settings: dict | None = None,
+):
     target_x, target_y = _point_coordinates(point)
     segment = resolve_topology_segment_metadata(
         source_x,
@@ -200,7 +236,10 @@ def _detect_same_corridor_follow_conflict(agv_id: int, source_x: int, source_y: 
     axis_sign = direction_x if horizontal else direction_y
     source_axis = float(source_x if horizontal else source_y)
     target_axis = float(target_x if horizontal else target_y)
-    candidate_front_axis = target_axis + TOPOLOGY_FOLLOW_MIN_GAP_CELLS * axis_sign
+    settings = motion_settings or _get_runtime_motion_settings()
+    follow_distance = float(settings.get("follow_distance", TOPOLOGY_FOLLOW_MIN_GAP_CELLS))
+    follow_lookahead = float(settings.get("follow_lookahead_cells", TOPOLOGY_FOLLOW_LOOKAHEAD_CELLS))
+    candidate_front_axis = target_axis + follow_distance * axis_sign
 
     for other in list_agvs():
         if int(other.id) == int(agv_id) or getattr(other, "status", None) == "maintenance":
@@ -225,7 +264,7 @@ def _detect_same_corridor_follow_conflict(agv_id: int, source_x: int, source_y: 
         relative_axis = (other_axis - source_axis) * axis_sign
         if relative_axis < 0:
             continue
-        if relative_axis > TOPOLOGY_FOLLOW_LOOKAHEAD_CELLS:
+        if relative_axis > follow_lookahead:
             continue
 
         blocker_front_relative = (candidate_front_axis - source_axis) * axis_sign
@@ -579,7 +618,7 @@ def _build_topology_segment_conflict(source_x: int, source_y: int, point: dict, 
     }
 
 
-def _begin_motion_segment(agv, point: dict, active_status: str):
+def _begin_motion_segment(agv, point: dict, active_status: str, *, motion_settings: dict | None = None):
     source_x = int(agv.x)
     source_y = int(agv.y)
     target_x, target_y = _point_coordinates(point)
@@ -594,9 +633,15 @@ def _begin_motion_segment(agv, point: dict, active_status: str):
     edge_key = str(segment.get("edge_key") or f"{start_node}->{_build_grid_node_key(target_x, target_y)}")
     target_node = str(segment.get("target_node") or _build_grid_node_key(target_x, target_y))
     started_at = now_iso_ms()
-    speed_multiplier = max(float(point.get("topology_speed_multiplier") or segment.get("speed_multiplier") or 1.0), 0.1)
-    travel_duration_sec = CELL_TRAVEL_DURATION_SEC / speed_multiplier
-    target_speed = DEFAULT_CELL_SPEED / max(travel_duration_sec, 0.1)
+    segment_mode = "topology" if not edge_key.startswith("grid:") and str(segment.get("lane_type") or "grid") != "grid" else "grid"
+    lane_type = str(segment.get("lane_type") or "grid")
+    topology_speed_multiplier = max(float(point.get("topology_speed_multiplier") or segment.get("speed_multiplier") or 1.0), 0.1)
+    speed_multiplier = topology_speed_multiplier if segment_mode == "topology" else 1.0
+    settings = motion_settings or _get_runtime_motion_settings()
+    base_speed = float(settings.get("base_speed", DEFAULT_BASE_SPEED))
+    segment_distance = max(abs(target_x - source_x), abs(target_y - source_y), 1)
+    target_speed = max(base_speed * speed_multiplier, 0.05)
+    travel_duration_sec = segment_distance / target_speed
     heading = _segment_heading(source_x, source_y, target_x, target_y)
 
     agv.apply_motion_fields(
@@ -609,6 +654,9 @@ def _begin_motion_segment(agv, point: dict, active_status: str):
         current_edge=edge_key,
         edge_progress=0.0,
         motion_state=active_status,
+        segment_mode=segment_mode,
+        current_lane_type=lane_type if segment_mode == "topology" else None,
+        current_speed_multiplier=speed_multiplier,
         current_speed=target_speed,
         target_speed=target_speed,
         heading=heading,
@@ -679,13 +727,25 @@ def move_to_point_with_collision_guard(agv, task, point, algorithm: str, active_
         topology_conflict = None
         blocking_agv = None
         with movement_lock:
+            runtime_motion_settings = _get_runtime_motion_settings()
             topology_conflict = _detect_topology_edge_conflict(agv.id, source_x, source_y, point)
             if topology_conflict is None:
-                topology_conflict = _detect_same_corridor_follow_conflict(agv.id, source_x, source_y, point)
+                topology_conflict = _detect_same_corridor_follow_conflict(
+                    agv.id,
+                    source_x,
+                    source_y,
+                    point,
+                    motion_settings=runtime_motion_settings,
+                )
             if topology_conflict is None:
                 blocking_agv = _find_blocking_agv_at_position(agv.id, target_x, target_y)
             if topology_conflict is None and blocking_agv is None:
-                target_node, target_speed, travel_duration_sec = _begin_motion_segment(agv, point, active_status)
+                target_node, target_speed, travel_duration_sec = _begin_motion_segment(
+                    agv,
+                    point,
+                    active_status,
+                    motion_settings=runtime_motion_settings,
+                )
                 moved = True
 
         if moved:
@@ -712,7 +772,7 @@ def move_to_point_with_collision_guard(agv, task, point, algorithm: str, active_
                 task.dispatch_reason = _build_topology_retry_reason(topology_conflict)
                 agv.clear_motion(motion_state=active_status)
                 return "retry"
-            if waited_sec >= TOPOLOGY_DEADLOCK_BREAK_TIMEOUT_SEC:
+            if waited_sec >= float(runtime_motion_settings.get("deadlock_timeout_sec", TOPOLOGY_DEADLOCK_BREAK_TIMEOUT_SEC)):
                 task.dispatch_reason = _build_topology_retry_reason(topology_conflict)
                 agv.clear_motion(motion_state=active_status)
                 return "retry"
@@ -749,7 +809,7 @@ def move_to_point_with_collision_guard(agv, task, point, algorithm: str, active_
                     task.dispatch_reason = _build_topology_retry_reason(topology_cell_conflict)
                     agv.clear_motion(motion_state=active_status)
                     return "retry"
-                if waited_sec >= TOPOLOGY_DEADLOCK_BREAK_TIMEOUT_SEC:
+                if waited_sec >= float(runtime_motion_settings.get("deadlock_timeout_sec", TOPOLOGY_DEADLOCK_BREAK_TIMEOUT_SEC)):
                     task.dispatch_reason = _build_topology_retry_reason(topology_cell_conflict)
                     agv.clear_motion(motion_state=active_status)
                     return "retry"
@@ -1061,6 +1121,7 @@ def move_agv_to_autonomy_target(
                     travel_duration_sec = CELL_TRAVEL_DURATION_SEC
 
                     with movement_lock:
+                        runtime_motion_settings = _get_runtime_motion_settings()
                         allow_direct_charge_entry = _can_directly_enter_special_target(
                             agv.id,
                             next_x,
@@ -1072,11 +1133,22 @@ def move_agv_to_autonomy_target(
                         if not allow_direct_charge_entry:
                             topology_conflict = _detect_topology_edge_conflict(agv.id, source_x, source_y, point)
                             if topology_conflict is None:
-                                topology_conflict = _detect_same_corridor_follow_conflict(agv.id, source_x, source_y, point)
+                                topology_conflict = _detect_same_corridor_follow_conflict(
+                                    agv.id,
+                                    source_x,
+                                    source_y,
+                                    point,
+                                    motion_settings=runtime_motion_settings,
+                                )
                             if topology_conflict is None:
                                 blocking_agv = _find_blocking_agv_at_position(agv.id, next_x, next_y)
                         if topology_conflict is None and blocking_agv is None:
-                            target_node, target_speed, travel_duration_sec = _begin_motion_segment(agv, point, active_status)
+                            target_node, target_speed, travel_duration_sec = _begin_motion_segment(
+                                agv,
+                                point,
+                                active_status,
+                                motion_settings=runtime_motion_settings,
+                            )
                             moved = True
 
                     waited_sec = max(time.monotonic() - wait_started_at, 0.0)
@@ -1104,7 +1176,7 @@ def move_agv_to_autonomy_target(
                             )
                             should_replan = True
                             break
-                        if waited_sec >= TOPOLOGY_DEADLOCK_BREAK_TIMEOUT_SEC:
+                        if waited_sec >= float(runtime_motion_settings.get("deadlock_timeout_sec", TOPOLOGY_DEADLOCK_BREAK_TIMEOUT_SEC)):
                             should_replan = True
                             break
                         if waited_sec >= MOVE_WAIT_TIMEOUT_SEC:
@@ -1134,7 +1206,7 @@ def move_agv_to_autonomy_target(
                                 )
                                 should_replan = True
                                 break
-                            if waited_sec >= TOPOLOGY_DEADLOCK_BREAK_TIMEOUT_SEC:
+                            if waited_sec >= float(runtime_motion_settings.get("deadlock_timeout_sec", TOPOLOGY_DEADLOCK_BREAK_TIMEOUT_SEC)):
                                 should_replan = True
                                 break
                             if waited_sec >= MOVE_WAIT_TIMEOUT_SEC:

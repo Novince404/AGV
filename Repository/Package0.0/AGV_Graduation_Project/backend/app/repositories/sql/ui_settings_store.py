@@ -21,6 +21,18 @@ def _ensure_schema() -> None:
         return
     columns = {column["name"] for column in inspector.get_columns("ui_settings")}
     ddl_statements: list[str] = []
+    if "show_topology_edge_speed" not in columns:
+        ddl_statements.append("ALTER TABLE ui_settings ADD COLUMN show_topology_edge_speed BOOLEAN NOT NULL DEFAULT 0")
+    if "show_runtime_segment_type" not in columns:
+        ddl_statements.append("ALTER TABLE ui_settings ADD COLUMN show_runtime_segment_type BOOLEAN NOT NULL DEFAULT 0")
+    if "show_runtime_conflict_reason" not in columns:
+        ddl_statements.append("ALTER TABLE ui_settings ADD COLUMN show_runtime_conflict_reason BOOLEAN NOT NULL DEFAULT 0")
+    if "base_speed" not in columns:
+        ddl_statements.append("ALTER TABLE ui_settings ADD COLUMN base_speed FLOAT NOT NULL DEFAULT 1.11")
+    if "follow_distance" not in columns:
+        ddl_statements.append("ALTER TABLE ui_settings ADD COLUMN follow_distance FLOAT NOT NULL DEFAULT 0.75")
+    if "deadlock_timeout_sec" not in columns:
+        ddl_statements.append("ALTER TABLE ui_settings ADD COLUMN deadlock_timeout_sec FLOAT NOT NULL DEFAULT 4.5")
     if "idle_return_timeout_sec" not in columns:
         ddl_statements.append("ALTER TABLE ui_settings ADD COLUMN idle_return_timeout_sec FLOAT NOT NULL DEFAULT 12")
     if "idle_charge_timeout_sec" not in columns:
@@ -47,8 +59,14 @@ def _entity_to_payload(entity: UiSettingsEntity) -> dict:
         "show_marker_icons": bool(entity.show_marker_icons),
         "show_path_arrows": bool(entity.show_path_arrows),
         "show_status_legend": bool(entity.show_status_legend),
+        "show_topology_edge_speed": bool(entity.show_topology_edge_speed),
+        "show_runtime_segment_type": bool(entity.show_runtime_segment_type),
+        "show_runtime_conflict_reason": bool(entity.show_runtime_conflict_reason),
         "status_legend_layout": entity.status_legend_layout,
         "status_legend_opacity": float(entity.status_legend_opacity),
+        "base_speed": float(entity.base_speed),
+        "follow_distance": float(entity.follow_distance),
+        "deadlock_timeout_sec": float(entity.deadlock_timeout_sec),
         "idle_return_timeout_sec": float(entity.idle_return_timeout_sec),
         "idle_charge_timeout_sec": float(entity.idle_charge_timeout_sec),
         "battery_active_drain_per_sec": float(entity.battery_active_drain_per_sec),
@@ -66,8 +84,14 @@ def _apply_payload(entity: UiSettingsEntity, payload: dict) -> UiSettingsEntity:
     entity.show_marker_icons = bool(payload["show_marker_icons"])
     entity.show_path_arrows = bool(payload["show_path_arrows"])
     entity.show_status_legend = bool(payload["show_status_legend"])
+    entity.show_topology_edge_speed = bool(payload.get("show_topology_edge_speed", False))
+    entity.show_runtime_segment_type = bool(payload.get("show_runtime_segment_type", False))
+    entity.show_runtime_conflict_reason = bool(payload.get("show_runtime_conflict_reason", False))
     entity.status_legend_layout = str(payload["status_legend_layout"])
     entity.status_legend_opacity = float(payload["status_legend_opacity"])
+    entity.base_speed = float(payload.get("base_speed", 1.11))
+    entity.follow_distance = float(payload.get("follow_distance", 0.75))
+    entity.deadlock_timeout_sec = float(payload.get("deadlock_timeout_sec", 4.5))
     entity.idle_return_timeout_sec = float(payload.get("idle_return_timeout_sec", 12.0))
     entity.idle_charge_timeout_sec = float(payload.get("idle_charge_timeout_sec", 45.0))
     entity.battery_active_drain_per_sec = float(payload.get("battery_active_drain_per_sec", 0.16))
