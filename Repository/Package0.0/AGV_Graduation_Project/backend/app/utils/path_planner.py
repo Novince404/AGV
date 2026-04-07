@@ -396,15 +396,21 @@ def resolve_topology_segment_metadata(
 
             step_dx = int(target_segment_x) - int(source_segment_x)
             step_dy = int(target_segment_y) - int(source_segment_y)
-            if abs(step_dx) + abs(step_dy) != 1:
+            if step_dx == 0 and step_dy == 0:
                 continue
 
             corridor_dx = 0 if sx_node == tx_node else (1 if tx_node > sx_node else -1)
             corridor_dy = 0 if sy_node == ty_node else (1 if ty_node > sy_node else -1)
-            direction = str(raw_edge.get("direction") or "bidirectional")
-            if direction == "forward" and (step_dx, step_dy) != (corridor_dx, corridor_dy):
+            if corridor_dx != 0 and step_dy != 0:
                 continue
-            if direction == "reverse" and (step_dx, step_dy) != (-corridor_dx, -corridor_dy):
+            if corridor_dy != 0 and step_dx != 0:
+                continue
+            normalized_step_dx = 0 if step_dx == 0 else (1 if step_dx > 0 else -1)
+            normalized_step_dy = 0 if step_dy == 0 else (1 if step_dy > 0 else -1)
+            direction = str(raw_edge.get("direction") or "bidirectional")
+            if direction == "forward" and (normalized_step_dx, normalized_step_dy) != (corridor_dx, corridor_dy):
+                continue
+            if direction == "reverse" and (normalized_step_dx, normalized_step_dy) != (-corridor_dx, -corridor_dy):
                 continue
 
             if edge_key and str(raw_edge.get("key") or "") != str(edge_key):
