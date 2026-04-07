@@ -535,6 +535,103 @@ def _find_topology_edge_position_candidates(
     return candidates
 
 
+def _find_reachable_topology_edge_candidates(
+    x: int,
+    y: int,
+    *,
+    topology_payload: dict,
+    node_by_key: dict[str, dict],
+    algorithm: str,
+    grid_cols: int,
+    grid_rows: int,
+    blocked: set[tuple[int, int]],
+) -> list[dict]:
+    point_x = int(x)
+    point_y = int(y)
+    candidates: list[dict] = []
+
+    for edge in topology_payload.get("edges", []) or []:
+        if not isinstance(edge, dict):
+            continue
+
+        source_key = str(edge.get("source") or "").strip()
+        target_key = str(edge.get("target") or "").strip()
+        source_node = node_by_key.get(source_key)
+        target_node = node_by_key.get(target_key)
+        if source_node is None or target_node is None:
+            continue
+
+        sx = int(source_node["x"])
+        sy = int(source_node["y"])
+        tx = int(target_node["x"])
+        ty = int(target_node["y"])
+        edge_key = str(edge.get("key") or f"{source_key}->{target_key}")
+
+        best_path: list[dict] = []
+        best_point: tuple[int, int] | None = None
+        best_distance: int | None = None
+
+        if sy == ty:
+            interior_points = ((candidate_x, sy) for candidate_x in range(min(sx, tx) + 1, max(sx, tx)))
+        elif sx == tx:
+            interior_points = ((sx, candidate_y) for candidate_y in range(min(sy, ty) + 1, max(sy, ty)))
+        else:
+            interior_points = ()
+
+        for candidate_x, candidate_y in interior_points:
+            if (candidate_x, candidate_y) == (point_x, point_y):
+                continue
+            path = _plan_grid_path(
+                algorithm,
+                point_x,
+                point_y,
+                candidate_x,
+                candidate_y,
+                grid_cols,
+                grid_rows,
+                blocked,
+            )
+            if not path:
+                continue
+            distance = _path_step_cost(path)
+            if best_distance is None or distance < best_distance:
+                best_distance = distance
+                best_path = path
+                best_point = (candidate_x, candidate_y)
+
+        if best_point is None or best_distance is None or best_distance <= 0:
+            continue
+
+        source_distance = _manhattan_distance(best_point[0], best_point[1], sx, sy)
+        target_distance = _manhattan_distance(best_point[0], best_point[1], tx, ty)
+        total_length = max(source_distance + target_distance, 1)
+        candidates.append(
+            {
+                "kind": "edge",
+                "node": {
+                    "x": int(best_point[0]),
+                    "y": int(best_point[1]),
+                    "label": edge_key,
+                },
+                "path": best_path,
+                "distance": best_distance,
+                "exact": False,
+                "edge_key": edge_key,
+                "direction": str(edge.get("direction") or "bidirectional"),
+                "lane_type": str(edge.get("lane_type") or "main"),
+                "speed_multiplier": float(edge.get("speed_multiplier") or 1.0),
+                "source_key": source_key,
+                "target_key": target_key,
+                "source_distance": float(source_distance),
+                "target_distance": float(target_distance),
+                "offset_from_source": float(source_distance),
+                "total_length": float(total_length),
+            }
+        )
+
+    return candidates
+
+
 def _build_augmented_topology_graph(
     node_by_key: dict[str, dict],
     outgoing: dict[str, list[dict]],
@@ -652,10 +749,30 @@ def _find_topology_node_candidates(
         topology_payload=topology_payload,
         node_by_key=node_by_key,
     )
+    reachable_edge_candidates = _find_reachable_topology_edge_candidates(
+        int(x),
+        int(y),
+        topology_payload=topology_payload,
+        node_by_key=node_by_key,
+        algorithm=algorithm,
+        grid_cols=grid_cols,
+        grid_rows=grid_rows,
+        blocked=blocked,
+    )
 
     candidates: list[tuple[int, int, int, str, dict]] = []
     for candidate in exact_edge_candidates:
         candidates.append((0, 0, 0, str(candidate["edge_key"]), candidate))
+    for candidate in reachable_edge_candidates:
+        candidates.append(
+            (
+                int(candidate["distance"]),
+                _manhattan_distance(int(x), int(y), int(candidate["node"]["x"]), int(candidate["node"]["y"])),
+                1,
+                f"{candidate['edge_key']}:{int(candidate['node']['x'])}:{int(candidate['node']['y'])}",
+                candidate,
+            )
+        )
 
     for node in node_by_key.values():
         path = _plan_grid_path(
@@ -676,7 +793,7 @@ def _find_topology_node_candidates(
             (
                 distance,
                 manhattan,
-                1,
+                2,
                 str(node["key"]),
                 {
                     "kind": "node",
