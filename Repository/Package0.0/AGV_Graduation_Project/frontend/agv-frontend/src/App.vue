@@ -3886,6 +3886,64 @@ function formatEnterpriseRuntimeSpeedText(agv) {
     : `速度 ${currentSpeed.toFixed(2)} 格/秒`
 }
 
+function formatEnterpriseRuntimeModeChip(agv) {
+  const segmentMode = String(agv?.segmentMode || 'grid').trim().toLowerCase()
+  if (segmentMode !== 'topology') {
+    if (locale.value === 'ja') return '基础段'
+    if (locale.value === 'en') return 'Base Segment'
+    return '基础段'
+  }
+  const laneType = String(agv?.currentLaneType || 'main').trim().toLowerCase()
+  const laneLabel = t(`enterprise_settings_route_topology_lane_type_${laneType}`)
+  if (locale.value === 'ja') return `主幹道 · ${laneLabel}`
+  if (locale.value === 'en') return `Trunk · ${laneLabel}`
+  return `主干道 · ${laneLabel}`
+}
+
+function buildEnterpriseRuntimeDebugItems(agv) {
+  if (!uiTreatAsEnterpriseRole.value || agv?.source !== 'backend') return []
+  const items = []
+  items.push({
+    key: 'segment',
+    text: formatEnterpriseRuntimeModeChip(agv),
+    tone: String(agv?.segmentMode || 'grid').trim().toLowerCase() === 'topology' ? 'topology' : 'base'
+  })
+
+  const speedText = formatEnterpriseRuntimeSpeedText(agv)
+  if (speedText) {
+    items.push({
+      key: 'speed',
+      text: speedText,
+      tone: 'speed'
+    })
+  }
+
+  const edgeKey = String(agv?.current_edge || '').trim()
+  if (edgeKey) {
+    items.push({
+      key: 'edge',
+      text:
+        locale.value === 'ja'
+          ? `辺 ${edgeKey}`
+          : locale.value === 'en'
+            ? `Edge ${edgeKey}`
+            : `路段 ${edgeKey}`,
+      tone: 'edge'
+    })
+  }
+
+  const reasonText = resolveAgvRuntimeConflictReason(agv)
+  if (reasonText) {
+    items.push({
+      key: 'reason',
+      text: reasonText,
+      tone: 'reason'
+    })
+  }
+
+  return items
+}
+
 function resolveAgvRuntimeConflictReason(agv) {
   const agvId = Number(agv?.id)
   if (!Number.isFinite(agvId)) return ''
@@ -4943,9 +5001,18 @@ const toolbarSelectedAgvText = computed(() => {
     return 'No AGV'
   }
   const batteryText = formatAgvBatteryText(selectedAgv.value)
-  return batteryText
+  const runtimeModeText =
+    uiTreatAsEnterpriseRole.value && selectedAgv.value?.source === 'backend'
+      ? formatEnterpriseRuntimeModeChip(selectedAgv.value)
+      : ''
+  const summaryPrefix = batteryText
     ? `#${selectedAgv.value.id} ${compactStatusText(selectedAgv.value.status)} · ${Math.round(Number(selectedAgv.value.battery_level))}%`
     : `#${selectedAgv.value.id} ${compactStatusText(selectedAgv.value.status)}`
+  return runtimeModeText ? `${summaryPrefix} · ${runtimeModeText}` : summaryPrefix
+})
+const selectedEnterpriseRuntimeDebugItems = computed(() => {
+  if (!selectedAgv.value) return []
+  return buildEnterpriseRuntimeDebugItems(selectedAgv.value)
 })
 const toolbarSelectedAgvTitle = computed(() => {
   if (!selectedAgv.value) return selectedAgvSummaryText.value
@@ -16307,6 +16374,16 @@ onBeforeUnmount(() => {
             <span>{{ t('account_governance_entry') }}</span>
           </button>
         </div>
+        <div v-if="selectedEnterpriseRuntimeDebugItems.length" class="toolbar-runtime-strip">
+          <span
+            v-for="item in selectedEnterpriseRuntimeDebugItems"
+            :key="`runtime-debug-${item.key}`"
+            class="toolbar-runtime-chip"
+            :class="`tone-${item.tone}`"
+          >
+            {{ item.text }}
+          </span>
+        </div>
         <p class="toolbar-hint">{{ runtimeHintText }}</p>
         <p v-if="toolbarGuideHintText" class="toolbar-hint toolbar-hint-secondary">{{ toolbarGuideHintText }}</p>
       </div>
@@ -16780,6 +16857,10 @@ onBeforeUnmount(() => {
               :class="{
                 selected: agv.id === selectedAgvId,
                 'is-enterprise-motion': uiTreatAsEnterpriseRole && agv.source === 'backend',
+                'is-topology-segment': uiTreatAsEnterpriseRole && agv.source === 'backend' && agv.segmentMode === 'topology',
+                'lane-main': uiTreatAsEnterpriseRole && agv.source === 'backend' && agv.segmentMode === 'topology' && agv.currentLaneType === 'main',
+                'lane-branch': uiTreatAsEnterpriseRole && agv.source === 'backend' && agv.segmentMode === 'topology' && agv.currentLaneType === 'branch',
+                'lane-service': uiTreatAsEnterpriseRole && agv.source === 'backend' && agv.segmentMode === 'topology' && agv.currentLaneType === 'service',
                 'is-waiting': uiTreatAsEnterpriseRole && agv.source === 'backend' && agv.motionState === 'waiting',
                 'is-yielding': uiTreatAsEnterpriseRole && agv.source === 'backend' && agv.motionState === 'yielding',
                 'is-returning': uiTreatAsEnterpriseRole && agv.source === 'backend' && agv.motionState === 'idle_returning',
@@ -16960,6 +17041,10 @@ onBeforeUnmount(() => {
               :key="`mini-${agv.id}`"
               class="minimap-agv"
               :class="{
+                'is-topology-segment': uiTreatAsEnterpriseRole && agv.source === 'backend' && agv.segmentMode === 'topology',
+                'lane-main': uiTreatAsEnterpriseRole && agv.source === 'backend' && agv.segmentMode === 'topology' && agv.currentLaneType === 'main',
+                'lane-branch': uiTreatAsEnterpriseRole && agv.source === 'backend' && agv.segmentMode === 'topology' && agv.currentLaneType === 'branch',
+                'lane-service': uiTreatAsEnterpriseRole && agv.source === 'backend' && agv.segmentMode === 'topology' && agv.currentLaneType === 'service',
                 'is-waiting': uiTreatAsEnterpriseRole && agv.source === 'backend' && agv.motionState === 'waiting',
                 'is-yielding': uiTreatAsEnterpriseRole && agv.source === 'backend' && agv.motionState === 'yielding',
                 'is-returning': uiTreatAsEnterpriseRole && agv.source === 'backend' && agv.motionState === 'idle_returning',
