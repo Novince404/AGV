@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from sqlalchemy import inspect, select, text
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import selectinload
 
 from app.core.data_scope import get_current_scope_key
@@ -24,6 +25,15 @@ def _current_scope() -> str:
     return get_current_scope_key()
 
 
+def _is_duplicate_column_error(error: Exception) -> bool:
+    original = getattr(error, "orig", None)
+    args = getattr(original, "args", ()) if original is not None else ()
+    if args and args[0] == 1060:
+        return True
+    message = str(original or error or "")
+    return "Duplicate column name" in message
+
+
 def _ensure_schema() -> None:
     create_all_tables()
     engine = get_engine()
@@ -41,7 +51,12 @@ def _ensure_schema() -> None:
     if ddl_statements:
         with engine.begin() as connection:
             for statement in ddl_statements:
-                connection.execute(text(statement))
+                try:
+                    connection.execute(text(statement))
+                except OperationalError as exc:
+                    if _is_duplicate_column_error(exc):
+                        continue
+                    raise
 
 
 def _query_layout(scope_key: str):
