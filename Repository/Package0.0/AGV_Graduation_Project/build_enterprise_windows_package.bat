@@ -31,10 +31,13 @@ if exist "%ROOT_PACKAGE_DIR%" rmdir /s /q "%ROOT_PACKAGE_DIR%"
 if not exist "%ROOT_PACKAGE_DIR%" mkdir "%ROOT_PACKAGE_DIR%"
 xcopy "%PYI_PACKAGE_DIR%\*" "%ROOT_PACKAGE_DIR%\" /E /I /Y >nul
 if not exist "%ROOT_PACKAGE_DIR%\data" mkdir "%ROOT_PACKAGE_DIR%\data"
-if exist "%~dp0data\agv_enterprise_client.db" (
-  copy /Y "%~dp0data\agv_enterprise_client.db" "%ROOT_PACKAGE_DIR%\data\agv_enterprise_client.db" >nul
-) else if exist "%~dp0data\agv_dispatch.db" (
-  copy /Y "%~dp0data\agv_dispatch.db" "%ROOT_PACKAGE_DIR%\data\agv_enterprise_client.db" >nul
+if exist "%~dp0data\agv_dispatch.db" (
+  copy /Y "%~dp0data\agv_dispatch.db" "%ROOT_PACKAGE_DIR%\data\agv_dispatch.db" >nul
+) else if exist "%~dp0data\agv_enterprise_client.db" (
+  copy /Y "%~dp0data\agv_enterprise_client.db" "%ROOT_PACKAGE_DIR%\data\agv_dispatch.db" >nul
+)
+if exist "%~dp0backend\.env" (
+  copy /Y "%~dp0backend\.env" "%ROOT_PACKAGE_DIR%\.env" >nul
 )
 if not exist "%ROOT_PACKAGE_DIR%\docs" mkdir "%ROOT_PACKAGE_DIR%\docs"
 if exist "%ENTERPRISE_DOCS_DIR%\*" xcopy "%ENTERPRISE_DOCS_DIR%\*" "%ROOT_PACKAGE_DIR%\docs\" /E /I /Y >nul

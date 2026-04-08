@@ -5,14 +5,17 @@ set "AGV_HOST=127.0.0.1"
 set "AGV_PORT=8010"
 set "APP_URL=http://%AGV_HOST%:%AGV_PORT%/"
 set "CHROME_EXE=C:\Program Files\Google\Chrome\Application\chrome.exe"
-set "SQLITE_DB=sqlite:///../data/agv_enterprise_client.db"
+set "SQLITE_DB=sqlite:///../data/agv_dispatch.db"
 
 call "%~dp0build_frontend_dist_enterprise.bat"
 if errorlevel 1 exit /b 1
 
 if not exist "%~dp0data" mkdir "%~dp0data"
-
-start "AGV Enterprise Client Backend" cmd /k "cd /d %~dp0backend && call .\venv\Scripts\activate && set AGV_DATA_BACKEND=sqlite && set AGV_DATABASE_URL=%SQLITE_DB% && set AGV_DATABASE_AUTO_CREATE=true && set AGV_SERVE_FRONTEND_DIST=true && set AGV_FRONTEND_DIST_DIR=%~dp0frontend\agv-frontend\dist-enterprise && set AGV_APP_TITLE=AGV 企业独立客户端后端 && set AGV_ROOT_MESSAGE=AGV 企业独立客户端后端已启动 && set AGV_HOST=%AGV_HOST% && set AGV_PORT=%AGV_PORT% && python -m uvicorn main:app --host %AGV_HOST% --port %AGV_PORT%"
+if exist "%~dp0backend\.env" (
+  start "AGV Enterprise Client Backend" cmd /k "cd /d %~dp0backend && call .\venv\Scripts\activate && set AGV_SERVE_FRONTEND_DIST=true && set AGV_FRONTEND_DIST_DIR=%~dp0frontend\agv-frontend\dist-enterprise && set AGV_APP_TITLE=AGV 企业独立客户端后端 && set AGV_ROOT_MESSAGE=AGV 企业独立客户端后端已启动 && set AGV_HOST=%AGV_HOST% && set AGV_PORT=%AGV_PORT% && python -m uvicorn main:app --host %AGV_HOST% --port %AGV_PORT%"
+) else (
+  start "AGV Enterprise Client Backend" cmd /k "cd /d %~dp0backend && call .\venv\Scripts\activate && set AGV_DATA_BACKEND=sqlite && set AGV_DATABASE_URL=%SQLITE_DB% && set AGV_DATABASE_AUTO_CREATE=true && set AGV_SERVE_FRONTEND_DIST=true && set AGV_FRONTEND_DIST_DIR=%~dp0frontend\agv-frontend\dist-enterprise && set AGV_APP_TITLE=AGV 企业独立客户端后端 && set AGV_ROOT_MESSAGE=AGV 企业独立客户端后端已启动 && set AGV_HOST=%AGV_HOST% && set AGV_PORT=%AGV_PORT% && python -m uvicorn main:app --host %AGV_HOST% --port %AGV_PORT%"
+)
 
 start "AGV Enterprise Client Browser" powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command "Start-Sleep -Seconds 4; if (Test-Path '%CHROME_EXE%') { Start-Process '%CHROME_EXE%' '%APP_URL%' } elseif (Get-Command chrome -ErrorAction SilentlyContinue) { Start-Process 'chrome' '%APP_URL%' } else { Start-Process '%APP_URL%' }"
 
