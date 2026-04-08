@@ -29,7 +29,8 @@ export function useUiSettingsBackend(options) {
     batteryParkingIdleDrainPerSec,
     batteryChargePerSec,
     compareDisplayMode,
-    clampValue
+    clampValue,
+    buildAuthHeaders
   } = options
 
   const backendMode = ref('memory')
@@ -170,7 +171,9 @@ export function useUiSettingsBackend(options) {
 
   async function fetchUiSettings() {
     try {
-      const response = await fetch(`${API_BASE}/status/ui-settings`)
+      const response = await fetch(`${API_BASE}/status/ui-settings`, {
+        headers: buildAuthHeaders ? buildAuthHeaders() : undefined
+      })
       const data = await readJsonResponse(response)
       if (!response.ok) {
         throw new Error(data?.detail?.error_code || `UI settings request failed: ${response.status}`)
@@ -192,7 +195,8 @@ export function useUiSettingsBackend(options) {
       const response = await fetch(`${API_BASE}/status/ui-settings`, {
         method: 'PUT',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          ...(buildAuthHeaders ? buildAuthHeaders() : {})
         },
         body: JSON.stringify(buildUiSettingsPayload())
       })

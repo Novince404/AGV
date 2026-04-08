@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from app.core.data_scope import get_current_scope_key
 from app.models.point_library import PointLibraryItem
 
 
-point_library: list[PointLibraryItem] = [
+DEFAULT_POINT_LIBRARY: list[PointLibraryItem] = [
     PointLibraryItem(
         id="inbound_a",
         x=0,
@@ -97,26 +98,46 @@ point_library: list[PointLibraryItem] = [
 ]
 
 
+point_library_by_scope: dict[str, list[PointLibraryItem]] = {}
+
+
+def _current_scope() -> str:
+    return get_current_scope_key()
+
+
+def _clone_point(point: PointLibraryItem) -> PointLibraryItem:
+    return PointLibraryItem(**point.model_dump())
+
+
+def _scope_cache() -> list[PointLibraryItem]:
+    scope_key = _current_scope()
+    if scope_key not in point_library_by_scope:
+        point_library_by_scope[scope_key] = [_clone_point(point) for point in DEFAULT_POINT_LIBRARY]
+    return point_library_by_scope[scope_key]
+
+
 def list_points() -> list[PointLibraryItem]:
-    return point_library
+    return _scope_cache()
 
 
 def get_point_by_id(point_id: str) -> PointLibraryItem | None:
-    return next((point for point in point_library if point.id == point_id), None)
+    return next((point for point in _scope_cache() if point.id == point_id), None)
 
 
 def upsert_point(point: PointLibraryItem) -> PointLibraryItem:
     existing = get_point_by_id(point.id)
+    bound = _clone_point(point)
+    cache = _scope_cache()
     if existing is None:
-        point_library.append(point)
-        return point
+        cache.append(bound)
+        return bound
 
-    index = point_library.index(existing)
-    point_library[index] = point
-    return point
+    index = cache.index(existing)
+    cache[index] = bound
+    return bound
 
 
 def remove_point(point_id: str) -> None:
     existing = get_point_by_id(point_id)
     if existing is not None:
-        point_library.remove(existing)
+        _scope_cache().remove(existing)

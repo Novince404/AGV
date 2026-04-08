@@ -2,6 +2,7 @@ from fastapi import APIRouter, Query, Request
 
 from app.schemas.auth import (
     AuthLoginRequest,
+    EnterpriseMemberCreateRequest,
     EnterpriseApplicationReviewRequest,
     EnterpriseRegisterRequest,
     PersonalRegisterRequest,
@@ -91,6 +92,22 @@ def export_users(
     search: str | None = Query(default=None),
 ):
     return auth_service.export_user_feed(request, role=role, status=status, search=search)
+
+
+@router.get("/enterprise-members")
+def list_enterprise_members(request: Request):
+    return auth_service.list_enterprise_members(request)
+
+
+@router.post("/enterprise-members")
+def create_enterprise_member(request: Request, req: EnterpriseMemberCreateRequest):
+    return auth_service.create_enterprise_member(
+        request,
+        username=req.username,
+        password=req.password,
+        display_name=req.display_name,
+        role=req.role,
+    )
 
 
 @router.post("/users/{user_id}/suspend")

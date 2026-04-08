@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 from datetime import datetime
 
+from app.core.data_scope import get_current_scope_key
 from app.models.task import Task
 
 
@@ -30,27 +33,53 @@ task_list = [
     ),
 ]
 
+_task_lists_by_scope: dict[str, list[Task]] = {}
+_next_id = max((item.id for item in task_list), default=0)
+
+
+def _current_scope() -> str:
+    return get_current_scope_key()
+
+
+def _clone_default_tasks(scope_key: str) -> list[Task]:
+    return [Task(**{**item.model_dump(), "scope_key": scope_key}) for item in task_list]
+
+
+def _scope_cache(scope_key: str | None = None) -> list[Task]:
+    normalized_scope = str(scope_key or _current_scope())
+    if normalized_scope not in _task_lists_by_scope:
+        _task_lists_by_scope[normalized_scope] = _clone_default_tasks(normalized_scope)
+    return _task_lists_by_scope[normalized_scope]
+
 
 def list_tasks() -> list[Task]:
-    return task_list
+    return _scope_cache()
 
 
 def get_task_by_id(task_id: int) -> Task | None:
-    return next((task for task in task_list if task.id == task_id), None)
+    return next((task for task in _scope_cache() if task.id == task_id), None)
 
 
 def get_next_task_id() -> int:
-    return max((task.id for task in task_list), default=0) + 1
+    return _next_id + 1
 
 
 def get_existing_task_ids() -> set[int]:
-    return {task.id for task in task_list}
+    return {task.id for task in _scope_cache()}
 
 
 def add_task(task: Task) -> Task:
-    task_list.append(task)
+    global _next_id
+    if not task.id:
+        _next_id += 1
+        task.id = _next_id
+    else:
+        _next_id = max(_next_id, int(task.id))
+    task.scope_key = task.scope_key or _current_scope()
+    _scope_cache().append(task)
     return task
 
 
 def remove_task(task: Task) -> None:
-    task_list.remove(task)
+    cache = _scope_cache()
+    cache[:] = [item for item in cache if item.id != task.id]

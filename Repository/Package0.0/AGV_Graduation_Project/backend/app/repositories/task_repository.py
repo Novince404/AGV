@@ -12,7 +12,7 @@ else:
     from app.repositories.memory import task_store as _store
 
 
-task_list = _store.task_list
+task_list = getattr(_store, "task_list", _store.list_tasks())
 
 
 def list_tasks():

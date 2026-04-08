@@ -2,15 +2,16 @@ from __future__ import annotations
 
 from copy import deepcopy
 
-from sqlalchemy import inspect, text
+from sqlalchemy import inspect, select, text
 
-from app.core.database import get_engine
-from app.core.database import get_db_session
+from app.core.data_scope import get_current_scope_key
+from app.core.database import get_db_session, get_engine
 from app.repositories.db_init import create_all_tables
 from app.repositories.sql_models import UiSettingsEntity
 
 
-UI_SETTINGS_ROW_ID = 1
+def _current_scope() -> str:
+    return get_current_scope_key()
 
 
 def _ensure_schema() -> None:
@@ -21,6 +22,8 @@ def _ensure_schema() -> None:
         return
     columns = {column["name"] for column in inspector.get_columns("ui_settings")}
     ddl_statements: list[str] = []
+    if "scope_key" not in columns:
+        ddl_statements.append("ALTER TABLE ui_settings ADD COLUMN scope_key VARCHAR(128)")
     if "show_topology_edge_speed" not in columns:
         ddl_statements.append("ALTER TABLE ui_settings ADD COLUMN show_topology_edge_speed BOOLEAN NOT NULL DEFAULT 0")
     if "show_runtime_segment_type" not in columns:
@@ -55,6 +58,18 @@ def _ensure_schema() -> None:
                 connection.execute(text(statement))
 
 
+def _scope_query(scope_key: str):
+    return select(UiSettingsEntity).where(UiSettingsEntity.scope_key == scope_key).order_by(UiSettingsEntity.id.desc())
+
+
+def _legacy_query():
+    return (
+        select(UiSettingsEntity)
+        .where((UiSettingsEntity.scope_key.is_(None)) | (UiSettingsEntity.scope_key == ""))
+        .order_by(UiSettingsEntity.id.desc())
+    )
+
+
 def _entity_to_payload(entity: UiSettingsEntity) -> dict:
     return {
         "show_minimap": bool(entity.show_minimap),
@@ -82,7 +97,8 @@ def _entity_to_payload(entity: UiSettingsEntity) -> dict:
     }
 
 
-def _apply_payload(entity: UiSettingsEntity, payload: dict) -> UiSettingsEntity:
+def _apply_payload(entity: UiSettingsEntity, payload: dict, scope_key: str) -> UiSettingsEntity:
+    entity.scope_key = scope_key
     entity.show_minimap = bool(payload["show_minimap"])
     entity.show_marker_icons = bool(payload["show_marker_icons"])
     entity.show_path_arrows = bool(payload["show_path_arrows"])
@@ -108,21 +124,46 @@ def _apply_payload(entity: UiSettingsEntity, payload: dict) -> UiSettingsEntity:
     return entity
 
 
+def _clone_payload(default_settings: dict) -> dict:
+    return deepcopy(default_settings)
+
+
+def _ensure_scope_entity(default_settings: dict, scope_key: str) -> UiSettingsEntity:
+    with get_db_session() as session:
+        entity = session.execute(_scope_query(scope_key)).scalar_one_or_none()
+        if entity is not None:
+            return entity
+
+        legacy = session.execute(_legacy_query()).scalar_one_or_none()
+        if legacy is not None:
+            payload = _entity_to_payload(legacy)
+        else:
+            payload = _clone_payload(default_settings)
+
+        next_id = session.execute(select(UiSettingsEntity.id).order_by(UiSettingsEntity.id.desc()).limit(1)).scalar_one_or_none() or 0
+        entity = _apply_payload(UiSettingsEntity(id=next_id + 1), payload, scope_key)
+        session.add(entity)
+        session.commit()
+        session.refresh(entity)
+        return entity
+
+
 def get_ui_settings(default_settings: dict) -> dict:
     _ensure_schema()
-    with get_db_session() as session:
-        entity = session.get(UiSettingsEntity, UI_SETTINGS_ROW_ID)
-        if entity is None:
-            return deepcopy(default_settings)
-        return _entity_to_payload(entity)
+    entity = _ensure_scope_entity(default_settings, _current_scope())
+    return _entity_to_payload(entity)
 
 
 def save_ui_settings(settings_payload: dict) -> dict:
     _ensure_schema()
     payload = deepcopy(settings_payload)
+    scope_key = _current_scope()
     with get_db_session() as session:
-        entity = session.get(UiSettingsEntity, UI_SETTINGS_ROW_ID)
-        entity = _apply_payload(entity or UiSettingsEntity(id=UI_SETTINGS_ROW_ID), payload)
+        entity = session.execute(_scope_query(scope_key)).scalar_one_or_none()
+        if entity is None:
+            next_id = session.execute(select(UiSettingsEntity.id).order_by(UiSettingsEntity.id.desc()).limit(1)).scalar_one_or_none() or 0
+            entity = UiSettingsEntity(id=next_id + 1)
+        entity = _apply_payload(entity, payload, scope_key)
         session.add(entity)
         session.commit()
         session.refresh(entity)

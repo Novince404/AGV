@@ -8,7 +8,7 @@ else:
     from app.repositories.memory import template_store as _store
 
 
-task_template_list = _store.task_template_list
+task_template_list = getattr(_store, "task_template_list", _store.list_task_templates())
 
 
 def list_task_templates():

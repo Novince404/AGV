@@ -18,6 +18,7 @@ class TaskStage(TrackedModel):
 
 class Task(TrackedModel):
     id: int
+    scope_key: str | None = None
     start_x: int
     start_y: int
     end_x: int

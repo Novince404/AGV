@@ -3,8 +3,14 @@ from __future__ import annotations
 from sqlalchemy import inspect, select, text
 from sqlalchemy.orm import selectinload
 
-from app.core.database import get_engine
-from app.core.database import get_db_session
+from app.core.data_scope import (
+    build_scoped_storage_id,
+    extract_public_id,
+    get_current_scope_key,
+    get_scope_storage_prefix,
+    is_legacy_unscoped_storage_id,
+)
+from app.core.database import get_db_session, get_engine
 from app.models.map_profile import MapProfile, MapProfileCell
 from app.models.map_topology import MapTopology, MapTopologyEdge, MapTopologyNode
 from app.repositories.db_init import create_all_tables
@@ -17,8 +23,16 @@ from app.repositories.sql_models import (
 )
 
 
-map_profiles: list[MapProfile] = []
-_loaded = False
+map_profiles_by_scope: dict[str, list[MapProfile]] = {}
+_loaded_scopes: set[str] = set()
+
+
+def _current_scope() -> str:
+    return get_current_scope_key()
+
+
+def _scope_prefix(scope_key: str | None = None) -> str:
+    return get_scope_storage_prefix(scope_key or _current_scope())
 
 
 def _ensure_schema() -> None:
@@ -38,17 +52,40 @@ def _ensure_schema() -> None:
 
 
 def _bind_profile(profile: MapProfile) -> MapProfile:
-    profile.bind_on_change(lambda profile_key=profile.key: _persist_cached_profile(profile_key))
+    profile.bind_on_change(lambda profile_key=profile.key, scope_key=_current_scope(): _persist_cached_profile(profile_key, scope_key))
     return profile
 
 
-def _query_profiles():
-    return select(MapProfileEntity).options(
-        selectinload(MapProfileEntity.blocked_cells),
-        selectinload(MapProfileEntity.valid_cells),
-        selectinload(MapProfileEntity.topology_nodes),
-        selectinload(MapProfileEntity.topology_edges),
-    ).order_by(MapProfileEntity.id)
+def _scope_query(scope_key: str):
+    return (
+        select(MapProfileEntity)
+        .options(
+            selectinload(MapProfileEntity.blocked_cells),
+            selectinload(MapProfileEntity.valid_cells),
+            selectinload(MapProfileEntity.topology_nodes),
+            selectinload(MapProfileEntity.topology_edges),
+        )
+        .where(MapProfileEntity.id.like(f"{_scope_prefix(scope_key)}%"))
+        .order_by(MapProfileEntity.id)
+    )
+
+
+def _legacy_query():
+    return (
+        select(MapProfileEntity)
+        .options(
+            selectinload(MapProfileEntity.blocked_cells),
+            selectinload(MapProfileEntity.valid_cells),
+            selectinload(MapProfileEntity.topology_nodes),
+            selectinload(MapProfileEntity.topology_edges),
+        )
+        .order_by(MapProfileEntity.id)
+    )
+
+
+def _scope_cache(scope_key: str | None = None) -> list[MapProfile]:
+    normalized_scope = str(scope_key or _current_scope())
+    return map_profiles_by_scope.setdefault(normalized_scope, [])
 
 
 def _entity_to_topology(entity: MapProfileEntity) -> MapTopology | None:
@@ -87,11 +124,11 @@ def _entity_to_topology(entity: MapProfileEntity) -> MapTopology | None:
     )
 
 
-def _entity_to_model(entity: MapProfileEntity) -> MapProfile:
+def _entity_to_model(entity: MapProfileEntity, scope_key: str | None = None) -> MapProfile:
     cells = [MapProfileCell(x=int(cell.x), y=int(cell.y)) for cell in entity.blocked_cells]
     valid_cells = [MapProfileCell(x=int(cell.x), y=int(cell.y)) for cell in entity.valid_cells]
     return MapProfile(
-        key=entity.id,
+        key=extract_public_id(entity.id, scope_key),
         custom_name=entity.custom_name,
         description=entity.description,
         grid_cols=int(entity.grid_cols),
@@ -103,8 +140,10 @@ def _entity_to_model(entity: MapProfileEntity) -> MapProfile:
     )
 
 
-def _model_to_entity(profile: MapProfile, entity: MapProfileEntity | None = None) -> MapProfileEntity:
-    entity = entity or MapProfileEntity(id=profile.key)
+def _model_to_entity(profile: MapProfile, entity: MapProfileEntity | None = None, scope_key: str | None = None) -> MapProfileEntity:
+    storage_id = build_scoped_storage_id(profile.key, scope_key)
+    entity = entity or MapProfileEntity(id=storage_id)
+    entity.id = storage_id
     entity.custom_name = profile.custom_name
     entity.description = profile.description
     entity.grid_cols = int(profile.grid_cols)
@@ -121,6 +160,7 @@ def _model_to_entity(profile: MapProfile, entity: MapProfileEntity | None = None
     topology = profile.topology
     entity.topology_nodes = [
         MapProfileTopologyNodeEntity(
+            profile_id=storage_id,
             node_key=str(node.key),
             x=int(node.x),
             y=int(node.y),
@@ -132,6 +172,7 @@ def _model_to_entity(profile: MapProfile, entity: MapProfileEntity | None = None
     ]
     entity.topology_edges = [
         MapProfileTopologyEdgeEntity(
+            profile_id=storage_id,
             edge_key=str(edge.key),
             source_key=str(edge.source),
             target_key=str(edge.target),
@@ -145,49 +186,73 @@ def _model_to_entity(profile: MapProfile, entity: MapProfileEntity | None = None
     return entity
 
 
-def _persist_cached_profile(profile_key: str) -> None:
-    profile = next((item for item in map_profiles if item.key == profile_key), None)
+def _persist_cached_profile(profile_key: str, scope_key: str | None = None) -> None:
+    profile = next((item for item in _scope_cache(scope_key) if item.key == profile_key), None)
     if profile is None:
         return
+    scoped_id = build_scoped_storage_id(profile.key, scope_key)
     with get_db_session() as session:
-        entity = session.get(MapProfileEntity, profile.key)
-        session.add(_model_to_entity(profile, entity))
+        entity = session.get(MapProfileEntity, scoped_id)
+        session.add(_model_to_entity(profile, entity, scope_key))
         session.commit()
 
 
-def _load_cache() -> None:
+def _seed_scope(scope_key: str) -> None:
     with get_db_session() as session:
-        entities = session.execute(_query_profiles()).scalars().all()
-    map_profiles[:] = [_bind_profile(_entity_to_model(entity)) for entity in entities]
+        has_rows = session.execute(select(MapProfileEntity.id).where(MapProfileEntity.id.like(f"{_scope_prefix(scope_key)}%")).limit(1)).first() is not None
+        if has_rows:
+            return
+
+        legacy_entities = [
+            entity
+            for entity in session.execute(_legacy_query()).scalars().all()
+            if is_legacy_unscoped_storage_id(entity.id)
+        ]
+        if not legacy_entities:
+            return
+        for entity in legacy_entities:
+            scoped_id = build_scoped_storage_id(entity.id, scope_key)
+            if session.get(MapProfileEntity, scoped_id) is not None:
+                continue
+            session.add(_model_to_entity(_entity_to_model(entity), scope_key=scope_key))
+        session.commit()
+
+
+def _load_scope(scope_key: str) -> None:
+    with get_db_session() as session:
+        entities = session.execute(_scope_query(scope_key)).scalars().all()
+    _scope_cache(scope_key)[:] = [_bind_profile(_entity_to_model(entity, scope_key)) for entity in entities]
 
 
 def _ensure_loaded() -> None:
-    global _loaded
-    if _loaded:
+    scope_key = _current_scope()
+    if scope_key in _loaded_scopes:
         return
     _ensure_schema()
-    _load_cache()
-    _loaded = True
+    _seed_scope(scope_key)
+    _load_scope(scope_key)
+    _loaded_scopes.add(scope_key)
 
 
 def list_map_profiles() -> list[MapProfile]:
     _ensure_loaded()
-    return map_profiles
+    return _scope_cache()
 
 
 def get_map_profile_by_key(profile_key: str) -> MapProfile | None:
     _ensure_loaded()
-    return next((profile for profile in map_profiles if profile.key == profile_key), None)
+    return next((profile for profile in _scope_cache() if profile.key == profile_key), None)
 
 
 def upsert_map_profile(profile: MapProfile) -> MapProfile:
     _ensure_loaded()
     existing = get_map_profile_by_key(profile.key)
     bound = _bind_profile(profile)
+    cache = _scope_cache()
     if existing is None:
-        map_profiles.append(bound)
+        cache.append(bound)
     else:
-        map_profiles[map_profiles.index(existing)] = bound
+        cache[cache.index(existing)] = bound
     _persist_cached_profile(bound.key)
     return bound
 
@@ -197,9 +262,10 @@ def remove_map_profile(profile_key: str) -> None:
     existing = get_map_profile_by_key(profile_key)
     if existing is None:
         return
-    map_profiles.remove(existing)
+    _scope_cache().remove(existing)
+    scoped_id = build_scoped_storage_id(profile_key)
     with get_db_session() as session:
-        entity = session.get(MapProfileEntity, profile_key)
+        entity = session.get(MapProfileEntity, scoped_id)
         if entity is not None:
             session.delete(entity)
             session.commit()

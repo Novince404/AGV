@@ -7,6 +7,7 @@ from app.models.tracked_model import TrackedModel
 
 class AGV(TrackedModel):
     id: int
+    scope_key: str | None = None
     x: int
     y: int
     status: str

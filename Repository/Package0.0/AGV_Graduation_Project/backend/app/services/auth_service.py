@@ -588,6 +588,103 @@ def register_personal(
     return _build_authenticated_payload(user, session)
 
 
+def _require_enterprise_admin_actor(request: Request) -> dict:
+    actor = require_authenticated_actor(request, allowed_roles={"enterprise_admin"})
+    if str(actor.get("account_status") or "approved") != "approved":
+        raise_api_error(403, "auth_permission_denied")
+    organization_id = str(actor.get("organization_id") or "").strip()
+    if not organization_id:
+        raise_api_error(409, "auth_permission_denied")
+    return actor
+
+
+def list_enterprise_members(request: Request) -> dict:
+    actor = _require_enterprise_admin_actor(request)
+    organization_id = str(actor.get("organization_id") or "").strip()
+    items = [
+        _release_expired_suspension(user)
+        for user in list_users()
+        if str(getattr(user, "organization_id", "") or "").strip() == organization_id
+        and normalize_role(getattr(user, "role", "guest")).startswith("enterprise_")
+    ]
+    items.sort(
+        key=lambda user: (
+            0 if normalize_role(getattr(user, "role", "")) == "enterprise_admin" else 1,
+            str(getattr(user, "created_at", "") or ""),
+            str(getattr(user, "username", "") or ""),
+        )
+    )
+    return {
+        "organization_id": organization_id,
+        "organization_name": str(actor.get("organization_name") or ""),
+        "items": [_serialize_managed_user(user) for user in items],
+    }
+
+
+def create_enterprise_member(
+    request: Request,
+    username: str,
+    password: str,
+    display_name: str,
+    role: str,
+) -> dict:
+    actor = _require_enterprise_admin_actor(request)
+    normalized_username = str(username or "").strip()
+    normalized_password = str(password or "")
+    normalized_display_name = str(display_name or "").strip()
+    normalized_role = normalize_role(role)
+
+    if normalized_role not in {"enterprise_operator", "enterprise_logistics"}:
+        raise_api_error(400, "auth_permission_denied")
+    if not normalized_username or not normalized_password or not normalized_display_name:
+        raise_api_error(400, "enterprise_member_fields_required")
+    if len(normalized_username) < 4:
+        raise_api_error(400, "personal_register_username_invalid")
+    if len(normalized_password) < 8:
+        raise_api_error(400, "personal_register_password_invalid")
+    if get_user_by_username(normalized_username) is not None:
+        raise_api_error(409, "personal_register_username_taken")
+    if get_enterprise_application_by_username(normalized_username) is not None:
+        raise_api_error(409, "personal_register_username_taken")
+
+    organization_id = str(actor.get("organization_id") or "").strip()
+    organization_name = str(actor.get("organization_name") or "").strip()
+    timestamp = now_iso()
+    user = AuthUser(
+        id=normalized_username,
+        username=normalized_username,
+        display_name=normalized_display_name,
+        role=normalized_role,
+        password_hash=hash_password(normalized_password),
+        active=True,
+        builtin=False,
+        account_status="approved",
+        organization_id=organization_id,
+        organization_name=organization_name or None,
+        created_at=timestamp,
+        governance_updated_at=timestamp,
+        last_login_at=None,
+    )
+    upsert_user(user)
+    record_operation_audit(
+        "user_account",
+        user.id,
+        "user.create.enterprise_member",
+        actor=actor,
+        metadata={
+            "organization_id": organization_id,
+            "organization_name": organization_name or None,
+            "username": user.username,
+            "display_name": user.display_name,
+            "role": user.role,
+        },
+    )
+    return {
+        "message": "enterprise_member_created",
+        "item": _serialize_managed_user(user),
+    }
+
+
 def _filter_user_feed(
     role: str | None = None,
     status: str | None = None,

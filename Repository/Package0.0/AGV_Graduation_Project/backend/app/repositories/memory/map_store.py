@@ -1,6 +1,13 @@
 from __future__ import annotations
 
-_current_layout: dict[str, object] | None = None
+from app.core.data_scope import get_current_scope_key
+
+
+_layouts_by_scope: dict[str, dict[str, object]] = {}
+
+
+def _current_scope() -> str:
+    return get_current_scope_key()
 
 
 def _clone_topology(topology: dict[str, object] | None) -> dict[str, object]:
@@ -21,11 +28,11 @@ def _ensure_layout(
     default_blocked_cells: set[tuple[int, int]],
     default_valid_cells: set[tuple[int, int]],
 ) -> None:
-    global _current_layout
-    if _current_layout is not None:
+    scope_key = _current_scope()
+    if scope_key in _layouts_by_scope:
         return
 
-    _current_layout = {
+    _layouts_by_scope[scope_key] = {
         "grid_cols": int(default_grid_cols),
         "grid_rows": int(default_grid_rows),
         "blocked_cells": set(default_blocked_cells),
@@ -41,13 +48,13 @@ def get_layout_state(
     default_valid_cells: set[tuple[int, int]],
 ) -> dict[str, object]:
     _ensure_layout(default_grid_cols, default_grid_rows, default_blocked_cells, default_valid_cells)
-    assert _current_layout is not None
+    current = _layouts_by_scope[_current_scope()]
     return {
-        "grid_cols": _current_layout["grid_cols"],
-        "grid_rows": _current_layout["grid_rows"],
-        "blocked_cells": set(_current_layout["blocked_cells"]),
-        "valid_cells": set(_current_layout["valid_cells"]),
-        "topology": _clone_topology(_current_layout.get("topology")),
+        "grid_cols": current["grid_cols"],
+        "grid_rows": current["grid_rows"],
+        "blocked_cells": set(current["blocked_cells"]),
+        "valid_cells": set(current["valid_cells"]),
+        "topology": _clone_topology(current.get("topology")),
     }
 
 
@@ -62,9 +69,8 @@ def set_layout_state(
     default_blocked_cells: set[tuple[int, int]],
     default_valid_cells: set[tuple[int, int]],
 ) -> dict[str, object]:
-    global _current_layout
     _ensure_layout(default_grid_cols, default_grid_rows, default_blocked_cells, default_valid_cells)
-    _current_layout = {
+    _layouts_by_scope[_current_scope()] = {
         "grid_cols": int(grid_cols),
         "grid_rows": int(grid_rows),
         "blocked_cells": set(blocked_cells),

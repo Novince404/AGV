@@ -16,6 +16,7 @@ from app.api.task_api import router as task_router
 from app.api.template_api import router as template_router
 from app.core.lifecycle import initialize_runtime
 from app.core.settings import get_settings
+from app.core.data_scope import build_scope_key_from_actor, use_scope
 
 
 settings = get_settings()
@@ -30,6 +31,18 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def bind_request_data_scope(request, call_next):
+    from app.services import auth_service
+
+    try:
+        actor = auth_service.resolve_request_actor(request)
+    except Exception:
+        actor = None
+    with use_scope(build_scope_key_from_actor(actor)):
+        return await call_next(request)
 
 app.include_router(agv_router)
 app.include_router(ai_router)

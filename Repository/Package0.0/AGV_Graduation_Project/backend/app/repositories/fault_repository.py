@@ -12,7 +12,7 @@ else:
     from app.repositories.memory import fault_store as _store
 
 
-fault_event_list = _store.fault_event_list
+fault_event_list = getattr(_store, "fault_event_list", _store.list_fault_events_store())
 
 
 def list_fault_events_store():

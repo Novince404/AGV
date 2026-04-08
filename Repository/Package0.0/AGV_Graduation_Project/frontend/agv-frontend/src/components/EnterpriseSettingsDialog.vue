@@ -419,6 +419,125 @@
                   </div>
                 </div>
               </div>
+              <div v-if="enterpriseMemberManagementEnabled" class="enterprise-settings-role-note">
+                <div class="enterprise-settings-status-head">
+                  <div>
+                    <strong>{{ t('enterprise_member_title') }}</strong>
+                    <p>{{ t('enterprise_member_hint') }}</p>
+                  </div>
+                  <div class="enterprise-settings-inline-actions">
+                    <button
+                      class="btn-ghost enterprise-settings-inline-button"
+                      type="button"
+                      :disabled="enterpriseMemberLoading"
+                      @click="fetchEnterpriseMembers()"
+                    >
+                      {{ t('enterprise_member_refresh') }}
+                    </button>
+                  </div>
+                </div>
+                <div class="enterprise-settings-status-grid">
+                  <div class="enterprise-settings-status-item">
+                    <span>{{ t('enterprise_member_current_org') }}</span>
+                    <strong>{{ authCurrentOrganizationName || '—' }}</strong>
+                  </div>
+                  <div class="enterprise-settings-status-item">
+                    <span>{{ t('enterprise_member_count') }}</span>
+                    <strong>{{ enterpriseMemberItems.length }}</strong>
+                  </div>
+                </div>
+                <div v-if="enterpriseMemberLastFetchedText" class="task-line operations-last-fetched">
+                  {{ enterpriseMemberLastFetchedText }}
+                </div>
+                <div
+                  v-if="enterpriseMemberStatus"
+                  class="enterprise-settings-status-note"
+                  :class="`is-${enterpriseMemberStatusType}`"
+                >
+                  <p>{{ enterpriseMemberStatus }}</p>
+                </div>
+                <div class="enterprise-settings-subgrid">
+                  <div class="enterprise-settings-subsection">
+                    <div class="enterprise-settings-subtitle">{{ t('enterprise_member_list_title') }}</div>
+                    <div v-if="enterpriseMemberItems.length === 0" class="empty-note">
+                      {{ t('enterprise_member_list_empty') }}
+                    </div>
+                    <div v-else class="enterprise-settings-list">
+                      <article
+                        v-for="member in enterpriseMemberItems"
+                        :key="`enterprise-member-${member.id}`"
+                        class="enterprise-settings-list-item"
+                      >
+                        <div class="enterprise-settings-list-main">
+                          <strong>{{ member.display_name || member.username }}</strong>
+                          <span>{{ t(`auth_role_${member.role}`) }}</span>
+                        </div>
+                        <div class="task-line">{{ member.username }}</div>
+                      </article>
+                    </div>
+                  </div>
+                  <div class="enterprise-settings-subsection">
+                    <div class="enterprise-settings-subtitle">{{ t('enterprise_member_create_title') }}</div>
+                    <div class="enterprise-topology-node-editor">
+                      <label class="auth-field enterprise-topology-node-editor__full">
+                        <span>{{ t('enterprise_member_role') }}</span>
+                        <select
+                          class="auth-input"
+                          :value="enterpriseMemberForm.role"
+                          :disabled="enterpriseMemberCreating"
+                          @change="enterpriseMemberForm.role = $event.target.value"
+                        >
+                          <option
+                            v-for="option in enterpriseMemberCreateRoleOptions"
+                            :key="`enterprise-member-role-${option.value}`"
+                            :value="option.value"
+                          >
+                            {{ option.label }}
+                          </option>
+                        </select>
+                      </label>
+                      <label class="auth-field enterprise-topology-node-editor__full">
+                        <span>{{ t('enterprise_member_display_name') }}</span>
+                        <input
+                          class="auth-input"
+                          :value="enterpriseMemberForm.display_name"
+                          :disabled="enterpriseMemberCreating"
+                          @input="enterpriseMemberForm.display_name = $event.target.value"
+                        />
+                      </label>
+                      <label class="auth-field enterprise-topology-node-editor__full">
+                        <span>{{ t('enterprise_member_username') }}</span>
+                        <input
+                          class="auth-input"
+                          :value="enterpriseMemberForm.username"
+                          :disabled="enterpriseMemberCreating"
+                          @input="enterpriseMemberForm.username = $event.target.value"
+                        />
+                      </label>
+                      <label class="auth-field enterprise-topology-node-editor__full">
+                        <span>{{ t('enterprise_member_password') }}</span>
+                        <input
+                          class="auth-input"
+                          type="password"
+                          :value="enterpriseMemberForm.password"
+                          :disabled="enterpriseMemberCreating"
+                          @input="enterpriseMemberForm.password = $event.target.value"
+                        />
+                      </label>
+                    </div>
+                    <div class="enterprise-settings-actions">
+                      <button
+                        class="btn-primary"
+                        type="button"
+                        :disabled="enterpriseMemberCreating"
+                        @click="submitEnterpriseMemberCreate"
+                      >
+                        {{ enterpriseMemberCreating ? `${t('enterprise_member_create_action')}...` : t('enterprise_member_create_action') }}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
               <div class="map-settings-info-grid enterprise-settings-grid">
                 <div v-for="card in enterpriseOverviewCards" :key="card.key" class="map-settings-info-card">
                   <div class="map-settings-info-label">{{ card.label }}</div>

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from app.core.data_scope import get_current_scope_key
 from app.models.task_template import TaskTemplate, TaskTemplateStage
 
 
-task_template_list: list[TaskTemplate] = [
+DEFAULT_TASK_TEMPLATE_LIST: list[TaskTemplate] = [
     TaskTemplate(
         id="template_inbound_a_to_storage_c1",
         priority=3,
@@ -35,26 +36,46 @@ task_template_list: list[TaskTemplate] = [
 ]
 
 
+task_template_lists_by_scope: dict[str, list[TaskTemplate]] = {}
+
+
+def _current_scope() -> str:
+    return get_current_scope_key()
+
+
+def _clone_template(template: TaskTemplate) -> TaskTemplate:
+    return TaskTemplate(**template.model_dump())
+
+
+def _scope_cache() -> list[TaskTemplate]:
+    scope_key = _current_scope()
+    if scope_key not in task_template_lists_by_scope:
+        task_template_lists_by_scope[scope_key] = [_clone_template(template) for template in DEFAULT_TASK_TEMPLATE_LIST]
+    return task_template_lists_by_scope[scope_key]
+
+
 def list_task_templates() -> list[TaskTemplate]:
-    return task_template_list
+    return _scope_cache()
 
 
 def get_task_template_by_id(template_id: str) -> TaskTemplate | None:
-    return next((template for template in task_template_list if template.id == template_id), None)
+    return next((template for template in _scope_cache() if template.id == template_id), None)
 
 
 def upsert_task_template(template: TaskTemplate) -> TaskTemplate:
     existing = get_task_template_by_id(template.id)
+    bound = _clone_template(template)
+    cache = _scope_cache()
     if existing is None:
-        task_template_list.append(template)
-        return template
+        cache.append(bound)
+        return bound
 
-    index = task_template_list.index(existing)
-    task_template_list[index] = template
-    return template
+    index = cache.index(existing)
+    cache[index] = bound
+    return bound
 
 
 def remove_task_template(template_id: str) -> None:
     existing = get_task_template_by_id(template_id)
     if existing is not None:
-        task_template_list.remove(existing)
+        _scope_cache().remove(existing)

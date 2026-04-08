@@ -17,6 +17,7 @@ os.environ["AGV_DATABASE_AUTO_CREATE"] = "true"
 sys.path.insert(0, str(BACKEND_DIR))
 
 from app.core.database import dispose_engine, get_db_session  # noqa: E402
+from app.core.data_scope import build_scoped_storage_id  # noqa: E402
 from app.core.lifecycle import initialize_runtime  # noqa: E402
 from app.repositories.sql_models import MapLayoutEntity, PointLibraryEntity, TaskTemplateEntity  # noqa: E402
 from app.schemas.point import PointUpsertRequest  # noqa: E402
@@ -63,14 +64,15 @@ def main() -> None:
             custom=True,
         )
     )
+    scoped_point_id = build_scoped_storage_id("smoke_point")
     with get_db_session() as session:
-        point_entity = session.get(PointLibraryEntity, "smoke_point")
+        point_entity = session.get(PointLibraryEntity, scoped_point_id)
         expect(point_entity is not None, "saved point not found in sqlite db")
         expect(point_entity.custom is True, "saved point custom flag mismatch")
 
     point_service.delete_point("smoke_point")
     with get_db_session() as session:
-        point_entity = session.get(PointLibraryEntity, "smoke_point")
+        point_entity = session.get(PointLibraryEntity, scoped_point_id)
         expect(point_entity is None, "deleted point still exists in sqlite db")
 
     templates = template_service.get_template_list()
@@ -89,14 +91,15 @@ def main() -> None:
             ],
         )
     )
+    scoped_template_id = build_scoped_storage_id("smoke_template")
     with get_db_session() as session:
-        template_entity = session.get(TaskTemplateEntity, "smoke_template")
+        template_entity = session.get(TaskTemplateEntity, scoped_template_id)
         expect(template_entity is not None, "saved template not found in sqlite db")
         expect(len(template_entity.stages) == 2, "saved template stage count mismatch")
 
     template_service.delete_template("smoke_template")
     with get_db_session() as session:
-        template_entity = session.get(TaskTemplateEntity, "smoke_template")
+        template_entity = session.get(TaskTemplateEntity, scoped_template_id)
         expect(template_entity is None, "deleted template still exists in sqlite db")
 
     map_data = status_service.get_map_layout()

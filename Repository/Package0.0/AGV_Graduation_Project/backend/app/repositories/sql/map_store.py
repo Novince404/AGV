@@ -3,6 +3,7 @@ from __future__ import annotations
 from sqlalchemy import inspect, select, text
 from sqlalchemy.orm import selectinload
 
+from app.core.data_scope import get_current_scope_key
 from app.core.database import get_engine
 from app.core.database import get_db_session
 from app.repositories.db_init import create_all_tables
@@ -15,9 +16,12 @@ from app.repositories.sql_models import (
 )
 
 
-_LAYOUT_ID = 1
-_layout_cache: dict[str, object] | None = None
-_loaded = False
+_layout_cache_by_scope: dict[str, dict[str, object]] = {}
+_loaded_scopes: set[str] = set()
+
+
+def _current_scope() -> str:
+    return get_current_scope_key()
 
 
 def _ensure_schema() -> None:
@@ -25,6 +29,10 @@ def _ensure_schema() -> None:
     engine = get_engine()
     inspector = inspect(engine)
     ddl_statements: list[str] = []
+    if "map_layout" in inspector.get_table_names():
+        columns = {column["name"] for column in inspector.get_columns("map_layout")}
+        if "scope_key" not in columns:
+            ddl_statements.append("ALTER TABLE map_layout ADD COLUMN scope_key VARCHAR(128)")
     if "map_layout_topology_node" in inspector.get_table_names():
         columns = {column["name"] for column in inspector.get_columns("map_layout_topology_node")}
         if "capacity" not in columns:
@@ -36,7 +44,7 @@ def _ensure_schema() -> None:
                 connection.execute(text(statement))
 
 
-def _query_layout():
+def _query_layout(scope_key: str):
     return (
         select(MapLayoutEntity)
         .options(
@@ -45,7 +53,22 @@ def _query_layout():
             selectinload(MapLayoutEntity.topology_nodes),
             selectinload(MapLayoutEntity.topology_edges),
         )
-        .where(MapLayoutEntity.id == _LAYOUT_ID)
+        .where(MapLayoutEntity.scope_key == scope_key)
+        .order_by(MapLayoutEntity.id.desc())
+    )
+
+
+def _legacy_layout_query():
+    return (
+        select(MapLayoutEntity)
+        .options(
+            selectinload(MapLayoutEntity.blocked_cells),
+            selectinload(MapLayoutEntity.valid_cells),
+            selectinload(MapLayoutEntity.topology_nodes),
+            selectinload(MapLayoutEntity.topology_edges),
+        )
+        .where((MapLayoutEntity.scope_key.is_(None)) | (MapLayoutEntity.scope_key == ""))
+        .order_by(MapLayoutEntity.id.desc())
     )
 
 
@@ -108,12 +131,26 @@ def _build_layout_state(entity: MapLayoutEntity) -> dict[str, object]:
     }
 
 
-def _persist_layout_snapshot(layout_state: dict[str, object]) -> None:
+def _migrate_legacy_layout(scope_key: str) -> None:
     with get_db_session() as session:
-        entity = session.execute(_query_layout()).scalar_one_or_none()
-        if entity is None:
-            entity = MapLayoutEntity(id=_LAYOUT_ID, scene_key="default")
+        scoped = session.execute(_query_layout(scope_key)).scalar_one_or_none()
+        if scoped is not None:
+            return
+        legacy = session.execute(_legacy_layout_query()).scalar_one_or_none()
+        if legacy is None:
+            return
+        legacy.scope_key = scope_key
+        session.commit()
 
+
+def _persist_layout_snapshot(layout_state: dict[str, object]) -> None:
+    scope_key = _current_scope()
+    with get_db_session() as session:
+        entity = session.execute(_query_layout(scope_key)).scalar_one_or_none()
+        if entity is None:
+            entity = MapLayoutEntity(scene_key="default", scope_key=scope_key)
+
+        entity.scope_key = scope_key
         entity.grid_cols = int(layout_state["grid_cols"])
         entity.grid_rows = int(layout_state["grid_rows"])
         entity.blocked_cells = [
@@ -157,15 +194,16 @@ def _seed_defaults_if_empty(
     default_grid_rows: int,
     default_blocked_cells: set[tuple[int, int]],
     default_valid_cells: set[tuple[int, int]],
+    scope_key: str,
 ) -> None:
     with get_db_session() as session:
-        entity = session.execute(_query_layout()).scalar_one_or_none()
+        entity = session.execute(_query_layout(scope_key)).scalar_one_or_none()
         if entity is not None:
             return
 
         seeded = MapLayoutEntity(
-            id=_LAYOUT_ID,
             scene_key="default",
+            scope_key=scope_key,
             grid_cols=int(default_grid_cols),
             grid_rows=int(default_grid_rows),
             blocked_cells=[
@@ -181,11 +219,10 @@ def _seed_defaults_if_empty(
         session.commit()
 
 
-def _load_cache() -> None:
-    global _layout_cache
+def _load_cache(scope_key: str) -> None:
     with get_db_session() as session:
-        entity = session.execute(_query_layout()).scalar_one()
-    _layout_cache = _build_layout_state(entity)
+        entity = session.execute(_query_layout(scope_key)).scalar_one()
+    _layout_cache_by_scope[scope_key] = _build_layout_state(entity)
 
 
 def _ensure_loaded(
@@ -194,13 +231,14 @@ def _ensure_loaded(
     default_blocked_cells: set[tuple[int, int]],
     default_valid_cells: set[tuple[int, int]],
 ) -> None:
-    global _loaded
-    if _loaded:
+    scope_key = _current_scope()
+    if scope_key in _loaded_scopes:
         return
     _ensure_schema()
-    _seed_defaults_if_empty(default_grid_cols, default_grid_rows, default_blocked_cells, default_valid_cells)
-    _load_cache()
-    _loaded = True
+    _migrate_legacy_layout(scope_key)
+    _seed_defaults_if_empty(default_grid_cols, default_grid_rows, default_blocked_cells, default_valid_cells, scope_key)
+    _load_cache(scope_key)
+    _loaded_scopes.add(scope_key)
 
 
 def get_layout_state(
@@ -210,13 +248,13 @@ def get_layout_state(
     default_valid_cells: set[tuple[int, int]],
 ) -> dict[str, object]:
     _ensure_loaded(default_grid_cols, default_grid_rows, default_blocked_cells, default_valid_cells)
-    assert _layout_cache is not None
+    cache = _layout_cache_by_scope[_current_scope()]
     return {
-        "grid_cols": _layout_cache["grid_cols"],
-        "grid_rows": _layout_cache["grid_rows"],
-        "blocked_cells": set(_layout_cache["blocked_cells"]),
-        "valid_cells": set(_layout_cache["valid_cells"]),
-        "topology": _clone_topology(_layout_cache.get("topology")),
+        "grid_cols": cache["grid_cols"],
+        "grid_rows": cache["grid_rows"],
+        "blocked_cells": set(cache["blocked_cells"]),
+        "valid_cells": set(cache["valid_cells"]),
+        "topology": _clone_topology(cache.get("topology")),
     }
 
 
@@ -231,14 +269,14 @@ def set_layout_state(
     default_blocked_cells: set[tuple[int, int]],
     default_valid_cells: set[tuple[int, int]],
 ) -> dict[str, object]:
-    global _layout_cache
+    scope_key = _current_scope()
     _ensure_loaded(default_grid_cols, default_grid_rows, default_blocked_cells, default_valid_cells)
-    _layout_cache = {
+    _layout_cache_by_scope[scope_key] = {
         "grid_cols": int(grid_cols),
         "grid_rows": int(grid_rows),
         "blocked_cells": set(blocked_cells),
         "valid_cells": set(valid_cells),
         "topology": _clone_topology(topology),
     }
-    _persist_layout_snapshot(_layout_cache)
+    _persist_layout_snapshot(_layout_cache_by_scope[scope_key])
     return get_layout_state(default_grid_cols, default_grid_rows, default_blocked_cells, default_valid_cells)

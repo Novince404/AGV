@@ -8,7 +8,7 @@ else:
     from app.repositories.memory import point_store as _store
 
 
-point_library = _store.point_library
+point_library = getattr(_store, "point_library", _store.list_points())
 
 
 def list_points():

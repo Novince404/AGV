@@ -36,6 +36,13 @@ class UserDeactivateRequest(BaseModel):
     note: str | None = None
 
 
+class EnterpriseMemberCreateRequest(BaseModel):
+    username: str
+    password: str
+    display_name: str
+    role: str
+
+
 class EnterpriseRequestCreateRequest(BaseModel):
     category: str
     title: str

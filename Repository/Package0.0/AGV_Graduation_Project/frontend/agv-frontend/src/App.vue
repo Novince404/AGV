@@ -2132,6 +2132,33 @@ const platformBugFeedbackLastFetchedText = computed(() =>
     : ''
 )
 const currentAuthUserId = computed(() => String(authCurrentUser.value?.id || ''))
+const enterpriseMemberItems = ref([])
+const enterpriseMemberLoading = ref(false)
+const enterpriseMemberCreating = ref(false)
+const enterpriseMemberLastFetchedAt = ref('')
+const enterpriseMemberStatus = ref('')
+const enterpriseMemberStatusType = ref('info')
+const enterpriseMemberForm = ref({
+  username: '',
+  display_name: '',
+  password: '',
+  role: 'enterprise_operator'
+})
+const enterpriseMemberManagementEnabled = computed(
+  () =>
+    authAuthenticated.value &&
+    authCurrentRole.value === 'enterprise_admin' &&
+    authCurrentAccountStatus.value === 'approved'
+)
+const enterpriseMemberCreateRoleOptions = computed(() => [
+  { value: 'enterprise_operator', label: t('auth_role_enterprise_operator') },
+  { value: 'enterprise_logistics', label: t('auth_role_enterprise_logistics') }
+])
+const enterpriseMemberLastFetchedText = computed(() =>
+  enterpriseMemberLastFetchedAt.value
+    ? formatInlineMessage(t('operations_last_updated'), { at: enterpriseMemberLastFetchedAt.value })
+    : ''
+)
 const enterpriseRequestIncomingItems = computed(() =>
   enterpriseRequestItems.value.filter(item =>
     String(item?.target_user_id || '') === currentAuthUserId.value &&
@@ -5691,7 +5718,8 @@ const {
   batteryParkingIdleDrainPerSec,
   batteryChargePerSec,
   compareDisplayMode,
-  clampValue
+  clampValue,
+  buildAuthHeaders: buildAuthorizedHeaders
 })
 
 const {
@@ -6291,6 +6319,90 @@ async function refreshEnterpriseAccountStatus() {
     showFloatingToast(t('auth_account_status_refresh_ok'), 'success')
   } catch (error) {
     showFloatingToast(error?.message || t('auth_account_status_refresh_failed'), 'error')
+  }
+}
+
+function resetEnterpriseMemberForm() {
+  enterpriseMemberForm.value = {
+    username: '',
+    display_name: '',
+    password: '',
+    role: 'enterprise_operator'
+  }
+}
+
+function setEnterpriseMemberStatus(message, type = 'info') {
+  enterpriseMemberStatus.value = String(message || '')
+  enterpriseMemberStatusType.value = String(type || 'info')
+}
+
+async function fetchEnterpriseMembers({ silent = false } = {}) {
+  if (!enterpriseMemberManagementEnabled.value) {
+    enterpriseMemberItems.value = []
+    enterpriseMemberLastFetchedAt.value = ''
+    return false
+  }
+  enterpriseMemberLoading.value = true
+  try {
+    const response = await fetch(`${API_BASE}/auth/enterprise-members`, {
+      headers: buildAuthorizedHeaders()
+    })
+    const data = await response.json().catch(() => null)
+    if (!response.ok) {
+      throw createApiError(data, t('enterprise_member_load_failed'))
+    }
+    enterpriseMemberItems.value = Array.isArray(data?.items) ? data.items : []
+    enterpriseMemberLastFetchedAt.value = new Date().toISOString()
+    if (!silent) {
+      setEnterpriseMemberStatus(t('enterprise_member_load_success'), 'success')
+    }
+    return true
+  } catch (error) {
+    console.error('Fetch enterprise members error:', error)
+    if (!silent) {
+      setEnterpriseMemberStatus(error?.message || t('enterprise_member_load_failed'), 'error')
+    }
+    return false
+  } finally {
+    enterpriseMemberLoading.value = false
+  }
+}
+
+async function submitEnterpriseMemberCreate() {
+  if (!enterpriseMemberManagementEnabled.value) return false
+  const payload = {
+    username: String(enterpriseMemberForm.value.username || '').trim(),
+    display_name: String(enterpriseMemberForm.value.display_name || '').trim(),
+    password: String(enterpriseMemberForm.value.password || ''),
+    role: String(enterpriseMemberForm.value.role || 'enterprise_operator')
+  }
+  if (!payload.username || !payload.display_name || !payload.password) {
+    setEnterpriseMemberStatus(t('enterprise_member_fields_required'), 'error')
+    return false
+  }
+
+  enterpriseMemberCreating.value = true
+  try {
+    const response = await fetch(`${API_BASE}/auth/enterprise-members`, {
+      method: 'POST',
+      headers: buildAuthorizedJsonHeaders(),
+      body: JSON.stringify(payload)
+    })
+    const data = await response.json().catch(() => null)
+    if (!response.ok) {
+      throw createApiError(data, t('enterprise_member_create_failed'))
+    }
+    resetEnterpriseMemberForm()
+    await fetchEnterpriseMembers({ silent: true })
+    setEnterpriseMemberStatus(t('enterprise_member_create_success'), 'success')
+    showFloatingToast(t('enterprise_member_create_success'), 'success')
+    return true
+  } catch (error) {
+    console.error('Create enterprise member error:', error)
+    setEnterpriseMemberStatus(error?.message || t('enterprise_member_create_failed'), 'error')
+    return false
+  } finally {
+    enterpriseMemberCreating.value = false
   }
 }
 
@@ -7830,6 +7942,9 @@ async function openEnterpriseSettingsDialog(targetTab = '') {
   }
   if (authCanViewAudit.value) {
     requestOperationAuditRefresh({ force: true })
+  }
+  if (enterpriseMemberManagementEnabled.value) {
+    void fetchEnterpriseMembers({ silent: true })
   }
 }
 
@@ -9941,7 +10056,9 @@ async function buildComfySourcePayload() {
     if (!targetProfileKey) {
       throw new Error(t('ai_render_source_ref_required'))
     }
-    const response = await fetch(`${API_BASE}/status/map/profile/${encodeURIComponent(targetProfileKey)}`)
+    const response = await fetch(`${API_BASE}/status/map/profile/${encodeURIComponent(targetProfileKey)}`, {
+      headers: buildAuthorizedHeaders()
+    })
     const data = await response.json().catch(() => null)
     if (!response.ok) {
       throw createApiError(data, 'Map profile request failed')
@@ -10317,7 +10434,8 @@ const {
   customTaskTemplates,
   normalizeTemplateStages,
   isValidGridCoordinate,
-  createApiError
+  createApiError,
+  buildAuthHeaders: buildAuthorizedHeaders
 })
 
 const {
@@ -12992,7 +13110,9 @@ async function exportMapProfile(profile) {
   if (!profile?.key) return false
   mapProfileExportingKey.value = profile.key
   try {
-    const res = await fetch(`${API_BASE}/status/map/profile/${encodeURIComponent(profile.key)}`)
+    const res = await fetch(`${API_BASE}/status/map/profile/${encodeURIComponent(profile.key)}`, {
+      headers: buildAuthorizedHeaders()
+    })
     const data = await res.json()
     if (!res.ok) {
       throw createApiError(data, settingsLocale.value.mapProfileExportFailed)
@@ -13313,7 +13433,9 @@ async function runMapResizePrecheck(nextCols = null, nextRows = null, previewPro
       grid_cols: String(requestedCols),
       grid_rows: String(requestedRows),
     })
-    const res = await fetch(`${API_BASE}/status/map/resize-precheck?${params.toString()}`)
+    const res = await fetch(`${API_BASE}/status/map/resize-precheck?${params.toString()}`, {
+      headers: buildAuthorizedHeaders()
+    })
     if (!res.ok) {
       throw new Error(`Map resize precheck failed: ${res.status}`)
     }
@@ -13760,7 +13882,9 @@ async function ensureBlockedCellsSynced() {
 
 async function fetchMapPresets() {
   try {
-    const res = await fetch(`${API_BASE}/status/map/presets`)
+    const res = await fetch(`${API_BASE}/status/map/presets`, {
+      headers: buildAuthorizedHeaders()
+    })
     if (!res.ok) {
       throw new Error(`Map preset request failed: ${res.status}`)
     }
@@ -13782,7 +13906,9 @@ async function fetchMapPresets() {
 
 async function fetchMapProfiles() {
   try {
-    const res = await fetch(`${API_BASE}/status/map/profiles`)
+    const res = await fetch(`${API_BASE}/status/map/profiles`, {
+      headers: buildAuthorizedHeaders()
+    })
     if (!res.ok) {
       throw new Error(`Map profile request failed: ${res.status}`)
     }
@@ -13821,7 +13947,9 @@ function syncMapSizeResizeState() {
 
 async function fetchMapLayout() {
   try {
-    const res = await fetch(`${API_BASE}/status/map`)
+    const res = await fetch(`${API_BASE}/status/map`, {
+      headers: buildAuthorizedHeaders()
+    })
     if (!res.ok) {
       throw new Error(`Map layout request failed: ${res.status}`)
     }
@@ -14037,19 +14165,25 @@ function ensureAgvAnimationLoop() {
 }
 
 async function fetchAgvs() {
-  const res = await fetch(`${API_BASE}/agv/list`)
+  const res = await fetch(`${API_BASE}/agv/list`, {
+    headers: buildAuthorizedHeaders()
+  })
   agvs.value = await res.json()
   agvAnimationNow.value = Date.now()
 }
 
 async function fetchTasks() {
-  const res = await fetch(`${API_BASE}/task/list`)
+  const res = await fetch(`${API_BASE}/task/list`, {
+    headers: buildAuthorizedHeaders()
+  })
   tasks.value = await res.json()
 }
 
 async function fetchFaultEvents() {
   const query = faultEventFilter.value === 'all' ? '' : `?status=${faultEventFilter.value}`
-  const res = await fetch(`${API_BASE}/fault/list${query}`)
+  const res = await fetch(`${API_BASE}/fault/list${query}`, {
+    headers: buildAuthorizedHeaders()
+  })
   if (!res.ok) {
     throw new Error(`Fault event request failed: ${res.status}`)
   }
@@ -16071,6 +16205,17 @@ const enterpriseSettingsDialogBindings = {
   deleteSelectedOperationAuditsWithAuth,
   deleteOperationAuditWithAuth,
   refreshEnterpriseAccountStatus,
+  enterpriseMemberManagementEnabled,
+  enterpriseMemberItems,
+  enterpriseMemberLoading,
+  enterpriseMemberCreating,
+  enterpriseMemberForm,
+  enterpriseMemberCreateRoleOptions,
+  enterpriseMemberStatus,
+  enterpriseMemberStatusType,
+  enterpriseMemberLastFetchedText,
+  fetchEnterpriseMembers,
+  submitEnterpriseMemberCreate,
   runEnterpriseStatusFollowupAction,
   runEnterpriseApplicationAction,
   applyEnterprisePanelPreset,

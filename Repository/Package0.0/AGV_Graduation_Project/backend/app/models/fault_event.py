@@ -3,6 +3,7 @@ from app.models.tracked_model import TrackedModel
 
 class FaultEvent(TrackedModel):
     id: int
+    scope_key: str | None = None
     agv_id: int
     fault_type: str
     severity: str

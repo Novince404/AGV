@@ -12,7 +12,7 @@ else:
     from app.repositories.memory import agv_store as _store
 
 
-agv_list = _store.agv_list
+agv_list = getattr(_store, "agv_list", _store.list_agvs())
 
 
 def list_agvs():

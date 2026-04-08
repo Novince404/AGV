@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from app.core.data_scope import get_current_scope_key
 from app.models.agv import AGV
 from app.models.fault_event import FaultEvent
 from app.models.task import Task, TaskStage
@@ -15,6 +16,7 @@ def _model_dump(model) -> dict:
 def agv_entity_to_model(entity: AgvEntity) -> AGV:
     return AGV(
         id=entity.id,
+        scope_key=getattr(entity, "scope_key", None),
         x=entity.x,
         y=entity.y,
         status=entity.status,
@@ -48,6 +50,7 @@ def agv_entity_to_model(entity: AgvEntity) -> AGV:
 def agv_model_to_entity(model: AGV, entity: AgvEntity | None = None) -> AgvEntity:
     payload = _model_dump(model)
     entity = entity or AgvEntity(id=payload["id"])
+    entity.scope_key = str(payload.get("scope_key") or entity.scope_key or get_current_scope_key())
     entity.x = payload["x"]
     entity.y = payload["y"]
     entity.status = payload["status"]
@@ -118,6 +121,7 @@ def task_entity_to_model(entity: TaskEntity) -> Task:
     stages = [task_stage_entity_to_model(stage) for stage in sorted(entity.stages, key=lambda item: item.stage_index)]
     return Task(
         id=entity.id,
+        scope_key=getattr(entity, "scope_key", None),
         start_x=entity.start_x,
         start_y=entity.start_y,
         end_x=entity.end_x,
@@ -155,6 +159,7 @@ def task_entity_to_model(entity: TaskEntity) -> Task:
 def task_model_to_entity(model: Task, entity: TaskEntity | None = None) -> TaskEntity:
     payload = _model_dump(model)
     entity = entity or TaskEntity(id=payload["id"])
+    entity.scope_key = str(payload.get("scope_key") or entity.scope_key or get_current_scope_key())
     entity.start_x = payload["start_x"]
     entity.start_y = payload["start_y"]
     entity.end_x = payload["end_x"]
@@ -197,6 +202,7 @@ def task_model_to_entity(model: Task, entity: TaskEntity | None = None) -> TaskE
 def fault_event_entity_to_model(entity: FaultEventEntity) -> FaultEvent:
     return FaultEvent(
         id=entity.id,
+        scope_key=getattr(entity, "scope_key", None),
         agv_id=entity.agv_id,
         fault_type=entity.fault_type,
         severity=entity.severity,
@@ -213,6 +219,7 @@ def fault_event_entity_to_model(entity: FaultEventEntity) -> FaultEvent:
 def fault_event_model_to_entity(model: FaultEvent, entity: FaultEventEntity | None = None) -> FaultEventEntity:
     payload = _model_dump(model)
     entity = entity or FaultEventEntity(id=payload["id"])
+    entity.scope_key = str(payload.get("scope_key") or entity.scope_key or get_current_scope_key())
     entity.agv_id = payload["agv_id"]
     entity.task_id = payload.get("task_id")
     entity.fault_type = payload["fault_type"]

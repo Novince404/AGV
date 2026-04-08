@@ -12,6 +12,7 @@ class AgvEntity(Base):
     __tablename__ = "agv"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    scope_key: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     x: Mapped[int] = mapped_column(Integer, nullable=False)
     y: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False)
@@ -45,6 +46,7 @@ class TaskEntity(Base):
     __tablename__ = "task"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    scope_key: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     start_x: Mapped[int] = mapped_column(Integer, nullable=False)
     start_y: Mapped[int] = mapped_column(Integer, nullable=False)
     end_x: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -108,6 +110,7 @@ class FaultEventEntity(Base):
     __tablename__ = "fault_event"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    scope_key: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     agv_id: Mapped[int] = mapped_column(Integer, nullable=False)
     task_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     fault_type: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -124,6 +127,7 @@ class MapLayoutEntity(Base):
     __tablename__ = "map_layout"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    scope_key: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     scene_key: Mapped[str] = mapped_column(String(64), nullable=False, default="default")
     grid_cols: Mapped[int] = mapped_column(Integer, nullable=False)
     grid_rows: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -334,6 +338,7 @@ class UiSettingsEntity(Base):
     __tablename__ = "ui_settings"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    scope_key: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     show_minimap: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     show_marker_icons: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     show_path_arrows: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

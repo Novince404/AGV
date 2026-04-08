@@ -23,7 +23,8 @@ export function usePointTemplateBackend(options) {
     customTaskTemplates,
     normalizeTemplateStages,
     isValidGridCoordinate,
-    createApiError
+    createApiError,
+    buildAuthHeaders
   } = options
 
   const builtinPoints = builtinPointsRef ?? ref([...defaultPoints])
@@ -114,7 +115,9 @@ export function usePointTemplateBackend(options) {
 
   async function fetchPointLibraryFromBackend() {
     try {
-      const response = await fetch(`${API_BASE}/point/list`)
+      const response = await fetch(`${API_BASE}/point/list`, {
+        headers: buildAuthHeaders ? buildAuthHeaders() : undefined
+      })
       const data = await readJsonResponse(response)
       if (!response.ok) {
         throw createApiError(data, 'Load points failed')
@@ -136,7 +139,9 @@ export function usePointTemplateBackend(options) {
 
   async function fetchTaskTemplatesFromBackend() {
     try {
-      const response = await fetch(`${API_BASE}/template/list`)
+      const response = await fetch(`${API_BASE}/template/list`, {
+        headers: buildAuthHeaders ? buildAuthHeaders() : undefined
+      })
       const data = await readJsonResponse(response)
       if (!response.ok) {
         throw createApiError(data, 'Load templates failed')
@@ -215,7 +220,8 @@ export function usePointTemplateBackend(options) {
       const response = await fetch(`${API_BASE}/point/upsert`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          ...(buildAuthHeaders ? buildAuthHeaders() : {})
         },
         body: JSON.stringify(buildPointPayload(point))
       })
@@ -234,7 +240,8 @@ export function usePointTemplateBackend(options) {
   async function deletePointFromBackend(pointId) {
     try {
       const response = await fetch(`${API_BASE}/point/${encodeURIComponent(pointId)}`, {
-        method: 'DELETE'
+        method: 'DELETE',
+        headers: buildAuthHeaders ? buildAuthHeaders() : undefined
       })
       const data = await readJsonResponse(response)
       if (!response.ok) {
@@ -252,7 +259,8 @@ export function usePointTemplateBackend(options) {
     const response = await fetch(`${API_BASE}/template/upsert`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        ...(buildAuthHeaders ? buildAuthHeaders() : {})
       },
       body: JSON.stringify(buildTemplatePayload(template))
     })
@@ -292,7 +300,8 @@ export function usePointTemplateBackend(options) {
   async function deleteTemplateFromBackend(templateId) {
     try {
       const response = await fetch(`${API_BASE}/template/${encodeURIComponent(templateId)}`, {
-        method: 'DELETE'
+        method: 'DELETE',
+        headers: buildAuthHeaders ? buildAuthHeaders() : undefined
       })
       const data = await readJsonResponse(response)
       if (!response.ok) {
@@ -328,7 +337,8 @@ export function usePointTemplateBackend(options) {
         const response = await fetch(`${API_BASE}/point/upsert`, {
           method: 'POST',
           headers: {
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            ...(buildAuthHeaders ? buildAuthHeaders() : {})
           },
           body: JSON.stringify(buildPointPayload(point))
         })
@@ -367,7 +377,8 @@ export function usePointTemplateBackend(options) {
         const response = await fetch(`${API_BASE}/template/upsert`, {
           method: 'POST',
           headers: {
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            ...(buildAuthHeaders ? buildAuthHeaders() : {})
           },
           body: JSON.stringify(buildTemplatePayload(template))
         })
