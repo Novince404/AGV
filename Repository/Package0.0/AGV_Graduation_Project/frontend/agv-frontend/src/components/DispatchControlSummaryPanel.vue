@@ -71,6 +71,25 @@
       </template>
       <p v-else>{{ t('runtime_inspector_empty') }}</p>
     </section>
+
+    <section v-if="canManagePersonalAgvs" class="dispatch-summary runtime-inspector-card personal-agv-delete-card">
+      <span class="dispatch-summary-label">{{ t('agv_delete_panel_title') }}</span>
+      <template v-if="selectedBackendAgv">
+        <strong>{{ `AGV #${selectedBackendAgv.id}` }}</strong>
+        <p>{{ statusText(selectedBackendAgv.status) }}</p>
+        <div class="runtime-inspector-actions">
+          <button
+            class="btn-danger runtime-inspector-delete-button"
+            type="button"
+            :disabled="!authCanDispatchWrite || agvActionLoadingId === selectedBackendAgv.id"
+            @click="deleteSelectedPersonalAgv"
+          >
+            {{ t('agv_delete') }}
+          </button>
+        </div>
+      </template>
+      <p v-else>{{ t('agv_delete_select_hint') }}</p>
+    </section>
   </div>
 </template>
 

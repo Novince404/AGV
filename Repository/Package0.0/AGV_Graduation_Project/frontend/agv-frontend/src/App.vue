@@ -1260,6 +1260,9 @@ const runtimeHintText = computed(() => {
   }
   return `${base} ${t('hint_double_click_guest')}`
 })
+const canManagePersonalAgvs = computed(
+  () => authAuthenticated.value && authCurrentRole.value === 'personal' && effectiveSurfaceRole.value === 'personal'
+)
 const authAccountStatusLabel = computed(() => t(`auth_account_status_${authCurrentAccountStatus.value}`))
 const shortcutPreferenceScopeKey = computed(() => {
   if (!authAuthenticated.value || authCurrentRole.value === 'guest') return 'guest'
@@ -10758,6 +10761,35 @@ async function createBackendAgvAtCell(x, y) {
   }
 }
 
+async function deleteSelectedPersonalAgv() {
+  if (!selectedBackendAgv.value || !canManagePersonalAgvs.value) return
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'dispatch.write', buildCapabilityDeniedMessage('dispatch'))) {
+    return
+  }
+  if (!window.confirm(formatInlineMessage(t('agv_delete_confirm'), { id: String(selectedBackendAgv.value.id) }))) return
+
+  const agvId = Number(selectedBackendAgv.value.id)
+  agvActionLoadingId.value = agvId
+  try {
+    const res = await fetch(`${API_BASE}/agv/${agvId}`, {
+      method: 'DELETE',
+      headers: buildAuthorizedHeaders()
+    })
+    const data = await res.json()
+    if (!res.ok) {
+      throw createApiError(data, t('agv_delete_failed'))
+    }
+    cancelSelection()
+    await refreshCoreState()
+    showFloatingToast(formatInlineMessage(t('agv_delete_success'), { id: String(agvId) }), 'success')
+  } catch (error) {
+    console.error('Delete AGV error:', error)
+    showFloatingToast(error?.message || t('agv_delete_failed'), 'error')
+  } finally {
+    agvActionLoadingId.value = null
+  }
+}
+
 async function createAndScheduleDirectManualTask(manualAgv, start, end, reason = 'double_click_relocation') {
   if (!manualAgv || !start || !end) return false
   if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'dispatch.write', buildCapabilityDeniedMessage('dispatch'))) {
@@ -15421,11 +15453,16 @@ const dispatchControlSummaryPanelBindings = {
   clearPathCompare,
   algorithmCompareWorkspaceBindings,
   uiTreatAsEnterpriseRole,
+  canManagePersonalAgvs,
   selectedAgv,
+  selectedBackendAgv,
   selectedEnterpriseRuntimeDebugItems,
   statusText,
   formatEnterpriseMotionStateLabel,
-  formatAgvBatteryText
+  formatAgvBatteryText,
+  authCanDispatchWrite,
+  agvActionLoadingId,
+  deleteSelectedPersonalAgv
 }
 
 const floatingComparePanelBindings = {

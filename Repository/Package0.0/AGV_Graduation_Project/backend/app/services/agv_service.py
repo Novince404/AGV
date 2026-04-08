@@ -1,7 +1,13 @@
 from __future__ import annotations
 
 from app.models.agv import AGV
-from app.repositories.agv_repository import agv_list, create_agv as create_agv_store, get_agv_by_id, list_agvs
+from app.repositories.agv_repository import (
+    agv_list,
+    create_agv as create_agv_store,
+    delete_agv as delete_agv_store,
+    get_agv_by_id,
+    list_agvs,
+)
 from app.repositories.task_repository import list_tasks
 from app.services.operation_audit_service import record_operation_audit
 from app.utils.agv_autonomy import sync_agv_autonomy
@@ -41,6 +47,18 @@ def _find_active_task_for_agv(agv_id: int):
 def _assert_agv_can_enter_maintenance(agv):
     if agv.status in {"running", "relocating"}:
         raise_api_error(400, "agv_busy_for_maintenance")
+
+
+def _find_task_blocking_agv_delete(agv_id: int):
+    return next(
+        (
+            task
+            for task in list_tasks()
+            if task.status in {"pending", "blocked", "assigned", "running"}
+            and (task.agv_id == agv_id or getattr(task, "preferred_agv_id", None) == agv_id)
+        ),
+        None,
+    )
 
 
 def get_agvs():
@@ -100,6 +118,39 @@ def create_agv(x: int, y: int, actor: dict | None = None):
     return {
         "message": "AGV created",
         "agv": created,
+    }
+
+
+def delete_agv(agv_id: int, actor: dict | None = None):
+    agv = _find_agv(agv_id)
+
+    if actor and str(actor.get("role") or "").strip() != "personal":
+        raise_api_error(403, "agv_delete_personal_only")
+
+    blocking_task = _find_task_blocking_agv_delete(agv.id)
+    if blocking_task is not None:
+        raise_api_error(400, "agv_delete_not_allowed", task_id=blocking_task.id)
+
+    if agv.status not in {"idle", "idle_returning", "maintenance"}:
+        raise_api_error(400, "agv_delete_not_allowed")
+
+    removed = delete_agv_store(agv.id)
+    if removed is None:
+        raise_api_error(404, "agv_not_found")
+
+    record_operation_audit(
+        "agv",
+        agv.id,
+        "delete",
+        actor,
+        {
+            "source": "personal_runtime_cleanup",
+            "last_status": agv.status,
+        },
+    )
+    return {
+        "message": "AGV deleted",
+        "agv": removed,
     }
 
 

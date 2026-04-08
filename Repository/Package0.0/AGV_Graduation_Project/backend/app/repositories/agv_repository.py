@@ -35,9 +35,14 @@ def create_agv(agv):
     return _store.create_agv(agv)
 
 
+def delete_agv(agv_id: int):
+    return _store.delete_agv(agv_id)
+
+
 __all__ = [
     "agv_list",
     "create_agv",
+    "delete_agv",
     "get_agv_by_id",
     "get_first_idle_agv",
     "list_agvs",

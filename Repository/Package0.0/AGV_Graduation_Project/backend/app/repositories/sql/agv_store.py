@@ -153,9 +153,26 @@ def create_agv(agv: AGV) -> AGV:
     return created
 
 
+def delete_agv(agv_id: int) -> AGV | None:
+    _ensure_loaded()
+    target = next((item for item in agv_list if item.id == agv_id), None)
+    if target is None:
+        return None
+
+    with get_db_session() as session:
+        entity = session.get(AgvEntity, agv_id)
+        if entity is not None:
+            session.delete(entity)
+            session.commit()
+
+    agv_list[:] = [agv for agv in agv_list if agv.id != agv_id]
+    return target
+
+
 __all__ = [
     "agv_list",
     "create_agv",
+    "delete_agv",
     "get_agv_by_id",
     "get_first_idle_agv",
     "list_agvs",

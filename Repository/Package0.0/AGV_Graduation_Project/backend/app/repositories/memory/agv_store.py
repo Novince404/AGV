@@ -29,3 +29,11 @@ def create_agv(agv: AGV) -> AGV:
     created = AGV(**{**agv.model_dump(), "id": next_id})
     agv_list.append(created)
     return created
+
+
+def delete_agv(agv_id: int) -> AGV | None:
+    target = get_agv_by_id(agv_id)
+    if target is None:
+        return None
+    agv_list[:] = [agv for agv in agv_list if agv.id != agv_id]
+    return target

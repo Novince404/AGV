@@ -4645,6 +4645,16 @@ h2 {
   gap: 8px;
 }
 
+.runtime-inspector-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.runtime-inspector-delete-button {
+  min-width: 120px;
+}
+
 .algorithm-compare-panel {
   display: grid;
   gap: 10px;

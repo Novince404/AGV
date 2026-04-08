@@ -22,6 +22,12 @@ def create_agv(req: AgvCreateRequest, request: Request):
     return agv_service.create_agv(req.x, req.y, actor=actor)
 
 
+@router.delete("/{agv_id}")
+def delete_agv(agv_id: int, request: Request):
+    actor = auth_service.require_actor_capability(request, "dispatch.write", allowed_roles={"personal"})
+    return agv_service.delete_agv(agv_id, actor=actor)
+
+
 @router.post("/{agv_id}/emergency-stop")
 def emergency_stop_agv(agv_id: int, req: EmergencyStopRequest, request: Request):
     actor = auth_service.require_actor_capability(request, "fault.write")
