@@ -188,6 +188,7 @@
     "showTopologyEdgeSpeed": "显示主干道速度倍率",
     "showRuntimeSegmentType": "显示当前段类型",
     "showRuntimeConflictReason": "显示等待/让行原因",
+    "showSelectedAgvRuntimeOverlay": "在选中 AGV 头顶显示运行信息",
     "obstacleEdit": "编辑障碍",
     "obstacleHint": "开启后可点击地图格子增删障碍，保存后会同步用于路径对比与实际调度。",
     "obstaclePreset": "预设场景",
@@ -1679,9 +1680,11 @@
       "topologyDefinition": "拓扑边就是企业版主干道 / 快车道。AGV 只要当前行驶在拓扑边上，就会按主干道速度运行。",
       "topologyBaseSpeed": "普通区域使用基础速率；进入主干道后，实际速度 = 基础速率 × 该边速度倍率。",
       "topologyLaneHint": "主干道、支路、服务道都属于拓扑边，只是速度与调度优先级不同。",
-      "topologyYieldHint": "当主干道发生会车、跟驰或占用冲突时，系统会根据优先级、让行代价和任务顺序做等待、让行或重规划。",
-      "reopenHint": "已关闭操作说明。按 H 可重新打开。"
-    },
+    "topologyYieldHint": "当主干道发生会车、跟驰或占用冲突时，系统会根据优先级、让行代价和任务顺序做等待、让行或重规划。",
+    "reopenHint": "已关闭操作说明。按 H 可重新打开。"
+  },
+  "runtime_inspector_title": "已选 AGV 运行详情",
+  "runtime_inspector_empty": "选中企业版 AGV 后，会在这里显示当前段类型、速度倍率和等待原因。",
     "toolbarGuideHintText": "",
     "feedback_bell_entry": "反馈入口",
     "feedback_bell_enterprise_request_hint": "向企业内同事提交协同请求或报错",

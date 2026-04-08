@@ -92,6 +92,7 @@ class UiSettingsUpdateRequest(BaseModel):
     show_topology_edge_speed: bool = False
     show_runtime_segment_type: bool = False
     show_runtime_conflict_reason: bool = False
+    show_selected_agv_runtime_overlay: bool = False
     status_legend_layout: Literal["horizontal", "vertical"] = "horizontal"
     status_legend_opacity: float = 0.55
     base_speed: float = 1.11

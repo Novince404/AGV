@@ -16,6 +16,7 @@ export function useLocalPersistence(options) {
     showTopologyEdgeSpeed,
     showRuntimeSegmentType,
     showRuntimeConflictReason,
+    showSelectedAgvRuntimeOverlay,
     statusLegendLayout,
     statusLegendOpacity,
     baseSpeed,
@@ -231,6 +232,9 @@ export function useLocalPersistence(options) {
       if (typeof parsed?.showRuntimeConflictReason === 'boolean') {
         showRuntimeConflictReason.value = parsed.showRuntimeConflictReason
       }
+      if (typeof parsed?.showSelectedAgvRuntimeOverlay === 'boolean') {
+        showSelectedAgvRuntimeOverlay.value = parsed.showSelectedAgvRuntimeOverlay
+      }
       if (parsed?.statusLegendLayout === 'horizontal' || parsed?.statusLegendLayout === 'vertical') {
         statusLegendLayout.value = parsed.statusLegendLayout
       }
@@ -299,6 +303,7 @@ export function useLocalPersistence(options) {
           showTopologyEdgeSpeed: showTopologyEdgeSpeed.value,
           showRuntimeSegmentType: showRuntimeSegmentType.value,
           showRuntimeConflictReason: showRuntimeConflictReason.value,
+          showSelectedAgvRuntimeOverlay: showSelectedAgvRuntimeOverlay.value,
           statusLegendLayout: statusLegendLayout.value,
           statusLegendOpacity: statusLegendOpacity.value,
           baseSpeed: baseSpeed.value,

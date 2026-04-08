@@ -188,6 +188,7 @@
     "showTopologyEdgeSpeed": "主幹レーン速度を表示",
     "showRuntimeSegmentType": "現在区間タイプを表示",
     "showRuntimeConflictReason": "待機 / 譲り理由を表示",
+    "showSelectedAgvRuntimeOverlay": "選択中 AGV の上に運行情報を表示",
     "obstacleEdit": "障害物を編集",
     "obstacleHint": "有効にするとマップセルをクリックして障害物を追加・削除できます。保存後、経路比較と実際のスケジューリングに反映されます。",
     "obstaclePreset": "プリセットシーン",
@@ -1682,6 +1683,8 @@
       "topologyYieldHint": "主幹レーンで対向・追従・占有の衝突が起きた場合、システムは優先度、譲りコスト、タスク順序に基づいて待機・譲り・再計画を決定します。",
       "reopenHint": "ガイドを閉じました。H キーで再度開けます。"
     },
+    "runtime_inspector_title": "選択中 AGV の運行詳細",
+    "runtime_inspector_empty": "企業版 AGV を選択すると、ここに現在区間タイプ、速度倍率、待機理由が表示されます。",
     "toolbarGuideHintText": "",
     "feedback_bell_entry": "フィードバック",
     "feedback_bell_enterprise_request_hint": "企業内メンバーへ協同依頼や不具合報告を送信",

@@ -15,6 +15,7 @@ export function useUiSettingsBackend(options) {
     showTopologyEdgeSpeed,
     showRuntimeSegmentType,
     showRuntimeConflictReason,
+    showSelectedAgvRuntimeOverlay,
     statusLegendLayout,
     statusLegendOpacity,
     baseSpeed,
@@ -81,6 +82,9 @@ export function useUiSettingsBackend(options) {
       if (typeof payload?.show_runtime_conflict_reason === 'boolean') {
         showRuntimeConflictReason.value = payload.show_runtime_conflict_reason
       }
+      if (typeof payload?.show_selected_agv_runtime_overlay === 'boolean') {
+        showSelectedAgvRuntimeOverlay.value = payload.show_selected_agv_runtime_overlay
+      }
       if (payload?.status_legend_layout === 'horizontal' || payload?.status_legend_layout === 'vertical') {
         statusLegendLayout.value = payload.status_legend_layout
       }
@@ -138,6 +142,7 @@ export function useUiSettingsBackend(options) {
       show_topology_edge_speed: showTopologyEdgeSpeed.value,
       show_runtime_segment_type: showRuntimeSegmentType.value,
       show_runtime_conflict_reason: showRuntimeConflictReason.value,
+      show_selected_agv_runtime_overlay: showSelectedAgvRuntimeOverlay.value,
       status_legend_layout: statusLegendLayout.value,
       status_legend_opacity: Number(statusLegendOpacity.value),
       base_speed: Number(baseSpeed.value),
@@ -223,6 +228,7 @@ export function useUiSettingsBackend(options) {
       showTopologyEdgeSpeed,
       showRuntimeSegmentType,
       showRuntimeConflictReason,
+      showSelectedAgvRuntimeOverlay,
       statusLegendLayout,
       statusLegendOpacity,
       baseSpeed,

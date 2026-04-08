@@ -626,6 +626,7 @@ const showStatusLegend = ref(true)
 const showTopologyEdgeSpeed = ref(false)
 const showRuntimeSegmentType = ref(false)
 const showRuntimeConflictReason = ref(false)
+const showSelectedAgvRuntimeOverlay = ref(false)
 const statusLegendLayout = ref('horizontal')
 const statusLegendOpacity = ref(0.55)
 const baseSpeed = ref(1.11)
@@ -5001,18 +5002,22 @@ const toolbarSelectedAgvText = computed(() => {
     return 'No AGV'
   }
   const batteryText = formatAgvBatteryText(selectedAgv.value)
-  const runtimeModeText =
-    uiTreatAsEnterpriseRole.value && selectedAgv.value?.source === 'backend'
-      ? formatEnterpriseRuntimeModeChip(selectedAgv.value)
-      : ''
   const summaryPrefix = batteryText
     ? `#${selectedAgv.value.id} ${compactStatusText(selectedAgv.value.status)} · ${Math.round(Number(selectedAgv.value.battery_level))}%`
     : `#${selectedAgv.value.id} ${compactStatusText(selectedAgv.value.status)}`
-  return runtimeModeText ? `${summaryPrefix} · ${runtimeModeText}` : summaryPrefix
+  return summaryPrefix
 })
 const selectedEnterpriseRuntimeDebugItems = computed(() => {
   if (!selectedAgv.value) return []
   return buildEnterpriseRuntimeDebugItems(selectedAgv.value)
+})
+const selectedAgvRuntimeOverlayItems = computed(() => {
+  if (!showSelectedAgvRuntimeOverlay.value || !selectedAgv.value || selectedAgv.value.source !== 'backend' || !uiTreatAsEnterpriseRole.value) {
+    return []
+  }
+  return buildEnterpriseRuntimeDebugItems(selectedAgv.value).filter(item =>
+    ['segment', 'speed', 'reason'].includes(String(item.key || ''))
+  )
 })
 const toolbarSelectedAgvTitle = computed(() => {
   if (!selectedAgv.value) return selectedAgvSummaryText.value
@@ -5621,6 +5626,7 @@ const {
   showTopologyEdgeSpeed,
   showRuntimeSegmentType,
   showRuntimeConflictReason,
+  showSelectedAgvRuntimeOverlay,
   statusLegendLayout,
   statusLegendOpacity,
   baseSpeed,
@@ -5665,8 +5671,15 @@ const {
   showMarkerIcons,
   showPathArrows,
   showStatusLegend,
+  showTopologyEdgeSpeed,
+  showRuntimeSegmentType,
+  showRuntimeConflictReason,
+  showSelectedAgvRuntimeOverlay,
   statusLegendLayout,
   statusLegendOpacity,
+  baseSpeed,
+  followDistance,
+  deadlockTimeoutSec,
   idleReturnTimeoutSec,
   idleChargeTimeoutSec,
   batteryActiveDrainPerSec,
@@ -15406,7 +15419,13 @@ const dispatchControlSummaryPanelBindings = {
   pathCompareResult,
   pathCompareError,
   clearPathCompare,
-  algorithmCompareWorkspaceBindings
+  algorithmCompareWorkspaceBindings,
+  uiTreatAsEnterpriseRole,
+  selectedAgv,
+  selectedEnterpriseRuntimeDebugItems,
+  statusText,
+  formatEnterpriseMotionStateLabel,
+  formatAgvBatteryText
 }
 
 const floatingComparePanelBindings = {
@@ -15437,6 +15456,7 @@ const mapSettingsPanelBindings = {
   showTopologyEdgeSpeed,
   showRuntimeSegmentType,
   showRuntimeConflictReason,
+  showSelectedAgvRuntimeOverlay,
   enterpriseTopologyViewAvailable,
   topologyViewMode,
   showGuideCenterOnLoad,
@@ -15818,6 +15838,7 @@ const enterpriseSettingsDialogBindings = {
   showTopologyEdgeSpeed,
   showRuntimeSegmentType,
   showRuntimeConflictReason,
+  showSelectedAgvRuntimeOverlay,
   statusLegendLayout,
   enterpriseTopologyViewAvailable,
   topologyViewMode,
@@ -16374,16 +16395,6 @@ onBeforeUnmount(() => {
             <span>{{ t('account_governance_entry') }}</span>
           </button>
         </div>
-        <div v-if="selectedEnterpriseRuntimeDebugItems.length" class="toolbar-runtime-strip">
-          <span
-            v-for="item in selectedEnterpriseRuntimeDebugItems"
-            :key="`runtime-debug-${item.key}`"
-            class="toolbar-runtime-chip"
-            :class="`tone-${item.tone}`"
-          >
-            {{ item.text }}
-          </span>
-        </div>
         <p class="toolbar-hint">{{ runtimeHintText }}</p>
         <p v-if="toolbarGuideHintText" class="toolbar-hint toolbar-hint-secondary">{{ toolbarGuideHintText }}</p>
       </div>
@@ -16876,6 +16887,31 @@ onBeforeUnmount(() => {
               @contextmenu.prevent="cancelSelection"
             >
               {{ agv.id }}
+            </div>
+
+            <div
+              v-if="
+                selectedAgvRuntimeOverlayItems.length &&
+                selectedAgv &&
+                selectedAgv.source === 'backend' &&
+                uiTreatAsEnterpriseRole &&
+                Number.isFinite(selectedAgv.displayX) &&
+                Number.isFinite(selectedAgv.displayY)
+              "
+              class="agv-runtime-overlay"
+              :style="{
+                left: `${selectedAgv.displayX * CELL_SIZE + CELL_SIZE / 2}px`,
+                top: `${selectedAgv.displayY * CELL_SIZE - 6}px`
+              }"
+            >
+              <span
+                v-for="item in selectedAgvRuntimeOverlayItems"
+                :key="`selected-agv-overlay-${item.key}`"
+                class="agv-runtime-overlay-chip"
+                :class="`tone-${item.tone}`"
+              >
+                {{ item.text }}
+              </span>
             </div>
           </div>
 

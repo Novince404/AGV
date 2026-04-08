@@ -1813,6 +1813,10 @@
                   <input v-model="showRuntimeConflictReason" type="checkbox" />
                   <span>{{ settingsLocale.showRuntimeConflictReason }}</span>
                 </label>
+                <label class="map-setting-row">
+                  <input v-model="showSelectedAgvRuntimeOverlay" type="checkbox" />
+                  <span>{{ settingsLocale.showSelectedAgvRuntimeOverlay }}</span>
+                </label>
                 <div class="enterprise-page-settings-shortcut-list">
                   <div
                     v-for="entry in shortcutGuideEntries"

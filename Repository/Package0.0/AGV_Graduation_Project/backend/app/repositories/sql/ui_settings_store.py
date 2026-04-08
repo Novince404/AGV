@@ -27,6 +27,8 @@ def _ensure_schema() -> None:
         ddl_statements.append("ALTER TABLE ui_settings ADD COLUMN show_runtime_segment_type BOOLEAN NOT NULL DEFAULT 0")
     if "show_runtime_conflict_reason" not in columns:
         ddl_statements.append("ALTER TABLE ui_settings ADD COLUMN show_runtime_conflict_reason BOOLEAN NOT NULL DEFAULT 0")
+    if "show_selected_agv_runtime_overlay" not in columns:
+        ddl_statements.append("ALTER TABLE ui_settings ADD COLUMN show_selected_agv_runtime_overlay BOOLEAN NOT NULL DEFAULT 0")
     if "base_speed" not in columns:
         ddl_statements.append("ALTER TABLE ui_settings ADD COLUMN base_speed FLOAT NOT NULL DEFAULT 1.11")
     if "follow_distance" not in columns:
@@ -62,6 +64,7 @@ def _entity_to_payload(entity: UiSettingsEntity) -> dict:
         "show_topology_edge_speed": bool(entity.show_topology_edge_speed),
         "show_runtime_segment_type": bool(entity.show_runtime_segment_type),
         "show_runtime_conflict_reason": bool(entity.show_runtime_conflict_reason),
+        "show_selected_agv_runtime_overlay": bool(entity.show_selected_agv_runtime_overlay),
         "status_legend_layout": entity.status_legend_layout,
         "status_legend_opacity": float(entity.status_legend_opacity),
         "base_speed": float(entity.base_speed),
@@ -87,6 +90,7 @@ def _apply_payload(entity: UiSettingsEntity, payload: dict) -> UiSettingsEntity:
     entity.show_topology_edge_speed = bool(payload.get("show_topology_edge_speed", False))
     entity.show_runtime_segment_type = bool(payload.get("show_runtime_segment_type", False))
     entity.show_runtime_conflict_reason = bool(payload.get("show_runtime_conflict_reason", False))
+    entity.show_selected_agv_runtime_overlay = bool(payload.get("show_selected_agv_runtime_overlay", False))
     entity.status_legend_layout = str(payload["status_legend_layout"])
     entity.status_legend_opacity = float(payload["status_legend_opacity"])
     entity.base_speed = float(payload.get("base_speed", 1.11))

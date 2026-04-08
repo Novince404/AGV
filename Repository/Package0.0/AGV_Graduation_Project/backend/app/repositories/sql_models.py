@@ -341,6 +341,7 @@ class UiSettingsEntity(Base):
     show_topology_edge_speed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     show_runtime_segment_type: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     show_runtime_conflict_reason: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    show_selected_agv_runtime_overlay: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     status_legend_layout: Mapped[str] = mapped_column(String(16), nullable=False, default="horizontal")
     status_legend_opacity: Mapped[float] = mapped_column(Float, nullable=False, default=0.55)
     base_speed: Mapped[float] = mapped_column(Float, nullable=False, default=1.11)

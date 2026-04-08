@@ -188,6 +188,7 @@
     "showTopologyEdgeSpeed": "Show Trunk Lane Speed",
     "showRuntimeSegmentType": "Show Current Segment Type",
     "showRuntimeConflictReason": "Show Wait / Yield Reason",
+    "showSelectedAgvRuntimeOverlay": "Show Runtime Info Above Selected AGV",
     "obstacleEdit": "Edit Obstacles",
     "obstacleHint": "When enabled, click map cells to add or remove blocked cells. Save applies to future comparison and dispatch.",
     "obstaclePreset": "Preset Scene",
@@ -1682,6 +1683,8 @@
       "topologyYieldHint": "When a trunk lane has head-on traffic, following conflicts, or occupancy conflicts, the system decides whether to wait, yield, or replan based on priority, yield cost, and task order.",
       "reopenHint": "Guide closed. Press H to reopen it."
     },
+    "runtime_inspector_title": "Selected AGV Runtime",
+    "runtime_inspector_empty": "Select an enterprise AGV to view the current segment type, speed multiplier, and wait reason here.",
     "toolbarGuideHintText": "",
     "feedback_bell_entry": "Feedback",
     "feedback_bell_enterprise_request_hint": "Send an internal enterprise request or issue report",

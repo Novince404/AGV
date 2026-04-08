@@ -45,6 +45,32 @@
         <AlgorithmCompareWorkspace :ui="algorithmCompareWorkspaceBindings" />
       </template>
     </div>
+
+    <section v-if="uiTreatAsEnterpriseRole" class="dispatch-summary runtime-inspector-card">
+      <span class="dispatch-summary-label">{{ t('runtime_inspector_title') }}</span>
+      <template v-if="selectedAgv && selectedAgv.source === 'backend'">
+        <strong>
+          {{ `AGV #${selectedAgv.id}` }}
+          <span v-if="formatAgvBatteryText(selectedAgv)" class="runtime-inspector-battery">
+            · {{ formatAgvBatteryText(selectedAgv) }}
+          </span>
+        </strong>
+        <p>
+          {{ statusText(selectedAgv.status) }} · {{ formatEnterpriseMotionStateLabel(selectedAgv.motionState) }}
+        </p>
+        <div v-if="selectedEnterpriseRuntimeDebugItems.length" class="runtime-inspector-chips">
+          <span
+            v-for="item in selectedEnterpriseRuntimeDebugItems"
+            :key="`runtime-inspector-${item.key}`"
+            class="runtime-inspector-chip"
+            :class="`tone-${item.tone}`"
+          >
+            {{ item.text }}
+          </span>
+        </div>
+      </template>
+      <p v-else>{{ t('runtime_inspector_empty') }}</p>
+    </section>
   </div>
 </template>
 
