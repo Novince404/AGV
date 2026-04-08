@@ -210,7 +210,7 @@ class MapLayoutTopologyEdgeEntity(Base):
 class MapPresetEntity(Base):
     __tablename__ = "map_preset"
 
-    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    id: Mapped[str] = mapped_column(String(191), primary_key=True)
     custom_name: Mapped[str] = mapped_column(String(128), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     custom: Mapped[bool] = mapped_column(nullable=False, default=True)
@@ -231,7 +231,7 @@ class MapPresetCellEntity(Base):
     __tablename__ = "map_preset_cell"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    preset_id: Mapped[str] = mapped_column(ForeignKey("map_preset.id"), nullable=False, index=True)
+    preset_id: Mapped[str] = mapped_column(String(191), ForeignKey("map_preset.id"), nullable=False, index=True)
     x: Mapped[int] = mapped_column(Integer, nullable=False)
     y: Mapped[int] = mapped_column(Integer, nullable=False)
 
@@ -242,7 +242,7 @@ class MapPresetValidCellEntity(Base):
     __tablename__ = "map_preset_valid_cell"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    preset_id: Mapped[str] = mapped_column(ForeignKey("map_preset.id"), nullable=False, index=True)
+    preset_id: Mapped[str] = mapped_column(String(191), ForeignKey("map_preset.id"), nullable=False, index=True)
     x: Mapped[int] = mapped_column(Integer, nullable=False)
     y: Mapped[int] = mapped_column(Integer, nullable=False)
 
@@ -252,7 +252,7 @@ class MapPresetValidCellEntity(Base):
 class MapProfileEntity(Base):
     __tablename__ = "map_profile"
 
-    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    id: Mapped[str] = mapped_column(String(191), primary_key=True)
     custom_name: Mapped[str] = mapped_column(String(128), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     grid_cols: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -285,7 +285,7 @@ class MapProfileCellEntity(Base):
     __tablename__ = "map_profile_cell"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    profile_id: Mapped[str] = mapped_column(ForeignKey("map_profile.id"), nullable=False, index=True)
+    profile_id: Mapped[str] = mapped_column(String(191), ForeignKey("map_profile.id"), nullable=False, index=True)
     x: Mapped[int] = mapped_column(Integer, nullable=False)
     y: Mapped[int] = mapped_column(Integer, nullable=False)
 
@@ -296,7 +296,7 @@ class MapProfileValidCellEntity(Base):
     __tablename__ = "map_profile_valid_cell"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    profile_id: Mapped[str] = mapped_column(ForeignKey("map_profile.id"), nullable=False, index=True)
+    profile_id: Mapped[str] = mapped_column(String(191), ForeignKey("map_profile.id"), nullable=False, index=True)
     x: Mapped[int] = mapped_column(Integer, nullable=False)
     y: Mapped[int] = mapped_column(Integer, nullable=False)
 
@@ -307,7 +307,7 @@ class MapProfileTopologyNodeEntity(Base):
     __tablename__ = "map_profile_topology_node"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    profile_id: Mapped[str] = mapped_column(ForeignKey("map_profile.id"), nullable=False, index=True)
+    profile_id: Mapped[str] = mapped_column(String(191), ForeignKey("map_profile.id"), nullable=False, index=True)
     node_key: Mapped[str] = mapped_column(String(64), nullable=False)
     x: Mapped[int] = mapped_column(Integer, nullable=False)
     y: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -322,7 +322,7 @@ class MapProfileTopologyEdgeEntity(Base):
     __tablename__ = "map_profile_topology_edge"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    profile_id: Mapped[str] = mapped_column(ForeignKey("map_profile.id"), nullable=False, index=True)
+    profile_id: Mapped[str] = mapped_column(String(191), ForeignKey("map_profile.id"), nullable=False, index=True)
     edge_key: Mapped[str] = mapped_column(String(64), nullable=False)
     source_key: Mapped[str] = mapped_column(String(64), nullable=False)
     target_key: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -512,7 +512,7 @@ class OperationAuditEntity(Base):
 class PointLibraryEntity(Base):
     __tablename__ = "point_library"
 
-    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    id: Mapped[str] = mapped_column(String(191), primary_key=True)
     x: Mapped[int] = mapped_column(Integer, nullable=False)
     y: Mapped[int] = mapped_column(Integer, nullable=False)
     name_key: Mapped[str | None] = mapped_column(String(128), nullable=True)
@@ -525,7 +525,7 @@ class PointLibraryEntity(Base):
 class TaskTemplateEntity(Base):
     __tablename__ = "task_template"
 
-    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    id: Mapped[str] = mapped_column(String(191), primary_key=True)
     priority: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     name_key: Mapped[str | None] = mapped_column(String(128), nullable=True)
     custom_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
@@ -542,7 +542,7 @@ class TaskTemplateStageEntity(Base):
     __tablename__ = "task_template_stage"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    template_id: Mapped[str] = mapped_column(ForeignKey("task_template.id"), nullable=False, index=True)
+    template_id: Mapped[str] = mapped_column(String(191), ForeignKey("task_template.id"), nullable=False, index=True)
     stage_index: Mapped[int] = mapped_column(Integer, nullable=False)
     start_x: Mapped[int] = mapped_column(Integer, nullable=False)
     start_y: Mapped[int] = mapped_column(Integer, nullable=False)
