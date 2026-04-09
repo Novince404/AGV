@@ -10612,6 +10612,67 @@ async function refreshStateAfterDispatchStarted() {
   await Promise.all([fetchAgvs(), fetchTasks()])
 }
 
+function resolveFirstScheduleMotionSegment(scheduleData) {
+  const pathToStart = Array.isArray(scheduleData?.path_to_start) ? scheduleData.path_to_start : []
+  const pathToEnd = Array.isArray(scheduleData?.path_to_end) ? scheduleData.path_to_end : []
+  const activePath = pathToStart.length > 1 ? pathToStart : pathToEnd.length > 1 ? pathToEnd : []
+  if (activePath.length < 2) return null
+  const source = activePath[0]
+  const target = activePath[1]
+  if (!source || !target) return null
+  const sourceX = Number(source.x)
+  const sourceY = Number(source.y)
+  const targetX = Number(target.x)
+  const targetY = Number(target.y)
+  if (![sourceX, sourceY, targetX, targetY].every(Number.isFinite)) return null
+  return {
+    sourceX,
+    sourceY,
+    targetX,
+    targetY,
+    status: pathToStart.length > 1 ? 'relocating' : 'running'
+  }
+}
+
+function primeAgvFirstMotionFrame(scheduleData) {
+  const agvId = Number(scheduleData?.agv?.id ?? scheduleData?.task?.agv_id)
+  if (!Number.isFinite(agvId)) return
+  const segment = resolveFirstScheduleMotionSegment(scheduleData)
+  if (!segment) return
+  const now = new Date().toISOString()
+  const motionDurationMs = 900
+  const nextAgvs = agvs.value.map(agv => {
+    if (Number(agv?.id) !== agvId) return agv
+    return {
+      ...agv,
+      task_id: Number(scheduleData?.task?.id ?? agv.task_id ?? 0) || agv.task_id,
+      status: segment.status,
+      x: segment.targetX,
+      y: segment.targetY,
+      render_x: segment.sourceX,
+      render_y: segment.sourceY,
+      current_node: `grid:${segment.sourceX}:${segment.sourceY}`,
+      current_edge: `grid:${segment.sourceX}:${segment.sourceY}->grid:${segment.targetX}:${segment.targetY}`,
+      edge_progress: 0,
+      motion_state: segment.status,
+      segment_mode: 'grid',
+      current_lane_type: null,
+      current_speed_multiplier: 1,
+      current_speed: 1,
+      target_speed: 1,
+      motion_started_at: now,
+      motion_updated_at: now,
+      motion_duration_ms: motionDurationMs,
+      motion_source_x: segment.sourceX,
+      motion_source_y: segment.sourceY,
+      motion_target_x: segment.targetX,
+      motion_target_y: segment.targetY
+    }
+  })
+  agvs.value = nextAgvs
+  agvAnimationNow.value = Date.now()
+}
+
 function cancelSelection() {
   selectedAgvId.value = null
   clearManualDispatchPreview()
@@ -10687,8 +10748,12 @@ function syncDisplayedPathsFromTasks() {
     manualPathToStart.value = manualTask.path_to_start ?? []
     manualPathToEnd.value = manualTask.path_to_end ?? []
   } else {
+    const trackedManualTask = trackedManualTaskId.value
+      ? tasks.value.find(task => task.id === trackedManualTaskId.value)
+      : null
+    const trackedManualTaskEnded = ['finished', 'cancelled'].includes(String(trackedManualTask?.status || ''))
     const shouldHoldManualPreview =
-      Boolean(trackedManualTaskId.value) && manualPreviewMinVisibleUntil.value > Date.now()
+      Boolean(trackedManualTaskId.value) && !trackedManualTaskEnded && manualPreviewMinVisibleUntil.value > Date.now()
     const shouldHoldAutoDraft =
       dispatchMode.value === 'auto' &&
       (autoDraftPicking.value || taskChainMapPickActive.value || mapDraftPrimedMode.value === 'auto')
@@ -10970,10 +11035,11 @@ async function createAndScheduleDirectManualTask(manualAgv, start, end, reason =
     manualDraftPicking.value = false
     manualDispatchStep.value = 'running'
     trackedManualTaskId.value = scheduleData.task.id
-    await refreshStateAfterDispatchStarted()
     applyTaskDisplayMarkers(scheduleData.task, createData.task)
     manualPathToStart.value = scheduleData.path_to_start ?? []
     manualPathToEnd.value = scheduleData.path_to_end ?? scheduleData.path ?? []
+    primeAgvFirstMotionFrame(scheduleData)
+    await refreshStateAfterDispatchStarted()
     bumpManualPreviewMinVisible()
     return true
   } catch (error) {
@@ -11400,19 +11466,21 @@ async function createTaskAndSchedule(agvId, requestedStartPoint = startPoint.val
       manualPathToEnd.value = []
       trackedManualTaskId.value = scheduleData.task.id
       manualDispatchStep.value = 'running'
-      await refreshStateAfterDispatchStarted()
       applyTaskDisplayMarkers(scheduleData.task, createData.task)
       manualPathToStart.value = scheduleData.path_to_start ?? []
       manualPathToEnd.value = scheduleData.path_to_end ?? scheduleData.path ?? []
+      primeAgvFirstMotionFrame(scheduleData)
+      await refreshStateAfterDispatchStarted()
       manualDraftPicking.value = false
       bumpManualPreviewMinVisible()
     } else {
       preferredRuntimeDisplayMode.value = 'auto'
       clearAutoPaths()
-      await refreshStateAfterDispatchStarted()
-      clearAutoMarkers()
       autoPathToStart.value = scheduleData.path_to_start ?? []
       autoPathToEnd.value = scheduleData.path_to_end ?? scheduleData.path ?? []
+      primeAgvFirstMotionFrame(scheduleData)
+      await refreshStateAfterDispatchStarted()
+      clearAutoMarkers()
     }
   } catch (error) {
     console.error('Schedule error:', error)
@@ -14180,12 +14248,30 @@ function ensureAgvAnimationLoop() {
   agvAnimationFrameHandle = window.requestAnimationFrame(runAgvAnimationLoop)
 }
 
+function didAgvTaskBindingJustComplete(previousAgvs, nextAgv) {
+  const agvId = Number(nextAgv?.id)
+  if (!Number.isFinite(agvId)) return false
+  const previousAgv = previousAgvs.find(agv => Number(agv?.id) === agvId)
+  const previousTaskId = Number(previousAgv?.task_id)
+  if (!Number.isFinite(previousTaskId) || previousTaskId <= 0) return false
+  const nextTaskId = Number(nextAgv?.task_id)
+  if (Number.isFinite(nextTaskId) && nextTaskId > 0) return false
+  return ['idle', 'idle_returning', 'charging', 'fault', 'emergency_stop'].includes(String(nextAgv?.status || ''))
+}
+
 async function fetchAgvs() {
+  const previousAgvs = agvs.value
   const res = await fetch(`${API_BASE}/agv/list`, {
     headers: buildAuthorizedHeaders()
   })
-  agvs.value = await res.json()
+  const nextAgvs = await res.json()
+  const shouldRefreshCompletedTask = nextAgvs.some(agv => didAgvTaskBindingJustComplete(previousAgvs, agv))
+  agvs.value = nextAgvs
   agvAnimationNow.value = Date.now()
+  if (shouldRefreshCompletedTask) {
+    await fetchTasks()
+    syncDisplayedPathsFromTasks()
+  }
 }
 
 async function fetchTasks() {
@@ -15079,7 +15165,12 @@ watch(
       return
     }
 
-    if (['finished', 'blocked', 'failed'].includes(trackedTask.status)) {
+    if (trackedTask.status === 'finished') {
+      cancelSelection()
+      return
+    }
+
+    if (['blocked', 'failed'].includes(trackedTask.status)) {
       if (trackedTask.status === 'blocked' && isRecoveryRequiredTask(trackedTask)) {
         // Keep AGV selected after emergency stop so operator context does not vanish.
         trackedManualTaskId.value = null

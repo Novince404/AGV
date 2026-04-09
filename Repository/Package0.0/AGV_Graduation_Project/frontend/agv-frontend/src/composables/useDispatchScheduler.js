@@ -118,11 +118,9 @@ export function useDispatchScheduler(options) {
         return
       }
 
-      autoPathToStart.value = []
-      autoPathToEnd.value = []
-      await refreshAfterScheduleStarts()
       autoPathToStart.value = scheduleData.path_to_start ?? []
       autoPathToEnd.value = scheduleData.path_to_end ?? scheduleData.path ?? []
+      await refreshAfterScheduleStarts()
     } catch (error) {
       console.error('Auto schedule error:', error)
     } finally {
@@ -189,11 +187,9 @@ export function useDispatchScheduler(options) {
             : resolveTaskDisplayEndMarkerLocal(displayTask)
         manualDispatchStep.value = 'running'
         bumpManualPreviewMinVisible()
-        manualPathToStart.value = []
-        manualPathToEnd.value = []
-        await refreshAfterScheduleStarts()
         manualPathToStart.value = scheduleData.path_to_start ?? []
         manualPathToEnd.value = scheduleData.path_to_end ?? scheduleData.path ?? []
+        await refreshAfterScheduleStarts()
       } else {
         await refreshAfterScheduleStarts()
       }
