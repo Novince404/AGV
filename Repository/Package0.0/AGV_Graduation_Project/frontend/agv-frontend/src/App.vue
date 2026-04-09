@@ -593,6 +593,7 @@ const manualPathToStart = ref([])
 const manualPathToEnd = ref([])
 const autoPathToStart = ref([])
 const autoPathToEnd = ref([])
+const runtimeRouteOverlay = ref(null)
 const layoutRef = ref(null)
 const mapSettingsPanelRef = ref(null)
 const mapViewportRef = ref(null)
@@ -4153,14 +4154,33 @@ const filteredFaultEvents = computed(() => {
   return faultEvents.value.filter(event => event.status === faultEventFilter.value)
 })
 
-const manualPathToStartPoints = computed(() => toSvgPoints(manualPathToStart.value))
-const manualPathToEndPoints = computed(() => toSvgPoints(manualPathToEnd.value))
-const autoPathToStartPoints = computed(() => toSvgPoints(autoPathToStart.value))
-const autoPathToEndPoints = computed(() => toSvgPoints(autoPathToEnd.value))
-const manualPathToStartArrows = computed(() => toArrowSegments(manualPathToStart.value))
-const manualPathToEndArrows = computed(() => toArrowSegments(manualPathToEnd.value))
-const autoPathToStartArrows = computed(() => toArrowSegments(autoPathToStart.value))
-const autoPathToEndArrows = computed(() => toArrowSegments(autoPathToEnd.value))
+function runtimeRouteOverlayPath(mode, field) {
+  const overlay = runtimeRouteOverlay.value
+  if (!overlay || overlay.mode !== mode) return []
+  const path = overlay[field]
+  return Array.isArray(path) ? path : []
+}
+
+const displayedManualPathToStart = computed(() =>
+  manualPathToStart.value.length ? manualPathToStart.value : runtimeRouteOverlayPath('manual', 'pathToStart')
+)
+const displayedManualPathToEnd = computed(() =>
+  manualPathToEnd.value.length ? manualPathToEnd.value : runtimeRouteOverlayPath('manual', 'pathToEnd')
+)
+const displayedAutoPathToStart = computed(() =>
+  autoPathToStart.value.length ? autoPathToStart.value : runtimeRouteOverlayPath('auto', 'pathToStart')
+)
+const displayedAutoPathToEnd = computed(() =>
+  autoPathToEnd.value.length ? autoPathToEnd.value : runtimeRouteOverlayPath('auto', 'pathToEnd')
+)
+const manualPathToStartPoints = computed(() => toSvgPoints(displayedManualPathToStart.value))
+const manualPathToEndPoints = computed(() => toSvgPoints(displayedManualPathToEnd.value))
+const autoPathToStartPoints = computed(() => toSvgPoints(displayedAutoPathToStart.value))
+const autoPathToEndPoints = computed(() => toSvgPoints(displayedAutoPathToEnd.value))
+const manualPathToStartArrows = computed(() => toArrowSegments(displayedManualPathToStart.value))
+const manualPathToEndArrows = computed(() => toArrowSegments(displayedManualPathToEnd.value))
+const autoPathToStartArrows = computed(() => toArrowSegments(displayedAutoPathToStart.value))
+const autoPathToEndArrows = computed(() => toArrowSegments(displayedAutoPathToEnd.value))
 const isCompactLayout = computed(() => windowWidth.value <= 960)
 const shouldShowAutoPath = computed(() => dispatchMode.value === 'auto' && showAutoPath.value)
 const suppressAutoRuntimeVisuals = computed(
@@ -4511,16 +4531,16 @@ const obstacleLayoutDirty = computed(() => {
   return false
 })
 const minimapManualPathToStartPoints = computed(() =>
-  toSvgPoints(manualPathToStart.value, minimapCellSize.value)
+  toSvgPoints(displayedManualPathToStart.value, minimapCellSize.value)
 )
 const minimapManualPathToEndPoints = computed(() =>
-  toSvgPoints(manualPathToEnd.value, minimapCellSize.value)
+  toSvgPoints(displayedManualPathToEnd.value, minimapCellSize.value)
 )
 const minimapAutoPathToStartPoints = computed(() =>
-  toSvgPoints(autoPathToStart.value, minimapCellSize.value)
+  toSvgPoints(displayedAutoPathToStart.value, minimapCellSize.value)
 )
 const minimapAutoPathToEndPoints = computed(() =>
-  toSvgPoints(autoPathToEnd.value, minimapCellSize.value)
+  toSvgPoints(displayedAutoPathToEnd.value, minimapCellSize.value)
 )
 const minimapViewportStyle = computed(() => {
   const scale = minimapScale.value
@@ -10556,12 +10576,19 @@ const { tryAutoSchedule, tryManualBoundSchedule, scheduleAutoIfReady } = useDisp
   resolveTaskStartMarker,
   resolveTaskEndMarker,
   resolveTaskOverallEndMarker,
-  bumpManualPreviewMinVisible
+  bumpManualPreviewMinVisible,
+  rememberRuntimeRouteOverlay,
+  primeAgvFirstMotionFrame
 })
 
 function clearAutoPaths() {
   autoPathToStart.value = []
   autoPathToEnd.value = []
+}
+
+function clearRuntimeRouteOverlay(taskId = null) {
+  if (taskId !== null && Number(runtimeRouteOverlay.value?.taskId) !== Number(taskId)) return
+  runtimeRouteOverlay.value = null
 }
 
 function clearAutoMarkers() {
@@ -10599,6 +10626,7 @@ function clearManualDispatchPreview() {
   startPoint.value = null
   endPoint.value = null
   clearManualPaths()
+  clearRuntimeRouteOverlay()
 }
 
 function bumpManualPreviewMinVisible(durationMs = 1400) {
@@ -10610,6 +10638,23 @@ async function refreshStateAfterDispatchStarted() {
   // first continuous-motion frame arrive in the same UI refresh.
   await new Promise(resolve => setTimeout(resolve, 90))
   await Promise.all([fetchAgvs(), fetchTasks()])
+}
+
+function rememberRuntimeRouteOverlay(scheduleData, mode) {
+  const taskId = Number(scheduleData?.task?.id)
+  if (!Number.isFinite(taskId)) return
+  const pathToStart = Array.isArray(scheduleData?.path_to_start) ? scheduleData.path_to_start : []
+  const pathToEnd = Array.isArray(scheduleData?.path_to_end)
+    ? scheduleData.path_to_end
+    : Array.isArray(scheduleData?.path)
+      ? scheduleData.path
+      : []
+  runtimeRouteOverlay.value = {
+    taskId,
+    mode,
+    pathToStart,
+    pathToEnd
+  }
 }
 
 function resolveFirstScheduleMotionSegment(scheduleData) {
@@ -10735,6 +10780,13 @@ function syncManualDispatchBuilderState() {
 }
 
 function syncDisplayedPathsFromTasks() {
+  if (runtimeRouteOverlay.value?.taskId) {
+    const overlayTask = tasks.value.find(task => Number(task?.id) === Number(runtimeRouteOverlay.value.taskId))
+    if (overlayTask && !['pending', 'assigned', 'running'].includes(String(overlayTask?.status || ''))) {
+      clearRuntimeRouteOverlay(overlayTask.id)
+    }
+  }
+
   const autoTask = findLatestActiveTask('auto')
   if (autoTask) {
     autoPathToStart.value = autoTask.path_to_start ?? []
@@ -11038,6 +11090,7 @@ async function createAndScheduleDirectManualTask(manualAgv, start, end, reason =
     applyTaskDisplayMarkers(scheduleData.task, createData.task)
     manualPathToStart.value = scheduleData.path_to_start ?? []
     manualPathToEnd.value = scheduleData.path_to_end ?? scheduleData.path ?? []
+    rememberRuntimeRouteOverlay(scheduleData, 'manual')
     primeAgvFirstMotionFrame(scheduleData)
     await refreshStateAfterDispatchStarted()
     bumpManualPreviewMinVisible()
@@ -11469,6 +11522,7 @@ async function createTaskAndSchedule(agvId, requestedStartPoint = startPoint.val
       applyTaskDisplayMarkers(scheduleData.task, createData.task)
       manualPathToStart.value = scheduleData.path_to_start ?? []
       manualPathToEnd.value = scheduleData.path_to_end ?? scheduleData.path ?? []
+      rememberRuntimeRouteOverlay(scheduleData, 'manual')
       primeAgvFirstMotionFrame(scheduleData)
       await refreshStateAfterDispatchStarted()
       manualDraftPicking.value = false
@@ -11478,6 +11532,7 @@ async function createTaskAndSchedule(agvId, requestedStartPoint = startPoint.val
       clearAutoPaths()
       autoPathToStart.value = scheduleData.path_to_start ?? []
       autoPathToEnd.value = scheduleData.path_to_end ?? scheduleData.path ?? []
+      rememberRuntimeRouteOverlay(scheduleData, 'auto')
       primeAgvFirstMotionFrame(scheduleData)
       await refreshStateAfterDispatchStarted()
       clearAutoMarkers()
@@ -14271,6 +14326,17 @@ async function fetchAgvs() {
   if (shouldRefreshCompletedTask) {
     await fetchTasks()
     syncDisplayedPathsFromTasks()
+    const completedTaskId = runtimeRouteOverlay.value?.taskId
+    if (
+      completedTaskId &&
+      !tasks.value.some(
+        task =>
+          Number(task?.id) === Number(completedTaskId) &&
+          ['pending', 'assigned', 'running'].includes(String(task?.status || ''))
+      )
+    ) {
+      clearRuntimeRouteOverlay(completedTaskId)
+    }
   }
 }
 
@@ -14328,7 +14394,7 @@ async function refreshState() {
   try {
     await refreshCoreState()
     await tryManualBoundSchedule()
-    if (dispatchMode.value === 'auto' && !hasActiveTask()) {
+    if (dispatchMode.value === 'auto' && !hasActiveTask() && runtimeRouteOverlay.value?.mode !== 'auto') {
       clearAutoPaths()
     }
     await tryAutoSchedule()

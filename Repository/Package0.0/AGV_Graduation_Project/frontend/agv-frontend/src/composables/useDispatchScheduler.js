@@ -32,7 +32,9 @@ export function useDispatchScheduler(options) {
     resolveTaskStartMarker,
     resolveTaskEndMarker,
     resolveTaskOverallEndMarker,
-    bumpManualPreviewMinVisible
+    bumpManualPreviewMinVisible,
+    rememberRuntimeRouteOverlay,
+    primeAgvFirstMotionFrame
   } = options
 
   function resolveValue(value) {
@@ -120,6 +122,12 @@ export function useDispatchScheduler(options) {
 
       autoPathToStart.value = scheduleData.path_to_start ?? []
       autoPathToEnd.value = scheduleData.path_to_end ?? scheduleData.path ?? []
+      if (typeof rememberRuntimeRouteOverlay === 'function') {
+        rememberRuntimeRouteOverlay(scheduleData, 'auto')
+      }
+      if (typeof primeAgvFirstMotionFrame === 'function') {
+        primeAgvFirstMotionFrame(scheduleData)
+      }
       await refreshAfterScheduleStarts()
     } catch (error) {
       console.error('Auto schedule error:', error)
@@ -189,6 +197,12 @@ export function useDispatchScheduler(options) {
         bumpManualPreviewMinVisible()
         manualPathToStart.value = scheduleData.path_to_start ?? []
         manualPathToEnd.value = scheduleData.path_to_end ?? scheduleData.path ?? []
+        if (typeof rememberRuntimeRouteOverlay === 'function') {
+          rememberRuntimeRouteOverlay(scheduleData, 'manual')
+        }
+        if (typeof primeAgvFirstMotionFrame === 'function') {
+          primeAgvFirstMotionFrame(scheduleData)
+        }
         await refreshAfterScheduleStarts()
       } else {
         await refreshAfterScheduleStarts()
