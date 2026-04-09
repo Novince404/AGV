@@ -2133,6 +2133,20 @@ const platformBugFeedbackLastFetchedText = computed(() =>
     : ''
 )
 const currentAuthUserId = computed(() => String(authCurrentUser.value?.id || ''))
+const currentFrontendDataScopeKey = computed(() => {
+  if (!authAuthenticated.value) return 'guest:default'
+  const user = authCurrentUser.value || {}
+  const role = String(authCurrentRole.value || 'guest').trim()
+  if (role === 'personal') return `user:${String(user.id || user.username || 'personal')}`
+  if (role.startsWith('enterprise_')) {
+    const organizationId = String(user.organization_id || '').trim()
+    return organizationId
+      ? `organization:${organizationId}`
+      : `organization:user:${String(user.id || user.username || 'enterprise')}`
+  }
+  if (role === 'platform_admin') return `platform:${String(user.id || user.username || 'platform_admin')}`
+  return 'guest:default'
+})
 const enterpriseMemberItems = ref([])
 const enterpriseMemberLoading = ref(false)
 const enterpriseMemberCreating = ref(false)
@@ -14147,6 +14161,20 @@ async function fetchMapLayout() {
   }
 }
 
+async function reloadScopedMapData() {
+  obstacleEditMode.value = false
+  stopObstaclePaint()
+  setObstacleLayoutStatus('', 'info')
+  clearImportedObstacleLayoutPreset()
+  currentMapTopology.value = createEmptyMapTopology()
+  enterpriseMapEditorDialogOpen.value = false
+  enterpriseTopologyEditorDialogOpen.value = false
+  enterpriseTopologyEditorSelectedNodeKey.value = ''
+  enterpriseTopologyEditorSelectedEdgeKey.value = ''
+  enterpriseTopologyEditorLinkSourceKey.value = ''
+  await Promise.all([fetchMapLayout(), fetchMapPresets(), fetchMapProfiles()])
+}
+
 async function applyObstaclePreset() {
   if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'map.write', buildCapabilityDeniedMessage('map'))) return false
   if (!ensureObstacleMutationAllowed()) {
@@ -14989,6 +15017,16 @@ watch(currentAuthUserId, (nextUserId, previousUserId) => {
   if (nextUserId === previousUserId) return
   resetEnterpriseRequestNotificationState()
   resetPlatformBugFeedbackNotificationState()
+})
+
+watch(currentFrontendDataScopeKey, async (nextScopeKey, previousScopeKey) => {
+  if (nextScopeKey === previousScopeKey) return
+  cancelSelection()
+  clearPreview()
+  clearAutoPaths()
+  clearManualPaths()
+  clearRuntimeRouteOverlay()
+  await reloadScopedMapData()
 })
 
 watch(
