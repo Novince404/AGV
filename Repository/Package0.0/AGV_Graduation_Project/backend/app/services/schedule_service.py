@@ -598,9 +598,6 @@ def _schedule_task(
             "stage": f"{task.current_stage_index + 1}/{task.total_stages}",
         },
     )
-
-    move_agv(agv.id, task.id, task_algorithm, grid_cols, grid_rows)
-
     full_path = path_to_start[:]
     if path_to_end:
         if full_path and path_to_end[0] == full_path[-1]:
@@ -614,7 +611,7 @@ def _schedule_task(
         "total": max(len(full_path) - 1, 0),
     }
 
-    return {
+    response_payload = {
         "message": "Task scheduled",
         "algorithm": task_algorithm,
         "task": serialize_task_response(task),
@@ -630,6 +627,12 @@ def _schedule_task(
         "path_stats": path_stats,
         "blocked_cells": get_blocked_cell_payload(grid_cols, grid_rows),
     }
+
+    # Start the physical/runtime movement only after the HTTP payload is ready.
+    # Otherwise the background thread may move the AGV before the browser
+    # receives the route overlay, which makes the path appear too late.
+    move_agv(agv.id, task.id, task_algorithm, grid_cols, grid_rows)
+    return response_payload
 
 
 def schedule_task_default():
