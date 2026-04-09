@@ -10,10 +10,10 @@ set "DEMO_SOURCE_DIR=%~dp0demo"
 call "%~dp0build_frontend_dist_enterprise.bat"
 if errorlevel 1 exit /b 1
 
-cd /d %~dp0backend
-call .\venv\Scripts\activate
+cd /d %~dp0
+set "PACKAGE_PYTHON=%~dp0backend\venv\Scripts\python.exe"
 
-python -c "import importlib.util,sys; sys.exit(0 if importlib.util.find_spec('PyInstaller') else 1)"
+"%PACKAGE_PYTHON%" -c "import importlib.util,sys; sys.exit(0 if importlib.util.find_spec('PyInstaller') else 1)"
 if errorlevel 1 (
   echo PyInstaller is not installed in backend venv.
   echo Install it with:
@@ -21,7 +21,7 @@ if errorlevel 1 (
   exit /b 1
 )
 
-python -m PyInstaller .\packaging\backend_enterprise.spec --noconfirm --clean
+"%PACKAGE_PYTHON%" -m PyInstaller backend\packaging\backend_enterprise.spec --noconfirm --clean --distpath backend\dist --workpath backend\build
 if errorlevel 1 (
   echo Enterprise PyInstaller build failed.
   exit /b 1
