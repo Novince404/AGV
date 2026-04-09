@@ -3,6 +3,7 @@ import time
 from datetime import datetime
 from math import atan2, degrees
 
+from app.core.data_scope import get_current_scope_key, use_scope
 from app.repositories.agv_repository import get_agv_by_id, list_agvs
 from app.repositories.task_repository import get_task_by_id
 from app.repositories.ui_settings_repository import get_ui_settings as get_ui_settings_store
@@ -852,7 +853,13 @@ def move_agv(
     grid_cols: int,
     grid_rows: int,
 ):
+    scope_key = get_current_scope_key()
+
     def run():
+        with use_scope(scope_key):
+            run_in_scope()
+
+    def run_in_scope():
         agv = get_agv_by_id(agv_id)
         task = get_task_by_id(task_id)
         if not agv or not task:
@@ -1070,7 +1077,13 @@ def move_agv_to_autonomy_target(
     agv.status = active_status
     agv.clear_motion(motion_state=active_status)
 
+    scope_key = get_current_scope_key()
+
     def run():
+        with use_scope(scope_key):
+            run_in_scope()
+
+    def run_in_scope():
         while True:
             agv = get_agv_by_id(agv_id)
             if should_cancel_autonomy(agv):
