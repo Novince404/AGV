@@ -125,6 +125,7 @@ export function useDispatchScheduler(options) {
       if (typeof rememberRuntimeRouteOverlay === 'function') {
         rememberRuntimeRouteOverlay(scheduleData, 'auto')
       }
+      await nextTick()
       if (typeof primeAgvFirstMotionFrame === 'function') {
         primeAgvFirstMotionFrame(scheduleData)
       }
@@ -200,6 +201,7 @@ export function useDispatchScheduler(options) {
         if (typeof rememberRuntimeRouteOverlay === 'function') {
           rememberRuntimeRouteOverlay(scheduleData, 'manual')
         }
+        await nextTick()
         if (typeof primeAgvFirstMotionFrame === 'function') {
           primeAgvFirstMotionFrame(scheduleData)
         }

@@ -4183,8 +4183,10 @@ const autoPathToStartArrows = computed(() => toArrowSegments(displayedAutoPathTo
 const autoPathToEndArrows = computed(() => toArrowSegments(displayedAutoPathToEnd.value))
 const isCompactLayout = computed(() => windowWidth.value <= 960)
 const shouldShowAutoPath = computed(() => dispatchMode.value === 'auto' && showAutoPath.value)
+const hasAutoRuntimeRouteOverlay = computed(() => runtimeRouteOverlay.value?.mode === 'auto')
 const suppressAutoRuntimeVisuals = computed(
   () =>
+    !hasAutoRuntimeRouteOverlay.value &&
     dispatchMode.value === 'auto' &&
     ((taskBuilderMode.value === 'single' && autoDraftPicking.value) ||
       (taskBuilderMode.value === 'chain' && taskChainMapPickActive.value))
@@ -11091,6 +11093,7 @@ async function createAndScheduleDirectManualTask(manualAgv, start, end, reason =
     manualPathToStart.value = scheduleData.path_to_start ?? []
     manualPathToEnd.value = scheduleData.path_to_end ?? scheduleData.path ?? []
     rememberRuntimeRouteOverlay(scheduleData, 'manual')
+    await nextTick()
     primeAgvFirstMotionFrame(scheduleData)
     await refreshStateAfterDispatchStarted()
     bumpManualPreviewMinVisible()
@@ -11523,6 +11526,7 @@ async function createTaskAndSchedule(agvId, requestedStartPoint = startPoint.val
       manualPathToStart.value = scheduleData.path_to_start ?? []
       manualPathToEnd.value = scheduleData.path_to_end ?? scheduleData.path ?? []
       rememberRuntimeRouteOverlay(scheduleData, 'manual')
+      await nextTick()
       primeAgvFirstMotionFrame(scheduleData)
       await refreshStateAfterDispatchStarted()
       manualDraftPicking.value = false
@@ -11533,6 +11537,7 @@ async function createTaskAndSchedule(agvId, requestedStartPoint = startPoint.val
       autoPathToStart.value = scheduleData.path_to_start ?? []
       autoPathToEnd.value = scheduleData.path_to_end ?? scheduleData.path ?? []
       rememberRuntimeRouteOverlay(scheduleData, 'auto')
+      await nextTick()
       primeAgvFirstMotionFrame(scheduleData)
       await refreshStateAfterDispatchStarted()
       clearAutoMarkers()
@@ -14314,16 +14319,27 @@ function didAgvTaskBindingJustComplete(previousAgvs, nextAgv) {
   return ['idle', 'idle_returning', 'charging', 'fault', 'emergency_stop'].includes(String(nextAgv?.status || ''))
 }
 
+function didAgvTaskBindingJustStart(previousAgvs, nextAgv) {
+  const agvId = Number(nextAgv?.id)
+  if (!Number.isFinite(agvId)) return false
+  const previousAgv = previousAgvs.find(agv => Number(agv?.id) === agvId)
+  const previousTaskId = Number(previousAgv?.task_id)
+  const nextTaskId = Number(nextAgv?.task_id)
+  if (!Number.isFinite(nextTaskId) || nextTaskId <= 0) return false
+  return !Number.isFinite(previousTaskId) || previousTaskId <= 0 || previousTaskId !== nextTaskId
+}
+
 async function fetchAgvs() {
   const previousAgvs = agvs.value
   const res = await fetch(`${API_BASE}/agv/list`, {
     headers: buildAuthorizedHeaders()
   })
   const nextAgvs = await res.json()
+  const shouldRefreshStartedTask = nextAgvs.some(agv => didAgvTaskBindingJustStart(previousAgvs, agv))
   const shouldRefreshCompletedTask = nextAgvs.some(agv => didAgvTaskBindingJustComplete(previousAgvs, agv))
   agvs.value = nextAgvs
   agvAnimationNow.value = Date.now()
-  if (shouldRefreshCompletedTask) {
+  if (shouldRefreshStartedTask || shouldRefreshCompletedTask) {
     await fetchTasks()
     syncDisplayedPathsFromTasks()
     const completedTaskId = runtimeRouteOverlay.value?.taskId
