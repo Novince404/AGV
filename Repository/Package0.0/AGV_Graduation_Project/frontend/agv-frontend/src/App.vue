@@ -10605,6 +10605,13 @@ function bumpManualPreviewMinVisible(durationMs = 1400) {
   manualPreviewMinVisibleUntil.value = Date.now() + durationMs
 }
 
+async function refreshStateAfterDispatchStarted() {
+  // Give the backend movement thread one tiny slice so path, markers and the
+  // first continuous-motion frame arrive in the same UI refresh.
+  await new Promise(resolve => setTimeout(resolve, 90))
+  await Promise.all([fetchAgvs(), fetchTasks()])
+}
+
 function cancelSelection() {
   selectedAgvId.value = null
   clearManualDispatchPreview()
@@ -10958,14 +10965,16 @@ async function createAndScheduleDirectManualTask(manualAgv, start, end, reason =
     preferredRuntimeDisplayMode.value = 'manual'
     startPoint.value = { x: Number(start.x), y: Number(start.y) }
     endPoint.value = { x: Number(end.x), y: Number(end.y) }
+    manualPathToStart.value = []
+    manualPathToEnd.value = []
+    manualDraftPicking.value = false
+    manualDispatchStep.value = 'running'
+    trackedManualTaskId.value = scheduleData.task.id
+    await refreshStateAfterDispatchStarted()
     applyTaskDisplayMarkers(scheduleData.task, createData.task)
     manualPathToStart.value = scheduleData.path_to_start ?? []
     manualPathToEnd.value = scheduleData.path_to_end ?? scheduleData.path ?? []
-    trackedManualTaskId.value = scheduleData.task.id
-    manualDraftPicking.value = false
-    manualDispatchStep.value = 'running'
     bumpManualPreviewMinVisible()
-    await Promise.all([fetchAgvs(), fetchTasks()])
     return true
   } catch (error) {
     console.error('Direct manual schedule error:', error)
@@ -11299,18 +11308,19 @@ async function confirmAndSchedule(x, y, agvId = null) {
     }
     return
   }
-  endPoint.value = { x, y }
+  const confirmedStartPoint = startPoint.value ? { ...startPoint.value } : null
+  const confirmedEndPoint = { x, y }
+  endPoint.value = confirmedEndPoint
   if (dispatchMode.value === 'manual') {
     manualDispatchStep.value = 'running'
     bumpManualPreviewMinVisible()
     await nextTick()
-    await new Promise(resolve => setTimeout(resolve, 180))
   }
-  await createTaskAndSchedule(agvId)
+  await createTaskAndSchedule(agvId, confirmedStartPoint, confirmedEndPoint)
 }
 
-async function createTaskAndSchedule(agvId) {
-  if (!startPoint.value || !endPoint.value) return
+async function createTaskAndSchedule(agvId, requestedStartPoint = startPoint.value, requestedEndPoint = endPoint.value) {
+  if (!requestedStartPoint || !requestedEndPoint) return
   if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'dispatch.write', buildCapabilityDeniedMessage('dispatch'))) return
   if (!(await ensureBlockedCellsSynced())) {
     window.alert(obstacleSaveRequiredText())
@@ -11325,10 +11335,10 @@ async function createTaskAndSchedule(agvId) {
       method: 'POST',
       headers: buildAuthorizedJsonHeaders(),
       body: JSON.stringify({
-        start_x: startPoint.value.x,
-        start_y: startPoint.value.y,
-        end_x: endPoint.value.x,
-        end_y: endPoint.value.y,
+        start_x: requestedStartPoint.x,
+        start_y: requestedStartPoint.y,
+        end_x: requestedEndPoint.x,
+        end_y: requestedEndPoint.y,
         grid_cols: gridColsValue(),
         grid_rows: gridRowsValue(),
         priority: taskPriority.value,
@@ -11384,20 +11394,26 @@ async function createTaskAndSchedule(agvId) {
     const resolvedMode = scheduleData?.task?.dispatch_mode ?? (isManualFlow ? 'manual' : 'auto')
     if (resolvedMode === 'manual') {
       preferredRuntimeDisplayMode.value = 'manual'
+      startPoint.value = { ...requestedStartPoint }
+      endPoint.value = { ...requestedEndPoint }
+      manualPathToStart.value = []
+      manualPathToEnd.value = []
+      trackedManualTaskId.value = scheduleData.task.id
+      manualDispatchStep.value = 'running'
+      await refreshStateAfterDispatchStarted()
       applyTaskDisplayMarkers(scheduleData.task, createData.task)
       manualPathToStart.value = scheduleData.path_to_start ?? []
       manualPathToEnd.value = scheduleData.path_to_end ?? scheduleData.path ?? []
-      trackedManualTaskId.value = scheduleData.task.id
       manualDraftPicking.value = false
       bumpManualPreviewMinVisible()
     } else {
       preferredRuntimeDisplayMode.value = 'auto'
+      clearAutoPaths()
+      await refreshStateAfterDispatchStarted()
+      clearAutoMarkers()
       autoPathToStart.value = scheduleData.path_to_start ?? []
       autoPathToEnd.value = scheduleData.path_to_end ?? scheduleData.path ?? []
-      clearAutoMarkers()
     }
-
-    await Promise.all([fetchAgvs(), fetchTasks()])
   } catch (error) {
     console.error('Schedule error:', error)
     if (isManualFlow) {

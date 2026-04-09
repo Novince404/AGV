@@ -54,6 +54,11 @@ export function useDispatchScheduler(options) {
     return { 'Content-Type': 'application/json' }
   }
 
+  async function refreshAfterScheduleStarts() {
+    await new Promise(resolve => setTimeout(resolve, 90))
+    await Promise.all([fetchAgvs(), fetchTasks()])
+  }
+
   function resolveTaskDisplayEndMarkerLocal(task) {
     if (Number(task?.total_stages ?? 1) > 1 && typeof resolveTaskOverallEndMarker === 'function') {
       return resolveTaskOverallEndMarker(task)
@@ -113,10 +118,11 @@ export function useDispatchScheduler(options) {
         return
       }
 
+      autoPathToStart.value = []
+      autoPathToEnd.value = []
+      await refreshAfterScheduleStarts()
       autoPathToStart.value = scheduleData.path_to_start ?? []
       autoPathToEnd.value = scheduleData.path_to_end ?? scheduleData.path ?? []
-
-      await Promise.all([fetchAgvs(), fetchTasks()])
     } catch (error) {
       console.error('Auto schedule error:', error)
     } finally {
@@ -175,8 +181,6 @@ export function useDispatchScheduler(options) {
         trackedManualTaskId.value === candidate.id
       ) {
         const displayTask = mergeTaskDisplayPayload(scheduleData?.task, candidate)
-        manualPathToStart.value = scheduleData.path_to_start ?? []
-        manualPathToEnd.value = scheduleData.path_to_end ?? scheduleData.path ?? []
         trackedManualTaskId.value = scheduleData?.task?.id ?? candidate.id
         startPoint.value = resolveTaskDisplayStartMarkerLocal(displayTask)
         endPoint.value =
@@ -185,9 +189,14 @@ export function useDispatchScheduler(options) {
             : resolveTaskDisplayEndMarkerLocal(displayTask)
         manualDispatchStep.value = 'running'
         bumpManualPreviewMinVisible()
+        manualPathToStart.value = []
+        manualPathToEnd.value = []
+        await refreshAfterScheduleStarts()
+        manualPathToStart.value = scheduleData.path_to_start ?? []
+        manualPathToEnd.value = scheduleData.path_to_end ?? scheduleData.path ?? []
+      } else {
+        await refreshAfterScheduleStarts()
       }
-
-      await Promise.all([fetchAgvs(), fetchTasks()])
     } catch (error) {
       console.error('Manual bound schedule error:', error)
     } finally {
