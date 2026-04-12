@@ -193,6 +193,8 @@
     "idleChargeTimeoutSecHint": "达到这个空闲时长后，会继续检查下面的电量阈值；只有同时满足低电量条件，才会主动前往充电点。",
     "idleChargeBatteryThreshold": "空闲触发主动充电电量阈值（%）",
     "idleChargeBatteryThresholdHint": "只有空闲达到上面的时长且电量低于这个阈值时，AGV 才会主动去充；极低电量仍会直接前往充电点。",
+    "lowBatteryThreshold": "低电量直充阈值（%）",
+    "lowBatteryThresholdHint": "电量低于这个阈值时，AGV 不再等待空闲时长，会优先直接前往充电点。",
     "batteryActiveDrainPerSec": "运行耗电速率（每秒）",
     "batteryActiveDrainPerSecHint": "AGV 在运行、回仓或前往充电途中按这个速率消耗电量。",
     "batteryWaitingDrainPerSec": "等待耗电速率（每秒）",

@@ -193,6 +193,8 @@
     "idleChargeTimeoutSecHint": "この空閑時間に達した後、下の電量閾値も満たした場合に AGV が自動で充電点へ向かいます。",
     "idleChargeBatteryThreshold": "空閑時の自動充電電量閾値（%）",
     "idleChargeBatteryThresholdHint": "AGV は、上の空閑時間に達し、かつ電量がこの閾値を下回ったときだけ自動で充電へ向かいます。極端な低電量時は即時充電を優先します。",
+    "lowBatteryThreshold": "低電量の即時充電閾値（%）",
+    "lowBatteryThresholdHint": "電量がこの閾値を下回ると、AGV は空閑タイマーを待たずに充電点へ直行します。",
     "batteryActiveDrainPerSec": "走行時の消費率（毎秒）",
     "batteryActiveDrainPerSecHint": "AGV が走行中、回庫中、または充電点へ向かっている間に適用されます。",
     "batteryWaitingDrainPerSec": "待機時の消費率（毎秒）",

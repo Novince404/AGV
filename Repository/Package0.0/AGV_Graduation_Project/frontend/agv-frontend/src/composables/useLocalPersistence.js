@@ -24,6 +24,8 @@ export function useLocalPersistence(options) {
     deadlockTimeoutSec,
     idleReturnTimeoutSec,
     idleChargeTimeoutSec,
+    idleChargeBatteryThreshold,
+    lowBatteryThreshold,
     batteryActiveDrainPerSec,
     batteryWaitingDrainPerSec,
     batteryIdleDrainPerSec,
@@ -260,6 +262,12 @@ export function useLocalPersistence(options) {
       if (typeof parsed?.idleChargeTimeoutSec === 'number') {
         idleChargeTimeoutSec.value = clampValue(parsed.idleChargeTimeoutSec, 5, 600)
       }
+      if (typeof parsed?.idleChargeBatteryThreshold === 'number') {
+        idleChargeBatteryThreshold.value = clampValue(parsed.idleChargeBatteryThreshold, 24, 95)
+      }
+      if (typeof parsed?.lowBatteryThreshold === 'number') {
+        lowBatteryThreshold.value = clampValue(parsed.lowBatteryThreshold, 5, 80)
+      }
       if (typeof parsed?.batteryActiveDrainPerSec === 'number') {
         batteryActiveDrainPerSec.value = clampValue(parsed.batteryActiveDrainPerSec, 0.01, 10)
       }
@@ -315,6 +323,8 @@ export function useLocalPersistence(options) {
           deadlockTimeoutSec: deadlockTimeoutSec.value,
           idleReturnTimeoutSec: idleReturnTimeoutSec.value,
           idleChargeTimeoutSec: idleChargeTimeoutSec.value,
+          idleChargeBatteryThreshold: idleChargeBatteryThreshold.value,
+          lowBatteryThreshold: lowBatteryThreshold.value,
           batteryActiveDrainPerSec: batteryActiveDrainPerSec.value,
           batteryWaitingDrainPerSec: batteryWaitingDrainPerSec.value,
           batteryIdleDrainPerSec: batteryIdleDrainPerSec.value,

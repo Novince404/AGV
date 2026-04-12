@@ -947,6 +947,7 @@ const deadlockTimeoutSec = ref(4.5)
 const idleReturnTimeoutSec = ref(12)
 const idleChargeTimeoutSec = ref(45)
 const idleChargeBatteryThreshold = ref(60)
+const lowBatteryThreshold = ref(24)
 const batteryActiveDrainPerSec = ref(0.16)
 const batteryWaitingDrainPerSec = ref(0.05)
 const batteryIdleDrainPerSec = ref(0.01)
@@ -6423,6 +6424,7 @@ const {
   idleReturnTimeoutSec,
   idleChargeTimeoutSec,
   idleChargeBatteryThreshold,
+  lowBatteryThreshold,
   batteryActiveDrainPerSec,
   batteryWaitingDrainPerSec,
   batteryIdleDrainPerSec,
@@ -6472,6 +6474,7 @@ const {
   idleReturnTimeoutSec,
   idleChargeTimeoutSec,
   idleChargeBatteryThreshold,
+  lowBatteryThreshold,
   batteryActiveDrainPerSec,
   batteryWaitingDrainPerSec,
   batteryIdleDrainPerSec,
@@ -16430,6 +16433,7 @@ watch([
   idleReturnTimeoutSec,
   idleChargeTimeoutSec,
   idleChargeBatteryThreshold,
+  lowBatteryThreshold,
   batteryActiveDrainPerSec,
   batteryWaitingDrainPerSec,
   batteryIdleDrainPerSec,
@@ -17111,6 +17115,7 @@ const mapSettingsPanelBindings = {
   idleReturnTimeoutSec,
   idleChargeTimeoutSec,
   idleChargeBatteryThreshold,
+  lowBatteryThreshold,
   batteryActiveDrainPerSec,
   batteryWaitingDrainPerSec,
   batteryIdleDrainPerSec,
@@ -17502,6 +17507,7 @@ const enterpriseSettingsDialogBindings = {
   idleReturnTimeoutSec,
   idleChargeTimeoutSec,
   idleChargeBatteryThreshold,
+  lowBatteryThreshold,
   batteryActiveDrainPerSec,
   batteryWaitingDrainPerSec,
   batteryIdleDrainPerSec,

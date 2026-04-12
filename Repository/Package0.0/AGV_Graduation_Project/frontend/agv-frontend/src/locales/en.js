@@ -193,6 +193,8 @@
     "idleChargeTimeoutSecHint": "After this idle duration, the AGV also checks the battery threshold below before proactively going to charge.",
     "idleChargeBatteryThreshold": "Idle Proactive Charge Battery Threshold (%)",
     "idleChargeBatteryThresholdHint": "The AGV will proactively go charge only when it has been idle long enough and its battery is below this threshold. Critically low battery still triggers immediate charging.",
+    "lowBatteryThreshold": "Critical Low-Battery Charge Threshold (%)",
+    "lowBatteryThresholdHint": "When the battery drops below this threshold, the AGV stops waiting for the idle timer and heads to charge immediately.",
     "batteryActiveDrainPerSec": "Motion Drain Rate (per sec)",
     "batteryActiveDrainPerSecHint": "Applies while the AGV is travelling, returning to parking, or heading to a charge node.",
     "batteryWaitingDrainPerSec": "Waiting Drain Rate (per sec)",

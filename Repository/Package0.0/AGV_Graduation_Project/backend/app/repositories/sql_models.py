@@ -355,6 +355,7 @@ class UiSettingsEntity(Base):
     idle_return_timeout_sec: Mapped[float] = mapped_column(Float, nullable=False, default=12.0)
     idle_charge_timeout_sec: Mapped[float] = mapped_column(Float, nullable=False, default=45.0)
     idle_charge_battery_threshold: Mapped[float] = mapped_column(Float, nullable=False, default=60.0)
+    low_battery_threshold: Mapped[float] = mapped_column(Float, nullable=False, default=24.0)
     battery_active_drain_per_sec: Mapped[float] = mapped_column(Float, nullable=False, default=0.16)
     battery_waiting_drain_per_sec: Mapped[float] = mapped_column(Float, nullable=False, default=0.05)
     battery_idle_drain_per_sec: Mapped[float] = mapped_column(Float, nullable=False, default=0.01)

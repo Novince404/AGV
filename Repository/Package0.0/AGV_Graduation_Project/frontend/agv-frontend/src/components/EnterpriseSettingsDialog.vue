@@ -1860,6 +1860,30 @@
                 </label>
                 <p class="panel-hint">{{ settingsLocale.idleChargeTimeoutSecHint }}</p>
                 <label class="auth-field">
+                  <span>{{ settingsLocale.idleChargeBatteryThreshold }}</span>
+                  <input
+                    v-model.number="idleChargeBatteryThreshold"
+                    class="auth-input"
+                    type="number"
+                    min="24"
+                    max="95"
+                    step="1"
+                  />
+                </label>
+                <p class="panel-hint">{{ settingsLocale.idleChargeBatteryThresholdHint }}</p>
+                <label class="auth-field">
+                  <span>{{ settingsLocale.lowBatteryThreshold }}</span>
+                  <input
+                    v-model.number="lowBatteryThreshold"
+                    class="auth-input"
+                    type="number"
+                    min="5"
+                    max="80"
+                    step="1"
+                  />
+                </label>
+                <p class="panel-hint">{{ settingsLocale.lowBatteryThresholdHint }}</p>
+                <label class="auth-field">
                   <span>{{ settingsLocale.batteryActiveDrainPerSec }}</span>
                   <input
                     v-model.number="batteryActiveDrainPerSec"

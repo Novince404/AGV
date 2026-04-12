@@ -802,6 +802,21 @@
       </div>
       <p class="panel-hint map-settings-hint">{{ settingsLocale.idleChargeBatteryThresholdHint }}</p>
       <div class="map-settings-select-group">
+        <label class="map-settings-select-label" for="low-battery-threshold">
+          {{ settingsLocale.lowBatteryThreshold }}
+        </label>
+        <input
+          id="low-battery-threshold"
+          v-model.number="lowBatteryThreshold"
+          class="map-settings-select"
+          type="number"
+          min="5"
+          max="80"
+          step="1"
+        />
+      </div>
+      <p class="panel-hint map-settings-hint">{{ settingsLocale.lowBatteryThresholdHint }}</p>
+      <div class="map-settings-select-group">
         <label class="map-settings-select-label" for="battery-active-drain">
           {{ settingsLocale.batteryActiveDrainPerSec }}
         </label>

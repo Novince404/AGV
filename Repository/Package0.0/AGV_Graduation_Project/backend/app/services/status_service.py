@@ -81,6 +81,7 @@ DEFAULT_UI_SETTINGS = {
     "idle_return_timeout_sec": 12.0,
     "idle_charge_timeout_sec": 45.0,
     "idle_charge_battery_threshold": 60.0,
+    "low_battery_threshold": 24.0,
     "battery_active_drain_per_sec": 0.16,
     "battery_waiting_drain_per_sec": 0.05,
     "battery_idle_drain_per_sec": 0.01,
@@ -544,7 +545,8 @@ def _normalize_ui_settings(payload) -> dict:
     deadlock_timeout_sec = max(1.0, min(20.0, float(payload.deadlock_timeout_sec)))
     idle_return_timeout_sec = max(5.0, min(600.0, float(payload.idle_return_timeout_sec)))
     idle_charge_timeout_sec = max(5.0, min(600.0, float(payload.idle_charge_timeout_sec)))
-    idle_charge_battery_threshold = max(24.0, min(95.0, float(payload.idle_charge_battery_threshold)))
+    low_battery_threshold = max(5.0, min(80.0, float(payload.low_battery_threshold)))
+    idle_charge_battery_threshold = max(low_battery_threshold, min(95.0, float(payload.idle_charge_battery_threshold)))
     battery_active_drain_per_sec = max(0.01, min(10.0, float(payload.battery_active_drain_per_sec)))
     battery_waiting_drain_per_sec = max(0.0, min(5.0, float(payload.battery_waiting_drain_per_sec)))
     battery_idle_drain_per_sec = max(0.0, min(2.0, float(payload.battery_idle_drain_per_sec)))
@@ -567,6 +569,7 @@ def _normalize_ui_settings(payload) -> dict:
         "idle_return_timeout_sec": idle_return_timeout_sec,
         "idle_charge_timeout_sec": idle_charge_timeout_sec,
         "idle_charge_battery_threshold": idle_charge_battery_threshold,
+        "low_battery_threshold": low_battery_threshold,
         "battery_active_drain_per_sec": battery_active_drain_per_sec,
         "battery_waiting_drain_per_sec": battery_waiting_drain_per_sec,
         "battery_idle_drain_per_sec": battery_idle_drain_per_sec,

@@ -44,6 +44,8 @@ def _ensure_schema() -> None:
         ddl_statements.append("ALTER TABLE ui_settings ADD COLUMN idle_charge_timeout_sec FLOAT NOT NULL DEFAULT 45")
     if "idle_charge_battery_threshold" not in columns:
         ddl_statements.append("ALTER TABLE ui_settings ADD COLUMN idle_charge_battery_threshold FLOAT NOT NULL DEFAULT 60")
+    if "low_battery_threshold" not in columns:
+        ddl_statements.append("ALTER TABLE ui_settings ADD COLUMN low_battery_threshold FLOAT NOT NULL DEFAULT 24")
     if "battery_active_drain_per_sec" not in columns:
         ddl_statements.append("ALTER TABLE ui_settings ADD COLUMN battery_active_drain_per_sec FLOAT NOT NULL DEFAULT 0.16")
     if "battery_waiting_drain_per_sec" not in columns:
@@ -90,6 +92,7 @@ def _entity_to_payload(entity: UiSettingsEntity) -> dict:
         "idle_return_timeout_sec": float(entity.idle_return_timeout_sec),
         "idle_charge_timeout_sec": float(entity.idle_charge_timeout_sec),
         "idle_charge_battery_threshold": float(entity.idle_charge_battery_threshold),
+        "low_battery_threshold": float(entity.low_battery_threshold),
         "battery_active_drain_per_sec": float(entity.battery_active_drain_per_sec),
         "battery_waiting_drain_per_sec": float(entity.battery_waiting_drain_per_sec),
         "battery_idle_drain_per_sec": float(entity.battery_idle_drain_per_sec),
@@ -118,6 +121,7 @@ def _apply_payload(entity: UiSettingsEntity, payload: dict, scope_key: str) -> U
     entity.idle_return_timeout_sec = float(payload.get("idle_return_timeout_sec", 12.0))
     entity.idle_charge_timeout_sec = float(payload.get("idle_charge_timeout_sec", 45.0))
     entity.idle_charge_battery_threshold = float(payload.get("idle_charge_battery_threshold", 60.0))
+    entity.low_battery_threshold = float(payload.get("low_battery_threshold", 24.0))
     entity.battery_active_drain_per_sec = float(payload.get("battery_active_drain_per_sec", 0.16))
     entity.battery_waiting_drain_per_sec = float(payload.get("battery_waiting_drain_per_sec", 0.05))
     entity.battery_idle_drain_per_sec = float(payload.get("battery_idle_drain_per_sec", 0.01))

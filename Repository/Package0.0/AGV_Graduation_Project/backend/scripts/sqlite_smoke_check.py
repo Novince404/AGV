@@ -348,6 +348,10 @@ def assert_ui_settings_roundtrip() -> None:
         "idle_charge_battery_threshold" in initial_settings,
         "ui settings payload missing idle charge battery threshold",
     )
+    expect(
+        "low_battery_threshold" in initial_settings,
+        "ui settings payload missing low battery threshold",
+    )
 
     updated_settings = status_service.update_ui_settings(
         UiSettingsUpdateRequest(
@@ -356,6 +360,7 @@ def assert_ui_settings_roundtrip() -> None:
                 "data_backend": None,
                 "idle_charge_timeout_sec": 52.0,
                 "idle_charge_battery_threshold": 58.0,
+                "low_battery_threshold": 26.0,
             }
         )
     )
@@ -367,6 +372,10 @@ def assert_ui_settings_roundtrip() -> None:
         float(updated_settings["idle_charge_battery_threshold"]) == 58.0,
         "updated idle charge battery threshold was not persisted",
     )
+    expect(
+        float(updated_settings["low_battery_threshold"]) == 26.0,
+        "updated low battery threshold was not persisted",
+    )
 
     with get_db_session() as session:
         ui_entity = session.execute(select(UiSettingsEntity).order_by(UiSettingsEntity.id.desc())).scalars().first()
@@ -374,6 +383,10 @@ def assert_ui_settings_roundtrip() -> None:
         expect(
             float(ui_entity.idle_charge_battery_threshold) == 58.0,
             "sqlite ui settings row missing idle charge battery threshold update",
+        )
+        expect(
+            float(ui_entity.low_battery_threshold) == 26.0,
+            "sqlite ui settings row missing low battery threshold update",
         )
 
 
