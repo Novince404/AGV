@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import sys
 import time
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from sqlalchemy import select
@@ -30,6 +31,11 @@ from app.schemas.status import BlockedCellPayload, UiSettingsUpdateRequest  # no
 from app.schemas.task import TaskCreateRequest  # noqa: E402
 from app.schemas.template import TaskTemplateStagePayload, TaskTemplateUpsertRequest  # noqa: E402
 from app.services import agv_service, point_service, schedule_service, status_service, task_service, template_service  # noqa: E402
+from app.utils.agv_movement import (  # noqa: E402
+    _detect_same_corridor_follow_conflict,
+    _detect_topology_edge_conflict,
+    _should_current_agv_reroute,
+)
 from app.utils.path_planner import build_runtime_special_node_constraints  # noqa: E402
 from app.utils.task_chain import set_stage_paths  # noqa: E402
 
@@ -675,6 +681,192 @@ def assert_task_path_lifecycle() -> None:
         expect(str(getattr(manual_agv_runtime, "motion_state", "") or "") == "idle", "manual-finish AGV motion state was not cleared")
 
 
+def assert_topology_conflict_rules() -> None:
+    topology_payload = {
+        "topology_version": 1,
+        "nodes": [
+            {"key": "a", "x": 1, "y": 1, "label": "A", "node_type": "station", "capacity": 1},
+            {"key": "b", "x": 4, "y": 1, "label": "B", "node_type": "station", "capacity": 1},
+            {"key": "c", "x": 1, "y": 2, "label": "C", "node_type": "waypoint", "capacity": 1},
+            {"key": "d", "x": 4, "y": 2, "label": "D", "node_type": "waypoint", "capacity": 1},
+        ],
+        "edges": [
+            {"key": "edge_ab", "source": "a", "target": "b", "direction": "bidirectional", "lane_type": "main", "speed_multiplier": 1.0},
+            {"key": "edge_ac", "source": "a", "target": "c", "direction": "bidirectional", "lane_type": "branch", "speed_multiplier": 1.0},
+            {"key": "edge_cd", "source": "c", "target": "d", "direction": "bidirectional", "lane_type": "branch", "speed_multiplier": 1.0},
+            {"key": "edge_db", "source": "d", "target": "b", "direction": "bidirectional", "lane_type": "branch", "speed_multiplier": 1.0},
+        ],
+    }
+
+    def create_running_task(actor: dict, agv, *, start_x: int, start_y: int, end_x: int, end_y: int, priority: int, created_at: str):
+        task_id = int(
+            task_service.create_task(
+                TaskCreateRequest(
+                    start_x=start_x,
+                    start_y=start_y,
+                    end_x=end_x,
+                    end_y=end_y,
+                    priority=priority,
+                ),
+                actor=actor,
+            )["task"]["id"]
+        )
+        task = get_task_by_id(task_id)
+        expect(task is not None, "conflict smoke task was not created")
+        task.status = "running"
+        task.agv_id = agv.id
+        task.created_at = created_at
+        agv.status = "running"
+        agv.task_id = task.id
+        return task
+
+    follow_actor = {
+        "id": "smoke_conflict_follow",
+        "username": "smoke_conflict_follow",
+        "role": "personal",
+    }
+    with use_scope(build_scope_key_from_actor(follow_actor)):
+        status_service.update_map_layout([], None, 10, 8, topology=topology_payload)
+        lead_agv = agv_service.create_agv(2, 1, actor=follow_actor)["agv"]
+        follower_agv = agv_service.create_agv(1, 1, actor=follow_actor)["agv"]
+
+        lead_task = create_running_task(
+            follow_actor,
+            lead_agv,
+            start_x=2,
+            start_y=1,
+            end_x=4,
+            end_y=1,
+            priority=5,
+            created_at="2026-04-12T10:00:00",
+        )
+        follower_task = create_running_task(
+            follow_actor,
+            follower_agv,
+            start_x=1,
+            start_y=1,
+            end_x=4,
+            end_y=1,
+            priority=3,
+            created_at="2026-04-12T10:00:02",
+        )
+        set_stage_paths(lead_task, [{"x": 2, "y": 1}], [{"x": 2, "y": 1}, {"x": 3, "y": 1, "topology_edge_key": "edge_ab"}, {"x": 4, "y": 1, "topology_edge_key": "edge_ab"}])
+        set_stage_paths(follower_task, [{"x": 1, "y": 1}], [{"x": 1, "y": 1}, {"x": 2, "y": 1, "topology_edge_key": "edge_ab"}, {"x": 3, "y": 1, "topology_edge_key": "edge_ab"}, {"x": 4, "y": 1, "topology_edge_key": "edge_ab"}])
+
+        motion_started_at = (datetime.now() - timedelta(milliseconds=250)).isoformat(timespec="milliseconds")
+        lead_agv.current_edge = "edge_ab"
+        lead_agv.current_node = "a"
+        lead_agv.motion_state = "running"
+        lead_agv.motion_source_x = 2.0
+        lead_agv.motion_source_y = 1.0
+        lead_agv.motion_target_x = 3.0
+        lead_agv.motion_target_y = 1.0
+        lead_agv.motion_duration_ms = 900
+        lead_agv.motion_started_at = motion_started_at
+
+        follow_conflict = _detect_same_corridor_follow_conflict(
+            follower_agv.id,
+            1,
+            1,
+            {"x": 2, "y": 1, "topology_edge_key": "edge_ab"},
+        )
+        expect(follow_conflict is not None, "same-corridor follow conflict was not detected")
+        expect(int(follow_conflict["blocker_agv_id"]) == int(lead_agv.id), "same-corridor follow conflict picked the wrong blocker AGV")
+        expect(int(follow_conflict["blocker_task_id"]) == int(lead_task.id), "same-corridor follow conflict picked the wrong blocker task")
+
+    priority_actor = {
+        "id": "smoke_conflict_priority",
+        "username": "smoke_conflict_priority",
+        "role": "personal",
+    }
+    with use_scope(build_scope_key_from_actor(priority_actor)):
+        status_service.update_map_layout([], None, 10, 8, topology=topology_payload)
+        high_agv = agv_service.create_agv(2, 1, actor=priority_actor)["agv"]
+        low_agv = agv_service.create_agv(3, 1, actor=priority_actor)["agv"]
+
+        high_task = create_running_task(
+            priority_actor,
+            high_agv,
+            start_x=2,
+            start_y=1,
+            end_x=4,
+            end_y=1,
+            priority=5,
+            created_at="2026-04-12T10:01:00",
+        )
+        low_task = create_running_task(
+            priority_actor,
+            low_agv,
+            start_x=3,
+            start_y=1,
+            end_x=1,
+            end_y=1,
+            priority=2,
+            created_at="2026-04-12T10:01:01",
+        )
+        set_stage_paths(high_task, [{"x": 2, "y": 1}], [{"x": 2, "y": 1}, {"x": 3, "y": 1, "topology_edge_key": "edge_ab"}, {"x": 4, "y": 1, "topology_edge_key": "edge_ab"}])
+        set_stage_paths(low_task, [{"x": 3, "y": 1}], [{"x": 3, "y": 1}, {"x": 2, "y": 1, "topology_edge_key": "edge_ab"}, {"x": 1, "y": 1, "topology_edge_key": "edge_ab"}])
+        high_agv.current_edge = "edge_ab"
+        high_agv.current_node = "a"
+        high_agv.motion_state = "running"
+        low_agv.current_edge = "edge_ab"
+        low_agv.current_node = "b"
+        low_agv.motion_state = "running"
+
+        high_conflict = _detect_topology_edge_conflict(high_agv.id, 2, 1, {"x": 3, "y": 1, "topology_edge_key": "edge_ab"})
+        low_conflict = _detect_topology_edge_conflict(low_agv.id, 3, 1, {"x": 2, "y": 1, "topology_edge_key": "edge_ab"})
+        expect(high_conflict is not None, "high-priority edge conflict was not detected")
+        expect(low_conflict is not None, "low-priority edge conflict was not detected")
+        expect(_should_current_agv_reroute(high_agv, high_task, high_conflict) is False, "high-priority AGV should not be selected to reroute")
+        expect(_should_current_agv_reroute(low_agv, low_task, low_conflict) is True, "low-priority AGV should reroute when facing a higher-priority blocker")
+
+    deadlock_actor = {
+        "id": "smoke_conflict_deadlock",
+        "username": "smoke_conflict_deadlock",
+        "role": "personal",
+    }
+    with use_scope(build_scope_key_from_actor(deadlock_actor)):
+        status_service.update_map_layout([], None, 10, 8, topology=topology_payload)
+        older_agv = agv_service.create_agv(2, 1, actor=deadlock_actor)["agv"]
+        newer_agv = agv_service.create_agv(3, 1, actor=deadlock_actor)["agv"]
+
+        older_task = create_running_task(
+            deadlock_actor,
+            older_agv,
+            start_x=2,
+            start_y=1,
+            end_x=4,
+            end_y=1,
+            priority=3,
+            created_at="2026-04-12T10:02:00",
+        )
+        newer_task = create_running_task(
+            deadlock_actor,
+            newer_agv,
+            start_x=3,
+            start_y=1,
+            end_x=1,
+            end_y=1,
+            priority=3,
+            created_at="2026-04-12T10:02:05",
+        )
+        set_stage_paths(older_task, [{"x": 2, "y": 1}], [{"x": 2, "y": 1}, {"x": 3, "y": 1, "topology_edge_key": "edge_ab"}, {"x": 4, "y": 1, "topology_edge_key": "edge_ab"}])
+        set_stage_paths(newer_task, [{"x": 3, "y": 1}], [{"x": 3, "y": 1}, {"x": 2, "y": 1, "topology_edge_key": "edge_ab"}, {"x": 1, "y": 1, "topology_edge_key": "edge_ab"}])
+        older_agv.current_edge = "edge_ab"
+        older_agv.current_node = "a"
+        older_agv.motion_state = "running"
+        newer_agv.current_edge = "edge_ab"
+        newer_agv.current_node = "b"
+        newer_agv.motion_state = "running"
+
+        older_conflict = _detect_topology_edge_conflict(older_agv.id, 2, 1, {"x": 3, "y": 1, "topology_edge_key": "edge_ab"})
+        newer_conflict = _detect_topology_edge_conflict(newer_agv.id, 3, 1, {"x": 2, "y": 1, "topology_edge_key": "edge_ab"})
+        expect(older_conflict is not None, "deadlock tie-break older-side conflict was not detected")
+        expect(newer_conflict is not None, "deadlock tie-break newer-side conflict was not detected")
+        expect(_should_current_agv_reroute(older_agv, older_task, older_conflict) is False, "older same-priority task should keep the corridor in deadlock tie-break")
+        expect(_should_current_agv_reroute(newer_agv, newer_task, newer_conflict) is True, "newer same-priority task should reroute in deadlock tie-break")
+
+
 def main() -> None:
     cleanup_db_file()
     summary = initialize_runtime()
@@ -759,8 +951,9 @@ def main() -> None:
     assert_reserved_special_node_constraints()
     assert_ui_settings_roundtrip()
     assert_task_path_lifecycle()
+    assert_topology_conflict_rules()
 
-    print("SQLITE_SMOKE_OK point/template/map/scope/reserved_special_node/ui_settings/task_path_lifecycle")
+    print("SQLITE_SMOKE_OK point/template/map/scope/reserved_special_node/ui_settings/task_path_lifecycle/topology_conflict_rules")
     cleanup_db_file()
 
 
