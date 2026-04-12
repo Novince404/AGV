@@ -10,6 +10,43 @@ from app.repositories.db_init import create_all_tables
 from app.repositories.sql_models import UiSettingsEntity
 
 
+UI_SETTINGS_STORE_DEFAULTS = {
+    "show_minimap": True,
+    "show_marker_icons": True,
+    "show_path_arrows": False,
+    "show_status_legend": True,
+    "show_topology_edge_speed": False,
+    "show_runtime_segment_type": False,
+    "show_runtime_conflict_reason": False,
+    "show_selected_agv_runtime_overlay": False,
+    "status_legend_layout": "horizontal",
+    "status_legend_opacity": 0.55,
+    "base_speed": 1.11,
+    "follow_distance": 0.75,
+    "deadlock_timeout_sec": 4.5,
+    "idle_return_timeout_sec": 12.0,
+    "idle_charge_timeout_sec": 45.0,
+    "idle_charge_battery_threshold": 60.0,
+    "low_battery_threshold": 24.0,
+    "battery_active_drain_per_sec": 0.16,
+    "battery_waiting_drain_per_sec": 0.05,
+    "battery_idle_drain_per_sec": 0.01,
+    "battery_parking_idle_drain_per_sec": 0.003,
+    "battery_charge_per_sec": 6.0,
+    "compare_display_mode": "panel",
+    "panel_sections": {
+        "control": True,
+        "queue": True,
+        "templates": False,
+        "points": False,
+        "json": False,
+        "experiments": False,
+        "ai": False,
+        "operations": False,
+    },
+}
+
+
 def _current_scope() -> str:
     return get_current_scope_key()
 
@@ -104,36 +141,46 @@ def _entity_to_payload(entity: UiSettingsEntity) -> dict:
 
 
 def _apply_payload(entity: UiSettingsEntity, payload: dict, scope_key: str) -> UiSettingsEntity:
+    merged_payload = _clone_payload(payload)
     entity.scope_key = scope_key
-    entity.show_minimap = bool(payload["show_minimap"])
-    entity.show_marker_icons = bool(payload["show_marker_icons"])
-    entity.show_path_arrows = bool(payload["show_path_arrows"])
-    entity.show_status_legend = bool(payload["show_status_legend"])
-    entity.show_topology_edge_speed = bool(payload.get("show_topology_edge_speed", False))
-    entity.show_runtime_segment_type = bool(payload.get("show_runtime_segment_type", False))
-    entity.show_runtime_conflict_reason = bool(payload.get("show_runtime_conflict_reason", False))
-    entity.show_selected_agv_runtime_overlay = bool(payload.get("show_selected_agv_runtime_overlay", False))
-    entity.status_legend_layout = str(payload["status_legend_layout"])
-    entity.status_legend_opacity = float(payload["status_legend_opacity"])
-    entity.base_speed = float(payload.get("base_speed", 1.11))
-    entity.follow_distance = float(payload.get("follow_distance", 0.75))
-    entity.deadlock_timeout_sec = float(payload.get("deadlock_timeout_sec", 4.5))
-    entity.idle_return_timeout_sec = float(payload.get("idle_return_timeout_sec", 12.0))
-    entity.idle_charge_timeout_sec = float(payload.get("idle_charge_timeout_sec", 45.0))
-    entity.idle_charge_battery_threshold = float(payload.get("idle_charge_battery_threshold", 60.0))
-    entity.low_battery_threshold = float(payload.get("low_battery_threshold", 24.0))
-    entity.battery_active_drain_per_sec = float(payload.get("battery_active_drain_per_sec", 0.16))
-    entity.battery_waiting_drain_per_sec = float(payload.get("battery_waiting_drain_per_sec", 0.05))
-    entity.battery_idle_drain_per_sec = float(payload.get("battery_idle_drain_per_sec", 0.01))
-    entity.battery_parking_idle_drain_per_sec = float(payload.get("battery_parking_idle_drain_per_sec", 0.003))
-    entity.battery_charge_per_sec = float(payload.get("battery_charge_per_sec", 6.0))
-    entity.compare_display_mode = str(payload["compare_display_mode"])
-    entity.panel_sections = dict(payload.get("panel_sections") or {})
+    entity.show_minimap = bool(merged_payload["show_minimap"])
+    entity.show_marker_icons = bool(merged_payload["show_marker_icons"])
+    entity.show_path_arrows = bool(merged_payload["show_path_arrows"])
+    entity.show_status_legend = bool(merged_payload["show_status_legend"])
+    entity.show_topology_edge_speed = bool(merged_payload["show_topology_edge_speed"])
+    entity.show_runtime_segment_type = bool(merged_payload["show_runtime_segment_type"])
+    entity.show_runtime_conflict_reason = bool(merged_payload["show_runtime_conflict_reason"])
+    entity.show_selected_agv_runtime_overlay = bool(merged_payload["show_selected_agv_runtime_overlay"])
+    entity.status_legend_layout = str(merged_payload["status_legend_layout"])
+    entity.status_legend_opacity = float(merged_payload["status_legend_opacity"])
+    entity.base_speed = float(merged_payload["base_speed"])
+    entity.follow_distance = float(merged_payload["follow_distance"])
+    entity.deadlock_timeout_sec = float(merged_payload["deadlock_timeout_sec"])
+    entity.idle_return_timeout_sec = float(merged_payload["idle_return_timeout_sec"])
+    entity.idle_charge_timeout_sec = float(merged_payload["idle_charge_timeout_sec"])
+    entity.idle_charge_battery_threshold = float(merged_payload["idle_charge_battery_threshold"])
+    entity.low_battery_threshold = float(merged_payload["low_battery_threshold"])
+    entity.battery_active_drain_per_sec = float(merged_payload["battery_active_drain_per_sec"])
+    entity.battery_waiting_drain_per_sec = float(merged_payload["battery_waiting_drain_per_sec"])
+    entity.battery_idle_drain_per_sec = float(merged_payload["battery_idle_drain_per_sec"])
+    entity.battery_parking_idle_drain_per_sec = float(merged_payload["battery_parking_idle_drain_per_sec"])
+    entity.battery_charge_per_sec = float(merged_payload["battery_charge_per_sec"])
+    entity.compare_display_mode = str(merged_payload["compare_display_mode"])
+    entity.panel_sections = dict(merged_payload.get("panel_sections") or {})
     return entity
 
 
 def _clone_payload(default_settings: dict) -> dict:
-    return deepcopy(default_settings)
+    payload = deepcopy(UI_SETTINGS_STORE_DEFAULTS)
+    overrides = deepcopy(default_settings or {})
+    panel_section_overrides = overrides.pop("panel_sections", None)
+    payload.update(overrides)
+    if isinstance(panel_section_overrides, dict):
+        payload["panel_sections"] = {
+            **dict(UI_SETTINGS_STORE_DEFAULTS.get("panel_sections") or {}),
+            **panel_section_overrides,
+        }
+    return payload
 
 
 def _ensure_scope_entity(default_settings: dict, scope_key: str) -> UiSettingsEntity:

@@ -3,6 +3,11 @@
 ## 1. 启动
 - 双击 `start_enterprise_client.bat`
 - 等待浏览器自动打开 `http://127.0.0.1:8010/`
+- 如果需要在演示前先做接口预检，可运行：
+
+```bat
+backend\venv\Scripts\python.exe backend\scripts\enterprise_client_login_smoke.py
+```
 
 ## 2. 登录
 - 使用企业演示账号或企业真实账号登录

@@ -16,7 +16,7 @@ from app.repositories.task_repository import (
     task_list,
 )
 from app.utils.api_error import raise_api_error
-from app.utils.task_chain import build_stage_models, sync_task_stage_fields
+from app.utils.task_chain import build_stage_models, clear_task_paths, sync_task_stage_fields
 from app.utils.warehouse_map import (
     DEFAULT_GRID_COLS,
     DEFAULT_GRID_ROWS,
@@ -251,10 +251,12 @@ def finish_task(task_id: int, actor: dict | None = None):
     if not agv:
         raise_api_error(404, "related_agv_not_found")
 
+    clear_task_paths(task)
     task.status = "finished"
     task.finished_at = now_iso()
     agv.status = "idle"
     agv.task_id = None
+    agv.clear_motion()
     latest = record_operation_audit("task", task.id, "finish", actor)
     created = build_first_audit_map("task", [str(task.id)]).get(str(task.id))
     return {"message": "Task finished", "task": _serialize_task_with_audit(task, created, latest), "agv": agv}

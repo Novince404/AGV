@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import sys
+import time
 from pathlib import Path
 
 from sqlalchemy import select
@@ -22,12 +23,15 @@ from app.core.database import dispose_engine, get_db_session  # noqa: E402
 from app.core.data_scope import build_scope_key_from_actor, build_scoped_storage_id, use_scope  # noqa: E402
 from app.core.lifecycle import initialize_runtime  # noqa: E402
 from app.repositories.agv_repository import list_agvs  # noqa: E402
+from app.repositories.task_repository import get_task_by_id  # noqa: E402
 from app.repositories.sql_models import AgvEntity, MapLayoutEntity, PointLibraryEntity, TaskTemplateEntity, UiSettingsEntity  # noqa: E402
 from app.schemas.point import PointUpsertRequest  # noqa: E402
 from app.schemas.status import BlockedCellPayload, UiSettingsUpdateRequest  # noqa: E402
+from app.schemas.task import TaskCreateRequest  # noqa: E402
 from app.schemas.template import TaskTemplateStagePayload, TaskTemplateUpsertRequest  # noqa: E402
-from app.services import agv_service, point_service, status_service, template_service  # noqa: E402
+from app.services import agv_service, point_service, schedule_service, status_service, task_service, template_service  # noqa: E402
 from app.utils.path_planner import build_runtime_special_node_constraints  # noqa: E402
+from app.utils.task_chain import set_stage_paths  # noqa: E402
 
 
 def expect(condition: bool, message: str) -> None:
@@ -562,6 +566,115 @@ def assert_ui_settings_roundtrip() -> None:
         )
 
 
+def assert_task_path_lifecycle() -> None:
+    actor = {
+        "id": "smoke_task_operator",
+        "username": "smoke_task_operator",
+        "role": "personal",
+    }
+    task_scope = build_scope_key_from_actor(actor)
+
+    with use_scope(task_scope):
+        status_service.reset_map_layout()
+
+        auto_agv = agv_service.create_agv(1, 1, actor=actor)["agv"]
+        auto_task_id = int(
+            task_service.create_task(
+                TaskCreateRequest(
+                    start_x=1,
+                    start_y=1,
+                    end_x=2,
+                    end_y=1,
+                    priority=2,
+                ),
+                actor=actor,
+            )["task"]["id"]
+        )
+        auto_schedule = schedule_service.schedule_task_with_path(
+            auto_task_id,
+            auto_agv.id,
+            "manual",
+            "simple",
+            10,
+            8,
+            actor=actor,
+        )
+        expect(auto_schedule["path_to_start"], "scheduled task payload missing path_to_start")
+        expect(auto_schedule["path_to_end"], "scheduled task payload missing path_to_end")
+        expect(auto_schedule["task"]["path_to_start"], "scheduled task snapshot missing immediate path_to_start")
+        expect(auto_schedule["task"]["path_to_end"], "scheduled task snapshot missing immediate path_to_end")
+
+        auto_task = get_task_by_id(auto_task_id)
+        expect(auto_task is not None, "scheduled auto-finish task not found")
+        expect(auto_task.path_to_start is not None, "scheduled auto-finish task did not persist path_to_start")
+        expect(auto_task.path_to_end is not None, "scheduled auto-finish task did not persist path_to_end")
+
+        auto_deadline = time.time() + 8.0
+        while time.time() < auto_deadline:
+            auto_task = get_task_by_id(auto_task_id)
+            if auto_task is not None and auto_task.status == "finished":
+                break
+            time.sleep(0.1)
+
+        expect(auto_task is not None and auto_task.status == "finished", "auto-finish task did not reach finished state")
+        expect(auto_task.path_to_start is None, "auto-finish task retained path_to_start after completion")
+        expect(auto_task.path_to_end is None, "auto-finish task retained path_to_end after completion")
+        expect(auto_task.path_length_to_start is None, "auto-finish task retained path_length_to_start after completion")
+        expect(auto_task.path_length_to_end is None, "auto-finish task retained path_length_to_end after completion")
+
+        auto_agv_runtime = next((item for item in list_agvs() if int(item.id) == int(auto_agv.id)), None)
+        expect(auto_agv_runtime is not None, "auto-finish AGV missing after completion")
+        expect(auto_agv_runtime.status == "idle", "auto-finish AGV did not return to idle")
+        expect(auto_agv_runtime.task_id is None, "auto-finish AGV still bound to finished task")
+
+        manual_agv = agv_service.create_agv(1, 3, actor=actor)["agv"]
+        manual_task_id = int(
+            task_service.create_task(
+                TaskCreateRequest(
+                    start_x=1,
+                    start_y=3,
+                    end_x=8,
+                    end_y=3,
+                    priority=3,
+                ),
+                actor=actor,
+            )["task"]["id"]
+        )
+        manual_task = get_task_by_id(manual_task_id)
+        expect(manual_task is not None, "manual-finish task not found after create")
+
+        manual_task.status = "running"
+        manual_task.agv_id = manual_agv.id
+        set_stage_paths(
+            manual_task,
+            [{"x": 1, "y": 3}],
+            [{"x": 1, "y": 3}, {"x": 8, "y": 3}],
+        )
+        manual_agv.status = "running"
+        manual_agv.task_id = manual_task.id
+        manual_agv.clear_motion(motion_state="running")
+
+        expect(manual_task.path_to_start is not None, "manual-finish task did not persist path_to_start before finish")
+        expect(manual_task.path_to_end is not None, "manual-finish task did not persist path_to_end before finish")
+
+        manual_finish = task_service.finish_task(manual_task_id, actor=actor)
+        expect(manual_finish["task"]["path_to_start"] is None, "manual finish response retained path_to_start")
+        expect(manual_finish["task"]["path_to_end"] is None, "manual finish response retained path_to_end")
+
+        manual_task = get_task_by_id(manual_task_id)
+        expect(manual_task is not None and manual_task.status == "finished", "manual-finish task did not reach finished state")
+        expect(manual_task.path_to_start is None, "manual-finish task retained path_to_start after finish")
+        expect(manual_task.path_to_end is None, "manual-finish task retained path_to_end after finish")
+        expect(manual_task.path_length_to_start is None, "manual-finish task retained path_length_to_start after finish")
+        expect(manual_task.path_length_to_end is None, "manual-finish task retained path_length_to_end after finish")
+
+        manual_agv_runtime = next((item for item in list_agvs() if int(item.id) == int(manual_agv.id)), None)
+        expect(manual_agv_runtime is not None, "manual-finish AGV missing after finish")
+        expect(manual_agv_runtime.status == "idle", "manual-finish AGV did not return to idle")
+        expect(manual_agv_runtime.task_id is None, "manual-finish AGV still bound to finished task")
+        expect(str(getattr(manual_agv_runtime, "motion_state", "") or "") == "idle", "manual-finish AGV motion state was not cleared")
+
+
 def main() -> None:
     cleanup_db_file()
     summary = initialize_runtime()
@@ -645,8 +758,9 @@ def main() -> None:
     assert_scope_isolation()
     assert_reserved_special_node_constraints()
     assert_ui_settings_roundtrip()
+    assert_task_path_lifecycle()
 
-    print("SQLITE_SMOKE_OK point/template/map/scope/reserved_special_node/ui_settings")
+    print("SQLITE_SMOKE_OK point/template/map/scope/reserved_special_node/ui_settings/task_path_lifecycle")
     cleanup_db_file()
 
 

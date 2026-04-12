@@ -14,6 +14,7 @@ from app.utils.path_planner import (
 )
 from app.utils.task_chain import (
     advance_task_stage,
+    clear_task_paths,
     get_current_stage,
     mark_task_blocked,
     set_stage_paths,
@@ -1013,6 +1014,7 @@ def move_agv(
             stage.finished_at = now_iso()
 
             if not advance_task_stage(task):
+                clear_task_paths(task)
                 task.status = "finished"
                 task.finished_at = now_iso()
                 agv.status = "idle"

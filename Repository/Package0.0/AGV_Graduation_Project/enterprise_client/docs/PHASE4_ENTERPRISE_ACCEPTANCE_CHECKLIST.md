@@ -9,6 +9,7 @@
 ```bat
 backend\venv\Scripts\python.exe -m compileall backend\app
 backend\venv\Scripts\python.exe backend\scripts\sqlite_smoke_check.py
+backend\venv\Scripts\python.exe backend\scripts\enterprise_client_login_smoke.py
 cd frontend\agv-frontend
 npm run lint
 npm run build

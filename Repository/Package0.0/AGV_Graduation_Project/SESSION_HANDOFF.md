@@ -22,6 +22,21 @@
   - `frontend\agv-frontend\npm run lint` 通过
   - `frontend\agv-frontend\npm run build` 通过
 
+- 第四阶段 `4F` 企业独立客户端登录链继续收口：
+  - 新增 `backend/scripts/enterprise_client_login_smoke.py`
+    - 直接以 API 级方式验证企业管理员、企业操作工、企业后勤岗三条登录链
+    - 覆盖 `/auth/login`、`/auth/me`、`/status/map`、`/agv/list`、`/task/list`、`/status/ui-settings`
+    - 额外校验企业管理员可访问 `/auth/enterprise-members`，而操作工 / 后勤岗会被正确拒绝
+  - 已修复一个真实触发 `fail to fetch` 的后端根因：
+    - 企业组织第一次读取自治策略设置时，`agv_autonomy` 只传入局部默认值
+    - `backend/app/repositories/sql/ui_settings_store.py` 之前却按“完整 UI 设置”强制写入，导致缺少 `show_minimap` 等字段时直接 `KeyError`
+    - 该问题会在企业客户端登录后拉取 `/agv/list` 时放大成 500，表现为前端 `fail to fetch`
+    - 现在 UI 设置存储层已改成可安全接受局部默认值，企业 scope 首次启动不会再因为这条链炸掉
+  - `start_enterprise_client.bat` 与 `run_enterprise_packaged_dev.bat` 的启动等待已从“只看首页能打开”升级成“首页 + `/auth/me` API 都 ready 再打开浏览器”，用来降低独立客户端刚启动就出现 `fail to fetch` 的概率
+  - 相关文档已补：
+    - `enterprise_client/docs/PHASE4_ENTERPRISE_ACCEPTANCE_CHECKLIST.md`
+    - `enterprise_client/docs/QUICKSTART_ENTERPRISE_CLIENT.md`
+
 ## 2026-04-11 Incremental Update
 
 - 停车站视觉继续增强：
@@ -304,3 +319,64 @@ git -C "Repository/Package0.0/AGV_Graduation_Project" push AGV main
 ```
 
 5. 若 Codex push 失败但本地提交已完成，则让用户直接点 VS Code 的 `同步更改`
+
+## 14. 2026-04-12 第四阶段验收收口增量（4F + 任务路径生命周期）
+
+### 14.1 本轮已完成
+- 新增 `backend/scripts/enterprise_client_login_smoke.py`
+  - 启动本地 uvicorn 临时服务
+  - 用真实 HTTP 流程验证企业独立客户端三账号登录链：
+    - `enterprise_demo / enterprise123`
+    - `enterprise_operator_demo / operator123`
+    - `enterprise_logistics_demo / logistics123`
+  - 校验 `/auth/login`、`/auth/me`、`/status/map`、`/agv/list`、`/task/list`、`/status/ui-settings`
+  - 校验企业成员管理接口的角色权限：
+    - 管理员可访问
+    - 操作工 / 后勤岗返回 `403`
+- 已修复 4F 登录链里的一个真实后端根因：
+  - 文件：`backend/app/repositories/sql/ui_settings_store.py`
+  - 问题：自治/运行时只传入局部默认设置时，UI 设置仓储层仍按“完整 UI payload”强取字段，首次企业 scope 下访问 `/agv/list` 会抛 `KeyError('show_minimap')`
+  - 结果：企业独立客户端会表现成 `fail to fetch`
+  - 修复：仓储层先把局部默认值与完整 UI 默认值合并，再落到 `_apply_payload()`
+- 已增强企业客户端启动脚本等待逻辑：
+  - `start_enterprise_client.bat`
+  - `run_enterprise_packaged_dev.bat`
+  - 现在会同时等待前端主页和 `/auth/me` API 就绪，再打开浏览器，避免“页面已开但会话接口还没起好”
+- 已修复“任务完成后路径字段未清理”的后端缺口：
+  - `backend/app/services/task_service.py`
+  - `backend/app/utils/agv_movement.py`
+  - 覆盖两条链：
+    - 人工完成任务 `finish_task`
+    - AGV 自然跑完最后一段后的自动完成
+  - 现在完成任务时会统一清掉：
+    - `task.path_to_start`
+    - `task.path_to_end`
+    - `task.path_length_to_start`
+    - `task.path_length_to_end`
+  - 人工完成任务时也会同步 `agv.clear_motion()`，避免残留运动态
+- 已把“派发即有路径、完成即清路径”补进 SQLite 冒烟：
+  - 文件：`backend/scripts/sqlite_smoke_check.py`
+  - 新增校验：
+    - 调度返回时 `path_to_start` / `path_to_end` 立即存在
+    - 自动完成后路径字段清空
+    - 人工完成后路径字段清空
+
+### 14.2 本轮验证结果
+- `backend\\venv\\Scripts\\python.exe -m compileall backend\\app backend\\scripts` 通过
+- `backend\\venv\\Scripts\\python.exe backend\\scripts\\sqlite_smoke_check.py` 通过
+- `backend\\venv\\Scripts\\python.exe backend\\scripts\\enterprise_client_login_smoke.py` 通过
+
+### 14.3 对第四阶段状态的最新判断
+- `4F 企业独立客户端登录链`：已从“有产物但未稳定验收”推进到“核心登录链和启动就绪链已有自动化冒烟兜底”
+- `4C 派发任务与路径显示`：已进一步收口，“派发立即显示 + 完成及时清理”后端链路已有明确回归覆盖
+- 第四阶段仍不应宣告“全部正式完成”，因为 `4D 冲突避让 / 死锁打破` 等高风险逻辑包还需要继续按验收清单回归签收
+
+### 14.4 新聊天接手时的优先顺序建议
+1. 先跑：
+   - `backend\\venv\\Scripts\\python.exe backend\\scripts\\enterprise_client_login_smoke.py`
+   - `backend\\venv\\Scripts\\python.exe backend\\scripts\\sqlite_smoke_check.py`
+2. 如果都通过，下一优先级继续推进第四阶段验收清单里的：
+   - 同路不超车
+   - 双向相遇避让
+   - 死锁打破
+3. 前端视觉类优化继续坚持“不重做稳定模块，只补未收口项”
