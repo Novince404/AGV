@@ -1,5 +1,27 @@
 # AGV Graduation Project Session Handoff
 
+## 2026-04-12 Incremental Update
+
+- 第四阶段验收执行计划 `v1` 已继续推进到“账号与数据隔离”高优先级链路：
+  - SQLite 冒烟回归现在不仅验证“个人数据不会串到企业”，还补上了：
+    - 企业管理员 / 企业操作工 / 企业后勤岗共享同一组织 scope
+    - 个人 AGV 与企业 AGV 隔离
+    - 同组织企业角色之间可见同一企业点位 / 模板 / 拓扑 / AGV
+  - 相关后端文件：
+    - `backend/scripts/sqlite_smoke_check.py`
+- 前端切账号 / 切作用域的数据清理链已补强，避免“后端没串号，但界面保留上一账号数据”：
+  - 作用域切换时，运行态 `AGV / task / fault` 列表会先清空，再加载当前作用域数据。
+  - 点位库 / 模板库从后端加载失败时，会回退到默认内置数据并清空上一作用域的自定义数据，不再继续显示旧账号内容。
+  - `AGV / task / fault` 拉取现在会校验响应状态和数据类型，异常时不会把错误 payload 当成当前作用域数据继续挂在界面上。
+  - 相关前端文件：
+    - `frontend/agv-frontend/src/App.vue`
+    - `frontend/agv-frontend/src/composables/usePointTemplateBackend.js`
+- 本轮已验证：
+  - `backend\venv\Scripts\python.exe backend\scripts\sqlite_smoke_check.py` 通过
+  - `backend\venv\Scripts\python.exe -m compileall backend\app` 通过
+  - `frontend\agv-frontend\npm run lint` 通过
+  - `frontend\agv-frontend\npm run build` 通过
+
 ## 2026-04-11 Incremental Update
 
 - 停车站视觉继续增强：

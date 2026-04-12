@@ -15336,6 +15336,16 @@ async function reloadScopedMapData() {
     stopObstaclePaint()
     setObstacleLayoutStatus('', 'info')
     clearImportedObstacleLayoutPreset()
+    agvs.value = []
+    tasks.value = []
+    faultEvents.value = []
+    agvAnimationNow.value = Date.now()
+    builtinPoints.value = [...DEFAULT_POINT_LIBRARY]
+    customPoints.value = []
+    pointsLoadedFromApi.value = false
+    builtinTemplates.value = [...DEFAULT_TASK_TEMPLATES]
+    customTaskTemplates.value = []
+    templatesLoadedFromApi.value = false
     currentMapTopology.value = createEmptyMapTopology()
     enterpriseMapEditorDialogOpen.value = false
     enterpriseTopologyEditorDialogOpen.value = false
@@ -15551,7 +15561,11 @@ async function fetchAgvs() {
   const res = await fetch(`${API_BASE}/agv/list`, {
     headers: buildAuthorizedHeaders()
   })
-  const nextAgvs = await res.json()
+  const data = await res.json()
+  if (!res.ok || !Array.isArray(data)) {
+    throw createApiError(data, 'Load AGVs failed')
+  }
+  const nextAgvs = data
   const shouldRefreshStartedTask = nextAgvs.some(agv => didAgvTaskBindingJustStart(previousAgvs, agv))
   const shouldRefreshCompletedTask = nextAgvs.some(agv => didAgvTaskBindingJustComplete(previousAgvs, agv))
   agvs.value = nextAgvs
@@ -15577,7 +15591,11 @@ async function fetchTasks() {
   const res = await fetch(`${API_BASE}/task/list`, {
     headers: buildAuthorizedHeaders()
   })
-  tasks.value = await res.json()
+  const data = await res.json()
+  if (!res.ok || !Array.isArray(data)) {
+    throw createApiError(data, 'Load tasks failed')
+  }
+  tasks.value = data
 }
 
 async function fetchFaultEvents() {
@@ -15585,10 +15603,11 @@ async function fetchFaultEvents() {
   const res = await fetch(`${API_BASE}/fault/list${query}`, {
     headers: buildAuthorizedHeaders()
   })
-  if (!res.ok) {
-    throw new Error(`Fault event request failed: ${res.status}`)
+  const data = await res.json()
+  if (!res.ok || !Array.isArray(data)) {
+    throw createApiError(data, 'Load fault events failed')
   }
-  faultEvents.value = await res.json()
+  faultEvents.value = data
 }
 
 async function refreshCoreState() {

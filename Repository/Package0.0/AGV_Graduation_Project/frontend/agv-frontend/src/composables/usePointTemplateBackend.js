@@ -147,6 +147,9 @@ export function usePointTemplateBackend(options) {
       return true
     } catch (error) {
       console.warn('Load point library from backend failed:', error)
+      builtinPoints.value = [...defaultPoints]
+      customPoints.value = []
+      pointsLoadedFromApi.value = false
       return false
     }
   }
@@ -171,6 +174,9 @@ export function usePointTemplateBackend(options) {
       return true
     } catch (error) {
       console.warn('Load task templates from backend failed:', error)
+      builtinTemplates.value = [...defaultTemplates]
+      customTaskTemplates.value = []
+      templatesLoadedFromApi.value = false
       return false
     }
   }

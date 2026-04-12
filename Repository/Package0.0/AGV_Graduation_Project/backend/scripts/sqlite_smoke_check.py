@@ -19,10 +19,10 @@ os.environ["AGV_DATABASE_AUTO_CREATE"] = "true"
 sys.path.insert(0, str(BACKEND_DIR))
 
 from app.core.database import dispose_engine, get_db_session  # noqa: E402
-from app.core.data_scope import build_scoped_storage_id, use_scope  # noqa: E402
+from app.core.data_scope import build_scope_key_from_actor, build_scoped_storage_id, use_scope  # noqa: E402
 from app.core.lifecycle import initialize_runtime  # noqa: E402
 from app.repositories.agv_repository import list_agvs  # noqa: E402
-from app.repositories.sql_models import MapLayoutEntity, PointLibraryEntity, TaskTemplateEntity, UiSettingsEntity  # noqa: E402
+from app.repositories.sql_models import AgvEntity, MapLayoutEntity, PointLibraryEntity, TaskTemplateEntity, UiSettingsEntity  # noqa: E402
 from app.schemas.point import PointUpsertRequest  # noqa: E402
 from app.schemas.status import BlockedCellPayload, UiSettingsUpdateRequest  # noqa: E402
 from app.schemas.template import TaskTemplateStagePayload, TaskTemplateUpsertRequest  # noqa: E402
@@ -49,12 +49,57 @@ def blocked_cells_to_set(items: list[dict]) -> set[tuple[int, int]]:
 
 
 def assert_scope_isolation() -> None:
-    personal_scope = "user:smoke_personal"
-    enterprise_scope = "organization:smoke_enterprise"
+    personal_actor = {
+        "id": "smoke_personal",
+        "username": "smoke_personal",
+        "role": "personal",
+    }
+    enterprise_admin_actor = {
+        "id": "smoke_enterprise_admin",
+        "username": "smoke_enterprise_admin",
+        "role": "enterprise_admin",
+        "organization_id": "smoke_enterprise",
+        "organization_name": "Smoke Enterprise",
+    }
+    enterprise_operator_actor = {
+        "id": "smoke_enterprise_operator",
+        "username": "smoke_enterprise_operator",
+        "role": "enterprise_operator",
+        "organization_id": "smoke_enterprise",
+        "organization_name": "Smoke Enterprise",
+    }
+    enterprise_logistics_actor = {
+        "id": "smoke_enterprise_logistics",
+        "username": "smoke_enterprise_logistics",
+        "role": "enterprise_logistics",
+        "organization_id": "smoke_enterprise",
+        "organization_name": "Smoke Enterprise",
+    }
+    platform_actor = {
+        "id": "smoke_platform_admin",
+        "username": "smoke_platform_admin",
+        "role": "platform_admin",
+    }
+    personal_scope = build_scope_key_from_actor(personal_actor)
+    enterprise_scope = build_scope_key_from_actor(enterprise_admin_actor)
+    enterprise_operator_scope = build_scope_key_from_actor(enterprise_operator_actor)
+    enterprise_logistics_scope = build_scope_key_from_actor(enterprise_logistics_actor)
+    platform_scope = build_scope_key_from_actor(platform_actor)
+    expect(personal_scope == "user:smoke_personal", "personal actor scope key mismatch")
+    expect(enterprise_scope == "organization:smoke_enterprise", "enterprise admin scope key mismatch")
+    expect(enterprise_operator_scope == enterprise_scope, "enterprise operator should share organization scope")
+    expect(enterprise_logistics_scope == enterprise_scope, "enterprise logistics should share organization scope")
+    expect(personal_scope != enterprise_scope, "personal scope must remain isolated from enterprise scope")
+    expect(platform_scope != enterprise_scope, "platform scope must remain isolated from enterprise scope")
+
     shared_point_id = "scope_shared_point"
     shared_template_id = "scope_shared_template"
     personal_node_key = "scope-personal-node"
     enterprise_node_key = "scope-enterprise-node"
+    logistics_shared_point_id = "scope_enterprise_logistics_point"
+    logistics_shared_template_id = "scope_enterprise_logistics_template"
+    personal_agv_id = None
+    enterprise_agv_id = None
 
     with use_scope(personal_scope):
         point_service.create_or_update_point(
@@ -113,6 +158,15 @@ def assert_scope_isolation() -> None:
             any(node["key"] == personal_node_key for node in personal_map["topology"]["nodes"]),
             "personal scope topology node missing after save",
         )
+        personal_create_result = agv_service.create_agv(2, 6, actor=personal_actor)
+        personal_agv_id = int(personal_create_result["agv"].id)
+        expect(
+            any(
+                int(agv.id) == personal_agv_id and int(agv.x) == 2 and int(agv.y) == 6
+                for agv in list_agvs()
+            ),
+            "personal scope agv missing after save",
+        )
 
     with use_scope(enterprise_scope):
         enterprise_points_before = point_service.get_point_list()
@@ -129,6 +183,10 @@ def assert_scope_isolation() -> None:
         expect(
             not any(node["key"] == personal_node_key for node in enterprise_map_before["topology"]["nodes"]),
             "personal scope topology leaked into enterprise scope",
+        )
+        expect(
+            not any(int(agv.id) == personal_agv_id for agv in list_agvs()),
+            "personal scope AGV leaked into enterprise scope",
         )
 
         point_service.create_or_update_point(
@@ -199,11 +257,77 @@ def assert_scope_isolation() -> None:
             ),
             "enterprise scope template missing after save",
         )
+        enterprise_create_result = agv_service.create_agv(None, None, point_id=enterprise_node_key, actor=enterprise_admin_actor)
+        enterprise_agv_id = int(enterprise_create_result["agv"].id)
+        expect(
+            any(
+                int(agv.id) == enterprise_agv_id and str(getattr(agv, "current_node", "") or "").strip() == enterprise_node_key
+                for agv in list_agvs()
+            ),
+            "enterprise scope AGV missing after save",
+        )
+
+    with use_scope(enterprise_operator_scope):
+        operator_points = point_service.get_point_list()
+        operator_templates = template_service.get_template_list()
+        operator_map = status_service.get_map_layout()
+        operator_agvs = list_agvs()
+        expect(
+            any(point["id"] == shared_point_id and int(point["x"]) == 8 and int(point["y"]) == 7 for point in operator_points),
+            "enterprise admin point not visible to operator in same organization",
+        )
+        expect(
+            any(template["id"] == shared_template_id and int(template["priority"]) == 5 for template in operator_templates),
+            "enterprise admin template not visible to operator in same organization",
+        )
+        expect(
+            any(node["key"] == enterprise_node_key for node in operator_map["topology"]["nodes"]),
+            "enterprise admin topology not visible to operator in same organization",
+        )
+        expect(
+            any(int(agv.id) == enterprise_agv_id for agv in operator_agvs),
+            "enterprise admin AGV not visible to operator in same organization",
+        )
+
+    with use_scope(enterprise_logistics_scope):
+        point_service.create_or_update_point(
+            PointUpsertRequest(
+                id=logistics_shared_point_id,
+                x=7,
+                y=6,
+                name_key=None,
+                zone_key="enterprise_zone",
+                custom_name="Enterprise Logistics Point",
+                aliases=["enterprise", "logistics"],
+                custom=True,
+            )
+        )
+        template_service.create_or_update_template(
+            TaskTemplateUpsertRequest(
+                id=logistics_shared_template_id,
+                priority=6,
+                name_key=None,
+                custom_name="Enterprise Logistics Template",
+                custom=True,
+                stages=[
+                    TaskTemplateStagePayload(index=0, start_x=7, start_y=6, end_x=8, end_y=6, label="logistics"),
+                ],
+            )
+        )
+        expect(
+            any(point["id"] == logistics_shared_point_id for point in point_service.get_point_list()),
+            "enterprise logistics point missing after same-scope save",
+        )
+        expect(
+            any(template["id"] == logistics_shared_template_id for template in template_service.get_template_list()),
+            "enterprise logistics template missing after same-scope save",
+        )
 
     with use_scope(personal_scope):
         personal_points_after = point_service.get_point_list()
         personal_templates_after = template_service.get_template_list()
         personal_map_after = status_service.get_map_layout()
+        personal_agvs_after = list_agvs()
         expect(
             any(point["id"] == shared_point_id and int(point["x"]) == 1 and int(point["y"]) == 1 for point in personal_points_after),
             "personal scope point lost after enterprise write",
@@ -225,6 +349,39 @@ def assert_scope_isolation() -> None:
         expect(
             not any(node["key"] == enterprise_node_key for node in personal_map_after["topology"]["nodes"]),
             "enterprise scope topology leaked back into personal scope",
+        )
+        expect(
+            not any(point["id"] == logistics_shared_point_id for point in personal_points_after),
+            "enterprise logistics point leaked into personal scope",
+        )
+        expect(
+            not any(template["id"] == logistics_shared_template_id for template in personal_templates_after),
+            "enterprise logistics template leaked into personal scope",
+        )
+        expect(
+            any(int(agv.id) == personal_agv_id for agv in personal_agvs_after),
+            "personal scope AGV lost after enterprise write",
+        )
+        expect(
+            not any(int(agv.id) == enterprise_agv_id for agv in personal_agvs_after),
+            "enterprise scope AGV leaked back into personal scope",
+        )
+
+    with use_scope(enterprise_scope):
+        enterprise_points_final = point_service.get_point_list()
+        enterprise_templates_final = template_service.get_template_list()
+        enterprise_agvs_final = list_agvs()
+        expect(
+            any(point["id"] == logistics_shared_point_id and int(point["x"]) == 7 and int(point["y"]) == 6 for point in enterprise_points_final),
+            "enterprise logistics point not visible to admin in same organization",
+        )
+        expect(
+            any(template["id"] == logistics_shared_template_id and int(template["priority"]) == 6 for template in enterprise_templates_final),
+            "enterprise logistics template not visible to admin in same organization",
+        )
+        expect(
+            any(int(agv.id) == enterprise_agv_id for agv in enterprise_agvs_final),
+            "enterprise AGV missing after same-organization role round trip",
         )
 
     with get_db_session() as session:
@@ -268,6 +425,21 @@ def assert_scope_isolation() -> None:
         }
         expect(personal_scope in stored_layout_scopes, "personal scope map row missing in sqlite db")
         expect(enterprise_scope in stored_layout_scopes, "enterprise scope map row missing in sqlite db")
+
+        stored_agvs = {
+            (int(entity.id), str(entity.scope_key or ""))
+            for entity in session.execute(
+                select(AgvEntity).where(AgvEntity.scope_key.in_([personal_scope, enterprise_scope]))
+            ).scalars().all()
+        }
+        expect(
+            (int(personal_agv_id), personal_scope) in stored_agvs,
+            "personal scoped agv row missing in sqlite db",
+        )
+        expect(
+            (int(enterprise_agv_id), enterprise_scope) in stored_agvs,
+            "enterprise scoped agv row missing in sqlite db",
+        )
 
 
 def assert_reserved_special_node_constraints() -> None:
