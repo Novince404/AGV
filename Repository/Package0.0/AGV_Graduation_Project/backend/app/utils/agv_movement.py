@@ -7,7 +7,11 @@ from app.core.data_scope import get_current_scope_key, use_scope
 from app.repositories.agv_repository import get_agv_by_id, list_agvs
 from app.repositories.task_repository import get_task_by_id
 from app.repositories.ui_settings_repository import get_ui_settings as get_ui_settings_store
-from app.utils.path_planner import plan_path, resolve_topology_segment_metadata
+from app.utils.path_planner import (
+    build_runtime_special_node_constraints,
+    plan_path,
+    resolve_topology_segment_metadata,
+)
 from app.utils.task_chain import (
     advance_task_stage,
     get_current_stage,
@@ -16,6 +20,7 @@ from app.utils.task_chain import (
     sync_task_stage_fields,
 )
 from app.utils.warehouse_map import (
+    get_current_grid_size,
     get_map_layout_state,
     get_navigation_blocked_cells,
     get_topology_node_default_capacity,
@@ -167,13 +172,44 @@ def _estimate_runtime_axis_position(agv, *, horizontal: bool) -> float:
     return source_value + (target_value - source_value) * progress
 
 
+def _get_runtime_topology_node_key_at_position(x: int, y: int) -> str | None:
+    state = get_map_layout_state()
+    topology = state.get("topology") or {}
+    for node in topology.get("nodes", []) or []:
+        if not isinstance(node, dict):
+            continue
+        if int(node.get("x", -1)) != int(x) or int(node.get("y", -1)) != int(y):
+            continue
+        return str(node.get("key") or _build_grid_node_key(x, y))
+    return None
+
+
+def _build_autonomy_runtime_path_constraints(
+    agv,
+    *,
+    target_key: str,
+    target_x: int,
+    target_y: int,
+) -> tuple[set[tuple[int, int]], set[str]]:
+    blocked_cells = set(get_navigation_blocked_cells(*get_current_grid_size()))
+    constraints = build_runtime_special_node_constraints(
+        exclude_agv_id=getattr(agv, "id", None),
+        goal_node_key=target_key,
+        allowed_node_keys={target_key},
+    )
+    blocked_cells |= set(constraints["blocked_positions"])
+    blocked_cells.discard((int(agv.x), int(agv.y)))
+    blocked_cells.discard((int(target_x), int(target_y)))
+    return blocked_cells, set(constraints["avoid_node_keys"])
+
+
 def _get_special_topology_node_at_position(x: int, y: int) -> dict | None:
     state = get_map_layout_state()
     topology = state.get("topology") or {}
     for node in topology.get("nodes", []) or []:
         if not isinstance(node, dict):
             continue
-        if int(node.get("x") or -1) != int(x) or int(node.get("y") or -1) != int(y):
+        if int(node.get("x", -1)) != int(x) or int(node.get("y", -1)) != int(y):
             continue
         node_type = str(node.get("node_type") or "waypoint")
         if node_type not in {"station", "parking", "charge"}:
@@ -294,7 +330,7 @@ def _can_directly_enter_special_target(
     final_target_y: int,
     target_type: str,
 ) -> bool:
-    if str(target_type or "") != "charge":
+    if str(target_type or "") not in {"charge", "parking"}:
         return False
     if int(next_x) != int(final_target_x) or int(next_y) != int(final_target_y):
         return False
@@ -686,11 +722,12 @@ def _finish_motion_segment(agv, target_x: int, target_y: int, target_node: str, 
 
 
 def _set_waiting_motion_state(agv, active_status: str, motion_state: str = "waiting"):
+    current_node_key = _get_runtime_topology_node_key_at_position(int(agv.x), int(agv.y)) or _build_grid_node_key(int(agv.x), int(agv.y))
     agv.apply_motion_fields(
         status=active_status,
         render_x=float(agv.x),
         render_y=float(agv.y),
-        current_node=_build_grid_node_key(int(agv.x), int(agv.y)),
+        current_node=current_node_key,
         current_edge=None,
         edge_progress=0.0,
         motion_state=motion_state,
@@ -1091,6 +1128,13 @@ def move_agv_to_autonomy_target(
                     agv.clear_motion(motion_state=agv.status)
                 return
 
+            runtime_blocked_cells, runtime_avoid_node_keys = _build_autonomy_runtime_path_constraints(
+                agv,
+                target_key=target_key,
+                target_x=target_x,
+                target_y=target_y,
+            )
+
             path = plan_path(
                 algorithm,
                 agv.x,
@@ -1099,8 +1143,10 @@ def move_agv_to_autonomy_target(
                 target_y,
                 grid_cols,
                 grid_rows,
+                blocked=runtime_blocked_cells,
                 request_priority=0,
                 agv_id=agv.id,
+                avoid_node_keys=runtime_avoid_node_keys,
             )
             if not path:
                 agv.status = "idle"
@@ -1135,7 +1181,7 @@ def move_agv_to_autonomy_target(
 
                     with movement_lock:
                         runtime_motion_settings = _get_runtime_motion_settings()
-                        allow_direct_charge_entry = _can_directly_enter_special_target(
+                        allow_direct_special_entry = _can_directly_enter_special_target(
                             agv.id,
                             next_x,
                             next_y,
@@ -1143,7 +1189,7 @@ def move_agv_to_autonomy_target(
                             final_target_y=target_y,
                             target_type=target_type,
                         )
-                        if not allow_direct_charge_entry:
+                        if not allow_direct_special_entry:
                             topology_conflict = _detect_topology_edge_conflict(agv.id, source_x, source_y, point)
                             if topology_conflict is None:
                                 topology_conflict = _detect_same_corridor_follow_conflict(

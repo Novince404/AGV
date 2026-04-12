@@ -13,5 +13,6 @@ TASK_STATUS_COLOR = {
     "assigned": "#2196f3",
     "running": "#4caf50",
     "finished": "#ffc107",
+    "invalid": "#8d8d8d",
     "failed": "#f44336",
 }

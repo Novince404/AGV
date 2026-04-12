@@ -182,7 +182,7 @@ def _find_related_agv(task: Task):
 
 
 def _can_delete_task(task: Task) -> bool:
-    return task.status in {"pending", "blocked", "finished", "assigned", "running"}
+    return task.status in {"pending", "blocked", "finished", "assigned", "running", "invalid"}
 
 
 def _cleanup_related_agv(task: Task):

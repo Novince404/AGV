@@ -125,6 +125,19 @@ def mark_task_blocked(task: Task, reason: str, algorithm: str | None = None):
     return task
 
 
+def mark_task_invalid(task: Task, reason: str, algorithm: str | None = None):
+    task.status = "invalid"
+    task.agv_id = None
+    task.assigned_at = None
+    task.dispatch_distance = None
+    task.cell_wait_retry_count = 0
+    if algorithm is not None:
+        task.dispatch_algorithm = algorithm
+    task.dispatch_reason = reason
+    clear_task_paths(task)
+    return task
+
+
 def advance_task_stage(task: Task) -> bool:
     stages = ensure_task_stages(task)
     if task.current_stage_index + 1 >= len(stages):

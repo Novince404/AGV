@@ -44,6 +44,7 @@ class MapLayoutUpdateRequest(BaseModel):
     grid_cols: int = DEFAULT_GRID_COLS
     grid_rows: int = DEFAULT_GRID_ROWS
     topology: MapTopologyPayload | None = None
+    force_apply: bool = False
 
 
 class MapResizeRequest(BaseModel):

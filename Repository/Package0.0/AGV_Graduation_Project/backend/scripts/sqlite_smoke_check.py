@@ -4,6 +4,8 @@ import os
 import sys
 from pathlib import Path
 
+from sqlalchemy import select
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BACKEND_DIR = REPO_ROOT / "backend"
@@ -17,7 +19,7 @@ os.environ["AGV_DATABASE_AUTO_CREATE"] = "true"
 sys.path.insert(0, str(BACKEND_DIR))
 
 from app.core.database import dispose_engine, get_db_session  # noqa: E402
-from app.core.data_scope import build_scoped_storage_id  # noqa: E402
+from app.core.data_scope import build_scoped_storage_id, use_scope  # noqa: E402
 from app.core.lifecycle import initialize_runtime  # noqa: E402
 from app.repositories.sql_models import MapLayoutEntity, PointLibraryEntity, TaskTemplateEntity  # noqa: E402
 from app.schemas.point import PointUpsertRequest  # noqa: E402
@@ -42,6 +44,228 @@ def cleanup_db_file() -> None:
 
 def blocked_cells_to_set(items: list[dict]) -> set[tuple[int, int]]:
     return {(int(item["x"]), int(item["y"])) for item in items}
+
+
+def assert_scope_isolation() -> None:
+    personal_scope = "user:smoke_personal"
+    enterprise_scope = "organization:smoke_enterprise"
+    shared_point_id = "scope_shared_point"
+    shared_template_id = "scope_shared_template"
+    personal_node_key = "scope-personal-node"
+    enterprise_node_key = "scope-enterprise-node"
+
+    with use_scope(personal_scope):
+        point_service.create_or_update_point(
+            PointUpsertRequest(
+                id=shared_point_id,
+                x=1,
+                y=1,
+                name_key=None,
+                zone_key="personal_zone",
+                custom_name="Personal Scope Point",
+                aliases=["personal"],
+                custom=True,
+            )
+        )
+        template_service.create_or_update_template(
+            TaskTemplateUpsertRequest(
+                id=shared_template_id,
+                priority=2,
+                name_key=None,
+                custom_name="Personal Scope Template",
+                custom=True,
+                stages=[
+                    TaskTemplateStagePayload(index=0, start_x=0, start_y=0, end_x=1, end_y=1, label="personal"),
+                ],
+            )
+        )
+        personal_map = status_service.update_map_layout(
+            [BlockedCellPayload(x=9, y=0)],
+            None,
+            10,
+            8,
+            topology={
+                "topology_version": 1,
+                "nodes": [
+                    {
+                        "key": personal_node_key,
+                        "x": 1,
+                        "y": 1,
+                        "label": "Personal Scope Node",
+                        "node_type": "parking",
+                        "capacity": 2,
+                    }
+                ],
+                "edges": [],
+            },
+        )
+        expect(
+            any(point["id"] == shared_point_id for point in point_service.get_point_list()),
+            "personal scope point missing after save",
+        )
+        expect(
+            any(template["id"] == shared_template_id for template in template_service.get_template_list()),
+            "personal scope template missing after save",
+        )
+        expect(
+            any(node["key"] == personal_node_key for node in personal_map["topology"]["nodes"]),
+            "personal scope topology node missing after save",
+        )
+
+    with use_scope(enterprise_scope):
+        enterprise_points_before = point_service.get_point_list()
+        enterprise_templates_before = template_service.get_template_list()
+        enterprise_map_before = status_service.get_map_layout()
+        expect(
+            not any(point["id"] == shared_point_id for point in enterprise_points_before),
+            "personal scope point leaked into enterprise scope",
+        )
+        expect(
+            not any(template["id"] == shared_template_id for template in enterprise_templates_before),
+            "personal scope template leaked into enterprise scope",
+        )
+        expect(
+            not any(node["key"] == personal_node_key for node in enterprise_map_before["topology"]["nodes"]),
+            "personal scope topology leaked into enterprise scope",
+        )
+
+        point_service.create_or_update_point(
+            PointUpsertRequest(
+                id=shared_point_id,
+                x=8,
+                y=7,
+                name_key=None,
+                zone_key="enterprise_zone",
+                custom_name="Enterprise Scope Point",
+                aliases=["enterprise"],
+                custom=True,
+            )
+        )
+        template_service.create_or_update_template(
+            TaskTemplateUpsertRequest(
+                id=shared_template_id,
+                priority=5,
+                name_key=None,
+                custom_name="Enterprise Scope Template",
+                custom=True,
+                stages=[
+                    TaskTemplateStagePayload(index=0, start_x=8, start_y=7, end_x=9, end_y=7, label="enterprise"),
+                ],
+            )
+        )
+        enterprise_map = status_service.update_map_layout(
+            [BlockedCellPayload(x=0, y=7)],
+            None,
+            10,
+            8,
+            topology={
+                "topology_version": 1,
+                "nodes": [
+                    {
+                        "key": enterprise_node_key,
+                        "x": 8,
+                        "y": 7,
+                        "label": "Enterprise Scope Node",
+                        "node_type": "charge",
+                        "capacity": 3,
+                    }
+                ],
+                "edges": [],
+            },
+        )
+        expect(
+            blocked_cells_to_set(enterprise_map["blocked_cells"]) == {(0, 7)},
+            "enterprise scope blocked cells mismatch",
+        )
+        expect(
+            any(node["key"] == enterprise_node_key for node in enterprise_map["topology"]["nodes"]),
+            "enterprise scope topology node missing after save",
+        )
+        enterprise_points_after = point_service.get_point_list()
+        enterprise_templates_after = template_service.get_template_list()
+        expect(
+            any(point["id"] == shared_point_id and int(point["x"]) == 8 and int(point["y"]) == 7 for point in enterprise_points_after),
+            "enterprise scope point missing after save",
+        )
+        expect(
+            any(
+                template["id"] == shared_template_id
+                and int(template["priority"]) == 5
+                and int(template["stages"][0]["start_x"]) == 8
+                and int(template["stages"][0]["start_y"]) == 7
+                for template in enterprise_templates_after
+            ),
+            "enterprise scope template missing after save",
+        )
+
+    with use_scope(personal_scope):
+        personal_points_after = point_service.get_point_list()
+        personal_templates_after = template_service.get_template_list()
+        personal_map_after = status_service.get_map_layout()
+        expect(
+            any(point["id"] == shared_point_id and int(point["x"]) == 1 and int(point["y"]) == 1 for point in personal_points_after),
+            "personal scope point lost after enterprise write",
+        )
+        expect(
+            any(
+                template["id"] == shared_template_id
+                and int(template["priority"]) == 2
+                and int(template["stages"][0]["start_x"]) == 0
+                and int(template["stages"][0]["start_y"]) == 0
+                for template in personal_templates_after
+            ),
+            "personal scope template lost after enterprise write",
+        )
+        expect(
+            any(node["key"] == personal_node_key for node in personal_map_after["topology"]["nodes"]),
+            "personal scope topology node lost after enterprise write",
+        )
+        expect(
+            not any(node["key"] == enterprise_node_key for node in personal_map_after["topology"]["nodes"]),
+            "enterprise scope topology leaked back into personal scope",
+        )
+
+    with get_db_session() as session:
+        point_ids = {
+            build_scoped_storage_id(shared_point_id, personal_scope),
+            build_scoped_storage_id(shared_point_id, enterprise_scope),
+        }
+        stored_points = {
+            entity.id for entity in session.execute(select(PointLibraryEntity).where(PointLibraryEntity.id.in_(point_ids))).scalars().all()
+        }
+        expect(
+            build_scoped_storage_id(shared_point_id, personal_scope) in stored_points,
+            "personal scoped point row missing in sqlite db",
+        )
+        expect(
+            build_scoped_storage_id(shared_point_id, enterprise_scope) in stored_points,
+            "enterprise scoped point row missing in sqlite db",
+        )
+
+        template_ids = {
+            build_scoped_storage_id(shared_template_id, personal_scope),
+            build_scoped_storage_id(shared_template_id, enterprise_scope),
+        }
+        stored_templates = {
+            entity.id for entity in session.execute(select(TaskTemplateEntity).where(TaskTemplateEntity.id.in_(template_ids))).scalars().all()
+        }
+        expect(
+            build_scoped_storage_id(shared_template_id, personal_scope) in stored_templates,
+            "personal scoped template row missing in sqlite db",
+        )
+        expect(
+            build_scoped_storage_id(shared_template_id, enterprise_scope) in stored_templates,
+            "enterprise scoped template row missing in sqlite db",
+        )
+
+        stored_layout_scopes = {
+            str(entity.scope_key or "")
+            for entity in session.execute(
+                select(MapLayoutEntity).where(MapLayoutEntity.scope_key.in_([personal_scope, enterprise_scope]))
+            ).scalars().all()
+        }
+        expect(personal_scope in stored_layout_scopes, "personal scope map row missing in sqlite db")
+        expect(enterprise_scope in stored_layout_scopes, "enterprise scope map row missing in sqlite db")
 
 
 def main() -> None:
@@ -124,7 +348,9 @@ def main() -> None:
     reset_map = status_service.reset_map_layout()
     expect(reset_map["grid_cols"] == 10 and reset_map["grid_rows"] == 8, "map reset grid size mismatch")
 
-    print("SQLITE_SMOKE_OK point/template/map")
+    assert_scope_isolation()
+
+    print("SQLITE_SMOKE_OK point/template/map/scope")
     cleanup_db_file()
 
 

@@ -19,7 +19,7 @@ def get_agvs():
 @router.post("/create")
 def create_agv(req: AgvCreateRequest, request: Request):
     actor = auth_service.require_actor_capability(request, "dispatch.write")
-    return agv_service.create_agv(req.x, req.y, actor=actor)
+    return agv_service.create_agv(req.x, req.y, point_id=req.point_id, actor=actor)
 
 
 @router.delete("/{agv_id}")
@@ -49,6 +49,16 @@ def resume_agv(agv_id: int, request: Request):
 def move_agv_to_maintenance(agv_id: int, request: Request):
     actor = auth_service.require_actor_capability(request, "fault.write")
     return agv_service.move_agv_to_maintenance(agv_id, actor=actor)
+
+
+@router.post("/{agv_id}/offboard")
+def offboard_agv(agv_id: int, request: Request):
+    actor = auth_service.require_actor_capability(
+        request,
+        "dispatch.write",
+        allowed_roles={"enterprise_admin", "platform_admin"},
+    )
+    return agv_service.offboard_agv(agv_id, actor=actor)
 
 
 @router.post("/{agv_id}/return-to-service")

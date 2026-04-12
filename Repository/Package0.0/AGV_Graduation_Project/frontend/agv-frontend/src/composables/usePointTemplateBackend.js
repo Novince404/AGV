@@ -47,7 +47,9 @@ export function usePointTemplateBackend(options) {
   function normalizeBackendPoint(point) {
     const x = Number(point?.x)
     const y = Number(point?.y)
-    if (!isValidGridCoordinate(x, gridCols()) || !isValidGridCoordinate(y, gridRows())) {
+    const invalidReason = typeof point?.invalid_reason === 'string' ? point.invalid_reason : ''
+    const isInvalid = Boolean(point?.is_invalid) || Boolean(invalidReason)
+    if (!isInvalid && (!isValidGridCoordinate(x, gridCols()) || !isValidGridCoordinate(y, gridRows()))) {
       return null
     }
 
@@ -61,11 +63,17 @@ export function usePointTemplateBackend(options) {
       customName: typeof point?.custom_name === 'string' ? point.custom_name : undefined,
       customZone: isCustom && typeof point?.zone_key === 'string' ? point.zone_key : undefined,
       aliases: normalizeAliases(point?.aliases),
-      custom: isCustom
+      custom: isCustom,
+      isInvalid,
+      invalidReason
     }
   }
 
   function normalizeBackendTemplate(template) {
+    const invalidReason = typeof template?.invalid_reason === 'string' ? template.invalid_reason : ''
+    const invalidStageIndexes = Array.isArray(template?.invalid_stage_indexes)
+      ? template.invalid_stage_indexes.map(index => Number(index)).filter(Number.isInteger)
+      : []
     const stages = Array.isArray(template?.stages)
       ? template.stages
           .map(stage => ({
@@ -76,12 +84,15 @@ export function usePointTemplateBackend(options) {
             end_y: Number(stage?.end_y),
             label: typeof stage?.label === 'string' ? stage.label : ''
           }))
-          .filter(
-            stage =>
-              isValidGridCoordinate(stage.start_x, gridCols()) &&
-              isValidGridCoordinate(stage.start_y, gridRows()) &&
-              isValidGridCoordinate(stage.end_x, gridCols()) &&
-              isValidGridCoordinate(stage.end_y, gridRows())
+          .filter(stage =>
+            invalidReason || invalidStageIndexes.length
+              ? true
+              : (
+                  isValidGridCoordinate(stage.start_x, gridCols()) &&
+                  isValidGridCoordinate(stage.start_y, gridRows()) &&
+                  isValidGridCoordinate(stage.end_x, gridCols()) &&
+                  isValidGridCoordinate(stage.end_y, gridRows())
+                )
           )
       : []
 
@@ -101,7 +112,10 @@ export function usePointTemplateBackend(options) {
       end_y: lastStage.end_y,
       stages,
       priority: Number.isFinite(Number(template?.priority)) ? Number(template.priority) : 1,
-      custom: Boolean(template?.custom)
+      custom: Boolean(template?.custom),
+      isInvalid: Boolean(template?.is_invalid) || Boolean(invalidReason) || invalidStageIndexes.length > 0,
+      invalidReason,
+      invalidStageIndexes
     }
   }
 

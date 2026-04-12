@@ -119,6 +119,10 @@ export function useLocalPersistence(options) {
             typeof parsed.groups.running === 'boolean'
               ? parsed.groups.running
               : queueGroupsCollapsed.value.running,
+          invalid:
+            typeof parsed.groups.invalid === 'boolean'
+              ? parsed.groups.invalid
+              : queueGroupsCollapsed.value.invalid,
           finished:
             typeof parsed.groups.finished === 'boolean'
               ? parsed.groups.finished

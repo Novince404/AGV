@@ -1728,7 +1728,7 @@ h2 {
 
 .enterprise-map-editor-draft-controls {
   display: grid;
-  grid-template-columns: minmax(0, 1.3fr) repeat(3, minmax(118px, 1fr));
+  grid-template-columns: minmax(0, 1.25fr) repeat(4, minmax(118px, 1fr));
   gap: 8px;
   margin-bottom: 10px;
 }
@@ -1793,6 +1793,25 @@ h2 {
   color: var(--strong-text);
 }
 
+.enterprise-map-editor-anchor-toggle {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.enterprise-map-editor-anchor-button {
+  min-width: 0;
+  min-height: 30px;
+  padding: 0 8px;
+}
+
+.enterprise-map-editor-anchor-button.active {
+  border-color: rgba(170, 119, 56, 0.68);
+  background: rgba(247, 232, 210, 0.98);
+  color: #7f5c33;
+}
+
 .enterprise-map-editor-stepper-button {
   min-width: 0;
   min-height: 32px;
@@ -1811,6 +1830,31 @@ h2 {
   min-height: 32px;
   padding: 0 8px;
   font-weight: 700;
+}
+
+.enterprise-map-editor-shift-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 32px);
+  grid-template-rows: repeat(2, 32px);
+  justify-content: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.enterprise-map-editor-shift-button {
+  min-width: 0;
+  min-height: 32px;
+  padding: 0;
+}
+
+.enterprise-map-editor-shift-button-up {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.enterprise-map-editor-shift-button-down {
+  grid-column: 2;
+  grid-row: 2;
 }
 
 .enterprise-map-editor-cell {
@@ -1841,6 +1885,22 @@ h2 {
   box-shadow: none;
 }
 
+.enterprise-map-editor-cell.is-expanded {
+  border-color: rgba(208, 181, 142, 0.78);
+  background:
+    repeating-linear-gradient(
+      135deg,
+      rgba(240, 224, 199, 0.42) 0 6px,
+      rgba(240, 224, 199, 0.12) 6px 12px
+    );
+  color: #ad8c65;
+}
+
+.enterprise-map-editor-cell.is-void.is-expanded {
+  border-color: rgba(208, 181, 142, 0.78);
+  color: #ad8c65;
+}
+
 .enterprise-map-editor-cell.is-valid {
   border-color: rgba(214, 196, 171, 0.82);
   background: rgba(244, 237, 225, 0.82);
@@ -1851,6 +1911,10 @@ h2 {
   border-color: rgba(168, 92, 45, 0.65);
   background: rgba(225, 175, 135, 0.54);
   color: #7a3f1a;
+}
+
+.enterprise-map-editor-cell.is-referenced {
+  box-shadow: inset 0 0 0 1.5px rgba(120, 120, 120, 0.32);
 }
 
 .enterprise-map-editor-cell.is-occupied,
@@ -1886,6 +1950,10 @@ h2 {
   inset: 0;
   pointer-events: none;
   overflow: visible;
+}
+
+.enterprise-route-topology-group-svg {
+  z-index: 0;
 }
 
 .enterprise-route-topology-line {
@@ -1964,6 +2032,166 @@ h2 {
   box-shadow: inset 0 0 0 1px rgba(183, 92, 36, 0.16);
 }
 
+.enterprise-route-topology-cell.has-station-node.is-selected {
+  border-color: rgba(67, 106, 171, 0.86);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.52), rgba(255, 255, 255, 0)),
+    rgba(220, 232, 248, 0.98);
+  box-shadow: inset 0 0 0 2px rgba(67, 106, 171, 0.22), 0 0 0 1px rgba(67, 106, 171, 0.08);
+}
+
+.enterprise-route-topology-cell.has-parking-node.is-selected {
+  border-color: rgba(47, 135, 89, 0.86);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.52), rgba(255, 255, 255, 0)),
+    rgba(219, 243, 229, 0.98);
+  box-shadow: inset 0 0 0 2px rgba(47, 135, 89, 0.18), 0 0 0 1px rgba(47, 135, 89, 0.08);
+}
+
+.enterprise-route-topology-cell.has-charge-node.is-selected {
+  border-color: rgba(202, 126, 28, 0.88);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.52), rgba(255, 255, 255, 0)),
+    rgba(255, 236, 208, 0.99);
+  box-shadow: inset 0 0 0 2px rgba(202, 126, 28, 0.18), 0 0 0 1px rgba(202, 126, 28, 0.08);
+}
+
+.enterprise-route-topology-group-line {
+  fill: none;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+  stroke-dasharray: 6 4;
+  opacity: 0.88;
+}
+
+.enterprise-route-topology-group-line.is-parking {
+  stroke: rgba(47, 135, 89, 0.68);
+}
+
+.enterprise-route-topology-group-line.is-charge {
+  stroke: rgba(202, 126, 28, 0.74);
+}
+
+.enterprise-route-topology-group-shell {
+  position: absolute;
+  z-index: 0;
+  box-sizing: border-box;
+  border-radius: 14px;
+  pointer-events: none;
+}
+
+.enterprise-route-topology-group-shell::before {
+  content: '';
+  position: absolute;
+  inset: 6px;
+  border-radius: 10px;
+}
+
+.enterprise-route-topology-group-shell.is-parking {
+  border: 1px solid rgba(47, 135, 89, 0.22);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0.1)),
+    linear-gradient(135deg, rgba(228, 246, 235, 0.92), rgba(208, 236, 218, 0.78));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
+}
+
+.enterprise-route-topology-group-shell.is-parking::before {
+  border: 1px dashed rgba(47, 135, 89, 0.14);
+}
+
+.enterprise-route-topology-group-shell.is-charge {
+  border: 1px solid rgba(202, 126, 28, 0.22);
+  background:
+    linear-gradient(180deg, rgba(255, 251, 244, 0.98) 0 34px, rgba(255, 248, 239, 0.18) 34px 100%),
+    linear-gradient(135deg, rgba(255, 244, 224, 0.94), rgba(252, 229, 191, 0.8));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.68);
+}
+
+.enterprise-route-topology-group-shell.is-charge::before {
+  border: 1px dashed rgba(202, 126, 28, 0.15);
+}
+
+.enterprise-route-topology-group-shell-head {
+  position: absolute;
+  left: 10px;
+  top: -12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: calc(100% - 20px);
+  padding: 3px 9px;
+  border-radius: 999px;
+  box-shadow: 0 8px 16px rgba(68, 52, 35, 0.12);
+}
+
+.enterprise-route-topology-group-shell.is-parking .enterprise-route-topology-group-shell-head {
+  border: 1px solid rgba(47, 135, 89, 0.22);
+  background: rgba(247, 253, 249, 0.98);
+  color: #1f6c42;
+}
+
+.enterprise-route-topology-group-shell.is-charge .enterprise-route-topology-group-shell-head {
+  left: 12px;
+  top: 8px;
+  padding: 4px 10px 4px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(202, 126, 28, 0.22);
+  background: rgba(255, 251, 244, 0.98);
+  color: #9d600d;
+  box-shadow: 0 4px 10px rgba(138, 92, 23, 0.12);
+}
+
+.enterprise-route-topology-group-shell-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.enterprise-route-topology-group-shell-metric {
+  flex: none;
+  min-width: 18px;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.88);
+  text-align: center;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.enterprise-route-topology-group-label {
+  position: absolute;
+  z-index: 2;
+  transform: translate(-50%, 0);
+  pointer-events: none;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(108, 89, 67, 0.18);
+  background: rgba(255, 255, 255, 0.94);
+  color: #5f5245;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.25;
+  white-space: nowrap;
+  box-shadow: 0 6px 14px rgba(68, 52, 35, 0.12);
+}
+
+.enterprise-route-topology-group-label.is-parking {
+  border-color: rgba(47, 135, 89, 0.26);
+  color: #216c41;
+  background: rgba(244, 252, 247, 0.96);
+}
+
+.enterprise-route-topology-group-label.is-charge {
+  border-color: rgba(202, 126, 28, 0.28);
+  color: #9a600f;
+  background: rgba(255, 248, 239, 0.97);
+}
+
 .enterprise-route-topology-node-badge {
   display: inline-flex;
   align-items: center;
@@ -2002,6 +2230,41 @@ h2 {
   color: #7b5227;
 }
 
+.enterprise-topology-node-editor-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border: 1px solid rgba(219, 208, 192, 0.9);
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(255, 253, 249, 0.96), rgba(251, 246, 239, 0.96));
+}
+
+.enterprise-topology-node-editor-summary__badge {
+  min-width: 24px;
+  min-height: 24px;
+  font-size: 12px;
+}
+
+.enterprise-topology-node-editor-summary__copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.enterprise-topology-node-editor-summary__copy strong {
+  color: var(--strong-text);
+  font-size: 13px;
+  line-height: 1.3;
+}
+
+.enterprise-topology-node-editor-summary__copy span {
+  color: var(--muted-text);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 .enterprise-settings-content {
   display: grid;
   align-content: start;
@@ -2036,6 +2299,9 @@ h2 {
 }
 
 .enterprise-settings-actions {
+  position: relative;
+  z-index: 6;
+  isolation: isolate;
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
@@ -2848,6 +3114,44 @@ h2 {
   cursor: grab;
 }
 
+.scope-data-veil {
+  position: fixed;
+  inset: 0;
+  z-index: 140;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(246, 241, 232, 0.94);
+  backdrop-filter: blur(8px);
+}
+
+.scope-data-veil-card {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 18px;
+  border-radius: 999px;
+  border: 1px solid rgba(211, 199, 183, 0.92);
+  background: rgba(255, 252, 247, 0.96);
+  box-shadow: 0 14px 32px rgba(45, 35, 24, 0.1);
+}
+
+.scope-data-veil-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(164, 130, 78, 0.9);
+  animation: scope-data-veil-bounce 1s ease-in-out infinite;
+}
+
+.scope-data-veil-dot:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.scope-data-veil-dot:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
 .map.panning {
   cursor: grabbing;
 }
@@ -2969,6 +3273,10 @@ h2 {
   opacity: 0.92;
 }
 
+.map-topology-outline-layer,
+.minimap-topology-outline-layer,
+.map-topology-special-group-layer,
+.minimap-topology-special-group-layer,
 .map-topology-edge-layer,
 .minimap-topology-edge-layer {
   position: absolute;
@@ -2978,8 +3286,502 @@ h2 {
   overflow: visible;
 }
 
+.map-topology-outline-layer,
+.minimap-topology-outline-layer,
+.map-topology-special-group-layer,
+.minimap-topology-special-group-layer {
+  z-index: 0;
+}
+
+.map-topology-outline,
+.minimap-topology-outline {
+  fill: none;
+  vector-effect: non-scaling-stroke;
+  stroke-linecap: square;
+}
+
+.map-topology-outline {
+  stroke: rgba(118, 102, 81, 0.82);
+  stroke-width: 2;
+  opacity: 0.92;
+}
+
+.minimap-topology-outline {
+  stroke: rgba(118, 102, 81, 0.78);
+  stroke-width: 1;
+  opacity: 0.88;
+}
+
+.map-topology-special-group-outline,
+.minimap-topology-special-group-outline {
+  fill: none;
+  vector-effect: non-scaling-stroke;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.map-topology-special-group-outline {
+  stroke-width: 2.4;
+  stroke-dasharray: 8 5;
+  opacity: 0.94;
+}
+
+.minimap-topology-special-group-outline {
+  stroke-width: 1;
+  stroke-dasharray: 3 2;
+  opacity: 0.88;
+}
+
+.map-topology-special-group-outline.is-parking,
+.minimap-topology-special-group-outline.is-parking {
+  stroke: rgba(47, 135, 89, 0.78);
+}
+
+.map-topology-special-group-outline.is-charge,
+.minimap-topology-special-group-outline.is-charge {
+  stroke: rgba(202, 126, 28, 0.82);
+}
+
+.map-topology-special-group-shell {
+  position: absolute;
+  box-sizing: border-box;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.map-topology-special-group-shell-surface {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  box-sizing: border-box;
+  pointer-events: none;
+}
+
+.map-topology-special-group-shell.is-parking .map-topology-special-group-shell-surface {
+  inset: -10px -3px -12px -3px;
+  border-radius: 20px;
+  border: 1px solid rgba(47, 135, 89, 0.32);
+  background:
+    linear-gradient(180deg, rgba(247, 252, 249, 0.99) 0 34px, rgba(233, 247, 239, 0.96) 34px 100%),
+    linear-gradient(135deg, rgba(222, 242, 230, 0.92), rgba(209, 234, 218, 0.82));
+  box-shadow:
+    0 12px 20px rgba(29, 91, 58, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.84);
+}
+
+.map-topology-special-group-shell.is-parking .map-topology-special-group-shell-surface::before {
+  content: '';
+  position: absolute;
+  inset: 7px;
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.3), rgba(255, 255, 255, 0.04));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.62);
+}
+
+.map-topology-special-group-shell.is-charge .map-topology-special-group-shell-surface {
+  inset: -8px -2px -10px -2px;
+  border-radius: 20px;
+  border: 1px solid rgba(202, 126, 28, 0.3);
+  background:
+    linear-gradient(180deg, rgba(255, 251, 244, 0.99) 0 40px, rgba(255, 248, 240, 0.2) 40px 100%),
+    linear-gradient(135deg, rgba(255, 242, 221, 0.97), rgba(255, 228, 188, 0.83));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.74),
+    0 10px 22px rgba(138, 92, 23, 0.14);
+}
+
+.map-topology-special-group-shell.is-charge .map-topology-special-group-shell-surface::before {
+  content: '';
+  position: absolute;
+  inset: 7px;
+  border-radius: 14px;
+  border: 1px dashed rgba(202, 126, 28, 0.18);
+}
+
+.map-topology-special-group-shell-head {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  top: 1px;
+  z-index: 9;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.map-topology-special-group-shell.is-charge .map-topology-special-group-shell-head {
+  left: 10px;
+  right: 10px;
+  top: 1px;
+}
+
+.map-topology-special-group-shell-heading {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.map-topology-special-group-shell-mark {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 5px;
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: 0.05em;
+  box-sizing: border-box;
+}
+
+.map-topology-special-group-shell.is-parking .map-topology-special-group-shell-mark {
+  border: 1px solid rgba(47, 135, 89, 0.24);
+  background: rgba(245, 252, 247, 0.96);
+  color: #1f6c42;
+}
+
+.map-topology-special-group-shell.is-charge .map-topology-special-group-shell-mark {
+  border: 1px solid rgba(202, 126, 28, 0.24);
+  background: rgba(255, 248, 238, 0.97);
+  color: #9d600d;
+}
+
+.map-topology-special-group-shell-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.map-topology-special-group-shell.is-parking .map-topology-special-group-shell-title {
+  color: #1f6c42;
+}
+
+.map-topology-special-group-shell.is-charge .map-topology-special-group-shell-title {
+  color: #9d600d;
+}
+
+.map-topology-special-group-shell-metric {
+  flex: none;
+  min-height: 24px;
+  padding: 3px 8px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.94);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  box-sizing: border-box;
+}
+
+.map-topology-special-group-shell.is-parking .map-topology-special-group-shell-metric {
+  min-height: 20px;
+  padding: 2px 7px;
+  border: 1px solid rgba(47, 135, 89, 0.16);
+  border-radius: 999px;
+  background: rgba(241, 249, 244, 0.92);
+  color: #2d7050;
+  font-size: 10px;
+  font-weight: 700;
+  box-shadow: none;
+}
+
+.map-topology-special-group-shell-metric.is-secondary {
+  letter-spacing: 0.01em;
+}
+
+.map-topology-special-group-shell.is-charge .map-topology-special-group-shell-metric {
+  border: 1px solid rgba(202, 126, 28, 0.24);
+  color: #9d600d;
+  box-shadow: 0 5px 12px rgba(138, 92, 23, 0.14);
+}
+
+.map-topology-special-group-shell-body {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  top: 20px;
+  bottom: 12px;
+  z-index: 5;
+  pointer-events: none;
+}
+
+.map-topology-special-group-shell-body::before {
+  content: '';
+  position: absolute;
+  inset: 4px 0;
+  border-radius: 13px;
+  border: 1px dashed rgba(47, 135, 89, 0.16);
+  background:
+    linear-gradient(180deg, rgba(246, 252, 248, 0.82), rgba(232, 246, 237, 0.54)),
+    repeating-linear-gradient(
+      90deg,
+      rgba(47, 135, 89, 0.015) 0,
+      rgba(47, 135, 89, 0.015) 23px,
+      rgba(47, 135, 89, 0.06) 23px,
+      rgba(47, 135, 89, 0.06) 25px
+    );
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78);
+}
+
+.map-topology-special-group-shell-body::after {
+  content: '';
+  position: absolute;
+  inset: 10px 10px;
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(47, 135, 89, 0.03));
+}
+
+.map-topology-special-group-shell-core {
+  position: absolute;
+  right: 12px;
+  bottom: 18px;
+  z-index: 6;
+  display: grid;
+  justify-items: end;
+  gap: 1px;
+  pointer-events: none;
+}
+
+.map-topology-special-group-shell-core small {
+  color: rgba(57, 104, 74, 0.72);
+  font-size: 8px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.04em;
+}
+
+.map-topology-special-group-shell-core strong {
+  color: rgba(31, 108, 65, 0.92);
+  font-size: 23px;
+  font-weight: 800;
+  line-height: 0.92;
+  letter-spacing: -0.03em;
+}
+
+.map-topology-special-group-shell-footer {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 3px;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 5px;
+  border-top: 1px solid rgba(47, 135, 89, 0.12);
+  color: #5f7568;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1.2;
+  pointer-events: none;
+}
+
+.map-topology-special-group-shell-footer span {
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.map-topology-special-group-label {
+  position: absolute;
+  z-index: 8;
+  transform: translate(-50%, 0);
+  pointer-events: none;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(117, 97, 73, 0.18);
+  background: rgba(255, 255, 255, 0.96);
+  color: #5f5245;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.25;
+  white-space: nowrap;
+  box-shadow: 0 8px 18px rgba(60, 45, 30, 0.12);
+}
+
+.map-topology-special-group-label.is-parking {
+  border-color: rgba(47, 135, 89, 0.28);
+  background: rgba(244, 252, 247, 0.97);
+  color: #216c41;
+}
+
+.map-topology-special-group-label.is-charge {
+  border-color: rgba(202, 126, 28, 0.28);
+  background: rgba(255, 248, 239, 0.98);
+  color: #9a600f;
+}
+
+.map-topology-special-group-cell {
+  position: absolute;
+  z-index: 2;
+  box-sizing: border-box;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: transform 0.14s ease, box-shadow 0.14s ease, border-color 0.14s ease;
+}
+
+.map-topology-special-group-cell:hover {
+  transform: translateY(-1px);
+}
+
+.map-topology-special-group-cell.has-shell {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.map-topology-special-group-cell.has-shell::after {
+  content: '';
+  position: absolute;
+  inset: 7px 5px;
+  border-radius: 10px;
+  pointer-events: none;
+}
+
+.map-topology-special-group-cell.has-shell:hover {
+  transform: none;
+}
+
+.map-topology-special-group-cell.is-parking {
+  border: 1px solid rgba(47, 135, 89, 0.2);
+  background:
+    linear-gradient(135deg, rgba(236, 248, 241, 0.98), rgba(220, 243, 228, 0.82)),
+    repeating-linear-gradient(
+      135deg,
+      rgba(47, 135, 89, 0.06) 0,
+      rgba(47, 135, 89, 0.06) 6px,
+      rgba(255, 255, 255, 0) 6px,
+      rgba(255, 255, 255, 0) 12px
+    );
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.65);
+}
+
+.map-topology-special-group-cell.is-parking.has-shell::after {
+  border: 1px solid rgba(47, 135, 89, 0.1);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(47, 135, 89, 0.03));
+}
+
+.map-topology-special-group-cell.is-charge {
+  border: 1px solid rgba(202, 126, 28, 0.22);
+  background:
+    linear-gradient(135deg, rgba(255, 248, 236, 0.99), rgba(255, 234, 204, 0.84)),
+    repeating-linear-gradient(
+      135deg,
+      rgba(202, 126, 28, 0.07) 0,
+      rgba(202, 126, 28, 0.07) 6px,
+      rgba(255, 255, 255, 0) 6px,
+      rgba(255, 255, 255, 0) 12px
+    );
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.68);
+}
+
+.map-topology-special-group-cell.is-charge.has-shell::after {
+  border: 1px solid rgba(202, 126, 28, 0.14);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(202, 126, 28, 0.05));
+}
+
+.map-topology-special-group-slot {
+  position: absolute;
+  z-index: 6;
+  transform: translate(-50%, -50%);
+  min-width: 34px;
+  min-height: 34px;
+  padding: 4px 6px;
+  display: inline-grid;
+  place-items: center;
+  gap: 2px;
+  border-radius: 12px;
+  border: 1px solid rgba(112, 93, 71, 0.22);
+  background: rgba(255, 255, 255, 0.94);
+  color: #5d5246;
+  box-shadow: 0 6px 14px rgba(60, 45, 30, 0.14);
+  cursor: pointer;
+  transition: transform 0.14s ease, box-shadow 0.14s ease, border-color 0.14s ease;
+  text-align: center;
+}
+
+.map-topology-special-group-slot:hover {
+  transform: translate(-50%, calc(-50% - 1px));
+  box-shadow: 0 10px 18px rgba(60, 45, 30, 0.18);
+}
+
+.map-topology-special-group-slot.has-shell {
+  z-index: 7;
+  min-width: 32px;
+  min-height: 32px;
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.map-topology-special-group-slot.has-shell.is-parking {
+  min-width: 34px;
+  min-height: 36px;
+  padding: 5px 6px;
+  border-radius: 13px;
+  border-color: rgba(47, 135, 89, 0.22);
+  background: linear-gradient(180deg, rgba(249, 253, 250, 0.94), rgba(239, 248, 243, 0.9));
+  box-shadow:
+    0 6px 12px rgba(29, 91, 58, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.88);
+}
+
+.map-topology-special-group-slot.is-occupied {
+  box-shadow: 0 0 0 2px rgba(218, 74, 47, 0.12), 0 8px 18px rgba(60, 45, 30, 0.18);
+}
+
+.map-topology-special-group-slot.has-shell.is-parking.is-occupied {
+  box-shadow:
+    0 0 0 2px rgba(47, 135, 89, 0.12),
+    0 8px 14px rgba(29, 91, 58, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.88);
+}
+
+.map-topology-special-group-slot.is-parking {
+  border-color: rgba(47, 135, 89, 0.26);
+  background: rgba(246, 252, 248, 0.96);
+  color: #216c41;
+}
+
+.map-topology-special-group-slot.is-charge {
+  border-color: rgba(202, 126, 28, 0.28);
+  background: rgba(255, 249, 241, 0.97);
+  color: #a86612;
+}
+
+.map-topology-special-group-slot-count {
+  min-width: 24px;
+  padding: 1px 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  color: inherit;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.map-topology-special-group-slot.has-shell.is-parking .map-topology-special-group-slot-count {
+  min-width: 24px;
+  padding: 1px 4px;
+  border: none;
+  background: rgba(247, 252, 249, 0.92);
+  color: #2d7050;
+  font-size: 9px;
+  font-weight: 700;
+  box-shadow: none;
+}
+
 .map-topology-edge,
-.minimap-topology-edge {
+.minimap-topology-edge,
+.map-topology-direction-arrow,
+.minimap-topology-direction-arrow {
   fill: none;
   stroke-linecap: round;
   stroke-linejoin: round;
@@ -2997,24 +3799,59 @@ h2 {
   opacity: 0.9;
 }
 
+.map-topology-direction-arrow {
+  stroke-width: 2.3;
+  opacity: 0.98;
+  filter: drop-shadow(0 2px 4px rgba(57, 44, 30, 0.12));
+}
+
+.minimap-topology-direction-arrow {
+  stroke-width: 1.05;
+  opacity: 0.98;
+}
+
 .map-topology-edge.is-main,
-.minimap-topology-edge.is-main {
+.minimap-topology-edge.is-main,
+.map-topology-direction-arrow.is-main,
+.minimap-topology-direction-arrow.is-main {
   stroke: rgba(59, 130, 246, 0.96);
 }
 
 .map-topology-edge.is-branch,
-.minimap-topology-edge.is-branch {
+.minimap-topology-edge.is-branch,
+.map-topology-direction-arrow.is-branch,
+.minimap-topology-direction-arrow.is-branch {
   stroke: rgba(20, 184, 166, 0.92);
 }
 
 .map-topology-edge.is-service,
-.minimap-topology-edge.is-service {
+.minimap-topology-edge.is-service,
+.map-topology-direction-arrow.is-service,
+.minimap-topology-direction-arrow.is-service {
   stroke: rgba(245, 158, 11, 0.92);
 }
 
 .map-topology-edge.is-one-way,
 .minimap-topology-edge.is-one-way {
-  stroke-dasharray: 8 6;
+  stroke-dasharray: 0;
+}
+
+.map-topology-arrow-head.is-main,
+.map-topology-arrow-head.is-branch,
+.map-topology-arrow-head.is-service {
+  stroke: none;
+}
+
+.map-topology-arrow-head.is-main {
+  fill: rgba(59, 130, 246, 0.96);
+}
+
+.map-topology-arrow-head.is-branch {
+  fill: rgba(20, 184, 166, 0.92);
+}
+
+.map-topology-arrow-head.is-service {
+  fill: rgba(245, 158, 11, 0.92);
 }
 
 .map-topology-node,
@@ -3191,8 +4028,115 @@ h2 {
   font-size: 12px;
 }
 
+.topology-station-dialog-status-hint {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  max-width: 100%;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.topology-station-dialog-status-hint.is-ready {
+  background: rgba(220, 246, 230, 0.82);
+  color: #1f6c42;
+}
+
+.topology-station-dialog-status-hint.is-busy {
+  background: rgba(241, 234, 224, 0.9);
+  color: #7b5d3f;
+}
+
+.topology-station-dialog-status-hint.is-charge {
+  background: rgba(255, 237, 209, 0.92);
+  color: #a56411;
+}
+
+.topology-station-dialog-status-hint.is-danger {
+  background: rgba(252, 224, 220, 0.94);
+  color: #b33e2a;
+}
+
+.topology-station-dialog-status-hint.is-muted {
+  background: rgba(233, 235, 239, 0.92);
+  color: #5b6674;
+}
+
+.topology-station-dialog-onboard {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 14px;
+  padding: 12px 14px;
+  border: 1px solid #e2d8cb;
+  border-radius: 14px;
+  background: rgba(255, 252, 247, 0.96);
+}
+
 .topology-station-dialog-action {
   min-width: 136px;
+}
+
+.topology-station-dialog-slot-list {
+  display: grid;
+  gap: 8px;
+}
+
+.topology-station-dialog-slot-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid #e6ddd1;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.8);
+}
+
+.topology-station-dialog-slot-mark {
+  min-width: 34px;
+  height: 34px;
+  padding: 0 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  border: 1px solid rgba(119, 99, 77, 0.18);
+  background: rgba(245, 239, 230, 0.9);
+  color: #6b5840;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.topology-station-dialog-slot-mark.is-parking {
+  border-color: rgba(47, 135, 89, 0.24);
+  background: rgba(239, 249, 243, 0.95);
+  color: #216c41;
+}
+
+.topology-station-dialog-slot-mark.is-charge {
+  border-color: rgba(202, 126, 28, 0.24);
+  background: rgba(255, 247, 235, 0.96);
+  color: #9f6312;
+}
+
+.topology-station-dialog-slot-copy {
+  display: grid;
+  gap: 3px;
+}
+
+.topology-station-dialog-slot-copy strong {
+  color: var(--strong-text);
+  font-size: 13px;
+}
+
+.topology-station-dialog-slot-copy span {
+  color: var(--muted-text);
+  font-size: 12px;
 }
 
 .minimap-void-cell {
@@ -3388,6 +4332,14 @@ h2 {
   z-index: 32;
 }
 
+.agv-runtime-overlay-floating {
+  z-index: 34;
+}
+
+.agv-runtime-overlay-floating.is-below {
+  transform: translate(-50%, 12px);
+}
+
 .agv-runtime-overlay::after {
   content: '';
   position: absolute;
@@ -3399,6 +4351,15 @@ h2 {
   border-right: 1px solid rgba(217, 209, 198, 0.95);
   border-bottom: 1px solid rgba(217, 209, 198, 0.95);
   transform: translateX(-50%) rotate(45deg);
+}
+
+.agv-runtime-overlay-floating.is-below::after {
+  top: -7px;
+  bottom: auto;
+  border-right: none;
+  border-bottom: none;
+  border-left: 1px solid rgba(217, 209, 198, 0.95);
+  border-top: 1px solid rgba(217, 209, 198, 0.95);
 }
 
 .agv-runtime-overlay-chip,
@@ -3488,6 +4449,12 @@ h2 {
 
 .map-control-button {
   padding: 7px 10px;
+}
+
+.map-control-button-danger {
+  border-color: rgba(220, 38, 38, 0.24);
+  background: rgba(254, 242, 242, 0.96);
+  color: #b91c1c;
 }
 
 .map-control-button-page-settings {
@@ -5540,6 +6507,12 @@ h2 {
   transition: border-color 0.14s ease, box-shadow 0.14s ease, background 0.14s ease;
 }
 
+.template-card.is-invalid,
+.point-card.is-invalid {
+  border-color: rgba(148, 148, 148, 0.62);
+  background: rgba(246, 245, 243, 0.92);
+}
+
 .template-card.search-hit,
 .point-card.search-hit,
 .task-card.search-hit {
@@ -5562,6 +6535,11 @@ h2 {
   font-size: 12px;
   color: var(--muted-text);
   line-height: 1.45;
+}
+
+.template-meta.template-meta-alert,
+.point-meta.template-meta-alert {
+  color: #7d5f2f;
 }
 
 .template-actions {
@@ -5614,16 +6592,35 @@ h2 {
 .point-head {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   margin-bottom: 6px;
   font-size: 13px;
+}
+
+.point-head-main {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.point-head-copy {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.point-head-copy strong {
+  line-height: 1.35;
 }
 
 .point-tags {
   display: flex;
   align-items: center;
   gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .point-zone {
@@ -5647,9 +6644,67 @@ h2 {
   color: #2e7d32;
 }
 
+.point-badge.danger {
+  background: #f0efee;
+  color: #6b6661;
+}
+
 .point-meta {
   font-size: 12px;
   color: var(--muted-text);
+}
+
+.point-kind-mark {
+  min-width: 40px;
+  height: 40px;
+  padding: 0 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  border: 1px solid rgba(126, 107, 85, 0.16);
+  background: linear-gradient(135deg, #f5efe4, #fffdf7);
+  color: #6f5f49;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+}
+
+.point-kind-mark.is-inbound {
+  background: linear-gradient(135deg, rgba(221, 239, 255, 0.98), rgba(240, 247, 255, 0.98));
+  color: #2f6cb3;
+}
+
+.point-kind-mark.is-outbound {
+  background: linear-gradient(135deg, rgba(255, 232, 214, 0.98), rgba(255, 244, 236, 0.98));
+  color: #bf6a1f;
+}
+
+.point-kind-mark.is-storage {
+  background: linear-gradient(135deg, rgba(230, 243, 228, 0.98), rgba(245, 251, 242, 0.98));
+  color: #2f7a42;
+}
+
+.point-kind-mark.is-assembly {
+  background: linear-gradient(135deg, rgba(236, 231, 255, 0.98), rgba(246, 243, 255, 0.98));
+  color: #6450b9;
+}
+
+.point-kind-mark.is-charge {
+  background: linear-gradient(135deg, rgba(255, 239, 214, 0.98), rgba(255, 248, 234, 0.98));
+  color: #b56a10;
+}
+
+.point-kind-mark.is-maintenance {
+  background: linear-gradient(135deg, rgba(229, 236, 241, 0.98), rgba(244, 248, 250, 0.98));
+  color: #536675;
+}
+
+.point-kind-label {
+  font-size: 11px;
+  color: var(--muted-text);
+  line-height: 1.35;
 }
 
 .point-actions {
@@ -5657,6 +6712,11 @@ h2 {
   gap: 8px;
   margin-top: 8px;
   flex-wrap: wrap;
+}
+
+.point-locate-action {
+  border-color: rgba(68, 101, 132, 0.24);
+  color: #375d7d;
 }
 
 .json-status {
@@ -6363,6 +7423,11 @@ h2 {
   background: #fff9ef;
 }
 
+.task-card.is-invalid {
+  border-color: rgba(133, 133, 133, 0.45);
+  background: rgba(244, 244, 244, 0.92);
+}
+
 .task-card.collapsed {
   background: rgba(255, 252, 246, 0.92);
 }
@@ -6425,6 +7490,11 @@ h2 {
 .status-badge.finished {
   background: #e3f2fd;
   color: #1565c0;
+}
+
+.status-badge.invalid {
+  background: #eeeeee;
+  color: #6d6d6d;
 }
 
 .status-badge.fault,
@@ -6821,5 +7891,19 @@ h2 {
 
   .task-builder-header {
     align-items: center;
+  }
+}
+
+@keyframes scope-data-veil-bounce {
+  0%,
+  80%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.46;
+  }
+
+  40% {
+    transform: translateY(-6px);
+    opacity: 1;
   }
 }

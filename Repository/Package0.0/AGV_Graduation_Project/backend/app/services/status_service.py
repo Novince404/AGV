@@ -27,7 +27,15 @@ from app.repositories.ui_settings_repository import get_ui_settings as get_ui_se
 from app.repositories.ui_settings_repository import save_ui_settings as save_ui_settings_store
 from app.services.operation_audit_service import build_first_audit_map, build_latest_audit_map, record_operation_audit
 from app.utils.api_error import raise_api_error
+from app.utils.map_validity import (
+    ACTIVE_TASK_INVALIDATION_STATUSES,
+    build_map_validity_context,
+    build_point_validity_payload,
+    build_task_invalidity_payload,
+    build_template_validity_payload,
+)
 from app.utils.status_map import AGV_STATUS_COLOR, TASK_STATUS_COLOR
+from app.utils.task_chain import mark_task_invalid
 from app.utils.warehouse_map import (
     DEFAULT_MAP_PRESETS,
     build_map_profile_payload,
@@ -843,6 +851,156 @@ def get_map_resize_precheck(requested_grid_cols: int, requested_grid_rows: int):
     }
 
 
+def _build_map_layout_impact_preview(
+    *,
+    grid_cols: int,
+    grid_rows: int,
+    blocked_cells: set[tuple[int, int]],
+    valid_cells: set[tuple[int, int]],
+    topology: dict | None,
+):
+    context = build_map_validity_context(
+        grid_cols=grid_cols,
+        grid_rows=grid_rows,
+        blocked_cells=blocked_cells,
+        valid_cells=valid_cells,
+        topology=topology,
+    )
+    agv_conflicts = []
+    agv_by_id = {}
+
+    for agv in list_agvs():
+        agv_by_id[int(agv.id)] = agv
+        validity = build_point_validity_payload(agv, context)
+        if validity["is_invalid"]:
+            agv_conflicts.append(
+                {
+                    "id": int(agv.id),
+                    "status": str(getattr(agv, "status", "") or ""),
+                    "x": int(agv.x),
+                    "y": int(agv.y),
+                    "invalid_reason": validity["invalid_reason"],
+                }
+            )
+
+    invalid_points = [
+        {
+            "id": payload["id"],
+            "name": payload.get("custom_name") or payload.get("name_key") or payload["id"],
+            "x": int(payload["x"]),
+            "y": int(payload["y"]),
+            "invalid_reason": payload["invalid_reason"],
+        }
+        for payload in (build_point_validity_payload(point, context) for point in list_points())
+        if payload["is_invalid"]
+    ]
+
+    invalid_templates = [
+        {
+            "id": payload["id"],
+            "name": payload.get("custom_name") or payload.get("name_key") or payload["id"],
+            "invalid_reason": payload["invalid_reason"],
+            "invalid_stage_indexes": payload["invalid_stage_indexes"],
+        }
+        for payload in (build_template_validity_payload(template, context) for template in list_task_templates())
+        if payload["is_invalid"]
+    ]
+
+    invalid_tasks = []
+    for task in list_tasks():
+        if str(getattr(task, "status", "") or "") not in ACTIVE_TASK_INVALIDATION_STATUSES:
+            continue
+        related_agv = None
+        if getattr(task, "agv_id", None) is not None:
+            related_agv = agv_by_id.get(int(task.agv_id))
+        if related_agv is None:
+            related_agv = next((agv for agv in agv_by_id.values() if getattr(agv, "task_id", None) == task.id), None)
+        payload = build_task_invalidity_payload(task, context, agv=related_agv)
+        if payload["is_invalid"]:
+            invalid_tasks.append(payload)
+
+    blockers = []
+    if agv_conflicts:
+        blockers.append("agvs_in_physical_cells")
+    if invalid_points:
+        blockers.append("points_invalid")
+    if invalid_templates:
+        blockers.append("templates_invalid")
+    if invalid_tasks:
+        blockers.append("tasks_invalid")
+
+    return {
+        "can_apply": len(blockers) == 0,
+        "force_apply_allowed": len(agv_conflicts) == 0,
+        "blockers": blockers,
+        "agv_conflicts": agv_conflicts,
+        "agv_conflict_count": len(agv_conflicts),
+        "invalid_points": invalid_points,
+        "invalid_point_count": len(invalid_points),
+        "invalid_templates": invalid_templates,
+        "invalid_template_count": len(invalid_templates),
+        "invalidated_tasks": invalid_tasks,
+        "invalidated_task_count": len(invalid_tasks),
+    }
+
+
+def _apply_invalidated_tasks_for_map_change(invalidated_tasks: list[dict], actor: dict | None = None):
+    if not invalidated_tasks:
+        return []
+
+    task_by_id = {int(task.id): task for task in list_tasks()}
+    agvs = list_agvs()
+    agv_by_id = {int(agv.id): agv for agv in agvs}
+    invalidated = []
+
+    for item in invalidated_tasks:
+        task = task_by_id.get(int(item["id"]))
+        if task is None:
+            continue
+
+        previous_status = str(getattr(task, "status", "") or "")
+        related_agv = None
+        if getattr(task, "agv_id", None) is not None:
+            related_agv = agv_by_id.get(int(task.agv_id))
+        if related_agv is None:
+            related_agv = next((agv for agv in agvs if getattr(agv, "task_id", None) == task.id), None)
+
+        if related_agv is not None:
+            if getattr(related_agv, "task_id", None) == task.id:
+                related_agv.task_id = None
+            if str(getattr(related_agv, "status", "") or "") not in {"fault", "emergency_stop", "maintenance"}:
+                related_agv.status = "idle"
+            related_agv.clear_motion(motion_state=str(getattr(related_agv, "status", "") or "idle"))
+
+        mark_task_invalid(
+            task,
+            str(item.get("invalid_reason") or "map_invalid:unreachable"),
+            getattr(task, "dispatch_algorithm", None),
+        )
+        record_operation_audit(
+            "task",
+            task.id,
+            "invalidate",
+            actor,
+            {
+                "source": "map_layout",
+                "previous_status": previous_status,
+                "reason": task.dispatch_reason,
+                "invalid_stage_indexes": list(item.get("invalid_stage_indexes") or []),
+            },
+        )
+        invalidated.append(
+            {
+                "id": int(task.id),
+                "previous_status": previous_status,
+                "invalid_reason": task.dispatch_reason,
+                "invalid_stage_indexes": list(item.get("invalid_stage_indexes") or []),
+            }
+        )
+
+    return invalidated
+
+
 def resize_map_layout(requested_grid_cols: int, requested_grid_rows: int, actor: dict | None = None):
     precheck = get_map_resize_precheck(requested_grid_cols, requested_grid_rows)
     if not precheck["can_apply"]:
@@ -1187,11 +1345,11 @@ def update_map_layout(
     grid_cols: int,
     grid_rows: int,
     topology=None,
+    force_apply: bool = False,
     actor: dict | None = None,
 ):
     requested = {(cell.x, cell.y) for cell in blocked_cells}
     requested_valid_cells = _normalize_requested_valid_cells(valid_cells, grid_cols, grid_rows)
-    filtered, skipped = _filter_occupied_cells(requested)
     current_topology = normalize_map_topology_payload(
         get_map_layout_state().get("topology"),
         grid_cols,
@@ -1203,6 +1361,32 @@ def update_map_layout(
         if topology is not None
         else current_topology
     )
+
+    preview = _build_map_layout_impact_preview(
+        grid_cols=int(grid_cols),
+        grid_rows=int(grid_rows),
+        blocked_cells=requested,
+        valid_cells=requested_valid_cells,
+        topology=normalized_topology,
+    )
+    if not preview["can_apply"]:
+        if not force_apply or not preview["force_apply_allowed"]:
+            raise_api_error(
+                400,
+                "map_layout_blocked",
+                force_apply_allowed=preview["force_apply_allowed"],
+                blockers=preview["blockers"],
+                agv_conflict_count=preview["agv_conflict_count"],
+                agv_conflicts=preview["agv_conflicts"][:8],
+                invalid_point_count=preview["invalid_point_count"],
+                invalid_points=preview["invalid_points"][:8],
+                invalid_template_count=preview["invalid_template_count"],
+                invalid_templates=preview["invalid_templates"][:8],
+                invalidated_task_count=preview["invalidated_task_count"],
+                invalidated_tasks=preview["invalidated_tasks"][:8],
+            )
+
+    filtered, skipped = _filter_occupied_cells(requested)
     updated_state = set_layout_cells(
         filtered,
         requested_valid_cells,
@@ -1213,10 +1397,22 @@ def update_map_layout(
     updated = updated_state["blocked_cells"]
     updated_valid_cells = updated_state["valid_cells"]
     updated_topology = updated_state["topology"]
+    applied_preview = _build_map_layout_impact_preview(
+        grid_cols=int(grid_cols),
+        grid_rows=int(grid_rows),
+        blocked_cells=updated,
+        valid_cells=updated_valid_cells,
+        topology=updated_topology,
+    )
+    invalidated_tasks = (
+        _apply_invalidated_tasks_for_map_change(applied_preview["invalidated_tasks"], actor)
+        if force_apply and applied_preview["invalidated_task_count"] > 0
+        else []
+    )
     record_operation_audit(
         "map_layout",
         "global",
-        "save",
+        "force_apply" if force_apply else "save",
         actor,
         {
             "grid_cols": int(grid_cols),
@@ -1226,6 +1422,10 @@ def update_map_layout(
             "skipped_occupied_count": len(skipped),
             "topology_node_count": len(updated_topology.get("nodes", [])),
             "topology_edge_count": len(updated_topology.get("edges", [])),
+            "invalidated_task_count": len(invalidated_tasks),
+            "invalid_point_count": applied_preview["invalid_point_count"],
+            "invalid_template_count": applied_preview["invalid_template_count"],
+            "forced": bool(force_apply),
         },
     )
     return {
@@ -1242,6 +1442,17 @@ def update_map_layout(
         "skipped_occupied_cells": _cells_to_payload(set(skipped)),
         "skipped_occupied_count": len(skipped),
         "current_profile": _resolve_current_profile_payload(grid_cols, grid_rows, updated, updated_valid_cells, updated_topology),
+        "forced": bool(force_apply),
+        "force_apply_allowed": applied_preview["force_apply_allowed"],
+        "blockers": applied_preview["blockers"],
+        "agv_conflicts": applied_preview["agv_conflicts"][:8],
+        "agv_conflict_count": applied_preview["agv_conflict_count"],
+        "invalid_points": applied_preview["invalid_points"][:8],
+        "invalid_point_count": applied_preview["invalid_point_count"],
+        "invalid_templates": applied_preview["invalid_templates"][:8],
+        "invalid_template_count": applied_preview["invalid_template_count"],
+        "invalidated_tasks": invalidated_tasks[:8] if force_apply else applied_preview["invalidated_tasks"][:8],
+        "invalidated_task_count": len(invalidated_tasks) if force_apply else applied_preview["invalidated_task_count"],
     }
 
 

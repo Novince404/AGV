@@ -39,7 +39,15 @@ import {
   getComfyPromptStyleConfig,
   getComfyWorkflowPresetConfig
 } from './utils/comfyWorkflowTemplates'
-import { blockedCellKey, clampValue, pointStyle, toArrowSegments, toSvgPoints } from './utils/mapGeometry'
+import {
+  blockedCellKey,
+  buildCellBoundarySegments,
+  buildDirectionalArrowSegments,
+  clampValue,
+  pointStyle,
+  toArrowSegments,
+  toSvgPoints
+} from './utils/mapGeometry'
 import {
   resolveTaskDisplayEndMarker,
   resolveTaskDisplayStartMarker,
@@ -224,6 +232,36 @@ function normalizeValidCellList(cells, gridCols = gridColsValue(), gridRows = gr
   return normalized.length ? normalized : fallback
 }
 
+function sanitizeDraftCellList(cells, gridCols = gridColsValue(), gridRows = gridRowsValue()) {
+  if (!Array.isArray(cells)) return []
+  return Array.from(new Set(
+    cells
+      .filter(cell => Number.isFinite(Number(cell?.x)) && Number.isFinite(Number(cell?.y)))
+      .map(cell => `${Math.round(Number(cell.x))},${Math.round(Number(cell.y))}`)
+  ))
+    .map(key => {
+      const [x, y] = key.split(',').map(Number)
+      return { x, y }
+    })
+    .filter(cell => cell.x >= 0 && cell.x < gridCols && cell.y >= 0 && cell.y < gridRows)
+    .sort((a, b) => a.y - b.y || a.x - b.x)
+}
+
+function normalizeDraftBlockedCellList(cells, nextValidCells, gridCols = gridColsValue(), gridRows = gridRowsValue()) {
+  const validKeySet = new Set(
+    sanitizeDraftCellList(nextValidCells, gridCols, gridRows).map(cell => blockedCellKey(cell.x, cell.y))
+  )
+  return sanitizeDraftCellList(cells, gridCols, gridRows)
+    .filter(cell => validKeySet.has(blockedCellKey(cell.x, cell.y)))
+}
+
+function shiftDraftCellList(cells, dx = 0, dy = 0) {
+  return (Array.isArray(cells) ? cells : []).map(cell => ({
+    x: Math.round(Number(cell?.x) || 0) + Number(dx || 0),
+    y: Math.round(Number(cell?.y) || 0) + Number(dy || 0)
+  }))
+}
+
 function createEmptyMapTopology() {
   return {
     topology_version: 1,
@@ -274,9 +312,11 @@ function normalizeMapTopology(topology, gridCols = gridColsValue(), gridRows = g
     const key = String(node?.key || fallbackKey).trim() || fallbackKey
     if (seenNodeKeys.has(key) || seenNodeCells.has(cellKey)) return
     let nodeType = String(node?.node_type || 'waypoint').trim().toLowerCase()
-    if (chargeKeys.has(key)) nodeType = 'charge'
-    else if (parkingKeys.has(key)) nodeType = 'parking'
-    else if (stationKeys.has(key)) nodeType = 'station'
+    if (!TOPOLOGY_NODE_TYPE_KEYS.includes(nodeType)) {
+      if (chargeKeys.has(key)) nodeType = 'charge'
+      else if (parkingKeys.has(key)) nodeType = 'parking'
+      else if (stationKeys.has(key)) nodeType = 'station'
+    }
     if (!TOPOLOGY_NODE_TYPE_KEYS.includes(nodeType)) nodeType = 'waypoint'
     nodes.push({
       key,
@@ -335,6 +375,19 @@ function cloneMapTopology(topology, gridCols = gridColsValue(), gridRows = gridR
   return normalizeMapTopology(topology, gridCols, gridRows, nextValidCells)
 }
 
+function shiftMapTopologyBy(topology, dx = 0, dy = 0, gridCols = gridColsValue(), gridRows = gridRowsValue(), nextValidCells = validCells.value) {
+  const source = topology && typeof topology === 'object' ? topology : createEmptyMapTopology()
+  return normalizeMapTopology({
+    ...source,
+    nodes: (Array.isArray(source.nodes) ? source.nodes : []).map(node => ({
+      ...node,
+      x: Math.round(Number(node?.x) || 0) + Number(dx || 0),
+      y: Math.round(Number(node?.y) || 0) + Number(dy || 0)
+    })),
+    edges: Array.isArray(source.edges) ? source.edges.map(edge => ({ ...edge })) : []
+  }, gridCols, gridRows, nextValidCells)
+}
+
 function buildMapTopologySummary(topology, gridCols = gridColsValue(), gridRows = gridRowsValue(), nextValidCells = validCells.value) {
   const normalized = normalizeMapTopology(topology, gridCols, gridRows, nextValidCells)
   return {
@@ -385,6 +438,267 @@ function formatEnterpriseTopologyNodeBadge(node) {
 
 function formatTopologyNodeCapacity(node) {
   return normalizeTopologyNodeCapacity(node?.node_type, node?.capacity)
+}
+
+function buildEnterpriseTopologyNodeEditorDraft(node = null) {
+  const nodeType = String(node?.node_type || 'waypoint').trim().toLowerCase() || 'waypoint'
+  return {
+    node_type: TOPOLOGY_NODE_TYPE_KEYS.includes(nodeType) ? nodeType : 'waypoint',
+    label: String(node?.label || ''),
+    capacity: normalizeTopologyNodeCapacity(nodeType, node?.capacity)
+  }
+}
+
+function topologyNodeTypeLabel(nodeType) {
+  const normalized = TOPOLOGY_NODE_TYPE_KEYS.includes(String(nodeType || '').trim())
+    ? String(nodeType || '').trim()
+    : 'waypoint'
+  return t(`enterprise_settings_route_topology_node_type_${normalized}`)
+}
+
+function formatEnterpriseTopologyNodeListLabel(node) {
+  if (!node) return ''
+  const customLabel = String(node.label || '').trim()
+  if (customLabel) return customLabel
+  return `${topologyNodeTypeLabel(node.node_type)} (${Number(node.x)}, ${Number(node.y)})`
+}
+
+function topologySpecialGroupBaseLabel(nodeType) {
+  if (String(nodeType || '') === 'charge') return t('enterprise_settings_route_topology_group_charge_station')
+  if (String(nodeType || '') === 'parking') return t('enterprise_settings_route_topology_group_parking_station')
+  return topologyNodeTypeLabel(nodeType)
+}
+
+function buildTopologySpecialGroupSlotCards(nodes = [], cellSize = CELL_SIZE) {
+  return [...nodes]
+    .sort((a, b) => Number(a.y) - Number(b.y) || Number(a.x) - Number(b.x) || String(a.key || '').localeCompare(String(b.key || '')))
+    .map(node => ({
+      key: String(node.key || blockedCellKey(node.x, node.y)),
+      nodeKey: String(node.key || blockedCellKey(node.x, node.y)),
+      nodeType: String(node.node_type || ''),
+      title: formatTopologyNodeTitle(node),
+      badge: formatEnterpriseTopologyNodeBadge(node),
+      occupancyCount: Number(node?.occupancyCount || 0),
+      capacity: Number(formatTopologyNodeCapacity(node) || 0),
+      left: Number(node.x) * cellSize + cellSize / 2,
+      top: Number(node.y) * cellSize + cellSize / 2,
+    }))
+}
+
+function buildTopologySpecialNodeGroups(nodes = [], cellSize = CELL_SIZE) {
+  const eligibleNodes = (Array.isArray(nodes) ? nodes : []).filter(node =>
+    ['parking', 'charge'].includes(String(node?.node_type || ''))
+  )
+  const nodeMap = new Map(
+    eligibleNodes.map(node => [blockedCellKey(node.x, node.y), node])
+  )
+  const visited = new Set()
+  const groups = []
+  const neighbors = [
+    [1, 0],
+    [-1, 0],
+    [0, 1],
+    [0, -1],
+  ]
+
+  for (const node of eligibleNodes) {
+    const startKey = blockedCellKey(node.x, node.y)
+    if (visited.has(startKey)) continue
+
+    const nodeType = String(node.node_type || '')
+    const queue = [node]
+    const groupNodes = []
+    visited.add(startKey)
+
+    while (queue.length) {
+      const current = queue.shift()
+      groupNodes.push(current)
+      for (const [dx, dy] of neighbors) {
+        const nextKey = blockedCellKey(Number(current.x) + dx, Number(current.y) + dy)
+        if (visited.has(nextKey)) continue
+        const nextNode = nodeMap.get(nextKey)
+        if (!nextNode || String(nextNode.node_type || '') !== nodeType) continue
+        visited.add(nextKey)
+        queue.push(nextNode)
+      }
+    }
+
+    if (groupNodes.length <= 1) continue
+
+    const groupNodeCards = buildTopologySpecialGroupSlotCards(groupNodes, cellSize)
+    const cells = groupNodeCards.map(item => ({
+      key: item.nodeKey,
+      x: Number(groupNodes.find(node => String(node.key || '') === item.nodeKey)?.x ?? 0),
+      y: Number(groupNodes.find(node => String(node.key || '') === item.nodeKey)?.y ?? 0),
+    }))
+    const minX = Math.min(...cells.map(cell => cell.x))
+    const maxX = Math.max(...cells.map(cell => cell.x))
+    const minY = Math.min(...cells.map(cell => cell.y))
+    const maxY = Math.max(...cells.map(cell => cell.y))
+    const widthCells = maxX - minX + 1
+    const heightCells = maxY - minY + 1
+    const width = (maxX - minX + 1) * cellSize
+    const height = (maxY - minY + 1) * cellSize
+    const isRectangular = widthCells * heightCells === cells.length
+    const hasIntegratedShell = isRectangular && groupNodeCards.length > 1
+    const occupiedAgvs = groupNodes
+      .flatMap(item => (Array.isArray(item?.occupiedAgvs) ? item.occupiedAgvs : []))
+      .sort((a, b) => Number(a?.id || 0) - Number(b?.id || 0))
+
+    groups.push({
+      key: `${nodeType}:${groupNodeCards.map(item => item.nodeKey).sort().join('|')}`,
+      nodeType,
+      count: groupNodeCards.length,
+      nodes: groupNodeCards.map(card => groupNodes.find(node => String(node.key || '') === card.nodeKey)).filter(Boolean),
+      nodeKeys: groupNodeCards.map(item => item.nodeKey),
+      primaryNode: groupNodes[0] || null,
+      slotCards: groupNodeCards,
+      occupiedAgvs,
+      segments: buildCellBoundarySegments(cells, cellSize),
+      cellRects: cells.map(cell => ({
+        key: `${nodeType}:${cell.key}`,
+        x: cell.x,
+        y: cell.y,
+        left: cell.x * cellSize,
+        top: cell.y * cellSize,
+        width: cellSize,
+        height: cellSize,
+      })),
+      capacityTotal: groupNodes.reduce((sum, item) => sum + Number(formatTopologyNodeCapacity(item) || 0), 0),
+      occupancyCount: groupNodes.reduce((sum, item) => sum + Number(item?.occupancyCount || 0), 0),
+      hasIntegratedShell,
+      shellLeft: minX * cellSize + 3,
+      shellTop: minY * cellSize + 3,
+      shellWidth: Math.max(width - 6, cellSize - 6),
+      shellHeight: Math.max(height - 6, cellSize - 6),
+      labelLeft: minX * cellSize + width / 2,
+      labelTop: Math.max(minY * cellSize - 18, 6),
+      minX,
+      minY,
+      maxX,
+      maxY,
+      width,
+      height,
+    })
+  }
+
+  return groups
+}
+
+function buildSyntheticTopologySpecialGroup(node, cellSize = CELL_SIZE) {
+  if (!node) return null
+  const slotCards = buildTopologySpecialGroupSlotCards([node], cellSize)
+  const slotCard = slotCards[0]
+  return {
+    key: String(node.key || blockedCellKey(node.x, node.y)),
+    nodeType: String(node.node_type || ''),
+    count: 1,
+    nodes: [node],
+    nodeKeys: [String(node.key || blockedCellKey(node.x, node.y))],
+    primaryNode: node,
+    slotCards,
+    occupiedAgvs: Array.isArray(node?.occupiedAgvs) ? [...node.occupiedAgvs] : [],
+    segments: [],
+    cellRects: [
+      {
+        key: `single:${String(node.key || blockedCellKey(node.x, node.y))}`,
+        x: Number(node.x),
+        y: Number(node.y),
+        left: Number(node.x) * cellSize,
+        top: Number(node.y) * cellSize,
+        width: cellSize,
+        height: cellSize,
+      }
+    ],
+    capacityTotal: Number(formatTopologyNodeCapacity(node) || 0),
+    occupancyCount: Number(node?.occupancyCount || 0),
+    labelLeft: Number(slotCard?.left || 0),
+    labelTop: Math.max(Number(node.y) * cellSize - 18, 6),
+    minX: Number(node.x),
+    minY: Number(node.y),
+    maxX: Number(node.x),
+    maxY: Number(node.y),
+    width: cellSize,
+    height: cellSize,
+  }
+}
+
+function flattenTopologySpecialGroupSegments(groups = []) {
+  return groups.flatMap(group =>
+    (group.segments || []).map((segment, index) => ({
+      ...segment,
+      key: `${group.key}:${segment.key || index}`,
+      nodeType: group.nodeType,
+    }))
+  )
+}
+
+function flattenTopologySpecialGroupCells(groups = []) {
+  return groups.flatMap(group =>
+    (group.cellRects || []).map((cell, index) => ({
+      ...cell,
+      key: `${group.key}:cell:${cell.key || index}`,
+      groupKey: group.key,
+      nodeType: group.nodeType,
+      hasIntegratedShell: Boolean(group.hasIntegratedShell),
+    }))
+  )
+}
+
+function flattenTopologySpecialGroupSlotCards(groups = []) {
+  return groups.flatMap(group =>
+    (group.slotCards || []).map((slot, index) => ({
+      ...slot,
+      key: `${group.key}:slot:${slot.nodeKey || index}`,
+      groupKey: group.key,
+      count: group.count,
+      capacityTotal: group.capacityTotal,
+      occupancyCountTotal: group.occupancyCount,
+      hasIntegratedShell: Boolean(group.hasIntegratedShell),
+    }))
+  )
+}
+
+function formatTopologySpecialGroupEditorLabel(group) {
+  return formatInlineMessage(t('enterprise_settings_route_topology_group_editor_label'), {
+    label: topologySpecialGroupBaseLabel(group?.nodeType),
+    count: String(Number(group?.count || 0)),
+  })
+}
+
+function formatTopologySpecialGroupRuntimeLabel(group) {
+  return formatInlineMessage(t('enterprise_settings_route_topology_group_runtime_label'), {
+    label: topologySpecialGroupBaseLabel(group?.nodeType),
+    occupied: String(Number(group?.occupancyCount || 0)),
+    capacity: String(Number(group?.capacityTotal || 0)),
+  })
+}
+
+function formatTopologySpecialGroupSlotLine(slot) {
+  return formatInlineMessage(t('topology_station_dialog_slot_line'), {
+    occupied: String(Number(slot?.occupancyCount || 0)),
+    capacity: String(Number(slot?.capacity || 0)),
+  })
+}
+
+function formatTopologyStationDockTitle(group) {
+  if (!group) return ''
+  if (Number(group.count || 0) > 1) {
+    return topologySpecialGroupBaseLabel(group.nodeType)
+  }
+  return formatTopologyNodeTitle(group.primaryNode || group.nodes?.[0] || null)
+}
+
+function formatTopologyStationDockHint(group) {
+  if (!group) return ''
+  const key = Number(group.count || 0) > 1
+    ? 'topology_station_dialog_group_hint'
+    : 'topology_station_dialog_hint'
+  return formatInlineMessage(t(key), {
+    count: String(Number(group.occupancyCount || 0)),
+    capacity: String(Number(group.capacityTotal || 0)),
+    nodes: String(Number(group.count || 0)),
+  })
 }
 
 function isSpecialTopologyNodeType(nodeType) {
@@ -570,6 +884,7 @@ const localAgvs = ref([])
 const selectedAgvId = ref(null)
 const topologyStationDockDialogOpen = ref(false)
 const topologyStationDockNodeKey = ref('')
+const topologyStationDockOnboarding = ref(false)
 const trackedManualTaskId = ref(null)
 const manualDispatchStep = ref('idle')
 const manualPreviewMinVisibleUntil = ref(0)
@@ -621,6 +936,7 @@ const mapOffsetX = ref(0)
 const mapOffsetY = ref(0)
 const mapViewportWidth = ref(mapWidth.value)
 const mapViewportHeight = ref(mapHeight.value)
+const scopeDataReady = ref(false)
 const isMapPanning = ref(false)
 const showMapSettings = ref(false)
 const showStatusLegend = ref(true)
@@ -732,6 +1048,7 @@ let taskBuilderJumpTimer = null
 let agvRecoveryJumpTimer = null
 let faultSelectedAgvPulseTimer = null
 let floatingToastTimer = null
+let scopedDataReloadPromise = null
 const autoScheduling = ref(false)
 const autoScheduleGuard = ref(false)
 const manualBoundScheduling = ref(false)
@@ -744,6 +1061,7 @@ let mapPanStartY = 0
 let mapPanOriginX = 0
 let mapPanOriginY = 0
 let ignoreNextMapClick = false
+let feedbackBellMapConsumeUntil = 0
 let obstaclePaintActive = false
 let obstaclePaintMode = 'add'
 let obstaclePaintLastKey = ''
@@ -1160,14 +1478,26 @@ const enterpriseMapEditorDialogOpen = ref(false)
 const enterpriseMapEditorSaving = ref(false)
 const enterpriseMapEditorDraftBlockedCells = ref([])
 const enterpriseMapEditorDraftValidCells = ref(buildFullValidCellList(GRID_COLS, GRID_ROWS))
+const enterpriseMapEditorDraftTopology = ref(createEmptyMapTopology())
 const enterpriseMapEditorDraftCols = ref(GRID_COLS)
 const enterpriseMapEditorDraftRows = ref(GRID_ROWS)
 const enterpriseMapEditorZoom = ref(ENTERPRISE_MAP_EDITOR_ZOOM_DEFAULT)
+const enterpriseMapEditorBaseCols = ref(GRID_COLS)
+const enterpriseMapEditorBaseRows = ref(GRID_ROWS)
+const enterpriseMapEditorBaseOriginX = ref(0)
+const enterpriseMapEditorBaseOriginY = ref(0)
+const enterpriseMapEditorColAnchor = ref('right')
+const enterpriseMapEditorRowAnchor = ref('bottom')
 const enterpriseTopologyEditorDialogOpen = ref(false)
 const enterpriseTopologyEditorDraft = ref(createEmptyMapTopology())
 const enterpriseTopologyEditorSelectedNodeKey = ref('')
 const enterpriseTopologyEditorSelectedEdgeKey = ref('')
 const enterpriseTopologyEditorLinkSourceKey = ref('')
+const enterpriseTopologyNodeEditorDraft = ref({
+  node_type: 'waypoint',
+  label: '',
+  capacity: getTopologyNodeDefaultCapacity('waypoint')
+})
 const isEnterpriseClientVariant = CLIENT_VARIANT === 'enterprise'
 const authAllowsGuestMode = computed(() => !isEnterpriseClientVariant)
 const authAllowsPersonalRegister = computed(() => !isEnterpriseClientVariant)
@@ -1263,6 +1593,12 @@ const runtimeHintText = computed(() => {
 })
 const canManagePersonalAgvs = computed(
   () => authAuthenticated.value && authCurrentRole.value === 'personal' && effectiveSurfaceRole.value === 'personal'
+)
+const canManageEnterpriseAgvDuty = computed(
+  () =>
+    authAuthenticated.value &&
+    uiTreatAsEnterpriseRole.value &&
+    ['enterprise_admin', 'platform_admin'].includes(String(authCurrentRole.value || ''))
 )
 const authAccountStatusLabel = computed(() => t(`auth_account_status_${authCurrentAccountStatus.value}`))
 const shortcutPreferenceScopeKey = computed(() => {
@@ -2594,6 +2930,8 @@ const enterpriseMapEditorGridStyle = computed(() => ({
   gridTemplateColumns: `repeat(${enterpriseMapEditorCols.value.length}, ${enterpriseMapEditorCellSize.value}px)`,
   '--enterprise-map-editor-cell-size': `${enterpriseMapEditorCellSize.value}px`
 }))
+const enterpriseMapEditorLockedCount = computed(() => protectedMapCellSet.value.size)
+const enterpriseMapEditorWarningCount = computed(() => businessReferencedMapCellSet.value.size)
 const enterpriseTopologyNodeTypeOptions = computed(() => [
   { value: 'waypoint', label: t('enterprise_settings_route_topology_node_type_waypoint') },
   { value: 'station', label: t('enterprise_settings_route_topology_node_type_station') },
@@ -2613,6 +2951,12 @@ const enterpriseTopologyLaneTypeOptions = computed(() => [
 const enterpriseTopologyDraftSummary = computed(() =>
   buildMapTopologySummary(enterpriseTopologyEditorDraft.value, gridColsValue(), gridRowsValue(), validCells.value)
 )
+const enterpriseTopologyEditorSpecialGroups = computed(() =>
+  buildTopologySpecialNodeGroups(enterpriseTopologyEditorDraft.value?.nodes || [], 30)
+)
+const enterpriseTopologyEditorSpecialGroupSegments = computed(() =>
+  flattenTopologySpecialGroupSegments(enterpriseTopologyEditorSpecialGroups.value)
+)
 const enterpriseTopologyNodesByCell = computed(() => {
   const entries = {}
   for (const node of enterpriseTopologyEditorDraft.value?.nodes || []) {
@@ -2623,6 +2967,17 @@ const enterpriseTopologyNodesByCell = computed(() => {
 const enterpriseTopologySelectedNode = computed(() =>
   (enterpriseTopologyEditorDraft.value?.nodes || []).find(node => node.key === enterpriseTopologyEditorSelectedNodeKey.value) || null
 )
+const enterpriseTopologyNodeEditorDirty = computed(() => {
+  const selectedNode = enterpriseTopologySelectedNode.value
+  if (!selectedNode) return false
+  const draft = enterpriseTopologyNodeEditorDraft.value || {}
+  const selectedType = String(selectedNode.node_type || 'waypoint').trim().toLowerCase() || 'waypoint'
+  const draftType = String(draft.node_type || 'waypoint').trim().toLowerCase() || 'waypoint'
+  if (selectedType !== draftType) return true
+  if (String(selectedNode.label || '') !== String(draft.label || '')) return true
+  if (draftType === 'waypoint') return false
+  return normalizeTopologyNodeCapacity(draftType, draft.capacity) !== normalizeTopologyNodeCapacity(selectedType, selectedNode.capacity)
+})
 const enterpriseTopologySelectedEdge = computed(() =>
   (enterpriseTopologyEditorDraft.value?.edges || []).find(edge => edge.key === enterpriseTopologyEditorSelectedEdgeKey.value) || null
 )
@@ -2655,6 +3010,17 @@ const enterpriseTopologySvgEdges = computed(() => {
     })
     .filter(Boolean)
 })
+watch(
+  [enterpriseTopologyEditorDialogOpen, enterpriseTopologySelectedNode],
+  ([dialogOpen, selectedNode]) => {
+    if (!dialogOpen || !selectedNode) {
+      enterpriseTopologyNodeEditorDraft.value = buildEnterpriseTopologyNodeEditorDraft()
+      return
+    }
+    enterpriseTopologyNodeEditorDraft.value = buildEnterpriseTopologyNodeEditorDraft(selectedNode)
+  },
+  { immediate: true }
+)
 const authCapabilityCards = computed(() => [
   {
     key: 'dispatch',
@@ -3058,7 +3424,7 @@ const enterpriseActiveTabAccessHint = computed(() =>
   )
 )
 const enterpriseActiveTasks = computed(() =>
-  tasks.value.filter(task => !['finished', 'cancelled'].includes(String(task?.status || ''))).length
+  tasks.value.filter(task => !['finished', 'cancelled', 'invalid'].includes(String(task?.status || ''))).length
 )
 const enterpriseOpenFaults = computed(() =>
   faultEvents.value.filter(event => String(event?.status || '') === 'open').length
@@ -3067,7 +3433,7 @@ const enterpriseBusyAgvs = computed(() =>
   agvs.value.filter(agv => !['idle', 'maintenance'].includes(String(agv?.status || ''))).length
 )
 const enterpriseRecentTasks = computed(() => {
-  const activeTasks = tasks.value.filter(task => !['finished', 'cancelled'].includes(String(task?.status || '')))
+  const activeTasks = tasks.value.filter(task => !['finished', 'cancelled', 'invalid'].includes(String(task?.status || '')))
   return sortTasks(activeTasks).slice(0, 4)
 })
 const enterpriseRecentFaults = computed(() =>
@@ -3105,9 +3471,10 @@ const enterpriseTopologyRuntimeOccupancyMap = computed(() => {
   for (const agv of displayAgvs.value) {
     const currentNodeKey = String(agv?.current_node || '').trim()
     const activeEdgeKey = String(agv?.current_edge || '').trim()
-    let targetNode = currentNodeKey
-      ? (currentMapTopology.value?.nodes || []).find(node => node.key === currentNodeKey) || null
-      : null
+    let targetNode = null
+    if (!activeEdgeKey && currentNodeKey) {
+      targetNode = (currentMapTopology.value?.nodes || []).find(node => node.key === currentNodeKey) || null
+    }
     if (!targetNode && !activeEdgeKey) {
       const positionKey = blockedCellKey(Math.round(Number(agv?.x || 0)), Math.round(Number(agv?.y || 0)))
       targetNode = nodeByPosition.get(positionKey) || null
@@ -3128,7 +3495,10 @@ const enterpriseTopologyRuntimeOccupancyMap = computed(() => {
       motionState: String(agv.motionState || agv.status || ''),
       label: `AGV #${agv.id}`,
       batteryLevel: Number.isFinite(Number(agv?.battery_level)) ? Number(agv.battery_level) : null,
-      selectable: agv.source === 'backend' && isSchedulableIdleAgvStatus(agv?.status),
+      taskId: Number.isFinite(Number(agv?.task_id)) ? Number(agv.task_id) : null,
+      selectable: isTopologyStationDockSelectableAgv(agv),
+      dispatchHint: formatTopologyStationDockAgvAvailability(agv),
+      dispatchTone: topologyStationDockAgvAvailabilityTone(agv),
       source: agv.source || 'backend'
     })
   }
@@ -3150,22 +3520,122 @@ const enterpriseRuntimeTopologyNodes = computed(() => {
       occupiedAgvs: enterpriseTopologyRuntimeOccupancyMap.value[node.key]?.agvs || []
     }))
 })
+const enterpriseRuntimeTopologySpecialGroups = computed(() =>
+  buildTopologySpecialNodeGroups(enterpriseRuntimeTopologyNodes.value, CELL_SIZE)
+)
+const enterpriseRuntimeTopologySpecialGroupCells = computed(() =>
+  flattenTopologySpecialGroupCells(enterpriseRuntimeTopologySpecialGroups.value)
+)
+const enterpriseRuntimeTopologySpecialGroupSlotCards = computed(() =>
+  flattenTopologySpecialGroupSlotCards(enterpriseRuntimeTopologySpecialGroups.value)
+)
+const enterpriseRuntimeTopologyGroupedNodeKeySet = computed(
+  () =>
+    new Set(
+      enterpriseRuntimeTopologySpecialGroups.value.flatMap(group =>
+        (group?.nodeKeys || []).map(key => String(key || ''))
+      )
+    )
+)
+const enterpriseRuntimeTopologyDisplayNodes = computed(() =>
+  enterpriseRuntimeTopologyNodes.value.filter(
+    node => !enterpriseRuntimeTopologyGroupedNodeKeySet.value.has(String(node.key || ''))
+  )
+)
+const enterpriseRuntimeTopologySpecialGroupSegments = computed(() =>
+  flattenTopologySpecialGroupSegments(enterpriseRuntimeTopologySpecialGroups.value)
+)
 const enterpriseRuntimeTopologyEdges = computed(() =>
   enterprisePureTopologyViewEnabled.value
     ? buildRuntimeTopologyEdgeGeometry(currentMapTopology.value, CELL_SIZE)
     : []
+)
+const enterpriseRuntimeTopologyBoundarySegments = computed(() =>
+  enterprisePureTopologyViewEnabled.value
+    ? buildCellBoundarySegments(validCells.value, CELL_SIZE)
+    : []
+)
+const enterpriseRuntimeTopologyDirectionArrows = computed(() =>
+  enterpriseRuntimeTopologyEdges.value.flatMap(edge =>
+    buildDirectionalArrowSegments(edge, {
+      cellSize: CELL_SIZE,
+      compact: false
+    })
+  )
 )
 const enterpriseRuntimeMinimapTopologyEdges = computed(() =>
   enterprisePureTopologyViewEnabled.value
     ? buildRuntimeTopologyEdgeGeometry(currentMapTopology.value, CELL_SIZE * minimapScale.value)
     : []
 )
-const selectedTopologyStationDockNode = computed(() =>
-  enterpriseRuntimeTopologyNodes.value.find(node => node.key === topologyStationDockNodeKey.value) || null
+const enterpriseRuntimeMinimapTopologyBoundarySegments = computed(() =>
+  enterprisePureTopologyViewEnabled.value
+    ? buildCellBoundarySegments(validCells.value, CELL_SIZE * minimapScale.value)
+    : []
+)
+const enterpriseRuntimeMinimapTopologySpecialGroups = computed(() =>
+  buildTopologySpecialNodeGroups(enterpriseRuntimeTopologyNodes.value, CELL_SIZE * minimapScale.value)
+)
+const enterpriseRuntimeMinimapTopologySpecialGroupSegments = computed(() =>
+  flattenTopologySpecialGroupSegments(enterpriseRuntimeMinimapTopologySpecialGroups.value)
+)
+const enterpriseRuntimeMinimapTopologyDisplayNodes = computed(() =>
+  enterpriseRuntimeTopologyDisplayNodes.value
+)
+const enterpriseRuntimeMinimapTopologyDirectionArrows = computed(() =>
+  enterpriseRuntimeMinimapTopologyEdges.value.flatMap(edge =>
+    buildDirectionalArrowSegments(edge, {
+      cellSize: CELL_SIZE * minimapScale.value,
+      compact: true
+    })
+  )
+)
+const selectedTopologyStationDockGroup = computed(() => {
+  const dockKey = String(topologyStationDockNodeKey.value || '').trim()
+  if (!dockKey) return null
+
+  const directGroup = enterpriseRuntimeTopologySpecialGroups.value.find(
+    group => String(group?.key || '') === dockKey
+  )
+  if (directGroup) return directGroup
+
+  const groupedMatch = enterpriseRuntimeTopologySpecialGroups.value.find(group =>
+    (group?.nodeKeys || []).some(nodeKey => String(nodeKey || '') === dockKey)
+  )
+  if (groupedMatch) return groupedMatch
+
+  const directNode = enterpriseRuntimeTopologyNodes.value.find(
+    node => String(node?.key || '') === dockKey
+  )
+  if (!directNode || !isSpecialTopologyNodeType(directNode?.node_type)) return null
+  return buildSyntheticTopologySpecialGroup(directNode, CELL_SIZE)
+})
+const selectedTopologyStationDockSlotCards = computed(() =>
+  selectedTopologyStationDockGroup.value?.slotCards || []
 )
 const selectedTopologyStationDockAgvs = computed(() =>
-  selectedTopologyStationDockNode.value?.occupiedAgvs || []
+  selectedTopologyStationDockGroup.value?.occupiedAgvs || []
 )
+const topologyStationDockRemainingCapacity = computed(() => {
+  if (!selectedTopologyStationDockGroup.value) return 0
+  return Math.max(
+    0,
+    Number(selectedTopologyStationDockGroup.value.capacityTotal || 0) -
+      Number(selectedTopologyStationDockGroup.value.occupancyCount || 0)
+  )
+})
+const canOnboardEnterpriseAgvAtSelectedTopologyNode = computed(
+  () =>
+    uiTreatAsEnterpriseRole.value &&
+    authCurrentRole.value === 'enterprise_admin' &&
+    authCanDispatchWrite.value &&
+    Boolean(selectedTopologyStationDockGroup.value) &&
+    topologyStationDockRemainingCapacity.value > 0
+)
+const topologyStationDockNextAgvId = computed(() => {
+  const maxId = agvs.value.reduce((best, agv) => Math.max(best, Number(agv?.id) || 0), 0)
+  return maxId > 0 ? maxId + 1 : 1
+})
 const enterpriseMapWorkspaceCards = computed(() => [
   {
     key: 'profile',
@@ -3357,6 +3827,7 @@ const enterpriseAuditWorkspaceCards = computed(() => [
 ])
 const showAuthGate = computed(() => !authInitialized.value || !dashboardUnlocked.value)
 const showAuthDialog = computed(() => showAuthGate.value || authPanelOpen.value)
+const showScopeDataVeil = computed(() => !scopeDataReady.value)
 
 function buildAuthLoginSuccessMessage(state) {
   const name = state?.user?.display_name || state?.user?.username || t('auth_role_guest')
@@ -3993,9 +4464,55 @@ function buildEnterpriseRuntimeDebugItems(agv) {
 function resolveAgvRuntimeConflictReason(agv) {
   const agvId = Number(agv?.id)
   if (!Number.isFinite(agvId)) return ''
-  const activeTask = tasks.value.find(task => Number(task?.agv_id) === agvId && !['finished', 'cancelled'].includes(String(task?.status || '')))
+  const activeTask = tasks.value.find(task =>
+    Number(task?.agv_id) === agvId && !['finished', 'cancelled', 'invalid'].includes(String(task?.status || ''))
+  )
   const localized = localizeDispatchReason(activeTask?.dispatch_reason)
   return String(localized || '').trim()
+}
+
+function formatMapInvalidReason(reason) {
+  if (!reason) return ''
+  const localized = localizeDispatchReason(reason)
+  if (localized) return localized
+  const key = String(reason || '').trim().replace(/[:.]/g, '_')
+  const translated = t(key)
+  return translated === key ? String(reason || '') : translated
+}
+
+function isPointInvalid(point) {
+  return Boolean(point?.isInvalid || point?.is_invalid || point?.invalidReason || point?.invalid_reason)
+}
+
+function formatPointInvalidReason(point) {
+  return formatMapInvalidReason(point?.invalidReason || point?.invalid_reason)
+}
+
+function isTemplateInvalid(template) {
+  return Boolean(
+    template?.isInvalid ||
+      template?.is_invalid ||
+      template?.invalidReason ||
+      template?.invalid_reason ||
+      (Array.isArray(template?.invalidStageIndexes) && template.invalidStageIndexes.length) ||
+      (Array.isArray(template?.invalid_stage_indexes) && template.invalid_stage_indexes.length)
+  )
+}
+
+function formatTemplateInvalidReason(template) {
+  return formatMapInvalidReason(template?.invalidReason || template?.invalid_reason)
+}
+
+function formatTemplateInvalidStageText(template) {
+  const indexes = Array.isArray(template?.invalidStageIndexes)
+    ? template.invalidStageIndexes
+    : Array.isArray(template?.invalid_stage_indexes)
+      ? template.invalid_stage_indexes
+      : []
+  if (!indexes.length) return ''
+  return formatInlineMessage(t('template_invalid_stages'), {
+    stages: indexes.map(index => Number(index) + 1).join(', ')
+  })
 }
 
 function formatTopologyEdgeDebugTitle(edge) {
@@ -4075,20 +4592,73 @@ function formatTopologyNodeOccupancyTitle(node) {
   return lines.join('\n')
 }
 
-function openTopologyStationDockDialog(node) {
-  if (!node || !isSpecialTopologyNodeType(node?.node_type)) return
-  topologyStationDockNodeKey.value = String(node.key || '')
+function resolveEnterpriseRuntimeTopologyStationGroup(target) {
+  const rawKey =
+    typeof target === 'string'
+      ? target
+      : target?.nodeKeys
+        ? String(target.key || '')
+        : String(target?.key || '')
+  const targetKey = String(rawKey || '').trim()
+  if (!targetKey) return null
+
+  const directGroup = enterpriseRuntimeTopologySpecialGroups.value.find(
+    group => String(group?.key || '') === targetKey
+  )
+  if (directGroup) return directGroup
+
+  const groupedMatch = enterpriseRuntimeTopologySpecialGroups.value.find(group =>
+    (group?.nodeKeys || []).some(nodeKey => String(nodeKey || '') === targetKey)
+  )
+  if (groupedMatch) return groupedMatch
+
+  const directNode = enterpriseRuntimeTopologyNodes.value.find(
+    node => String(node?.key || '') === targetKey
+  )
+  if (!directNode || !isSpecialTopologyNodeType(directNode?.node_type)) return null
+  return buildSyntheticTopologySpecialGroup(directNode, CELL_SIZE)
+}
+
+function pickTopologyStationDockOnboardingNode(group) {
+  const candidates = (group?.nodes || [])
+    .map(node => {
+      const capacity = Number(formatTopologyNodeCapacity(node) || 0)
+      const occupancy = Number(node?.occupancyCount || 0)
+      return {
+        node,
+        capacity,
+        occupancy,
+        remaining: Math.max(capacity - occupancy, 0),
+      }
+    })
+    .filter(item => item.remaining > 0)
+    .sort(
+      (a, b) =>
+        b.remaining - a.remaining ||
+        a.occupancy - b.occupancy ||
+        Number(a.node?.y || 0) - Number(b.node?.y || 0) ||
+        Number(a.node?.x || 0) - Number(b.node?.x || 0) ||
+        String(a.node?.key || '').localeCompare(String(b.node?.key || ''))
+    )
+  return String(candidates[0]?.node?.key || '')
+}
+
+function openTopologyStationDockDialog(target) {
+  const group = resolveEnterpriseRuntimeTopologyStationGroup(target)
+  if (!group) return
+  topologyStationDockNodeKey.value = String(group.key || '')
   topologyStationDockDialogOpen.value = Boolean(topologyStationDockNodeKey.value)
 }
 
 function closeTopologyStationDockDialog() {
   topologyStationDockDialogOpen.value = false
   topologyStationDockNodeKey.value = ''
+  topologyStationDockOnboarding.value = false
 }
 
 function selectAgvFromTopologyStationDock(agv) {
   if (!agv || !agv.selectable) return
-  const stationTitle = formatTopologyNodeTitle(selectedTopologyStationDockNode.value || {})
+  const stationTitle = formatTopologyStationDockTitle(selectedTopologyStationDockGroup.value || {})
   selectedAgvId.value = Number(agv.id)
   dispatchMode.value = 'manual'
   preferredRuntimeDisplayMode.value = 'manual'
@@ -4103,6 +4673,41 @@ function selectAgvFromTopologyStationDock(agv) {
     }),
     'success'
   )
+}
+
+async function onboardEnterpriseAgvAtSelectedTopologyNode() {
+  const stationGroup = selectedTopologyStationDockGroup.value
+  const targetPointId = pickTopologyStationDockOnboardingNode(stationGroup)
+  if (!stationGroup || !targetPointId || !canOnboardEnterpriseAgvAtSelectedTopologyNode.value || topologyStationDockOnboarding.value) {
+    return
+  }
+  topologyStationDockOnboarding.value = true
+  try {
+    const res = await fetch(`${API_BASE}/agv/create`, {
+      method: 'POST',
+      headers: buildAuthorizedJsonHeaders(),
+      body: JSON.stringify({
+        point_id: targetPointId
+      })
+    })
+    const data = await res.json()
+    if (!res.ok) {
+      throw createApiError(data, 'Create enterprise AGV failed')
+    }
+    await refreshCoreState()
+    showFloatingToast(
+      formatInlineMessage(t('topology_station_dialog_onboard_success'), {
+        agv: `AGV #${Number(data?.agv?.id || topologyStationDockNextAgvId.value)}`,
+        node: formatTopologyStationDockTitle(stationGroup)
+      }),
+      'success'
+    )
+  } catch (error) {
+    console.error('Enterprise AGV onboarding error:', error)
+    showFloatingToast(error?.message || 'Create enterprise AGV failed', 'error')
+  } finally {
+    topologyStationDockOnboarding.value = false
+  }
 }
 
 function resolveEnterpriseRuntimeTopologyNodeForAgv(agv) {
@@ -4156,6 +4761,33 @@ const selectedAgvTask = computed(() => {
     null
   )
 })
+const selectedBackendAgvRuntimeNode = computed(() => resolveEnterpriseRuntimeTopologyNodeForAgv(selectedBackendAgv.value))
+const selectedEnterpriseAgvCanOffboard = computed(() => {
+  if (!canManageEnterpriseAgvDuty.value || !selectedBackendAgv.value) return false
+  if (String(selectedBackendAgv.value.status || '') !== 'idle') return false
+  if (selectedAgvTask.value) return false
+  return Boolean(
+    selectedBackendAgvRuntimeNode.value &&
+    isSpecialTopologyNodeType(selectedBackendAgvRuntimeNode.value.node_type)
+  )
+})
+
+function selectedEnterpriseAgvOffboardHintText() {
+  if (!canManageEnterpriseAgvDuty.value || !selectedBackendAgv.value) return ''
+  if (selectedAgvTask.value || selectedBackendAgv.value.task_id != null) {
+    return t('agv_offboard_has_task_hint')
+  }
+  if (String(selectedBackendAgv.value.status || '') !== 'idle') {
+    return t('agv_offboard_idle_only_hint')
+  }
+  if (
+    !selectedBackendAgvRuntimeNode.value ||
+    !isSpecialTopologyNodeType(selectedBackendAgvRuntimeNode.value.node_type)
+  ) {
+    return t('agv_offboard_requires_special_node_hint')
+  }
+  return t('agv_offboard_ready_hint')
+}
 const manualDispatchReady = computed(() => {
   if (dispatchMode.value !== 'manual') return true
   return Boolean(
@@ -5085,6 +5717,39 @@ const selectedAgvRuntimeOverlayItems = computed(() => {
     ['segment', 'speed', 'reason'].includes(String(item.key || ''))
   )
 })
+const selectedAgvRuntimeOverlayPlacement = computed(() => {
+  if (
+    !selectedAgvRuntimeOverlayItems.value.length ||
+    !selectedAgv.value ||
+    selectedAgv.value.source !== 'backend' ||
+    !Number.isFinite(selectedAgv.value.displayX) ||
+    !Number.isFinite(selectedAgv.value.displayY)
+  ) {
+    return null
+  }
+
+  const overlayHalfWidth = 118
+  const horizontalPadding = 22
+  const rawLeft =
+    Number(mapOffsetX.value || 0) + (selectedAgv.value.displayX * CELL_SIZE + CELL_SIZE / 2) * Number(mapZoom.value || 1)
+  const baseTop =
+    Number(mapOffsetY.value || 0) + (selectedAgv.value.displayY * CELL_SIZE - 6) * Number(mapZoom.value || 1)
+  const clampedLeft = clampValue(
+    rawLeft,
+    horizontalPadding + overlayHalfWidth,
+    Math.max(horizontalPadding + overlayHalfWidth, Number(mapViewportWidth.value || mapWidth.value) - horizontalPadding - overlayHalfWidth)
+  )
+  const placeBelow = baseTop < 78
+  const top = placeBelow ? baseTop + 40 : baseTop
+
+  return {
+    style: {
+      left: `${clampedLeft}px`,
+      top: `${top}px`
+    },
+    below: placeBelow
+  }
+})
 const toolbarSelectedAgvTitle = computed(() => {
   if (!selectedAgv.value) return selectedAgvSummaryText.value
   return `AGV ${selectedAgvSummaryText.value}`
@@ -5410,6 +6075,7 @@ const taskGroups = computed(() => {
     { key: 'blocked', title: t('queue_blocked') },
     { key: 'assigned', title: t('queue_assigned') },
     { key: 'running', title: t('queue_running') },
+    { key: 'invalid', title: t('queue_invalid') },
     { key: 'finished', title: t('queue_finished') }
   ]
 
@@ -5582,6 +6248,71 @@ function pointTypeText(point) {
   return point.custom ? t('point_custom') : t('point_builtin')
 }
 
+function normalizePointKindSearchText(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+}
+
+function pointKindKey(point) {
+  const searchText = [
+    point?.id,
+    point?.nameKey,
+    point?.zoneKey,
+    point?.customName,
+    point?.customZone,
+    ...(Array.isArray(point?.aliases) ? point.aliases : [])
+  ]
+    .map(normalizePointKindSearchText)
+    .filter(Boolean)
+    .join(' ')
+
+  const pointKindMatchers = [
+    ['inbound', ['inbound', 'receiving', 'dock', '入库', '入庫', '入荷']],
+    ['outbound', ['outbound', 'shipping', 'delivery', '出库', '出庫', '出荷']],
+    ['storage', ['storage', 'rack', 'buffer', 'store', '仓', '倉', '库存', '保管']],
+    ['assembly', ['assembly', 'station', 'line', '装配', '組立']],
+    ['charge', ['charge', 'charger', 'battery', '充电', '充電']],
+    ['maintenance', ['maintenance', 'repair', 'service', '维护', '維護', '维修', '修理', '保守']],
+  ]
+
+  const matched = pointKindMatchers.find(([, tokens]) =>
+    tokens.some(token => searchText.includes(normalizePointKindSearchText(token)))
+  )
+  return matched?.[0] || 'generic'
+}
+
+function pointKindText(point) {
+  return t(`point_kind_${pointKindKey(point)}`)
+}
+
+function pointKindCode(point) {
+  const codeMap = {
+    inbound: 'IN',
+    outbound: 'OUT',
+    storage: 'ST',
+    assembly: 'ASM',
+    charge: 'CH',
+    maintenance: 'SV',
+    generic: 'PT',
+  }
+  return codeMap[pointKindKey(point)] || codeMap.generic
+}
+
+function focusPointOnMap(point) {
+  if (!point || !Number.isFinite(Number(point.x)) || !Number.isFinite(Number(point.y))) return
+  focusMapPreviewCell({
+    x: Number(point.x),
+    y: Number(point.y),
+  })
+  showFloatingToast(
+    formatInlineMessage(t('point_locate_success'), {
+      point: pointName(point),
+    }),
+    'info'
+  )
+}
+
 function taskTemplateName(template) {
   return template.customName ?? t(template.nameKey)
 }
@@ -5661,11 +6392,9 @@ const {
   saveTaskQueueView,
   loadExperimentRecords,
   saveExperimentRecords,
-  loadCustomPoints,
   saveCustomPoints,
   loadMapDisplaySettings,
   saveMapDisplaySettings,
-  loadTaskTemplates,
   saveTaskTemplates
 } = useLocalPersistence({
   storageKeys: {
@@ -8674,11 +9403,142 @@ function stopEnterpriseWorkspacePopupDrag() {
   enterpriseWorkspacePopupDragging = false
 }
 
+function createEnterpriseMapEditorDraftStateFromCurrent() {
+  const cols = gridColsValue()
+  const rows = gridRowsValue()
+  const nextValidCells = sanitizeDraftCellList(validCells.value, cols, rows)
+  return {
+    cols,
+    rows,
+    validCells: nextValidCells,
+    blockedCells: normalizeDraftBlockedCellList(blockedCells.value, nextValidCells, cols, rows),
+    topology: cloneMapTopology(currentMapTopology.value, cols, rows, nextValidCells),
+    baseCols: cols,
+    baseRows: rows,
+    baseOriginX: 0,
+    baseOriginY: 0,
+  }
+}
+
+function normalizeEnterpriseMapEditorDraftState(state) {
+  const cols = clampValue(Math.round(Number(state?.cols ?? gridColsValue()) || 1), 1, 30)
+  const rows = clampValue(Math.round(Number(state?.rows ?? gridRowsValue()) || 1), 1, 24)
+  const nextValidCells = sanitizeDraftCellList(state?.validCells, cols, rows)
+  return {
+    cols,
+    rows,
+    validCells: nextValidCells,
+    blockedCells: normalizeDraftBlockedCellList(state?.blockedCells, nextValidCells, cols, rows),
+    topology: normalizeMapTopology(state?.topology, cols, rows, nextValidCells),
+    baseCols: Math.max(1, Math.round(Number(state?.baseCols ?? gridColsValue()) || 1)),
+    baseRows: Math.max(1, Math.round(Number(state?.baseRows ?? gridRowsValue()) || 1)),
+    baseOriginX: Math.round(Number(state?.baseOriginX ?? 0) || 0),
+    baseOriginY: Math.round(Number(state?.baseOriginY ?? 0) || 0),
+  }
+}
+
+function applyEnterpriseMapEditorDraftState(state) {
+  const normalized = normalizeEnterpriseMapEditorDraftState(state)
+  enterpriseMapEditorDraftCols.value = normalized.cols
+  enterpriseMapEditorDraftRows.value = normalized.rows
+  enterpriseMapEditorDraftValidCells.value = normalized.validCells
+  enterpriseMapEditorDraftBlockedCells.value = normalized.blockedCells
+  enterpriseMapEditorDraftTopology.value = normalized.topology
+  enterpriseMapEditorBaseCols.value = normalized.baseCols
+  enterpriseMapEditorBaseRows.value = normalized.baseRows
+  enterpriseMapEditorBaseOriginX.value = normalized.baseOriginX
+  enterpriseMapEditorBaseOriginY.value = normalized.baseOriginY
+}
+
+function buildEnterpriseMapEditorDraftState() {
+  return normalizeEnterpriseMapEditorDraftState({
+    cols: enterpriseMapEditorDraftCols.value,
+    rows: enterpriseMapEditorDraftRows.value,
+    validCells: enterpriseMapEditorDraftValidCells.value,
+    blockedCells: enterpriseMapEditorDraftBlockedCells.value,
+    topology: enterpriseMapEditorDraftTopology.value,
+    baseCols: enterpriseMapEditorBaseCols.value,
+    baseRows: enterpriseMapEditorBaseRows.value,
+    baseOriginX: enterpriseMapEditorBaseOriginX.value,
+    baseOriginY: enterpriseMapEditorBaseOriginY.value,
+  })
+}
+
+function canCommitEnterpriseMapEditorState(state) {
+  const validKeySet = new Set((state?.validCells || []).map(cell => blockedCellKey(cell.x, cell.y)))
+  return Array.from(protectedMapCellSet.value).every(key => validKeySet.has(key))
+}
+
+function projectEnterpriseMapEditorResize(axis, delta) {
+  const normalizedDelta = Math.round(Number(delta || 0))
+  const current = buildEnterpriseMapEditorDraftState()
+  if (!normalizedDelta) return current
+
+  const next = {
+    ...current,
+    validCells: [...current.validCells],
+    blockedCells: [...current.blockedCells],
+    topology: cloneMapTopology(current.topology, current.cols, current.rows, current.validCells),
+  }
+
+  let shiftX = 0
+  let shiftY = 0
+
+  if (axis === 'cols') {
+    const candidateCols = current.cols + normalizedDelta
+    if (candidateCols < 1 || candidateCols > 30) return null
+    next.cols = candidateCols
+    if (enterpriseMapEditorColAnchor.value === 'left') {
+      shiftX = normalizedDelta
+      next.baseOriginX = Number(current.baseOriginX || 0) + normalizedDelta
+    }
+  } else if (axis === 'rows') {
+    const candidateRows = current.rows + normalizedDelta
+    if (candidateRows < 1 || candidateRows > 24) return null
+    next.rows = candidateRows
+    if (enterpriseMapEditorRowAnchor.value === 'top') {
+      shiftY = normalizedDelta
+      next.baseOriginY = Number(current.baseOriginY || 0) + normalizedDelta
+    }
+  } else {
+    return null
+  }
+
+  const shiftedValidCells = shiftX || shiftY
+    ? shiftDraftCellList(current.validCells, shiftX, shiftY)
+    : current.validCells
+  const shiftedBlockedCells = shiftX || shiftY
+    ? shiftDraftCellList(current.blockedCells, shiftX, shiftY)
+    : current.blockedCells
+
+  next.validCells = shiftedValidCells
+  next.blockedCells = shiftedBlockedCells
+  next.topology = shiftMapTopologyBy(current.topology, shiftX, shiftY, next.cols, next.rows, shiftedValidCells)
+
+  const normalized = normalizeEnterpriseMapEditorDraftState(next)
+  return canCommitEnterpriseMapEditorState(normalized) ? normalized : null
+}
+
+function projectEnterpriseMapEditorShift(dx = 0, dy = 0) {
+  const shiftX = Math.round(Number(dx || 0))
+  const shiftY = Math.round(Number(dy || 0))
+  if (!shiftX && !shiftY) return buildEnterpriseMapEditorDraftState()
+  const current = buildEnterpriseMapEditorDraftState()
+  const shifted = normalizeEnterpriseMapEditorDraftState({
+    ...current,
+    validCells: shiftDraftCellList(current.validCells, shiftX, shiftY),
+    blockedCells: shiftDraftCellList(current.blockedCells, shiftX, shiftY),
+    topology: shiftMapTopologyBy(current.topology, shiftX, shiftY, current.cols, current.rows, shiftDraftCellList(current.validCells, shiftX, shiftY)),
+    baseOriginX: Number(current.baseOriginX || 0) + shiftX,
+    baseOriginY: Number(current.baseOriginY || 0) + shiftY,
+  })
+  return canCommitEnterpriseMapEditorState(shifted) ? shifted : null
+}
+
 function openEnterpriseMapEditorDialog() {
-  enterpriseMapEditorDraftCols.value = gridColsValue()
-  enterpriseMapEditorDraftRows.value = gridRowsValue()
-  enterpriseMapEditorDraftValidCells.value = normalizeValidCellList(validCells.value)
-  enterpriseMapEditorDraftBlockedCells.value = normalizeBlockedCellList(blockedCells.value)
+  applyEnterpriseMapEditorDraftState(createEnterpriseMapEditorDraftStateFromCurrent())
+  enterpriseMapEditorColAnchor.value = 'right'
+  enterpriseMapEditorRowAnchor.value = 'bottom'
   enterpriseMapEditorZoom.value = ENTERPRISE_MAP_EDITOR_ZOOM_DEFAULT
   enterpriseMapEditorDialogOpen.value = true
 }
@@ -8688,32 +9548,28 @@ function closeEnterpriseMapEditorDialog() {
 }
 
 function resetEnterpriseMapEditorDraft() {
-  enterpriseMapEditorDraftCols.value = gridColsValue()
-  enterpriseMapEditorDraftRows.value = gridRowsValue()
-  enterpriseMapEditorDraftValidCells.value = normalizeValidCellList(validCells.value)
-  enterpriseMapEditorDraftBlockedCells.value = normalizeBlockedCellList(blockedCells.value)
+  applyEnterpriseMapEditorDraftState(createEnterpriseMapEditorDraftStateFromCurrent())
+  enterpriseMapEditorColAnchor.value = 'right'
+  enterpriseMapEditorRowAnchor.value = 'bottom'
 }
 
 function canResizeEnterpriseMapEditorTo(nextCols, nextRows) {
-  const cols = Math.max(1, Math.round(Number(nextCols) || 1))
-  const rows = Math.max(1, Math.round(Number(nextRows) || 1))
-  if (cols > 30 || rows > 24) return false
-
   const currentCols = Math.max(1, Math.round(Number(enterpriseMapEditorDraftCols.value || gridColsValue()) || 1))
   const currentRows = Math.max(1, Math.round(Number(enterpriseMapEditorDraftRows.value || gridRowsValue()) || 1))
-  const isShrinking = cols < currentCols || rows < currentRows
-  if (!isShrinking) return true
+  const targetCols = Math.max(1, Math.round(Number(nextCols) || 1))
+  const targetRows = Math.max(1, Math.round(Number(nextRows) || 1))
 
-  const protectedCells = Array.from(protectedMapCellSet.value).map(key => {
-    const [x, y] = key.split(',').map(Number)
-    return { x, y }
-  })
-  const requiredCells = [
-    ...enterpriseMapEditorDraftValidCells.value,
-    ...protectedCells
-  ]
+  if (targetCols !== currentCols && targetRows === currentRows) {
+    return Boolean(projectEnterpriseMapEditorResize('cols', targetCols - currentCols))
+  }
+  if (targetRows !== currentRows && targetCols === currentCols) {
+    return Boolean(projectEnterpriseMapEditorResize('rows', targetRows - currentRows))
+  }
+  return targetCols === currentCols && targetRows === currentRows
+}
 
-  return requiredCells.every(cell => cell.x < cols && cell.y < rows)
+function canShiftEnterpriseMapEditorDraft(dx = 0, dy = 0) {
+  return Boolean(projectEnterpriseMapEditorShift(dx, dy))
 }
 
 function clampEnterpriseMapEditorZoom(value) {
@@ -8741,21 +9597,15 @@ function handleEnterpriseMapEditorWheel(event) {
 }
 
 function resizeEnterpriseMapEditorDraft(axis, delta) {
-  const nextCols = axis === 'cols'
-    ? Number(enterpriseMapEditorDraftCols.value || gridColsValue()) + Number(delta || 0)
-    : Number(enterpriseMapEditorDraftCols.value || gridColsValue())
-  const nextRows = axis === 'rows'
-    ? Number(enterpriseMapEditorDraftRows.value || gridRowsValue()) + Number(delta || 0)
-    : Number(enterpriseMapEditorDraftRows.value || gridRowsValue())
+  const projected = projectEnterpriseMapEditorResize(axis, delta)
+  if (!projected) return
+  applyEnterpriseMapEditorDraftState(projected)
+}
 
-  if (!canResizeEnterpriseMapEditorTo(nextCols, nextRows)) return
-
-  enterpriseMapEditorDraftCols.value = Math.max(1, Math.round(nextCols))
-  enterpriseMapEditorDraftRows.value = Math.max(1, Math.round(nextRows))
-  enterpriseMapEditorDraftValidCells.value = enterpriseMapEditorDraftValidCells.value
-    .filter(cell => cell.x < enterpriseMapEditorDraftCols.value && cell.y < enterpriseMapEditorDraftRows.value)
-  enterpriseMapEditorDraftBlockedCells.value = enterpriseMapEditorDraftBlockedCells.value
-    .filter(cell => cell.x < enterpriseMapEditorDraftCols.value && cell.y < enterpriseMapEditorDraftRows.value)
+function shiftEnterpriseMapEditorDraft(dx = 0, dy = 0) {
+  const projected = projectEnterpriseMapEditorShift(dx, dy)
+  if (!projected) return
+  applyEnterpriseMapEditorDraftState(projected)
 }
 
 function isEnterpriseMapEditorCellValid(x, y) {
@@ -8778,6 +9628,35 @@ function isEnterpriseMapEditorCellLocked(x, y) {
   return isProtectedMapCell(x, y)
 }
 
+function isEnterpriseMapEditorCellWarned(x, y) {
+  return isBusinessReferencedMapCell(x, y)
+}
+
+function isEnterpriseMapEditorCellExpanded(x, y) {
+  return (
+    Number(x) < Number(enterpriseMapEditorBaseOriginX.value || 0) ||
+    Number(x) >= Number(enterpriseMapEditorBaseOriginX.value || 0) + Number(enterpriseMapEditorBaseCols.value || 0) ||
+    Number(y) < Number(enterpriseMapEditorBaseOriginY.value || 0) ||
+    Number(y) >= Number(enterpriseMapEditorBaseOriginY.value || 0) + Number(enterpriseMapEditorBaseRows.value || 0)
+  )
+}
+
+function buildEnterpriseMapEditorCellTitle(x, y) {
+  const parts = [`(${x}, ${y})`]
+  if (isEnterpriseMapEditorCellLocked(x, y)) {
+    parts.push(t('enterprise_settings_map_editor_help_runtime_locked'))
+  } else if (isEnterpriseMapEditorCellWarned(x, y)) {
+    const refs = businessReferencedMapCellLabels(x, y).join(' / ')
+    parts.push(formatInlineMessage(t('enterprise_settings_map_editor_help_referenced_detail'), {
+      refs: refs || t('enterprise_settings_map_editor_warning_referenced'),
+    }))
+  }
+  if (isEnterpriseMapEditorCellExpanded(x, y)) {
+    parts.push(t('enterprise_settings_map_editor_expanded_region'))
+  }
+  return parts.join(' · ')
+}
+
 function applyEnterpriseMapEditorCell(cell, event) {
   if (!cell) return
   const { x, y } = cell
@@ -8793,31 +9672,44 @@ function applyEnterpriseMapEditorCell(cell, event) {
         .filter(item => blockedCellKey(item.x, item.y) !== key)
       return
     }
-    enterpriseMapEditorDraftBlockedCells.value = normalizeBlockedCellList([
+    enterpriseMapEditorDraftBlockedCells.value = normalizeDraftBlockedCellList([
       ...enterpriseMapEditorDraftBlockedCells.value,
       { x, y }
-    ])
+    ], enterpriseMapEditorDraftValidCells.value, enterpriseMapEditorDraftCols.value, enterpriseMapEditorDraftRows.value)
     return
   }
 
   if (valid) {
-    enterpriseMapEditorDraftValidCells.value = enterpriseMapEditorDraftValidCells.value
+    const nextValidCells = enterpriseMapEditorDraftValidCells.value
       .filter(item => blockedCellKey(item.x, item.y) !== key)
+    enterpriseMapEditorDraftValidCells.value = nextValidCells
     enterpriseMapEditorDraftBlockedCells.value = enterpriseMapEditorDraftBlockedCells.value
       .filter(item => blockedCellKey(item.x, item.y) !== key)
+    enterpriseMapEditorDraftTopology.value = normalizeMapTopology(
+      enterpriseMapEditorDraftTopology.value,
+      enterpriseMapEditorDraftCols.value,
+      enterpriseMapEditorDraftRows.value,
+      nextValidCells
+    )
     return
   }
 
-  enterpriseMapEditorDraftValidCells.value = normalizeValidCellList([
+  const nextValidCells = sanitizeDraftCellList([
     ...enterpriseMapEditorDraftValidCells.value,
     { x, y }
   ], enterpriseMapEditorDraftCols.value, enterpriseMapEditorDraftRows.value)
+  enterpriseMapEditorDraftValidCells.value = nextValidCells
+  enterpriseMapEditorDraftTopology.value = normalizeMapTopology(
+    enterpriseMapEditorDraftTopology.value,
+    enterpriseMapEditorDraftCols.value,
+    enterpriseMapEditorDraftRows.value,
+    nextValidCells
+  )
 }
 
 async function saveEnterpriseMapEditorDraft() {
   if (enterpriseMapEditorSaving.value) return
   if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'map.write', buildCapabilityDeniedMessage('map'))) return
-  if (!ensureObstacleMutationAllowed()) return
   if (!enterpriseMapEditorDraftValidCells.value.length) {
     showFloatingToast(t('enterprise_settings_map_editor_shape_required'), 'error')
     return
@@ -8829,7 +9721,12 @@ async function saveEnterpriseMapEditorDraft() {
       enterpriseMapEditorDraftBlockedCells.value,
       enterpriseMapEditorDraftValidCells.value,
       enterpriseMapEditorDraftCols.value,
-      enterpriseMapEditorDraftRows.value
+      enterpriseMapEditorDraftRows.value,
+      enterpriseMapEditorDraftTopology.value,
+      {
+        bypassObstacleMutationLock: true,
+        interactiveForceApply: true,
+      }
     )
     if (ok) {
       closeEnterpriseMapEditorDialog()
@@ -8894,6 +9791,54 @@ function updateEnterpriseTopologyNode(patch = {}) {
       node.key === selectedKey ? { ...node, ...nextPatch } : node
     )
   }, gridColsValue(), gridRowsValue(), validCells.value)
+}
+
+function updateEnterpriseTopologyNodeEditorDraft(patch = {}) {
+  if (!authCanMapWrite.value) return
+  if (!enterpriseTopologySelectedNode.value) return
+  const nextDraft = {
+    ...enterpriseTopologyNodeEditorDraft.value,
+    ...patch
+  }
+  const nextType = TOPOLOGY_NODE_TYPE_KEYS.includes(String(nextDraft.node_type || '').trim())
+    ? String(nextDraft.node_type || '').trim()
+    : 'waypoint'
+  enterpriseTopologyNodeEditorDraft.value = {
+    node_type: nextType,
+    label: String(nextDraft.label || ''),
+    capacity: normalizeTopologyNodeCapacity(
+      nextType,
+      Object.prototype.hasOwnProperty.call(patch, 'capacity')
+        ? nextDraft.capacity
+        : enterpriseTopologyNodeEditorDraft.value?.capacity
+    )
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'node_type') && !Object.prototype.hasOwnProperty.call(patch, 'capacity')) {
+    enterpriseTopologyNodeEditorDraft.value.capacity = getTopologyNodeDefaultCapacity(nextType)
+  }
+}
+
+function restoreSelectedEnterpriseTopologyNodeDraft() {
+  enterpriseTopologyNodeEditorDraft.value = buildEnterpriseTopologyNodeEditorDraft(enterpriseTopologySelectedNode.value)
+}
+
+function saveSelectedEnterpriseTopologyNodeDraft() {
+  if (!authCanMapWrite.value) return
+  if (!enterpriseTopologySelectedNode.value) return
+  const normalizedType = TOPOLOGY_NODE_TYPE_KEYS.includes(String(enterpriseTopologyNodeEditorDraft.value?.node_type || '').trim())
+    ? String(enterpriseTopologyNodeEditorDraft.value?.node_type || '').trim()
+    : 'waypoint'
+  updateEnterpriseTopologyNode({
+    node_type: normalizedType,
+    label: String(enterpriseTopologyNodeEditorDraft.value?.label || '').trim() || null,
+    capacity: normalizeTopologyNodeCapacity(normalizedType, enterpriseTopologyNodeEditorDraft.value?.capacity)
+  })
+  enterpriseTopologyNodeEditorDraft.value = buildEnterpriseTopologyNodeEditorDraft({
+    ...enterpriseTopologySelectedNode.value,
+    node_type: normalizedType,
+    label: String(enterpriseTopologyNodeEditorDraft.value?.label || '').trim() || null,
+    capacity: normalizeTopologyNodeCapacity(normalizedType, enterpriseTopologyNodeEditorDraft.value?.capacity)
+  })
 }
 
 function updateEnterpriseTopologyEdge(patch = {}) {
@@ -9013,7 +9958,11 @@ async function saveEnterpriseTopologyEditorDraft() {
     validCells.value,
     gridColsValue(),
     gridRowsValue(),
-    normalizedTopology
+    normalizedTopology,
+    {
+      bypassObstacleMutationLock: true,
+      interactiveForceApply: true,
+    }
   )
   if (ok) {
     enterpriseTopologyEditorDraft.value = normalizedTopology
@@ -10551,6 +11500,50 @@ function isSchedulableIdleAgvStatus(status) {
   return ['idle', 'idle_returning'].includes(String(status || ''))
 }
 
+function isTopologyStationDockSelectableAgv(agv) {
+  if (!agv || String(agv?.source || 'backend') !== 'backend') return false
+  const taskId = Number(agv?.task_id ?? agv?.taskId)
+  if (Number.isFinite(taskId) && taskId > 0) return false
+  return isSchedulableIdleAgvStatus(agv?.status)
+}
+
+function formatTopologyStationDockAgvAvailability(agv) {
+  const status = String(agv?.status || '').trim().toLowerCase()
+  const motionState = String(agv?.motionState || agv?.motion_state || agv?.status || '').trim().toLowerCase()
+  const taskId = Number(agv?.task_id ?? agv?.taskId)
+
+  if (Number.isFinite(taskId) && taskId > 0) {
+    return ['waiting', 'yielding'].includes(motionState)
+      ? t('topology_station_dialog_blocked_running_waiting')
+      : t('topology_station_dialog_blocked_running')
+  }
+  if (status === 'idle') return t('topology_station_dialog_ready_idle')
+  if (status === 'idle_returning') return t('topology_station_dialog_ready_returning')
+  if (status === 'waiting_for_charge') {
+    return ['waiting', 'yielding'].includes(motionState)
+      ? t('topology_station_dialog_blocked_charging_waiting')
+      : t('topology_station_dialog_blocked_charging')
+  }
+  if (status === 'charging') return t('topology_station_dialog_blocked_charging')
+  if (status === 'running' || status === 'relocating') {
+    return ['waiting', 'yielding'].includes(motionState)
+      ? t('topology_station_dialog_blocked_running_waiting')
+      : t('topology_station_dialog_blocked_running')
+  }
+  if (status === 'fault' || status === 'emergency_stop') return t('topology_station_dialog_blocked_fault')
+  if (status === 'maintenance') return t('topology_station_dialog_blocked_maintenance')
+  return t('topology_station_dialog_blocked_unknown')
+}
+
+function topologyStationDockAgvAvailabilityTone(agv) {
+  const status = String(agv?.status || '').trim().toLowerCase()
+  if (isTopologyStationDockSelectableAgv(agv)) return 'ready'
+  if (status === 'fault' || status === 'emergency_stop') return 'danger'
+  if (status === 'maintenance') return 'muted'
+  if (status === 'waiting_for_charge' || status === 'charging') return 'charge'
+  return 'busy'
+}
+
 function hasPendingTask() {
   return tasks.value.some(task => task.status === 'pending')
 }
@@ -10819,7 +11812,7 @@ function syncDisplayedPathsFromTasks() {
     const trackedManualTask = trackedManualTaskId.value
       ? tasks.value.find(task => task.id === trackedManualTaskId.value)
       : null
-    const trackedManualTaskEnded = ['finished', 'cancelled'].includes(String(trackedManualTask?.status || ''))
+    const trackedManualTaskEnded = ['finished', 'cancelled', 'invalid'].includes(String(trackedManualTask?.status || ''))
     const shouldHoldManualPreview =
       Boolean(trackedManualTaskId.value) && !trackedManualTaskEnded && manualPreviewMinVisibleUntil.value > Date.now()
     const shouldHoldAutoDraft =
@@ -10852,41 +11845,56 @@ const protectedMapCellSet = computed(() => {
     }
   }
 
-  for (const point of pointLibrary.value) {
-    if (Number.isInteger(point?.x) && Number.isInteger(point?.y)) {
-      keys.add(blockedCellKey(point.x, point.y))
+  return keys
+})
+
+const businessReferencedMapCellMap = computed(() => {
+  const referenceMap = new Map()
+
+  function registerReference(x, y, label) {
+    if (!Number.isInteger(x) || !Number.isInteger(y)) return
+    const key = blockedCellKey(x, y)
+    if (!referenceMap.has(key)) {
+      referenceMap.set(key, new Set())
     }
+    referenceMap.get(key).add(label)
+  }
+
+  for (const point of pointLibrary.value) {
+    registerReference(Number(point?.x), Number(point?.y), t('enterprise_settings_map_editor_warning_point'))
   }
 
   for (const task of tasks.value) {
     const stages = Array.isArray(task?.stages) && task.stages.length ? task.stages : [task]
     for (const stage of stages) {
-      if (Number.isInteger(stage?.start_x) && Number.isInteger(stage?.start_y)) {
-        keys.add(blockedCellKey(stage.start_x, stage.start_y))
-      }
-      if (Number.isInteger(stage?.end_x) && Number.isInteger(stage?.end_y)) {
-        keys.add(blockedCellKey(stage.end_x, stage.end_y))
-      }
+      registerReference(Number(stage?.start_x), Number(stage?.start_y), t('enterprise_settings_map_editor_warning_task'))
+      registerReference(Number(stage?.end_x), Number(stage?.end_y), t('enterprise_settings_map_editor_warning_task'))
     }
   }
 
   for (const template of taskTemplates.value) {
     const stages = Array.isArray(template?.stages) && template.stages.length ? template.stages : [template]
     for (const stage of stages) {
-      if (Number.isInteger(stage?.start_x) && Number.isInteger(stage?.start_y)) {
-        keys.add(blockedCellKey(stage.start_x, stage.start_y))
-      }
-      if (Number.isInteger(stage?.end_x) && Number.isInteger(stage?.end_y)) {
-        keys.add(blockedCellKey(stage.end_x, stage.end_y))
-      }
+      registerReference(Number(stage?.start_x), Number(stage?.start_y), t('enterprise_settings_map_editor_warning_template'))
+      registerReference(Number(stage?.end_x), Number(stage?.end_y), t('enterprise_settings_map_editor_warning_template'))
     }
   }
 
-  return keys
+  return referenceMap
 })
+const businessReferencedMapCellSet = computed(() => new Set(businessReferencedMapCellMap.value.keys()))
 
 function isProtectedMapCell(x, y) {
   return protectedMapCellSet.value.has(blockedCellKey(x, y))
+}
+
+function isBusinessReferencedMapCell(x, y) {
+  return businessReferencedMapCellSet.value.has(blockedCellKey(x, y))
+}
+
+function businessReferencedMapCellLabels(x, y) {
+  const key = blockedCellKey(x, y)
+  return Array.from(businessReferencedMapCellMap.value.get(key) || [])
 }
 
 const {
@@ -11019,17 +12027,17 @@ async function createBackendAgvAtCell(x, y) {
   }
 }
 
-async function deleteSelectedPersonalAgv() {
-  if (!selectedBackendAgv.value || !canManagePersonalAgvs.value) return
+async function deletePersonalMaintenanceAgv(agvId) {
+  const normalizedAgvId = Number(agvId)
+  if (!Number.isFinite(normalizedAgvId) || normalizedAgvId <= 0 || !canManagePersonalAgvs.value) return
   if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'dispatch.write', buildCapabilityDeniedMessage('dispatch'))) {
     return
   }
-  if (!window.confirm(formatInlineMessage(t('agv_delete_confirm'), { id: String(selectedBackendAgv.value.id) }))) return
+  if (!window.confirm(formatInlineMessage(t('agv_delete_confirm'), { id: String(normalizedAgvId) }))) return
 
-  const agvId = Number(selectedBackendAgv.value.id)
-  agvActionLoadingId.value = agvId
+  agvActionLoadingId.value = normalizedAgvId
   try {
-    const res = await fetch(`${API_BASE}/agv/${agvId}`, {
+    const res = await fetch(`${API_BASE}/agv/${normalizedAgvId}`, {
       method: 'DELETE',
       headers: buildAuthorizedHeaders()
     })
@@ -11037,12 +12045,43 @@ async function deleteSelectedPersonalAgv() {
     if (!res.ok) {
       throw createApiError(data, t('agv_delete_failed'))
     }
-    cancelSelection()
+    if (Number(selectedBackendAgv.value?.id || 0) === normalizedAgvId) {
+      cancelSelection()
+    }
     await refreshCoreState()
-    showFloatingToast(formatInlineMessage(t('agv_delete_success'), { id: String(agvId) }), 'success')
+    showFloatingToast(formatInlineMessage(t('agv_delete_success'), { id: String(normalizedAgvId) }), 'success')
   } catch (error) {
     console.error('Delete AGV error:', error)
     showFloatingToast(error?.message || t('agv_delete_failed'), 'error')
+  } finally {
+    agvActionLoadingId.value = null
+  }
+}
+
+async function sendSelectedPersonalAgvToMaintenance() {
+  if (!selectedBackendAgv.value || !canManagePersonalAgvs.value) return
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'fault.write', buildCapabilityDeniedMessage('fault'))) {
+    return
+  }
+  const agvId = Number(selectedBackendAgv.value.id)
+  if (!window.confirm(formatInlineMessage(t('agv_send_to_repair_confirm'), { id: String(agvId) }))) return
+
+  agvActionLoadingId.value = agvId
+  try {
+    const res = await fetch(`${API_BASE}/agv/${agvId}/to-maintenance`, {
+      method: 'POST',
+      headers: buildAuthorizedHeaders()
+    })
+    const data = await res.json()
+    if (!res.ok) {
+      throw createApiError(data, t('agv_send_to_repair_failed'))
+    }
+    cancelSelection()
+    await refreshCoreState()
+    showFloatingToast(formatInlineMessage(t('agv_send_to_repair_success'), { id: String(agvId) }), 'success')
+  } catch (error) {
+    console.error('Send AGV to maintenance error:', error)
+    showFloatingToast(error?.message || t('agv_send_to_repair_failed'), 'error')
   } finally {
     agvActionLoadingId.value = null
   }
@@ -11165,6 +12204,10 @@ function onAgvClick(agv, event) {
 
 function onMapMouseDown(event) {
   if (event.button !== 0) return
+  if (dismissFeedbackBellFromMapInteraction(event)) {
+    event.preventDefault()
+    return
+  }
   if (event.target.closest('.agv') || event.target.closest('.minimap')) return
 
   if (obstacleEditMode.value) {
@@ -11210,6 +12253,7 @@ function onMapMouseDown(event) {
 }
 
 function onMapDoubleClick(event) {
+  if (shouldConsumeMapInteractionForFeedbackBell()) return
   if (obstacleEditMode.value) {
     if (clickTimer) {
       clearTimeout(clickTimer)
@@ -11257,6 +12301,7 @@ function onMapDoubleClick(event) {
 }
 
 function onMapClick(event) {
+  if (shouldConsumeMapInteractionForFeedbackBell()) return
   if (ignoreNextMapClick) {
     ignoreNextMapClick = false
     mapDraftPrimedMode.value = null
@@ -11585,6 +12630,27 @@ function toggleFeedbackBellMenu() {
 
 function closeFeedbackBellMenu() {
   feedbackBellMenuOpen.value = false
+}
+
+function consumeNextMapInteractionForFeedbackBell(durationMs = 360) {
+  feedbackBellMapConsumeUntil = Date.now() + durationMs
+}
+
+function shouldConsumeMapInteractionForFeedbackBell() {
+  return feedbackBellMapConsumeUntil > Date.now()
+}
+
+function dismissFeedbackBellFromMapInteraction(event) {
+  if (!feedbackBellMenuOpen.value) return false
+  if (event?.target?.closest?.('.feedback-fab')) return false
+  closeFeedbackBellMenu()
+  mapDraftPrimedMode.value = null
+  if (clickTimer) {
+    clearTimeout(clickTimer)
+    clickTimer = null
+  }
+  consumeNextMapInteractionForFeedbackBell()
+  return true
 }
 
 async function openEnterpriseRequestDialogFromBell() {
@@ -13815,15 +14881,69 @@ function stopObstaclePaint() {
   obstaclePaintLastKey = ''
 }
 
+function buildMapLayoutImpactSummaryLines(detail = {}) {
+  const lines = []
+  const agvConflictCount = Number(detail?.agv_conflict_count ?? detail?.agv_conflicts?.length ?? 0)
+  const invalidPointCount = Number(detail?.invalid_point_count ?? detail?.invalid_points?.length ?? 0)
+  const invalidTemplateCount = Number(detail?.invalid_template_count ?? detail?.invalid_templates?.length ?? 0)
+  const invalidatedTaskCount = Number(detail?.invalidated_task_count ?? detail?.invalidated_tasks?.length ?? 0)
+
+  if (agvConflictCount > 0) {
+    lines.push(formatInlineMessage(t('enterprise_settings_map_editor_force_apply_agv_conflicts'), {
+      count: String(agvConflictCount)
+    }))
+  }
+  if (invalidPointCount > 0) {
+    lines.push(formatInlineMessage(t('enterprise_settings_map_editor_force_apply_points'), {
+      count: String(invalidPointCount)
+    }))
+  }
+  if (invalidTemplateCount > 0) {
+    lines.push(formatInlineMessage(t('enterprise_settings_map_editor_force_apply_templates'), {
+      count: String(invalidTemplateCount)
+    }))
+  }
+  if (invalidatedTaskCount > 0) {
+    lines.push(formatInlineMessage(t('enterprise_settings_map_editor_force_apply_tasks'), {
+      count: String(invalidatedTaskCount)
+    }))
+  }
+  return lines
+}
+
+function buildMapLayoutForceApplyPrompt(detail = {}) {
+  const lines = [
+    t('enterprise_settings_map_editor_force_apply_confirm'),
+    ...buildMapLayoutImpactSummaryLines(detail)
+  ]
+  return lines.join('\n')
+}
+
+function buildMapLayoutSaveSuccessMessage(data, skippedCount = 0) {
+  const baseMessage = mergeObstacleStatusMessage(settingsLocale.value.obstacleSaved, skippedCount)
+  if (!data?.forced) return baseMessage
+  const suffix = formatInlineMessage(t('enterprise_settings_map_editor_force_apply_success'), {
+    tasks: String(Number(data?.invalidated_task_count ?? 0)),
+    points: String(Number(data?.invalid_point_count ?? 0)),
+    templates: String(Number(data?.invalid_template_count ?? 0)),
+  })
+  return `${baseMessage} ${suffix}`.trim()
+}
+
 async function saveBlockedCells(
   nextBlockedCells = blockedCells.value,
   nextValidCells = validCells.value,
   nextGridCols = gridColsValue(),
   nextGridRows = gridRowsValue(),
-  nextTopology = currentMapTopology.value
+  nextTopology = currentMapTopology.value,
+  options = {}
 ) {
+  const {
+    bypassObstacleMutationLock = false,
+    interactiveForceApply = false
+  } = options || {}
   if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'map.write', buildCapabilityDeniedMessage('map'))) return false
-  if (!ensureObstacleMutationAllowed()) {
+  if (!bypassObstacleMutationLock && !ensureObstacleMutationAllowed()) {
     return false
   }
   obstacleMapSaving.value = true
@@ -13835,19 +14955,47 @@ async function saveBlockedCells(
     const { filtered, skipped } = filterBlockedCellsAgainstOccupied(
       filterBlockedCellsAgainstValid(nextBlockedCells, normalizedValidCells)
     )
-    const res = await fetch(`${API_BASE}/status/map`, {
-      method: 'PUT',
-      headers: buildAuthorizedJsonHeaders(),
-      body: JSON.stringify({
-        blocked_cells: filtered,
-        valid_cells: normalizedValidCells,
-        grid_cols: targetGridCols,
-        grid_rows: targetGridRows,
-        topology: normalizedTopology
+    const requestPayload = {
+      blocked_cells: filtered,
+      valid_cells: normalizedValidCells,
+      grid_cols: targetGridCols,
+      grid_rows: targetGridRows,
+      topology: normalizedTopology
+    }
+
+    async function submitMapLayoutSave(forceApply = false) {
+      const response = await fetch(`${API_BASE}/status/map`, {
+        method: 'PUT',
+        headers: buildAuthorizedJsonHeaders(),
+        body: JSON.stringify({
+          ...requestPayload,
+          force_apply: Boolean(forceApply)
+        })
       })
-    })
-    const data = await res.json()
+      const payload = await response.json().catch(() => null)
+      return { response, payload }
+    }
+
+    let { response: res, payload: data } = await submitMapLayoutSave(false)
+    if (
+      !res.ok &&
+      interactiveForceApply &&
+      authCanForceApplyMap.value &&
+      Array.isArray(data?.detail?.blockers) &&
+      data?.detail?.force_apply_allowed &&
+      window.confirm(buildMapLayoutForceApplyPrompt(data.detail))
+    ) {
+      ;({ response: res, payload: data } = await submitMapLayoutSave(true))
+    }
+
     if (!res.ok) {
+      if (Array.isArray(data?.detail?.blockers)) {
+        const detailLines = buildMapLayoutImpactSummaryLines(data.detail)
+        setObstacleLayoutStatus(
+          'error',
+          [localizeApiErrorDetail(data?.detail, 'Save blocked cells failed'), ...detailLines].filter(Boolean).join('\n')
+        )
+      }
       throw createApiError(data, 'Save blocked cells failed')
     }
     applyGridSizeFromPayload(data)
@@ -13869,9 +15017,14 @@ async function saveBlockedCells(
     clearPreview()
     cancelSelection()
     const skippedCount = Number(data?.skipped_occupied_count ?? skipped.length ?? 0)
-    setObstacleLayoutStatus('success', mergeObstacleStatusMessage(settingsLocale.value.obstacleSaved, skippedCount))
+    setObstacleLayoutStatus('success', buildMapLayoutSaveSuccessMessage(data, skippedCount))
+    await Promise.all([
+      refreshCoreState(),
+      fetchPointLibraryFromBackend(),
+      fetchTaskTemplatesFromBackend()
+    ])
     await scheduleAutoIfReady()
-    return true
+    return data
   } catch (error) {
     console.error('Save blocked cells error:', error)
     setObstacleLayoutStatus('error', error?.message || 'Save blocked cells failed')
@@ -14162,17 +15315,39 @@ async function fetchMapLayout() {
 }
 
 async function reloadScopedMapData() {
-  obstacleEditMode.value = false
-  stopObstaclePaint()
-  setObstacleLayoutStatus('', 'info')
-  clearImportedObstacleLayoutPreset()
-  currentMapTopology.value = createEmptyMapTopology()
-  enterpriseMapEditorDialogOpen.value = false
-  enterpriseTopologyEditorDialogOpen.value = false
-  enterpriseTopologyEditorSelectedNodeKey.value = ''
-  enterpriseTopologyEditorSelectedEdgeKey.value = ''
-  enterpriseTopologyEditorLinkSourceKey.value = ''
-  await Promise.all([fetchMapLayout(), fetchMapPresets(), fetchMapProfiles()])
+  if (scopedDataReloadPromise) return scopedDataReloadPromise
+  scopedDataReloadPromise = (async () => {
+    scopeDataReady.value = false
+    obstacleEditMode.value = false
+    stopObstaclePaint()
+    setObstacleLayoutStatus('', 'info')
+    clearImportedObstacleLayoutPreset()
+    currentMapTopology.value = createEmptyMapTopology()
+    enterpriseMapEditorDialogOpen.value = false
+    enterpriseTopologyEditorDialogOpen.value = false
+    enterpriseTopologyEditorSelectedNodeKey.value = ''
+    enterpriseTopologyEditorSelectedEdgeKey.value = ''
+    enterpriseTopologyEditorLinkSourceKey.value = ''
+    try {
+      await Promise.all([
+        fetchPointLibraryFromBackend(),
+        fetchTaskTemplatesFromBackend(),
+        fetchMapLayout(),
+        fetchMapPresets(),
+        fetchMapProfiles(),
+        fetchUiSettings()
+      ])
+      await refreshCoreState()
+    } finally {
+      scopeDataReady.value = true
+    }
+  })()
+
+  try {
+    return await scopedDataReloadPromise
+  } finally {
+    scopedDataReloadPromise = null
+  }
 }
 
 async function applyObstaclePreset() {
@@ -14508,18 +15683,40 @@ async function moveSelectedAgvToMaintenance() {
     if (!res.ok) {
       throw createApiError(data, moveToMaintenanceText())
     }
-    if (locale.value === 'ja') {
-      setFaultPanelStatus(`AGV #${selectedBackendAgv.value.id} を整備リストへ移動しました。`, 'success')
-    } else if (locale.value === 'zh') {
-      setFaultPanelStatus(`AGV #${selectedBackendAgv.value.id} 已移入维护列表。`, 'success')
-    } else {
-      setFaultPanelStatus(`AGV #${selectedBackendAgv.value.id} moved to maintenance list.`, 'success')
-    }
+    setFaultPanelStatus(formatInlineMessage(t('agv_send_to_repair_success'), { id: String(selectedBackendAgv.value.id) }), 'success')
     cancelSelection()
     await refreshCoreState()
   } catch (error) {
     console.error('Move AGV to maintenance error:', error)
     setFaultPanelStatus(error?.message || moveToMaintenanceText(), 'error')
+  } finally {
+    agvActionLoadingId.value = null
+  }
+}
+
+async function offboardSelectedEnterpriseAgv() {
+  if (!selectedBackendAgv.value || !canManageEnterpriseAgvDuty.value) return
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'dispatch.write', buildCapabilityDeniedMessage('dispatch'))) return
+
+  const agvId = Number(selectedBackendAgv.value.id)
+  if (!window.confirm(formatInlineMessage(t('agv_offboard_confirm'), { id: String(agvId) }))) return
+
+  agvActionLoadingId.value = agvId
+  try {
+    const res = await fetch(`${API_BASE}/agv/${agvId}/offboard`, {
+      method: 'POST',
+      headers: buildAuthorizedHeaders()
+    })
+    const data = await res.json()
+    if (!res.ok) {
+      throw createApiError(data, t('agv_offboard_failed'))
+    }
+    cancelSelection()
+    await refreshCoreState()
+    showFloatingToast(formatInlineMessage(t('agv_offboard_success'), { id: String(agvId) }), 'success')
+  } catch (error) {
+    console.error('Offboard AGV error:', error)
+    showFloatingToast(error?.message || t('agv_offboard_failed'), 'error')
   } finally {
     agvActionLoadingId.value = null
   }
@@ -14778,22 +15975,40 @@ function onWindowBeforeUnload(event) {
   event.returnValue = ''
 }
 
+async function bootstrapInitialScopeData() {
+  scopeDataReady.value = false
+  try {
+    const authState = await fetchAuthMe({ silent: false, preserveOnFailure: true })
+    const normalizedState = await enforceEnterpriseClientSession(authState, { showToast: false })
+    authGuestAccepted.value = Boolean(normalizedState?.authenticated)
+    await hydratePointTemplateBackend()
+    await reloadScopedMapData()
+    await refreshState()
+    if (
+      normalizedState?.authenticated &&
+      Array.isArray(normalizedState?.capabilities) &&
+      normalizedState.capabilities.includes('audit.view')
+    ) {
+      void fetchOperationAudits({ force: true })
+    }
+  } catch (error) {
+    console.error('Initial scoped bootstrap error:', error)
+    try {
+      await reloadScopedMapData()
+      await refreshState()
+    } catch (recoveryError) {
+      console.error('Initial scoped bootstrap recovery error:', recoveryError)
+    }
+  } finally {
+    scopeDataReady.value = true
+  }
+}
+
 onMounted(() => {
-  loadCustomPoints()
-  loadTaskTemplates()
   loadComfyWorkflowTemplates()
-  void hydratePointTemplateBackend()
   loadExperimentRecords()
   loadMapDisplaySettings()
   loadPanelSections()
-  void fetchUiSettings()
-  void fetchAuthMe().then(async state => {
-    const normalizedState = await enforceEnterpriseClientSession(state, { showToast: false })
-    authGuestAccepted.value = Boolean(normalizedState?.authenticated)
-    if (normalizedState?.authenticated && Array.isArray(normalizedState?.capabilities) && normalizedState.capabilities.includes('audit.view')) {
-      void fetchOperationAudits({ force: true })
-    }
-  })
   loadPanelSummaryMode()
   loadTaskQueueView()
   syncPanelWidth()
@@ -14808,10 +16023,7 @@ onMounted(() => {
     }
   }
   syncMapSizeResizeState()
-  void fetchMapProfiles()
-  void fetchMapPresets()
-  void fetchMapLayout()
-  void refreshState()
+  void bootstrapInitialScopeData()
   timer = setInterval(() => {
     void refreshState()
   }, 1000)
@@ -15596,6 +16808,9 @@ const taskTemplatesPanelBindings = {
   taskTemplateTypeText,
   formatTemplateMeta,
   formatTemplateStageCount,
+  isTemplateInvalid,
+  formatTemplateInvalidReason,
+  formatTemplateInvalidStageText,
   onTemplateApplyClick,
   onTemplateApplyDoubleClick,
   createTaskFromTemplateWithAuth,
@@ -15621,7 +16836,13 @@ const pointLibraryPanelBindings = {
   addCustomPointWithAuth,
   pointName,
   pointZone,
+  pointKindKey,
+  pointKindText,
+  pointKindCode,
   pointTypeText,
+  isPointInvalid,
+  formatPointInvalidReason,
+  focusPointOnMap,
   applyPointToTaskForm,
   deleteCustomPointWithAuth
 }
@@ -15693,6 +16914,7 @@ const taskQueuePanelBindings = {
   formatTaskLastAction,
   formatTaskLastOperator,
   formatTaskTime,
+  formatMapInvalidReason,
   isTaskDeletable,
   deleteTask,
   isRecoveryRequiredTask,
@@ -15706,13 +16928,18 @@ const taskQueuePanelBindings = {
 }
 
 const faultOperationsPanelBindings = {
+  t,
   faultLocale,
   faultEventFilter,
   authCanFaultWrite,
+  authCanDispatchWrite,
   buildCapabilityReadonlyHint,
   buildEnterprisePanelReadonlyHint,
   openAuthDialog,
   buildOperationsEntryActionText,
+  uiTreatAsEnterpriseRole,
+  canManagePersonalAgvs,
+  canManageEnterpriseAgvDuty,
   selectedBackendAgv,
   faultSelectedAgvCardRef,
   faultSelectedAgvPulse,
@@ -15725,12 +16952,16 @@ const faultOperationsPanelBindings = {
   resumeSelectedAgv,
   showFaultReportForm,
   moveSelectedAgvToMaintenance,
+  offboardSelectedEnterpriseAgv,
+  selectedEnterpriseAgvCanOffboard,
+  selectedEnterpriseAgvOffboardHintText,
   moveToMaintenanceText,
   faultReportForm,
   faultTypeText,
   faultSeverityText,
   submitFaultReport,
   maintenanceBackendAgvs,
+  deletePersonalMaintenanceAgv,
   maintenanceListTitleText,
   returnAgvToService,
   returnToServiceText,
@@ -15822,8 +17053,9 @@ const dispatchControlSummaryPanelBindings = {
   formatEnterpriseMotionStateLabel,
   formatAgvBatteryText,
   authCanDispatchWrite,
+  authCanFaultWrite,
   agvActionLoadingId,
-  deleteSelectedPersonalAgv
+  sendSelectedPersonalAgvToMaintenance
 }
 
 const floatingComparePanelBindings = {
@@ -16157,6 +17389,14 @@ const platformAdminGovernanceHubBindings = {
   enterPlatformAdminEnterprisePreviewMode
 }
 
+const enterpriseSettingsDialogMounted = computed(() =>
+  enterpriseSettingsDialogOpen.value
+  || enterprisePageSettingsDialogOpen.value
+  || enterpriseShortcutPlannerDialogOpen.value
+  || enterpriseMapEditorDialogOpen.value
+  || enterpriseTopologyEditorDialogOpen.value
+)
+
 const enterpriseSettingsDialogBindings = {
   t,
   authRoleLabel: enterpriseUiRoleLabel,
@@ -16282,15 +17522,23 @@ const enterpriseSettingsDialogBindings = {
   enterpriseMapEditorDraftRows,
   enterpriseMapEditorValidCount,
   enterpriseMapEditorBlockedCount,
+  enterpriseMapEditorLockedCount,
+  enterpriseMapEditorWarningCount,
   enterpriseMapEditorIsIrregular,
   enterpriseMapEditorZoomPercent,
   enterpriseMapEditorFootprintLabel,
   enterpriseMapEditorSizeLabel,
   enterpriseMapEditorGridStyle,
+  enterpriseMapEditorColAnchor,
+  enterpriseMapEditorRowAnchor,
   enterpriseTopologyEditorDraft,
   enterpriseTopologyDraftSummary,
+  enterpriseTopologyEditorSpecialGroups,
+  enterpriseTopologyEditorSpecialGroupSegments,
   enterpriseTopologyNodesByCell,
   enterpriseTopologySelectedNode,
+  enterpriseTopologyNodeEditorDraft,
+  enterpriseTopologyNodeEditorDirty,
   enterpriseTopologySelectedEdge,
   enterpriseTopologyLinkSourceNode,
   enterpriseTopologyNodeTypeOptions,
@@ -16471,25 +17719,37 @@ const enterpriseSettingsDialogBindings = {
   isEnterpriseTopologyCellBlocked,
   isEnterpriseMapEditorCellBlocked,
   isEnterpriseMapEditorCellLocked,
+  isEnterpriseMapEditorCellWarned,
+  isEnterpriseMapEditorCellExpanded,
   canResizeEnterpriseMapEditorTo,
+  canShiftEnterpriseMapEditorDraft,
   resizeEnterpriseMapEditorDraft,
+  shiftEnterpriseMapEditorDraft,
   adjustEnterpriseMapEditorZoom,
   resetEnterpriseMapEditorZoom,
   handleEnterpriseMapEditorWheel,
+  buildEnterpriseMapEditorCellTitle,
   applyEnterpriseMapEditorCell,
   saveEnterpriseMapEditorDraft,
   applyEnterpriseTopologyCell,
   selectEnterpriseTopologyNode,
   selectEnterpriseTopologyEdge,
+  updateEnterpriseTopologyNodeEditorDraft,
   updateEnterpriseTopologyNode,
   updateEnterpriseTopologyEdge,
+  restoreSelectedEnterpriseTopologyNodeDraft,
+  saveSelectedEnterpriseTopologyNodeDraft,
   toggleEnterpriseTopologyLinkSource,
   removeSelectedEnterpriseTopologyNode,
   removeSelectedEnterpriseTopologyEdge,
   saveEnterpriseTopologyEditorDraft,
   getTopologyNodeDefaultCapacity,
+  topologyNodeTypeLabel,
+  topologySpecialGroupBaseLabel,
   formatEnterpriseTopologyNodeBadge,
+  formatEnterpriseTopologyNodeListLabel,
   formatTopologyNodeCapacity,
+  formatTopologySpecialGroupEditorLabel,
   formatMapProfileTopologySummary,
   isCellOccupied,
   applyMapProfile,
@@ -16591,10 +17851,18 @@ onBeforeUnmount(() => {
       :ui="platformBugFeedbackDialogBindings"
     />
 
-    <EnterpriseSettingsDialog v-if="enterpriseSettingsDialogOpen" :ui="enterpriseSettingsDialogBindings" />
+    <EnterpriseSettingsDialog v-if="enterpriseSettingsDialogMounted" :ui="enterpriseSettingsDialogBindings" />
+
+    <div v-if="showScopeDataVeil" class="scope-data-veil" aria-hidden="true">
+      <div class="scope-data-veil-card">
+        <span class="scope-data-veil-dot"></span>
+        <span class="scope-data-veil-dot"></span>
+        <span class="scope-data-veil-dot"></span>
+      </div>
+    </div>
 
     <div
-      v-if="topologyStationDockDialogOpen && selectedTopologyStationDockNode"
+      v-if="topologyStationDockDialogOpen && selectedTopologyStationDockGroup"
       class="auth-dialog-backdrop"
       @click.self="closeTopologyStationDockDialog"
     >
@@ -16602,15 +17870,8 @@ onBeforeUnmount(() => {
         <header class="auth-dialog-header">
           <div>
             <div class="auth-dialog-kicker">{{ t('topology_station_dialog_kicker') }}</div>
-            <h2 class="auth-dialog-title">{{ formatTopologyNodeTitle(selectedTopologyStationDockNode) }}</h2>
-            <p class="auth-dialog-hint">
-              {{
-                formatInlineMessage(t('topology_station_dialog_hint'), {
-                  count: String(Number(selectedTopologyStationDockNode.occupancyCount || 0)),
-                  capacity: String(formatTopologyNodeCapacity(selectedTopologyStationDockNode))
-                })
-              }}
-            </p>
+            <h2 class="auth-dialog-title">{{ formatTopologyStationDockTitle(selectedTopologyStationDockGroup) }}</h2>
+            <p class="auth-dialog-hint">{{ formatTopologyStationDockHint(selectedTopologyStationDockGroup) }}</p>
           </div>
           <button class="auth-dialog-close" type="button" @click="closeTopologyStationDockDialog">×</button>
         </header>
@@ -16619,17 +17880,67 @@ onBeforeUnmount(() => {
           <section class="auth-dialog-card topology-station-dialog-section">
             <div class="auth-dialog-kicker">{{ t('topology_station_dialog_runtime_title') }}</div>
             <div class="topology-station-dialog-meta">
-              <span class="point-badge">{{ t(`enterprise_settings_route_topology_node_type_${selectedTopologyStationDockNode.node_type}`) }}</span>
+              <span class="point-badge">{{ t(`enterprise_settings_route_topology_node_type_${selectedTopologyStationDockGroup.nodeType}`) }}</span>
+              <span v-if="Number(selectedTopologyStationDockGroup.count || 0) > 1" class="point-badge">
+                {{
+                  formatInlineMessage(t('topology_station_dialog_group_nodes'), {
+                    count: String(Number(selectedTopologyStationDockGroup.count || 0))
+                  })
+                }}
+              </span>
               <span class="point-badge enterprise-settings-chip-muted">
                 {{
                   formatInlineMessage(t('topology_station_dialog_capacity_line'), {
-                    count: String(Number(selectedTopologyStationDockNode.occupancyCount || 0)),
-                    capacity: String(formatTopologyNodeCapacity(selectedTopologyStationDockNode))
+                    count: String(Number(selectedTopologyStationDockGroup.occupancyCount || 0)),
+                    capacity: String(Number(selectedTopologyStationDockGroup.capacityTotal || 0))
                   })
                 }}
               </span>
             </div>
             <p class="panel-hint">{{ t('topology_station_dialog_select_hint') }}</p>
+            <div v-if="authCurrentRole === 'enterprise_admin'" class="topology-station-dialog-onboard">
+              <div class="topology-station-dialog-copy">
+                <strong>{{ t('topology_station_dialog_onboard_title') }}</strong>
+                <span>
+                  {{
+                    formatInlineMessage(t('topology_station_dialog_onboard_preview'), {
+                      agv: `#${topologyStationDockNextAgvId}`,
+                      count: String(topologyStationDockRemainingCapacity)
+                    })
+                  }}
+                </span>
+                <span>{{ t('topology_station_dialog_onboard_hint') }}</span>
+              </div>
+              <button
+                class="btn-secondary topology-station-dialog-action"
+                type="button"
+                :disabled="!canOnboardEnterpriseAgvAtSelectedTopologyNode || topologyStationDockOnboarding"
+                @click="onboardEnterpriseAgvAtSelectedTopologyNode"
+              >
+                {{
+                  topologyStationDockOnboarding
+                    ? `${t('topology_station_dialog_onboard_action')}...`
+                    : t(
+                        canOnboardEnterpriseAgvAtSelectedTopologyNode
+                          ? 'topology_station_dialog_onboard_action'
+                          : 'topology_station_dialog_onboard_disabled'
+                      )
+                }}
+              </button>
+            </div>
+            <div v-if="selectedTopologyStationDockSlotCards.length" class="topology-station-dialog-slot-list">
+              <article
+                v-for="slot in selectedTopologyStationDockSlotCards"
+                :key="`topology-station-slot-${selectedTopologyStationDockGroup.key}-${slot.nodeKey}`"
+                class="topology-station-dialog-slot-item"
+              >
+                <div class="topology-station-dialog-slot-mark" :class="`is-${slot.nodeType}`">{{ slot.badge }}</div>
+                <div class="topology-station-dialog-slot-copy">
+                  <strong>{{ slot.title }}</strong>
+                  <span>{{ formatTopologySpecialGroupSlotLine(slot) }}</span>
+                </div>
+              </article>
+            </div>
           </section>
 
           <section class="auth-dialog-card topology-station-dialog-section">
@@ -16637,13 +17948,19 @@ onBeforeUnmount(() => {
             <div v-if="selectedTopologyStationDockAgvs.length" class="topology-station-dialog-list">
               <article
                 v-for="agv in selectedTopologyStationDockAgvs"
-                :key="`topology-station-agv-${selectedTopologyStationDockNode.key}-${agv.id}`"
+                :key="`topology-station-agv-${selectedTopologyStationDockGroup.key}-${agv.id}`"
                 class="topology-station-dialog-item"
               >
                 <div class="topology-station-dialog-copy">
                   <strong>{{ agv.label }}</strong>
                   <span>{{ formatEnterpriseMotionStateLabel(agv.motionState || agv.status) }}</span>
                   <span v-if="Number.isFinite(Number(agv.batteryLevel))">{{ formatAgvBatteryText({ battery_level: agv.batteryLevel }) }}</span>
+                  <span
+                    class="topology-station-dialog-status-hint"
+                    :class="`is-${agv.dispatchTone || (agv.selectable ? 'ready' : 'busy')}`"
+                  >
+                    {{ agv.dispatchHint || (agv.selectable ? t('topology_station_dialog_ready_idle') : t('topology_station_dialog_select_disabled')) }}
+                  </span>
                 </div>
                 <button
                   class="btn-secondary topology-station-dialog-action"
@@ -17039,11 +18356,38 @@ onBeforeUnmount(() => {
               }"
             ></div>
             <svg
+              v-if="enterpriseRuntimeTopologyBoundarySegments.length"
+              class="map-topology-outline-layer"
+              :width="mapWidth"
+              :height="mapHeight"
+            >
+              <line
+                v-for="segment in enterpriseRuntimeTopologyBoundarySegments"
+                :key="`runtime-topology-boundary-${segment.key}`"
+                class="map-topology-outline"
+                :x1="segment.x1"
+                :y1="segment.y1"
+                :x2="segment.x2"
+                :y2="segment.y2"
+              />
+            </svg>
+            <svg
               v-if="enterpriseRuntimeTopologyEdges.length"
               class="map-topology-edge-layer"
               :width="mapWidth"
               :height="mapHeight"
             >
+              <defs>
+                <marker id="map-topology-arrow-main" markerWidth="4" markerHeight="4" refX="3.2" refY="2" orient="auto" markerUnits="strokeWidth">
+                  <path d="M0,0 L4,2 L0,4 z" class="map-topology-arrow-head is-main"></path>
+                </marker>
+                <marker id="map-topology-arrow-branch" markerWidth="4" markerHeight="4" refX="3.2" refY="2" orient="auto" markerUnits="strokeWidth">
+                  <path d="M0,0 L4,2 L0,4 z" class="map-topology-arrow-head is-branch"></path>
+                </marker>
+                <marker id="map-topology-arrow-service" markerWidth="4" markerHeight="4" refX="3.2" refY="2" orient="auto" markerUnits="strokeWidth">
+                  <path d="M0,0 L4,2 L0,4 z" class="map-topology-arrow-head is-service"></path>
+                </marker>
+              </defs>
               <line
                 v-for="edge in enterpriseRuntimeTopologyEdges"
                 :key="`runtime-topology-edge-${edge.key}`"
@@ -17056,9 +18400,143 @@ onBeforeUnmount(() => {
               >
                 <title v-if="showTopologyEdgeSpeed">{{ formatTopologyEdgeDebugTitle(edge) }}</title>
               </line>
+              <line
+                v-for="segment in enterpriseRuntimeTopologyDirectionArrows"
+                :key="`runtime-topology-direction-${segment.key}`"
+                class="map-topology-direction-arrow"
+                :class="`is-${segment.laneType}`"
+                :x1="segment.x1"
+                :y1="segment.y1"
+                :x2="segment.x2"
+                :y2="segment.y2"
+                :marker-end="`url(#map-topology-arrow-${segment.laneType})`"
+              />
+            </svg>
+            <svg
+              v-if="enterpriseRuntimeTopologySpecialGroupSegments.length"
+              class="map-topology-special-group-layer"
+              :width="mapWidth"
+              :height="mapHeight"
+            >
+              <line
+                v-for="segment in enterpriseRuntimeTopologySpecialGroupSegments"
+                :key="`runtime-topology-special-group-${segment.key}`"
+                class="map-topology-special-group-outline"
+                :class="`is-${segment.nodeType}`"
+                :x1="segment.x1"
+                :y1="segment.y1"
+                :x2="segment.x2"
+                :y2="segment.y2"
+              />
             </svg>
             <div
-              v-for="node in enterpriseRuntimeTopologyNodes"
+              v-for="group in enterpriseRuntimeTopologySpecialGroups.filter(item => item.hasIntegratedShell)"
+              :key="`runtime-topology-special-group-shell-${group.key}`"
+              class="map-topology-special-group-shell"
+              :class="`is-${group.nodeType}`"
+              :style="{
+                left: `${group.shellLeft}px`,
+                top: `${group.shellTop}px`,
+                width: `${group.shellWidth}px`,
+                height: `${group.shellHeight}px`
+              }"
+              :title="formatTopologySpecialGroupRuntimeLabel(group)"
+              @mousedown.stop
+              @click.stop="openTopologyStationDockDialog(group.key)"
+            >
+              <div class="map-topology-special-group-shell-surface" aria-hidden="true"></div>
+              <div class="map-topology-special-group-shell-head">
+                <div class="map-topology-special-group-shell-heading">
+                  <span class="map-topology-special-group-shell-mark">
+                    {{ group.nodeType === 'parking' ? 'P' : 'C' }}
+                  </span>
+                  <span class="map-topology-special-group-shell-title">{{ topologySpecialGroupBaseLabel(group.nodeType) }}</span>
+                </div>
+                <span
+                  class="map-topology-special-group-shell-metric"
+                  :class="{ 'is-secondary': group.nodeType === 'parking' }"
+                >
+                  {{
+                    group.nodeType === 'parking'
+                      ? `${t('enterprise_settings_route_topology_group_available_stat')} ${Math.max(Number(group.capacityTotal || 0) - Number(group.occupancyCount || 0), 0)}`
+                      : `${group.occupancyCount}/${group.capacityTotal}`
+                  }}
+                </span>
+              </div>
+              <div
+                v-if="group.nodeType === 'parking'"
+                class="map-topology-special-group-shell-body"
+                aria-hidden="true"
+              ></div>
+              <div
+                v-if="group.nodeType === 'parking'"
+                class="map-topology-special-group-shell-core"
+                aria-hidden="true"
+              >
+                <small>{{ t('enterprise_settings_route_topology_group_occupied_stat') }}</small>
+                <strong>{{ group.occupancyCount }}/{{ group.capacityTotal }}</strong>
+              </div>
+              <div
+                v-if="group.nodeType === 'parking'"
+                class="map-topology-special-group-shell-footer"
+                aria-hidden="true"
+              >
+                <span>{{ t('enterprise_settings_route_topology_group_slots_stat') }} {{ group.count }}</span>
+                <span>{{ t('enterprise_settings_route_topology_group_capacity_stat') }} {{ group.capacityTotal }}</span>
+              </div>
+            </div>
+            <div
+              v-for="group in enterpriseRuntimeTopologySpecialGroups.filter(item => !item.hasIntegratedShell)"
+              :key="`runtime-topology-special-group-label-${group.key}`"
+              class="map-topology-special-group-label"
+              :class="`is-${group.nodeType}`"
+              :style="{
+                left: `${group.labelLeft}px`,
+                top: `${group.labelTop}px`
+              }"
+            >
+              {{ formatTopologySpecialGroupRuntimeLabel(group) }}
+            </div>
+            <div
+              v-for="cell in enterpriseRuntimeTopologySpecialGroupCells"
+              :key="`runtime-topology-special-group-cell-${cell.key}`"
+              class="map-topology-special-group-cell"
+              :class="[`is-${cell.nodeType}`, { 'has-shell': cell.hasIntegratedShell }]"
+              :style="{
+                left: `${cell.left}px`,
+                top: `${cell.top}px`,
+                width: `${cell.width}px`,
+                height: `${cell.height}px`
+              }"
+              @mousedown.stop
+              @click.stop="openTopologyStationDockDialog(cell.groupKey)"
+            ></div>
+            <div
+              v-for="slot in enterpriseRuntimeTopologySpecialGroupSlotCards"
+              :key="`runtime-topology-special-group-slot-${slot.key}`"
+              class="map-topology-special-group-slot"
+              :class="[
+                `is-${slot.nodeType}`,
+                {
+                  'has-shell': slot.hasIntegratedShell,
+                  'is-occupied': Number(slot.occupancyCount || 0) > 0
+                }
+              ]"
+              :style="{
+                left: `${slot.left}px`,
+                top: `${slot.top}px`
+              }"
+              :title="`${slot.title}\n${formatTopologySpecialGroupSlotLine(slot)}`"
+              @mousedown.stop
+              @click.stop="openTopologyStationDockDialog(slot.groupKey)"
+            >
+              <span>{{ slot.badge }}</span>
+              <small class="map-topology-special-group-slot-count">
+                {{ slot.occupancyCount }}/{{ slot.capacity }}
+              </small>
+            </div>
+            <div
+              v-for="node in enterpriseRuntimeTopologyDisplayNodes"
               :key="`topology-node-${node.key}`"
               class="map-topology-node"
               :class="[
@@ -17297,31 +18775,22 @@ onBeforeUnmount(() => {
             >
               {{ agv.id }}
             </div>
+          </div>
 
-            <div
-              v-if="
-                selectedAgvRuntimeOverlayItems.length &&
-                selectedAgv &&
-                selectedAgv.source === 'backend' &&
-                uiTreatAsEnterpriseRole &&
-                Number.isFinite(selectedAgv.displayX) &&
-                Number.isFinite(selectedAgv.displayY)
-              "
-              class="agv-runtime-overlay"
-              :style="{
-                left: `${selectedAgv.displayX * CELL_SIZE + CELL_SIZE / 2}px`,
-                top: `${selectedAgv.displayY * CELL_SIZE - 6}px`
-              }"
+          <div
+            v-if="selectedAgvRuntimeOverlayPlacement"
+            class="agv-runtime-overlay agv-runtime-overlay-floating"
+            :class="{ 'is-below': selectedAgvRuntimeOverlayPlacement.below }"
+            :style="selectedAgvRuntimeOverlayPlacement.style"
+          >
+            <span
+              v-for="item in selectedAgvRuntimeOverlayItems"
+              :key="`selected-agv-overlay-${item.key}`"
+              class="agv-runtime-overlay-chip"
+              :class="`tone-${item.tone}`"
             >
-              <span
-                v-for="item in selectedAgvRuntimeOverlayItems"
-                :key="`selected-agv-overlay-${item.key}`"
-                class="agv-runtime-overlay-chip"
-                :class="`tone-${item.tone}`"
-              >
-                {{ item.text }}
-              </span>
-            </div>
+              {{ item.text }}
+            </span>
           </div>
 
           <div
@@ -17398,11 +18867,38 @@ onBeforeUnmount(() => {
               }"
             ></div>
             <svg
+              v-if="enterpriseRuntimeMinimapTopologyBoundarySegments.length"
+              class="minimap-topology-outline-layer"
+              :width="MINIMAP_WIDTH"
+              :height="minimapHeight"
+            >
+              <line
+                v-for="segment in enterpriseRuntimeMinimapTopologyBoundarySegments"
+                :key="`mini-runtime-topology-boundary-${segment.key}`"
+                class="minimap-topology-outline"
+                :x1="segment.x1"
+                :y1="segment.y1"
+                :x2="segment.x2"
+                :y2="segment.y2"
+              />
+            </svg>
+            <svg
               v-if="enterpriseRuntimeMinimapTopologyEdges.length"
               class="minimap-topology-edge-layer"
               :width="MINIMAP_WIDTH"
               :height="minimapHeight"
             >
+              <defs>
+                <marker id="minimap-topology-arrow-main" markerWidth="4" markerHeight="4" refX="3.2" refY="2" orient="auto" markerUnits="strokeWidth">
+                  <path d="M0,0 L4,2 L0,4 z" class="map-topology-arrow-head is-main"></path>
+                </marker>
+                <marker id="minimap-topology-arrow-branch" markerWidth="4" markerHeight="4" refX="3.2" refY="2" orient="auto" markerUnits="strokeWidth">
+                  <path d="M0,0 L4,2 L0,4 z" class="map-topology-arrow-head is-branch"></path>
+                </marker>
+                <marker id="minimap-topology-arrow-service" markerWidth="4" markerHeight="4" refX="3.2" refY="2" orient="auto" markerUnits="strokeWidth">
+                  <path d="M0,0 L4,2 L0,4 z" class="map-topology-arrow-head is-service"></path>
+                </marker>
+              </defs>
               <line
                 v-for="edge in enterpriseRuntimeMinimapTopologyEdges"
                 :key="`mini-runtime-topology-edge-${edge.key}`"
@@ -17415,6 +18911,34 @@ onBeforeUnmount(() => {
               >
                 <title v-if="showTopologyEdgeSpeed">{{ formatTopologyEdgeDebugTitle(edge) }}</title>
               </line>
+              <line
+                v-for="segment in enterpriseRuntimeMinimapTopologyDirectionArrows"
+                :key="`mini-runtime-topology-direction-${segment.key}`"
+                class="minimap-topology-direction-arrow"
+                :class="`is-${segment.laneType}`"
+                :x1="segment.x1"
+                :y1="segment.y1"
+                :x2="segment.x2"
+                :y2="segment.y2"
+                :marker-end="`url(#minimap-topology-arrow-${segment.laneType})`"
+              />
+            </svg>
+            <svg
+              v-if="enterpriseRuntimeMinimapTopologySpecialGroupSegments.length"
+              class="minimap-topology-special-group-layer"
+              :width="MINIMAP_WIDTH"
+              :height="minimapHeight"
+            >
+              <line
+                v-for="segment in enterpriseRuntimeMinimapTopologySpecialGroupSegments"
+                :key="`mini-runtime-topology-special-group-${segment.key}`"
+                class="minimap-topology-special-group-outline"
+                :class="`is-${segment.nodeType}`"
+                :x1="segment.x1"
+                :y1="segment.y1"
+                :x2="segment.x2"
+                :y2="segment.y2"
+              />
             </svg>
             <svg class="minimap-path-layer" :width="MINIMAP_WIDTH" :height="minimapHeight">
               <polyline
@@ -17469,7 +18993,7 @@ onBeforeUnmount(() => {
             </svg>
             <div class="minimap-label">{{ t('map_overview') }}</div>
             <div
-              v-for="node in enterpriseRuntimeTopologyNodes"
+              v-for="node in enterpriseRuntimeMinimapTopologyDisplayNodes"
               :key="`mini-topology-${node.key}`"
               class="minimap-topology-node"
               :class="[`is-${node.node_type}`, { 'is-waypoint': !node.isSpecial }]"

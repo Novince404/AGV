@@ -124,11 +124,15 @@
         v-for="template in taskTemplates"
         :key="template.id"
         class="template-card"
-        :class="{ 'search-hit': matchedTemplateIds.includes(template.id) }"
+        :class="{
+          'search-hit': matchedTemplateIds.includes(template.id),
+          'is-invalid': isTemplateInvalid(template)
+        }"
+        :title="isTemplateInvalid(template) ? formatTemplateInvalidReason(template) : ''"
       >
         <div class="template-head">
           <strong>{{ taskTemplateName(template) }}</strong>
-          <span class="point-badge" :class="{ custom: template.custom }">
+          <span class="point-badge" :class="{ custom: template.custom, danger: isTemplateInvalid(template) }">
             {{ taskTemplateTypeText(template) }}
           </span>
         </div>
@@ -138,11 +142,18 @@
         <div v-if="formatTemplateStageCount(template)" class="template-meta">
           {{ formatTemplateStageCount(template) }}
         </div>
+        <div v-if="isTemplateInvalid(template)" class="template-meta template-meta-alert">
+          {{ formatTemplateInvalidReason(template) }}
+        </div>
+        <div v-if="formatTemplateInvalidStageText(template)" class="template-meta template-meta-alert">
+          {{ formatTemplateInvalidStageText(template) }}
+        </div>
         <div class="template-meta">{{ t('task_priority') }}: {{ template.priority }}</div>
         <div class="template-actions">
           <button
             class="btn-secondary"
             type="button"
+            :disabled="isTemplateInvalid(template)"
             @click="onTemplateApplyClick(template)"
             @dblclick.stop="onTemplateApplyDoubleClick(template)"
           >
@@ -151,7 +162,7 @@
           <button
             class="btn-ghost"
             type="button"
-            :disabled="!authCanDispatchWrite"
+            :disabled="!authCanDispatchWrite || isTemplateInvalid(template)"
             :title="buildCapabilityLockedTitle('dispatch', authCanDispatchWrite)"
             @click="createTaskFromTemplateWithAuth(template)"
           >

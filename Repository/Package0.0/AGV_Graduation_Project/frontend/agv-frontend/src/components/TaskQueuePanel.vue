@@ -113,7 +113,8 @@
           :class="{
             previewing: previewTaskId === task.id,
             collapsed: isTaskCardFolded(task.id),
-            'search-hit': matchedTaskIds.includes(task.id)
+            'search-hit': matchedTaskIds.includes(task.id),
+            'is-invalid': task.status === 'invalid'
           }"
           @mouseenter="onTaskHover(task)"
           @mouseleave="onTaskLeave"

@@ -1,4 +1,4 @@
-export function useTaskTextFormatters({
+﻿export function useTaskTextFormatters({
   locale,
   t,
   faultLocale,
@@ -125,21 +125,15 @@ export function useTaskTextFormatters({
   }
 
   function moveToMaintenanceText() {
-    if (locale.value === 'ja') return '送修下線'
-    if (locale.value === 'zh') return '送修下线'
-    return 'To Maintenance'
+    return t('agv_send_to_repair')
   }
 
   function returnToServiceText() {
-    if (locale.value === 'ja') return '恢复上岗'
-    if (locale.value === 'zh') return '恢复上岗'
-    return 'Return To Service'
+    return t('agv_return_to_service')
   }
 
   function maintenanceListTitleText() {
-    if (locale.value === 'ja') return '维护中 AGV'
-    if (locale.value === 'zh') return '维护中 AGV'
-    return 'AGVs In Maintenance'
+    return t('agv_offline_pool_title')
   }
 
   function dispatchModeText(value) {
@@ -455,3 +449,5 @@ export function useTaskTextFormatters({
     countRetryableBlockedTasks
   }
 }
+
+

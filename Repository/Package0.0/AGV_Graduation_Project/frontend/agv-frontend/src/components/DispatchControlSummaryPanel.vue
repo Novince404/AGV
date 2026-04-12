@@ -77,18 +77,23 @@
       <template v-if="selectedBackendAgv">
         <strong>{{ `AGV #${selectedBackendAgv.id}` }}</strong>
         <p>{{ statusText(selectedBackendAgv.status) }}</p>
+        <p class="task-line">{{ t('agv_send_to_repair_panel_hint') }}</p>
         <div class="runtime-inspector-actions">
           <button
-            class="btn-danger runtime-inspector-delete-button"
+            class="btn-secondary runtime-inspector-delete-button"
             type="button"
-            :disabled="!authCanDispatchWrite || agvActionLoadingId === selectedBackendAgv.id"
-            @click="deleteSelectedPersonalAgv"
+            :disabled="
+              !authCanFaultWrite ||
+              agvActionLoadingId === selectedBackendAgv.id ||
+              selectedBackendAgv.status === 'maintenance'
+            "
+            @click="sendSelectedPersonalAgvToMaintenance"
           >
-            {{ t('agv_delete') }}
+            {{ t('agv_send_to_repair') }}
           </button>
         </div>
       </template>
-      <p v-else>{{ t('agv_delete_select_hint') }}</p>
+      <p v-else>{{ t('agv_personal_manage_select_hint') }}</p>
     </section>
   </div>
 </template>

@@ -82,3 +82,106 @@ export function toArrowSegments(points, cellSize = 50) {
     })
     .filter(Boolean)
 }
+
+export function buildCellBoundarySegments(cells, cellSize = 50) {
+  const normalizedCellSize = Math.max(Number(cellSize) || 0, 1)
+  const cellSet = new Set(
+    (Array.isArray(cells) ? cells : [])
+      .filter(cell => Number.isInteger(cell?.x) && Number.isInteger(cell?.y))
+      .map(cell => blockedCellKey(cell.x, cell.y))
+  )
+  const segments = []
+
+  for (const cell of Array.isArray(cells) ? cells : []) {
+    const x = Number(cell?.x)
+    const y = Number(cell?.y)
+    if (!Number.isInteger(x) || !Number.isInteger(y)) continue
+
+    if (!cellSet.has(blockedCellKey(x, y - 1))) {
+      segments.push({
+        key: `top-${x}-${y}`,
+        x1: x * normalizedCellSize,
+        y1: y * normalizedCellSize,
+        x2: (x + 1) * normalizedCellSize,
+        y2: y * normalizedCellSize
+      })
+    }
+
+    if (!cellSet.has(blockedCellKey(x + 1, y))) {
+      segments.push({
+        key: `right-${x}-${y}`,
+        x1: (x + 1) * normalizedCellSize,
+        y1: y * normalizedCellSize,
+        x2: (x + 1) * normalizedCellSize,
+        y2: (y + 1) * normalizedCellSize
+      })
+    }
+
+    if (!cellSet.has(blockedCellKey(x, y + 1))) {
+      segments.push({
+        key: `bottom-${x}-${y}`,
+        x1: x * normalizedCellSize,
+        y1: (y + 1) * normalizedCellSize,
+        x2: (x + 1) * normalizedCellSize,
+        y2: (y + 1) * normalizedCellSize
+      })
+    }
+
+    if (!cellSet.has(blockedCellKey(x - 1, y))) {
+      segments.push({
+        key: `left-${x}-${y}`,
+        x1: x * normalizedCellSize,
+        y1: y * normalizedCellSize,
+        x2: x * normalizedCellSize,
+        y2: (y + 1) * normalizedCellSize
+      })
+    }
+  }
+
+  return segments
+}
+
+export function buildDirectionalArrowSegments(edge, options = {}) {
+  const {
+    cellSize = 50,
+    compact = false
+  } = options
+  const direction = String(edge?.direction || 'bidirectional')
+  if (direction === 'bidirectional') return []
+
+  const rawStartX = Number(direction === 'reverse' ? edge?.x2 : edge?.x1)
+  const rawStartY = Number(direction === 'reverse' ? edge?.y2 : edge?.y1)
+  const rawEndX = Number(direction === 'reverse' ? edge?.x1 : edge?.x2)
+  const rawEndY = Number(direction === 'reverse' ? edge?.y1 : edge?.y2)
+  const dx = rawEndX - rawStartX
+  const dy = rawEndY - rawStartY
+  const distance = Math.hypot(dx, dy)
+  if (!Number.isFinite(distance) || distance <= 0) return []
+
+  const unitX = dx / distance
+  const unitY = dy / distance
+  const normalizedCellSize = Math.max(Number(cellSize) || 0, 1)
+  const arrowCount = compact
+    ? 1
+    : Math.max(2, Math.min(4, Math.round(distance / Math.max(normalizedCellSize * 1.15, 1))))
+  const arrowLength = compact
+    ? Math.min(distance * 0.58, normalizedCellSize * 0.8)
+    : Math.min(distance * 0.32, normalizedCellSize * 0.72)
+
+  const segments = []
+  for (let index = 0; index < arrowCount; index += 1) {
+    const progress = (index + 1) / (arrowCount + 1)
+    const centerX = rawStartX + unitX * distance * progress
+    const centerY = rawStartY + unitY * distance * progress
+    segments.push({
+      key: `${String(edge?.key || 'edge')}-${direction}-${compact ? 'compact' : 'full'}-${index}`,
+      laneType: String(edge?.laneType || 'main'),
+      x1: centerX - unitX * (arrowLength / 2),
+      y1: centerY - unitY * (arrowLength / 2),
+      x2: centerX + unitX * (arrowLength / 2),
+      y2: centerY + unitY * (arrowLength / 2)
+    })
+  }
+
+  return segments
+}

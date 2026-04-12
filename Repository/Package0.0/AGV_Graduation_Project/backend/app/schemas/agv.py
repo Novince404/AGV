@@ -7,6 +7,7 @@ class EmergencyStopRequest(BaseModel):
 
 
 class AgvCreateRequest(BaseModel):
-    x: int
-    y: int
+    x: int | None = None
+    y: int | None = None
+    point_id: str | None = None
 

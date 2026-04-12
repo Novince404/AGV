@@ -1701,6 +1701,7 @@
           </div>
         </div>
 
+        <Teleport to="body">
         <div
           v-if="enterprisePageSettingsDialogOpen"
           class="enterprise-settings-overlay"
@@ -1960,7 +1961,9 @@
             </div>
           </section>
         </div>
+        </Teleport>
 
+        <Teleport to="body">
         <div
           v-if="enterpriseShortcutPlannerDialogOpen"
           class="enterprise-settings-overlay"
@@ -2110,7 +2113,9 @@
             </div>
           </section>
         </div>
+        </Teleport>
 
+        <Teleport to="body">
         <div
           v-if="enterpriseMapEditorDialogOpen"
           class="enterprise-settings-overlay"
@@ -2144,12 +2149,12 @@
                     <div class="map-settings-info-value">{{ enterpriseMapEditorBlockedCount }}</div>
                   </div>
                   <div class="map-settings-info-card">
-                    <div class="map-settings-info-label">{{ t('enterprise_settings_map_editor_help_add_title') }}</div>
-                    <div class="map-settings-info-value">{{ t('enterprise_settings_map_editor_help_add') }}</div>
+                    <div class="map-settings-info-label">{{ t('enterprise_settings_map_editor_help_locked_title') }}</div>
+                    <div class="map-settings-info-value">{{ enterpriseMapEditorLockedCount }}</div>
                   </div>
                   <div class="map-settings-info-card">
-                    <div class="map-settings-info-label">{{ t('enterprise_settings_map_editor_help_remove_title') }}</div>
-                    <div class="map-settings-info-value">{{ t('enterprise_settings_map_editor_help_remove') }}</div>
+                    <div class="map-settings-info-label">{{ t('enterprise_settings_map_editor_help_warning_title') }}</div>
+                    <div class="map-settings-info-value">{{ enterpriseMapEditorWarningCount }}</div>
                   </div>
                 </div>
                 <div class="enterprise-settings-chip-list">
@@ -2161,7 +2166,8 @@
                   >
                     {{ enterpriseMapEditorIsIrregular ? t('map_shape_irregular') : enterpriseMapEditorFootprintLabel }}
                   </span>
-                  <span class="point-badge enterprise-settings-chip enterprise-settings-chip-muted">{{ t('enterprise_settings_map_editor_help_locked') }}</span>
+                  <span class="point-badge enterprise-settings-chip">{{ t('enterprise_settings_map_editor_help_runtime_locked') }}</span>
+                  <span class="point-badge enterprise-settings-chip enterprise-settings-chip-muted">{{ t('enterprise_settings_map_editor_help_referenced') }}</span>
                 </div>
               </section>
 
@@ -2196,6 +2202,24 @@
                         +
                       </button>
                     </div>
+                    <div class="enterprise-map-editor-anchor-toggle">
+                      <button
+                        class="btn-ghost enterprise-map-editor-anchor-button"
+                        :class="{ active: enterpriseMapEditorColAnchor === 'left' }"
+                        type="button"
+                        @click="enterpriseMapEditorColAnchor = 'left'"
+                      >
+                        {{ t('enterprise_settings_map_editor_anchor_left') }}
+                      </button>
+                      <button
+                        class="btn-ghost enterprise-map-editor-anchor-button"
+                        :class="{ active: enterpriseMapEditorColAnchor === 'right' }"
+                        type="button"
+                        @click="enterpriseMapEditorColAnchor = 'right'"
+                      >
+                        {{ t('enterprise_settings_map_editor_anchor_right') }}
+                      </button>
+                    </div>
                   </div>
                   <div class="enterprise-map-editor-stepper-card">
                     <div class="map-settings-info-label">{{ t('enterprise_settings_map_editor_bounds_rows') }}</div>
@@ -2218,6 +2242,64 @@
                         +
                       </button>
                     </div>
+                    <div class="enterprise-map-editor-anchor-toggle">
+                      <button
+                        class="btn-ghost enterprise-map-editor-anchor-button"
+                        :class="{ active: enterpriseMapEditorRowAnchor === 'top' }"
+                        type="button"
+                        @click="enterpriseMapEditorRowAnchor = 'top'"
+                      >
+                        {{ t('enterprise_settings_map_editor_anchor_top') }}
+                      </button>
+                      <button
+                        class="btn-ghost enterprise-map-editor-anchor-button"
+                        :class="{ active: enterpriseMapEditorRowAnchor === 'bottom' }"
+                        type="button"
+                        @click="enterpriseMapEditorRowAnchor = 'bottom'"
+                      >
+                        {{ t('enterprise_settings_map_editor_anchor_bottom') }}
+                      </button>
+                    </div>
+                  </div>
+                  <div class="enterprise-map-editor-stepper-card">
+                    <div class="map-settings-info-label">{{ t('enterprise_settings_map_editor_shift_title') }}</div>
+                    <div class="enterprise-map-editor-shift-grid">
+                      <button
+                        class="btn-ghost enterprise-map-editor-shift-button enterprise-map-editor-shift-button-up"
+                        type="button"
+                        :disabled="!canShiftEnterpriseMapEditorDraft(0, -1)"
+                        @click="shiftEnterpriseMapEditorDraft(0, -1)"
+                      >
+                        ↑
+                      </button>
+                      <button
+                        class="btn-ghost enterprise-map-editor-shift-button"
+                        type="button"
+                        :disabled="!canShiftEnterpriseMapEditorDraft(-1, 0)"
+                        @click="shiftEnterpriseMapEditorDraft(-1, 0)"
+                      >
+                        ←
+                      </button>
+                      <button
+                        class="btn-ghost enterprise-map-editor-shift-button"
+                        type="button"
+                        :disabled="!canShiftEnterpriseMapEditorDraft(1, 0)"
+                        @click="shiftEnterpriseMapEditorDraft(1, 0)"
+                      >
+                        →
+                      </button>
+                      <button
+                        class="btn-ghost enterprise-map-editor-shift-button enterprise-map-editor-shift-button-down"
+                        type="button"
+                        :disabled="!canShiftEnterpriseMapEditorDraft(0, 1)"
+                        @click="shiftEnterpriseMapEditorDraft(0, 1)"
+                      >
+                        ↓
+                      </button>
+                    </div>
+                    <p class="panel-hint enterprise-map-editor-draft-hint">
+                      {{ t('enterprise_settings_map_editor_shift_hint') }}
+                    </p>
                   </div>
                   <div class="enterprise-map-editor-stepper-card enterprise-map-editor-zoom-card">
                     <div class="map-settings-info-label">{{ t('enterprise_settings_map_editor_zoom_title') }}</div>
@@ -2265,14 +2347,18 @@
                           'is-void': !isEnterpriseMapEditorCellValid(col, row),
                           'is-blocked': isEnterpriseMapEditorCellBlocked(col, row),
                           'is-occupied': isCellOccupied(col, row),
-                          'is-locked': isEnterpriseMapEditorCellLocked(col, row)
+                          'is-locked': isEnterpriseMapEditorCellLocked(col, row),
+                          'is-expanded': isEnterpriseMapEditorCellExpanded(col, row),
+                          'is-referenced': isEnterpriseMapEditorCellWarned(col, row)
                         }"
                         :disabled="isEnterpriseMapEditorCellLocked(col, row)"
-                        :title="`(${col}, ${row})`"
+                        :title="buildEnterpriseMapEditorCellTitle(col, row)"
                         @click="applyEnterpriseMapEditorCell({ x: col, y: row }, $event)"
                       >
                         <span v-if="isEnterpriseMapEditorCellLocked(col, row)">×</span>
                         <span v-else-if="isEnterpriseMapEditorCellBlocked(col, row)">■</span>
+                        <span v-else-if="isEnterpriseMapEditorCellWarned(col, row)">!</span>
+                        <span v-else-if="isEnterpriseMapEditorCellExpanded(col, row)">+</span>
                         <span v-else-if="isEnterpriseMapEditorCellValid(col, row)">□</span>
                       </button>
                     </template>
@@ -2304,6 +2390,7 @@
             </div>
           </section>
         </div>
+        </Teleport>
 
         <Teleport to="body">
         <div
@@ -2362,6 +2449,40 @@
                 <div class="enterprise-route-topology-canvas">
                   <div class="enterprise-map-editor-grid-shell">
                     <div class="enterprise-route-topology-stage">
+                      <svg
+                        v-if="enterpriseTopologyEditorSpecialGroupSegments.length"
+                        class="enterprise-route-topology-svg enterprise-route-topology-group-svg"
+                        :style="enterpriseTopologyEdgeSvgStyle"
+                        aria-hidden="true"
+                      >
+                        <line
+                          v-for="segment in enterpriseTopologyEditorSpecialGroupSegments"
+                          :key="`enterprise-topology-group-${segment.key}`"
+                          :x1="segment.x1"
+                          :y1="segment.y1"
+                          :x2="segment.x2"
+                          :y2="segment.y2"
+                          class="enterprise-route-topology-group-line"
+                          :class="`is-${segment.nodeType}`"
+                        />
+                      </svg>
+                      <div
+                        v-for="group in enterpriseTopologyEditorSpecialGroups.filter(item => item.hasIntegratedShell)"
+                        :key="`enterprise-topology-group-shell-${group.key}`"
+                        class="enterprise-route-topology-group-shell"
+                        :class="`is-${group.nodeType}`"
+                        :style="{
+                          left: `${group.shellLeft}px`,
+                          top: `${group.shellTop}px`,
+                          width: `${group.shellWidth}px`,
+                          height: `${group.shellHeight}px`
+                        }"
+                      >
+                        <div class="enterprise-route-topology-group-shell-head">
+                          <span class="enterprise-route-topology-group-shell-title">{{ topologySpecialGroupBaseLabel(group.nodeType) }}</span>
+                          <span class="enterprise-route-topology-group-shell-metric">{{ group.count }}</span>
+                        </div>
+                      </div>
                       <svg class="enterprise-route-topology-svg" :style="enterpriseTopologyEdgeSvgStyle" aria-hidden="true">
                         <line
                           v-for="edge in enterpriseTopologySvgEdges"
@@ -2409,6 +2530,18 @@
                           </button>
                         </template>
                       </div>
+                      <div
+                        v-for="group in enterpriseTopologyEditorSpecialGroups.filter(item => !item.hasIntegratedShell)"
+                        :key="`enterprise-topology-group-label-${group.key}`"
+                        class="enterprise-route-topology-group-label"
+                        :class="`is-${group.nodeType}`"
+                        :style="{
+                          left: `${group.labelLeft}px`,
+                          top: `${group.labelTop}px`
+                        }"
+                      >
+                        {{ formatTopologySpecialGroupEditorLabel(group) }}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -2428,7 +2561,7 @@
                         :class="{ 'is-active': enterpriseTopologySelectedNode && enterpriseTopologySelectedNode.key === node.key }"
                         @click="selectEnterpriseTopologyNode(node.key)"
                       >
-                        {{ node.label || node.key }}
+                        {{ formatEnterpriseTopologyNodeListLabel(node) }}
                       </button>
                     </div>
                   </div>
@@ -2453,15 +2586,50 @@
                   </div>
 
                   <div v-if="enterpriseTopologySelectedNode" class="enterprise-map-editor-draft-card">
-                    <div class="map-settings-info-label">{{ t('enterprise_settings_route_topology_node_editor') }}</div>
+                    <div class="map-settings-info-label">
+                      {{ t('enterprise_settings_route_topology_node_editor') }}
+                      <span
+                        v-if="enterpriseTopologyNodeEditorDirty"
+                        class="point-badge enterprise-settings-chip enterprise-settings-chip-muted"
+                      >
+                        {{ t('enterprise_settings_route_topology_node_unsaved') }}
+                      </span>
+                    </div>
+                    <div class="enterprise-topology-node-editor-summary">
+                      <span
+                        class="enterprise-route-topology-node-badge enterprise-topology-node-editor-summary__badge"
+                        :class="{
+                          'is-station': enterpriseTopologyNodeEditorDraft.node_type === 'station',
+                          'is-parking': enterpriseTopologyNodeEditorDraft.node_type === 'parking',
+                          'is-charge': enterpriseTopologyNodeEditorDraft.node_type === 'charge'
+                        }"
+                      >
+                        {{ formatEnterpriseTopologyNodeBadge({ ...enterpriseTopologySelectedNode, node_type: enterpriseTopologyNodeEditorDraft.node_type }) }}
+                      </span>
+                      <div class="enterprise-topology-node-editor-summary__copy">
+                        <strong>
+                          {{
+                            formatEnterpriseTopologyNodeListLabel({
+                              ...enterpriseTopologySelectedNode,
+                              node_type: enterpriseTopologyNodeEditorDraft.node_type,
+                              label: enterpriseTopologyNodeEditorDraft.label || null
+                            })
+                          }}
+                        </strong>
+                        <span>
+                          {{ topologyNodeTypeLabel(enterpriseTopologyNodeEditorDraft.node_type) }}
+                          · ({{ enterpriseTopologySelectedNode.x }}, {{ enterpriseTopologySelectedNode.y }})
+                        </span>
+                      </div>
+                    </div>
                     <div class="enterprise-topology-node-editor">
                       <label class="auth-field enterprise-topology-node-editor__full">
                         <span>{{ t('enterprise_settings_route_topology_node_type') }}</span>
                         <select
                           class="auth-input"
-                          :value="enterpriseTopologySelectedNode.node_type"
+                          :value="enterpriseTopologyNodeEditorDraft.node_type"
                           :disabled="!authCanMapWrite"
-                          @change="updateEnterpriseTopologyNode({ node_type: $event.target.value })"
+                          @change="updateEnterpriseTopologyNodeEditorDraft({ node_type: $event.target.value })"
                         >
                           <option
                             v-for="option in enterpriseTopologyNodeTypeOptions"
@@ -2476,29 +2644,29 @@
                         <span>{{ t('enterprise_settings_route_topology_node_label') }}</span>
                         <input
                           class="auth-input"
-                          :value="enterpriseTopologySelectedNode.label || ''"
+                          :value="enterpriseTopologyNodeEditorDraft.label || ''"
                           type="text"
                           :disabled="!authCanMapWrite"
-                          @input="updateEnterpriseTopologyNode({ label: $event.target.value })"
+                          @input="updateEnterpriseTopologyNodeEditorDraft({ label: $event.target.value })"
                         />
                       </label>
                       <label
-                        v-if="enterpriseTopologySelectedNode.node_type !== 'waypoint'"
+                        v-if="enterpriseTopologyNodeEditorDraft.node_type !== 'waypoint'"
                         class="auth-field enterprise-topology-node-editor__full"
                       >
                         <span>{{ t('enterprise_settings_route_topology_node_capacity') }}</span>
                         <input
                           class="auth-input"
-                          :value="formatTopologyNodeCapacity(enterpriseTopologySelectedNode)"
-                          :min="getTopologyNodeDefaultCapacity(enterpriseTopologySelectedNode.node_type)"
+                          :value="enterpriseTopologyNodeEditorDraft.capacity"
+                          :min="getTopologyNodeDefaultCapacity(enterpriseTopologyNodeEditorDraft.node_type)"
                           step="1"
                           type="number"
                           :disabled="!authCanMapWrite"
-                          @input="updateEnterpriseTopologyNode({ capacity: Number($event.target.value || getTopologyNodeDefaultCapacity(enterpriseTopologySelectedNode.node_type)) })"
+                          @input="updateEnterpriseTopologyNodeEditorDraft({ capacity: Number($event.target.value || getTopologyNodeDefaultCapacity(enterpriseTopologyNodeEditorDraft.node_type)) })"
                         />
                       </label>
                       <div
-                        v-if="enterpriseTopologySelectedNode.node_type !== 'waypoint'"
+                        v-if="enterpriseTopologyNodeEditorDraft.node_type !== 'waypoint'"
                         class="enterprise-topology-node-editor__hint"
                       >
                         {{ t('enterprise_settings_route_topology_node_capacity_hint') }}
@@ -2511,6 +2679,22 @@
                             ? t('enterprise_settings_route_topology_cancel_connect')
                             : t('enterprise_settings_route_topology_start_connect')
                         }}
+                      </button>
+                      <button
+                        class="btn-ghost"
+                        type="button"
+                        :disabled="!authCanMapWrite || !enterpriseTopologyNodeEditorDirty"
+                        @click="restoreSelectedEnterpriseTopologyNodeDraft"
+                      >
+                        {{ t('enterprise_settings_route_topology_restore_node') }}
+                      </button>
+                      <button
+                        class="btn-secondary"
+                        type="button"
+                        :disabled="!authCanMapWrite || !enterpriseTopologyNodeEditorDirty"
+                        @click="saveSelectedEnterpriseTopologyNodeDraft"
+                      >
+                        {{ t('enterprise_settings_route_topology_save_node') }}
                       </button>
                       <button class="btn-delete" type="button" :disabled="!authCanMapWrite" @click="removeSelectedEnterpriseTopologyNode">
                         {{ t('enterprise_settings_route_topology_delete_node') }}

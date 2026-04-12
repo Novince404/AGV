@@ -68,6 +68,9 @@
           {{ faultLocale.currentTask }}:
           {{ selectedAgvTask ? `#${selectedAgvTask.id}` : faultLocale.currentTaskNone }}
         </div>
+        <div v-if="canManageEnterpriseAgvDuty" class="task-line">
+          {{ selectedEnterpriseAgvOffboardHintText() }}
+        </div>
         <div class="fault-action-row">
           <button
             v-if="selectedBackendAgv.status !== 'emergency_stop'"
@@ -97,6 +100,24 @@
             @click="showFaultReportForm = !showFaultReportForm"
           >
             {{ faultLocale.reportFault }}
+          </button>
+          <button
+            v-if="canManageEnterpriseAgvDuty && uiTreatAsEnterpriseRole"
+            class="btn-secondary fault-action-button"
+            type="button"
+            :disabled="
+              !authCanDispatchWrite ||
+              agvActionLoadingId === selectedBackendAgv.id ||
+              !selectedEnterpriseAgvCanOffboard
+            "
+            :title="
+              !authCanDispatchWrite
+                ? buildCapabilityLockedTitle('dispatch', authCanDispatchWrite)
+                : selectedEnterpriseAgvOffboardHintText()
+            "
+            @click="offboardSelectedEnterpriseAgv"
+          >
+            {{ t('agv_offboard') }}
           </button>
           <button
             class="btn-secondary fault-action-button"
@@ -161,15 +182,27 @@
       <div class="fault-maintenance-list">
         <article v-for="maintenanceAgv in maintenanceBackendAgvs" :key="`maintenance-${maintenanceAgv.id}`" class="fault-maintenance-item">
           <strong>AGV #{{ maintenanceAgv.id }}</strong>
-          <button
-            class="btn-secondary fault-action-button"
-            type="button"
-            :disabled="!authCanFaultWrite || agvActionLoadingId === maintenanceAgv.id"
-            :title="buildCapabilityLockedTitle('fault', authCanFaultWrite)"
-            @click="returnAgvToService(maintenanceAgv.id)"
-          >
-            {{ returnToServiceText() }}
-          </button>
+          <div class="fault-action-row">
+            <button
+              class="btn-secondary fault-action-button"
+              type="button"
+              :disabled="!authCanFaultWrite || agvActionLoadingId === maintenanceAgv.id"
+              :title="buildCapabilityLockedTitle('fault', authCanFaultWrite)"
+              @click="returnAgvToService(maintenanceAgv.id)"
+            >
+              {{ returnToServiceText() }}
+            </button>
+            <button
+              v-if="canManagePersonalAgvs"
+              class="btn-danger fault-action-button"
+              type="button"
+              :disabled="!authCanDispatchWrite || agvActionLoadingId === maintenanceAgv.id"
+              :title="buildCapabilityLockedTitle('dispatch', authCanDispatchWrite)"
+              @click="deletePersonalMaintenanceAgv(maintenanceAgv.id)"
+            >
+              {{ t('agv_delete') }}
+            </button>
+          </div>
         </article>
       </div>
     </div>

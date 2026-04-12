@@ -8,10 +8,12 @@ from app.repositories.template_repository import (
     upsert_task_template,
 )
 from app.utils.api_error import raise_api_error
+from app.utils.map_validity import build_map_validity_context, build_template_validity_payload
 
 
 def get_template_list():
-    return list_task_templates()
+    context = build_map_validity_context()
+    return [build_template_validity_payload(template, context) for template in list_task_templates()]
 
 
 def create_or_update_template(payload):

@@ -65,13 +65,25 @@
         v-for="point in filteredPoints"
         :key="point.id"
         class="point-card"
-        :class="{ 'search-hit': matchedPointIds.includes(point.id) }"
+        :class="{
+          'search-hit': matchedPointIds.includes(point.id),
+          'is-invalid': isPointInvalid(point)
+        }"
+        :title="isPointInvalid(point) ? formatPointInvalidReason(point) : ''"
       >
         <div class="point-head">
-          <strong>{{ pointName(point) }}</strong>
+          <div class="point-head-main">
+            <div class="point-kind-mark" :class="`is-${pointKindKey(point)}`">
+              {{ pointKindCode(point) }}
+            </div>
+            <div class="point-head-copy">
+              <strong>{{ pointName(point) }}</strong>
+              <span class="point-kind-label">{{ pointKindText(point) }}</span>
+            </div>
+          </div>
           <div class="point-tags">
             <span class="point-zone">{{ pointZone(point) }}</span>
-            <span class="point-badge" :class="{ custom: point.custom }">
+            <span class="point-badge" :class="{ custom: point.custom, danger: isPointInvalid(point) }">
               {{ pointTypeText(point) }}
             </span>
           </div>
@@ -79,10 +91,17 @@
         <div class="point-meta">
           {{ t('point_coords') }}: ({{ point.x }}, {{ point.y }})
         </div>
+        <div v-if="isPointInvalid(point)" class="point-meta template-meta-alert">
+          {{ formatPointInvalidReason(point) }}
+        </div>
         <div class="point-actions">
+          <button class="btn-ghost point-locate-action" type="button" @click="focusPointOnMap(point)">
+            {{ t('point_locate_map') }}
+          </button>
           <button
             class="btn-secondary"
             type="button"
+            :disabled="isPointInvalid(point)"
             @click="applyPointToTaskForm('start', point)"
           >
             {{ t('point_apply_start') }}
@@ -90,6 +109,7 @@
           <button
             class="btn-ghost"
             type="button"
+            :disabled="isPointInvalid(point)"
             @click="applyPointToTaskForm('end', point)"
           >
             {{ t('point_apply_end') }}

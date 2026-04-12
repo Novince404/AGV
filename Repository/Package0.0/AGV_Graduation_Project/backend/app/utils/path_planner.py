@@ -245,11 +245,30 @@ def _build_task_priority_map() -> dict[int, int]:
     return priorities
 
 
+def _resolve_runtime_topology_node_key_for_agv(
+    agv,
+    node_by_key: dict[str, dict],
+    node_by_position: dict[tuple[int, int], dict],
+) -> str:
+    current_node = str(getattr(agv, "current_node", "") or "").strip()
+    if current_node and current_node in node_by_key:
+        return current_node
+    try:
+        matched_node = node_by_position.get((int(agv.x), int(agv.y)))
+    except Exception:
+        matched_node = None
+    if matched_node is not None:
+        return str(matched_node.get("key") or current_node or "").strip()
+    return current_node
+
+
 def _build_live_topology_reservations(exclude_agv_id: int | None = None):
     task_priorities = _build_task_priority_map()
     occupied_positions: set[tuple[int, int]] = set()
     occupied_node_counts: dict[str, int] = defaultdict(int)
     edge_blockers: dict[str, dict[str, int | str | None]] = {}
+    topology_payload, _ = _get_runtime_topology_state()
+    node_by_key, node_by_position, _ = _build_topology_indexes(topology_payload)
 
     for agv in list_agvs():
         try:
@@ -262,7 +281,7 @@ def _build_live_topology_reservations(exclude_agv_id: int | None = None):
             continue
 
         occupied_positions.add((int(agv.x), int(agv.y)))
-        node_key = str(getattr(agv, "current_node", "") or "").strip()
+        node_key = _resolve_runtime_topology_node_key_for_agv(agv, node_by_key, node_by_position)
         if node_key:
             occupied_node_counts[node_key] += 1
 
@@ -284,6 +303,51 @@ def _build_live_topology_reservations(exclude_agv_id: int | None = None):
         "occupied_positions": occupied_positions,
         "occupied_node_counts": dict(occupied_node_counts),
         "edge_blockers": edge_blockers,
+    }
+
+
+def build_runtime_special_node_constraints(
+    *,
+    exclude_agv_id: int | None = None,
+    goal_node_key: str | None = None,
+    allowed_node_keys: set[str] | None = None,
+    include_types: set[str] | None = None,
+) -> dict[str, set]:
+    topology_payload, _ = _get_runtime_topology_state()
+    node_by_key, _, _ = _build_topology_indexes(topology_payload)
+    reservations = _build_live_topology_reservations(exclude_agv_id)
+    occupied_node_counts = reservations["occupied_node_counts"]
+    normalized_goal = str(goal_node_key or "").strip()
+    normalized_allowed = {
+        str(item).strip()
+        for item in (allowed_node_keys or set())
+        if str(item).strip()
+    }
+    normalized_types = {
+        str(item).strip().lower()
+        for item in (include_types or {"station", "parking", "charge"})
+        if str(item).strip()
+    }
+    blocked_positions: set[tuple[int, int]] = set()
+    avoid_node_keys: set[str] = set()
+
+    for node_key, node in node_by_key.items():
+        normalized_key = str(node_key or "").strip()
+        if not normalized_key or normalized_key == normalized_goal or normalized_key in normalized_allowed:
+            continue
+        node_type = str(node.get("node_type") or "").strip().lower()
+        if normalized_types and node_type not in normalized_types:
+            continue
+        capacity = normalize_topology_node_capacity(node_type or "waypoint", node.get("capacity"))
+        occupancy = max(int(occupied_node_counts.get(normalized_key, 0) or 0), 0)
+        if occupancy < capacity:
+            continue
+        blocked_positions.add((int(node.get("x") or 0), int(node.get("y") or 0)))
+        avoid_node_keys.add(normalized_key)
+
+    return {
+        "blocked_positions": blocked_positions,
+        "avoid_node_keys": avoid_node_keys,
     }
 
 
@@ -362,6 +426,8 @@ def resolve_topology_segment_metadata(
 
     source_node = node_by_position.get((int(source_x), int(source_y)))
     target_node = node_by_position.get((int(target_x), int(target_y)))
+    resolved_source_key = str(source_node["key"]) if source_node is not None else fallback_source
+    resolved_target_key = str(target_node["key"]) if target_node is not None else fallback_target
     if not source_node or not target_node:
         source_segment_x = int(source_x)
         source_segment_y = int(source_y)
@@ -417,16 +483,16 @@ def resolve_topology_segment_metadata(
                 continue
 
             return {
-                "source_node": fallback_source,
-                "target_node": fallback_target,
+                "source_node": resolved_source_key,
+                "target_node": resolved_target_key,
                 "edge_key": str(raw_edge.get("key") or fallback_edge),
                 "lane_type": str(raw_edge.get("lane_type") or "main"),
                 "speed_multiplier": float(raw_edge.get("speed_multiplier") or 1.0),
             }
 
         return {
-            "source_node": fallback_source,
-            "target_node": fallback_target,
+            "source_node": resolved_source_key,
+            "target_node": resolved_target_key,
             "edge_key": fallback_edge,
             "lane_type": "grid",
             "speed_multiplier": 1.0,

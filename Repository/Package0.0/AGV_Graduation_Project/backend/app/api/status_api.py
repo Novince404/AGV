@@ -87,12 +87,15 @@ def delete_map_profile(profile_key: str, request: Request):
 @router.put("/map")
 def update_map_layout(req: MapLayoutUpdateRequest, request: Request):
     actor = auth_service.require_actor_capability(request, "map.write")
+    if req.force_apply:
+        auth_service.require_actor_capability(request, "map.force_apply")
     return status_service.update_map_layout(
         blocked_cells=req.blocked_cells,
         valid_cells=req.valid_cells,
         grid_cols=req.grid_cols,
         grid_rows=req.grid_rows,
         topology=req.topology,
+        force_apply=req.force_apply,
         actor=actor,
     )
 

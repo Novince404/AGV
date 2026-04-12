@@ -4,6 +4,7 @@ export function buildDefaultQueueGroupState() {
     blocked: false,
     assigned: false,
     running: false,
+    invalid: false,
     finished: true
   }
 }
