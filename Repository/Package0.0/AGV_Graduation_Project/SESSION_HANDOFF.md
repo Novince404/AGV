@@ -390,3 +390,21 @@ git -C "Repository/Package0.0/AGV_Graduation_Project" push AGV main
 - 当前结论：
   - `4D` 不是“完全签收”，但核心规则已具备自动化回归保护
   - 后续若继续推进 `4D`，优先做真实运行态长时间回归，而不是先改底层策略
+
+### 14.6 2026-04-12 追加：4D 真实运行态冲突冒烟与边占用启动窗口修复
+- 新增 `backend/scripts/runtime_conflict_smoke.py`
+  - 这不是静态规则脚本，而是会真的启动调度线程，验证运行态冲突链
+  - 当前覆盖四类场景：
+    - 同路跟车时后车进入 `waiting / yielding`，且不会和前车同时占用同一条主干边
+    - 双向相遇时，低优先级任务会在规划期直接改走支路
+    - 同优先级双向相遇时，较新的任务会在规划期 tie-break 中改走支路
+    - 两条相向任务几乎同时启动时，不会再双车同时占用同一条主干边
+- 已修复 `backend/app/utils/agv_movement.py` 中的一个 4D 真实漏洞：
+  - 问题：在极限并发启动下，两条相向任务可能在同一个启动窗口里同时进入同一条拓扑边
+  - 表现：两个 AGV 会同时带着同一个 `current_edge` 运行，破坏“单边单车占用”预期
+  - 修复：增加运行时拓扑边 claim/release 机制，并把 claim 也纳入边冲突探测
+  - 结果：即使是并发启动窗口，也会先让一方进入 `waiting / yielding`，不再双占边
+- 相关验证结果：
+  - `backend\\venv\\Scripts\\python.exe backend\\scripts\\runtime_conflict_smoke.py` 通过
+  - `backend\\venv\\Scripts\\python.exe backend\\scripts\\sqlite_smoke_check.py` 通过
+  - `backend\\venv\\Scripts\\python.exe backend\\scripts\\enterprise_client_login_smoke.py` 通过
