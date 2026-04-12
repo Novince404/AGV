@@ -284,6 +284,16 @@ def _build_live_topology_reservations(exclude_agv_id: int | None = None):
         node_key = _resolve_runtime_topology_node_key_for_agv(agv, node_by_key, node_by_position)
         if node_key:
             occupied_node_counts[node_key] += 1
+        reserved_node_key = str(getattr(agv, "auto_target_node", "") or "").strip()
+        reserved_target_type = str(getattr(agv, "auto_target_type", "") or "").strip().lower()
+        reserved_motion_state = str(getattr(agv, "status", "") or "").strip().lower()
+        if (
+            reserved_node_key
+            and reserved_node_key != node_key
+            and reserved_target_type in {"parking", "charge"}
+            and reserved_motion_state in {"idle_returning", "waiting_for_charge", "charging"}
+        ):
+            occupied_node_counts[reserved_node_key] += 1
 
         edge_key = str(getattr(agv, "current_edge", "") or "").strip()
         if not edge_key:

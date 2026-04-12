@@ -21,11 +21,13 @@ sys.path.insert(0, str(BACKEND_DIR))
 from app.core.database import dispose_engine, get_db_session  # noqa: E402
 from app.core.data_scope import build_scoped_storage_id, use_scope  # noqa: E402
 from app.core.lifecycle import initialize_runtime  # noqa: E402
-from app.repositories.sql_models import MapLayoutEntity, PointLibraryEntity, TaskTemplateEntity  # noqa: E402
+from app.repositories.agv_repository import list_agvs  # noqa: E402
+from app.repositories.sql_models import MapLayoutEntity, PointLibraryEntity, TaskTemplateEntity, UiSettingsEntity  # noqa: E402
 from app.schemas.point import PointUpsertRequest  # noqa: E402
-from app.schemas.status import BlockedCellPayload  # noqa: E402
+from app.schemas.status import BlockedCellPayload, UiSettingsUpdateRequest  # noqa: E402
 from app.schemas.template import TaskTemplateStagePayload, TaskTemplateUpsertRequest  # noqa: E402
-from app.services import point_service, status_service, template_service  # noqa: E402
+from app.services import agv_service, point_service, status_service, template_service  # noqa: E402
+from app.utils.path_planner import build_runtime_special_node_constraints  # noqa: E402
 
 
 def expect(condition: bool, message: str) -> None:
@@ -268,6 +270,113 @@ def assert_scope_isolation() -> None:
         expect(enterprise_scope in stored_layout_scopes, "enterprise scope map row missing in sqlite db")
 
 
+def assert_reserved_special_node_constraints() -> None:
+    charge_scope = "organization:smoke_reserved_charge"
+    charge_a_key = "charge_reserved_a"
+    charge_b_key = "charge_reserved_b"
+
+    with use_scope(charge_scope):
+        status_service.update_map_layout(
+            [],
+            None,
+            10,
+            8,
+            topology={
+                "topology_version": 1,
+                "nodes": [
+                    {
+                        "key": charge_a_key,
+                        "x": 4,
+                        "y": 1,
+                        "label": "Reserved Charge A",
+                        "node_type": "charge",
+                        "capacity": 4,
+                    },
+                    {
+                        "key": charge_b_key,
+                        "x": 4,
+                        "y": 2,
+                        "label": "Reserved Charge B",
+                        "node_type": "charge",
+                        "capacity": 4,
+                    },
+                ],
+                "edges": [],
+            },
+        )
+
+        agv_service.create_agv(0, 0)
+        agv_service.create_agv(0, 1)
+
+        scoped_agvs = list_agvs()
+        expect(len(scoped_agvs) >= 5, "reserved special-node smoke scenario needs at least 5 AGVs")
+
+        reserving_agvs = scoped_agvs[:4]
+        probing_agv = scoped_agvs[4]
+
+        for agv in reserving_agvs:
+            agv.status = "waiting_for_charge"
+            agv.auto_target_node = charge_a_key
+            agv.auto_target_type = "charge"
+            agv.current_node = str(getattr(agv, "current_node", "") or f"grid:{int(agv.x)}:{int(agv.y)}")
+            agv.clear_motion(motion_state="waiting")
+
+        probing_agv.status = "idle"
+        probing_agv.auto_target_node = None
+        probing_agv.auto_target_type = None
+        probing_agv.current_node = str(getattr(probing_agv, "current_node", "") or f"grid:{int(probing_agv.x)}:{int(probing_agv.y)}")
+        probing_agv.clear_motion()
+
+        constraints = build_runtime_special_node_constraints(
+            exclude_agv_id=probing_agv.id,
+            goal_node_key=charge_b_key,
+            allowed_node_keys={charge_b_key},
+        )
+        expect(
+            (4, 1) in set(constraints["blocked_positions"]),
+            "reserved charge node was not blocked after capacity was fully reserved",
+        )
+        expect(
+            charge_a_key in set(constraints["avoid_node_keys"]),
+            "reserved charge node key missing from runtime avoidance constraints",
+        )
+
+
+def assert_ui_settings_roundtrip() -> None:
+    initial_settings = status_service.get_ui_settings()
+    expect(
+        "idle_charge_battery_threshold" in initial_settings,
+        "ui settings payload missing idle charge battery threshold",
+    )
+
+    updated_settings = status_service.update_ui_settings(
+        UiSettingsUpdateRequest(
+            **{
+                **initial_settings,
+                "data_backend": None,
+                "idle_charge_timeout_sec": 52.0,
+                "idle_charge_battery_threshold": 58.0,
+            }
+        )
+    )
+    expect(
+        float(updated_settings["idle_charge_timeout_sec"]) == 52.0,
+        "updated idle charge timeout was not persisted",
+    )
+    expect(
+        float(updated_settings["idle_charge_battery_threshold"]) == 58.0,
+        "updated idle charge battery threshold was not persisted",
+    )
+
+    with get_db_session() as session:
+        ui_entity = session.execute(select(UiSettingsEntity).order_by(UiSettingsEntity.id.desc())).scalars().first()
+        expect(ui_entity is not None, "ui settings row missing in sqlite db")
+        expect(
+            float(ui_entity.idle_charge_battery_threshold) == 58.0,
+            "sqlite ui settings row missing idle charge battery threshold update",
+        )
+
+
 def main() -> None:
     cleanup_db_file()
     summary = initialize_runtime()
@@ -349,8 +458,10 @@ def main() -> None:
     expect(reset_map["grid_cols"] == 10 and reset_map["grid_rows"] == 8, "map reset grid size mismatch")
 
     assert_scope_isolation()
+    assert_reserved_special_node_constraints()
+    assert_ui_settings_roundtrip()
 
-    print("SQLITE_SMOKE_OK point/template/map/scope")
+    print("SQLITE_SMOKE_OK point/template/map/scope/reserved_special_node/ui_settings")
     cleanup_db_file()
 
 

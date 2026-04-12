@@ -101,6 +101,7 @@ class UiSettingsUpdateRequest(BaseModel):
     deadlock_timeout_sec: float = 4.5
     idle_return_timeout_sec: float = 12.0
     idle_charge_timeout_sec: float = 45.0
+    idle_charge_battery_threshold: float = 60.0
     battery_active_drain_per_sec: float = 0.16
     battery_waiting_drain_per_sec: float = 0.05
     battery_idle_drain_per_sec: float = 0.01

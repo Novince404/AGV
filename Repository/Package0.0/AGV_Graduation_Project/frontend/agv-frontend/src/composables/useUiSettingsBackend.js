@@ -23,6 +23,7 @@ export function useUiSettingsBackend(options) {
     deadlockTimeoutSec,
     idleReturnTimeoutSec,
     idleChargeTimeoutSec,
+    idleChargeBatteryThreshold,
     batteryActiveDrainPerSec,
     batteryWaitingDrainPerSec,
     batteryIdleDrainPerSec,
@@ -107,6 +108,9 @@ export function useUiSettingsBackend(options) {
       if (typeof payload?.idle_charge_timeout_sec === 'number') {
         idleChargeTimeoutSec.value = clampValue(payload.idle_charge_timeout_sec, 5, 600)
       }
+      if (typeof payload?.idle_charge_battery_threshold === 'number') {
+        idleChargeBatteryThreshold.value = clampValue(payload.idle_charge_battery_threshold, 24, 95)
+      }
       if (typeof payload?.battery_active_drain_per_sec === 'number') {
         batteryActiveDrainPerSec.value = clampValue(payload.battery_active_drain_per_sec, 0.01, 10)
       }
@@ -151,6 +155,7 @@ export function useUiSettingsBackend(options) {
       deadlock_timeout_sec: Number(deadlockTimeoutSec.value),
       idle_return_timeout_sec: Number(idleReturnTimeoutSec.value),
       idle_charge_timeout_sec: Number(idleChargeTimeoutSec.value),
+      idle_charge_battery_threshold: Number(idleChargeBatteryThreshold.value),
       battery_active_drain_per_sec: Number(batteryActiveDrainPerSec.value),
       battery_waiting_drain_per_sec: Number(batteryWaitingDrainPerSec.value),
       battery_idle_drain_per_sec: Number(batteryIdleDrainPerSec.value),
@@ -240,6 +245,7 @@ export function useUiSettingsBackend(options) {
       deadlockTimeoutSec,
       idleReturnTimeoutSec,
       idleChargeTimeoutSec,
+      idleChargeBatteryThreshold,
       batteryActiveDrainPerSec,
       batteryWaitingDrainPerSec,
       batteryIdleDrainPerSec,

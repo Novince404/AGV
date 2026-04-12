@@ -214,7 +214,7 @@ export function useAuthSession(options) {
     }
   }
 
-  async function fetchAuthMe({ silent = true, preserveOnFailure = false } = {}) {
+  async function fetchAuthMe({ silent = true, preserveOnFailure = false, commitUnauthenticatedState = true } = {}) {
     authLoading.value = true
     try {
       const response = await fetch(`${API_BASE}/auth/me`, {
@@ -227,8 +227,12 @@ export function useAuthSession(options) {
         error.detail = data?.detail ?? null
         throw error
       }
+      const normalized = normalizeAuthPayload(data)
       authLastFetchedAt.value = new Date().toISOString()
-      return applyAuthPayload(data)
+      if (!commitUnauthenticatedState && !normalized.authenticated && authState.value?.authenticated) {
+        return normalized
+      }
+      return applyAuthPayload(normalized)
     } catch (error) {
       if (!preserveOnFailure) {
         applyAuthPayload(null)

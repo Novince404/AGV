@@ -787,6 +787,21 @@
       </div>
       <p class="panel-hint map-settings-hint">{{ settingsLocale.idleChargeTimeoutSecHint }}</p>
       <div class="map-settings-select-group">
+        <label class="map-settings-select-label" for="idle-charge-battery-threshold">
+          {{ settingsLocale.idleChargeBatteryThreshold }}
+        </label>
+        <input
+          id="idle-charge-battery-threshold"
+          v-model.number="idleChargeBatteryThreshold"
+          class="map-settings-select"
+          type="number"
+          min="24"
+          max="95"
+          step="1"
+        />
+      </div>
+      <p class="panel-hint map-settings-hint">{{ settingsLocale.idleChargeBatteryThresholdHint }}</p>
+      <div class="map-settings-select-group">
         <label class="map-settings-select-label" for="battery-active-drain">
           {{ settingsLocale.batteryActiveDrainPerSec }}
         </label>

@@ -17,6 +17,7 @@ from app.utils.warehouse_map import (
 
 DEFAULT_IDLE_RETURN_TIMEOUT_SEC = 12.0
 DEFAULT_IDLE_CHARGE_TIMEOUT_SEC = 45.0
+DEFAULT_IDLE_CHARGE_BATTERY_THRESHOLD = 60.0
 LOW_BATTERY_THRESHOLD = 24.0
 CHARGE_RELEASE_THRESHOLD = 88.0
 BATTERY_IDLE_DRAIN_PER_SEC = 0.01
@@ -33,6 +34,7 @@ AUTONOMY_STALLED_RECOVERY_SEC = 2.0
 AUTONOMY_UI_SETTINGS_DEFAULTS = {
     "idle_return_timeout_sec": DEFAULT_IDLE_RETURN_TIMEOUT_SEC,
     "idle_charge_timeout_sec": DEFAULT_IDLE_CHARGE_TIMEOUT_SEC,
+    "idle_charge_battery_threshold": DEFAULT_IDLE_CHARGE_BATTERY_THRESHOLD,
     "battery_active_drain_per_sec": BATTERY_ACTIVE_DRAIN_PER_SEC,
     "battery_waiting_drain_per_sec": BATTERY_WAITING_DRAIN_PER_SEC,
     "battery_idle_drain_per_sec": BATTERY_IDLE_DRAIN_PER_SEC,
@@ -72,6 +74,13 @@ def _get_autonomy_policy_settings() -> dict:
     except Exception:
         idle_charge_timeout_sec = DEFAULT_IDLE_CHARGE_TIMEOUT_SEC
     try:
+        idle_charge_battery_threshold = max(
+            LOW_BATTERY_THRESHOLD,
+            min(95.0, float(payload.get("idle_charge_battery_threshold", DEFAULT_IDLE_CHARGE_BATTERY_THRESHOLD))),
+        )
+    except Exception:
+        idle_charge_battery_threshold = DEFAULT_IDLE_CHARGE_BATTERY_THRESHOLD
+    try:
         battery_active_drain_per_sec = max(0.01, min(10.0, float(payload.get("battery_active_drain_per_sec", BATTERY_ACTIVE_DRAIN_PER_SEC))))
     except Exception:
         battery_active_drain_per_sec = BATTERY_ACTIVE_DRAIN_PER_SEC
@@ -94,6 +103,7 @@ def _get_autonomy_policy_settings() -> dict:
     return {
         "idle_return_timeout_sec": idle_return_timeout_sec,
         "idle_charge_timeout_sec": idle_charge_timeout_sec,
+        "idle_charge_battery_threshold": idle_charge_battery_threshold,
         "battery_active_drain_per_sec": battery_active_drain_per_sec,
         "battery_waiting_drain_per_sec": battery_waiting_drain_per_sec,
         "battery_idle_drain_per_sec": battery_idle_drain_per_sec,
@@ -635,6 +645,10 @@ def _start_autonomy_if_needed(agv, now: datetime, grid_cols: int, grid_rows: int
     current_node = str(getattr(agv, "current_node", "") or "")
     idle_elapsed = _seconds_since(getattr(agv, "idle_since_at", None), now)
     idle_charge_timeout_sec = float(policy_settings.get("idle_charge_timeout_sec", DEFAULT_IDLE_CHARGE_TIMEOUT_SEC) or DEFAULT_IDLE_CHARGE_TIMEOUT_SEC)
+    idle_charge_battery_threshold = float(
+        policy_settings.get("idle_charge_battery_threshold", DEFAULT_IDLE_CHARGE_BATTERY_THRESHOLD)
+        or DEFAULT_IDLE_CHARGE_BATTERY_THRESHOLD
+    )
     idle_return_timeout_sec = float(policy_settings.get("idle_return_timeout_sec", DEFAULT_IDLE_RETURN_TIMEOUT_SEC) or DEFAULT_IDLE_RETURN_TIMEOUT_SEC)
 
     if battery_level <= LOW_BATTERY_THRESHOLD:
@@ -662,7 +676,7 @@ def _start_autonomy_if_needed(agv, now: datetime, grid_cols: int, grid_rows: int
     if (
         agv.status == "idle"
         and idle_elapsed >= idle_charge_timeout_sec
-        and battery_level < CHARGE_RELEASE_THRESHOLD
+        and battery_level < idle_charge_battery_threshold
     ):
         target = _resolve_nearest_autonomy_target(agv, "charge", grid_cols, grid_rows)
         if target and str(target["key"]) != current_node and agv.auto_target_type != "charge":

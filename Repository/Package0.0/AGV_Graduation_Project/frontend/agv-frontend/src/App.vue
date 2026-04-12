@@ -541,6 +541,16 @@ function buildTopologySpecialNodeGroups(nodes = [], cellSize = CELL_SIZE) {
     const height = (maxY - minY + 1) * cellSize
     const isRectangular = widthCells * heightCells === cells.length
     const hasIntegratedShell = isRectangular && groupNodeCards.length > 1
+    const usesContourBody = !isRectangular && groupNodeCards.length > 1
+    const layoutMode =
+      heightCells >= widthCells * 1.35
+        ? 'vertical'
+        : widthCells >= heightCells * 1.35
+          ? 'horizontal'
+          : 'compact'
+    const cellKeySet = new Set(cells.map(cell => blockedCellKey(cell.x, cell.y)))
+    const badgeAnchor =
+      [...cells].sort((a, b) => Number(a.y) - Number(b.y) || Number(a.x) - Number(b.x))[0] || cells[0]
     const occupiedAgvs = groupNodes
       .flatMap(item => (Array.isArray(item?.occupiedAgvs) ? item.occupiedAgvs : []))
       .sort((a, b) => Number(a?.id || 0) - Number(b?.id || 0))
@@ -563,14 +573,25 @@ function buildTopologySpecialNodeGroups(nodes = [], cellSize = CELL_SIZE) {
         top: cell.y * cellSize,
         width: cellSize,
         height: cellSize,
+        borderRadius: `${!cellKeySet.has(blockedCellKey(cell.x - 1, cell.y)) && !cellKeySet.has(blockedCellKey(cell.x, cell.y - 1)) ? 16 : 0}px ${
+          !cellKeySet.has(blockedCellKey(cell.x + 1, cell.y)) && !cellKeySet.has(blockedCellKey(cell.x, cell.y - 1)) ? 16 : 0
+        }px ${
+          !cellKeySet.has(blockedCellKey(cell.x + 1, cell.y)) && !cellKeySet.has(blockedCellKey(cell.x, cell.y + 1)) ? 16 : 0
+        }px ${
+          !cellKeySet.has(blockedCellKey(cell.x - 1, cell.y)) && !cellKeySet.has(blockedCellKey(cell.x, cell.y + 1)) ? 16 : 0
+        }px`,
       })),
       capacityTotal: groupNodes.reduce((sum, item) => sum + Number(formatTopologyNodeCapacity(item) || 0), 0),
       occupancyCount: groupNodes.reduce((sum, item) => sum + Number(item?.occupancyCount || 0), 0),
       hasIntegratedShell,
+      usesContourBody,
+      layoutMode,
       shellLeft: minX * cellSize + 3,
       shellTop: minY * cellSize + 3,
       shellWidth: Math.max(width - 6, cellSize - 6),
       shellHeight: Math.max(height - 6, cellSize - 6),
+      badgeLeft: badgeAnchor.x * cellSize + 6,
+      badgeTop: badgeAnchor.y * cellSize + 6,
       labelLeft: minX * cellSize + width / 2,
       labelTop: Math.max(minY * cellSize - 18, 6),
       minX,
@@ -629,32 +650,6 @@ function flattenTopologySpecialGroupSegments(groups = []) {
       ...segment,
       key: `${group.key}:${segment.key || index}`,
       nodeType: group.nodeType,
-    }))
-  )
-}
-
-function flattenTopologySpecialGroupCells(groups = []) {
-  return groups.flatMap(group =>
-    (group.cellRects || []).map((cell, index) => ({
-      ...cell,
-      key: `${group.key}:cell:${cell.key || index}`,
-      groupKey: group.key,
-      nodeType: group.nodeType,
-      hasIntegratedShell: Boolean(group.hasIntegratedShell),
-    }))
-  )
-}
-
-function flattenTopologySpecialGroupSlotCards(groups = []) {
-  return groups.flatMap(group =>
-    (group.slotCards || []).map((slot, index) => ({
-      ...slot,
-      key: `${group.key}:slot:${slot.nodeKey || index}`,
-      groupKey: group.key,
-      count: group.count,
-      capacityTotal: group.capacityTotal,
-      occupancyCountTotal: group.occupancyCount,
-      hasIntegratedShell: Boolean(group.hasIntegratedShell),
     }))
   )
 }
@@ -951,6 +946,7 @@ const followDistance = ref(0.75)
 const deadlockTimeoutSec = ref(4.5)
 const idleReturnTimeoutSec = ref(12)
 const idleChargeTimeoutSec = ref(45)
+const idleChargeBatteryThreshold = ref(60)
 const batteryActiveDrainPerSec = ref(0.16)
 const batteryWaitingDrainPerSec = ref(0.05)
 const batteryIdleDrainPerSec = ref(0.01)
@@ -3523,11 +3519,8 @@ const enterpriseRuntimeTopologyNodes = computed(() => {
 const enterpriseRuntimeTopologySpecialGroups = computed(() =>
   buildTopologySpecialNodeGroups(enterpriseRuntimeTopologyNodes.value, CELL_SIZE)
 )
-const enterpriseRuntimeTopologySpecialGroupCells = computed(() =>
-  flattenTopologySpecialGroupCells(enterpriseRuntimeTopologySpecialGroups.value)
-)
-const enterpriseRuntimeTopologySpecialGroupSlotCards = computed(() =>
-  flattenTopologySpecialGroupSlotCards(enterpriseRuntimeTopologySpecialGroups.value)
+const enterpriseRuntimeTopologyContourGroups = computed(() =>
+  enterpriseRuntimeTopologySpecialGroups.value.filter(group => group?.usesContourBody)
 )
 const enterpriseRuntimeTopologyGroupedNodeKeySet = computed(
   () =>
@@ -6429,6 +6422,7 @@ const {
   deadlockTimeoutSec,
   idleReturnTimeoutSec,
   idleChargeTimeoutSec,
+  idleChargeBatteryThreshold,
   batteryActiveDrainPerSec,
   batteryWaitingDrainPerSec,
   batteryIdleDrainPerSec,
@@ -6477,6 +6471,7 @@ const {
   deadlockTimeoutSec,
   idleReturnTimeoutSec,
   idleChargeTimeoutSec,
+  idleChargeBatteryThreshold,
   batteryActiveDrainPerSec,
   batteryWaitingDrainPerSec,
   batteryIdleDrainPerSec,
@@ -8167,8 +8162,26 @@ function buildAuthSessionRefreshNotice(previousUser = null) {
   }
 }
 
+function handleAuthGovernanceSessionExpired(previousUser = null) {
+  resetAuthStateWithAuthSession()
+  authGuestAccepted.value = false
+  authPanelOpen.value = true
+  switchAuthDialogView('login')
+  authLoginRestrictionNotice.value = buildAuthSessionRefreshNotice(previousUser)
+  showFloatingToast(t('auth_session_refresh_toast'), 'info')
+}
+
 async function syncAuthGovernanceState() {
-  if (authGovernanceSyncTimer === null || authLoading.value || !authInitialized.value || !authAuthenticated.value) return
+  if (
+    authGovernanceSyncTimer === null ||
+    authLoading.value ||
+    !authInitialized.value ||
+    !authAuthenticated.value ||
+    !scopeDataReady.value ||
+    Boolean(scopedDataReloadPromise)
+  ) {
+    return
+  }
   const wasAuthenticated = Boolean(authAuthenticated.value)
   const previousUser = wasAuthenticated
     ? {
@@ -8180,25 +8193,38 @@ async function syncAuthGovernanceState() {
   const previousGovernanceUpdatedAt = String(authCurrentUser.value?.governance_updated_at || '')
   let nextState = null
   try {
-    nextState = await fetchAuthMe({ silent: false, preserveOnFailure: true })
+    nextState = await fetchAuthMe({
+      silent: false,
+      preserveOnFailure: true,
+      commitUnauthenticatedState: false
+    })
   } catch (error) {
     if (wasAuthenticated && [401, 403].includes(Number(error?.status || 0))) {
-      resetAuthStateWithAuthSession()
-      authPanelOpen.value = true
-      switchAuthDialogView('login')
-      authLoginRestrictionNotice.value = buildAuthSessionRefreshNotice(previousUser)
-      showFloatingToast(t('auth_session_refresh_toast'), 'info')
+      handleAuthGovernanceSessionExpired(previousUser)
     }
     return
   }
-  const isAuthenticated = Boolean(nextState?.authenticated)
+  let isAuthenticated = Boolean(nextState?.authenticated)
+  if (wasAuthenticated && !isAuthenticated) {
+    await new Promise(resolve => setTimeout(resolve, 420))
+    try {
+      nextState = await fetchAuthMe({
+        silent: false,
+        preserveOnFailure: true,
+        commitUnauthenticatedState: false
+      })
+      isAuthenticated = Boolean(nextState?.authenticated)
+    } catch (error) {
+      if (wasAuthenticated && [401, 403].includes(Number(error?.status || 0))) {
+        handleAuthGovernanceSessionExpired(previousUser)
+      }
+      return
+    }
+  }
   const nextGovernanceUpdatedAt = String(nextState?.user?.governance_updated_at || '')
   const nextStatus = String(nextState?.user?.account_status || '')
   if (wasAuthenticated && !isAuthenticated) {
-    authPanelOpen.value = true
-    switchAuthDialogView('login')
-    authLoginRestrictionNotice.value = buildAuthSessionRefreshNotice(previousUser)
-    showFloatingToast(t('auth_session_refresh_toast'), 'info')
+    handleAuthGovernanceSessionExpired(previousUser)
     return
   }
   if (
@@ -11378,21 +11404,6 @@ function buildTemplateExportPayload() {
   return buildTemplateExportPayloadRaw(customTaskTemplates.value, {
     normalizeStages: normalizeTemplateStages
   })
-}
-
-async function hydratePointTemplateBackend() {
-  const legacyCustomPoints = [...customPoints.value]
-  const legacyCustomTemplates = [...customTaskTemplates.value]
-
-  const pointsOk = await fetchPointLibraryFromBackend()
-  if (pointsOk) {
-    await syncLegacyCustomPointsToBackend(legacyCustomPoints)
-  }
-
-  const templatesOk = await fetchTaskTemplatesFromBackend()
-  if (templatesOk) {
-    await syncLegacyCustomTemplatesToBackend(legacyCustomTemplates)
-  }
 }
 
 const {
@@ -15608,7 +15619,7 @@ function resetFaultReportForm() {
 }
 
 async function refreshState() {
-  if (polling) return
+  if (polling || !scopeDataReady.value || Boolean(scopedDataReloadPromise)) return
   polling = true
   try {
     await refreshCoreState()
@@ -15977,13 +15988,17 @@ function onWindowBeforeUnload(event) {
 
 async function bootstrapInitialScopeData() {
   scopeDataReady.value = false
+  const legacyCustomPoints = [...customPoints.value]
+  const legacyCustomTemplates = [...customTaskTemplates.value]
   try {
     const authState = await fetchAuthMe({ silent: false, preserveOnFailure: true })
     const normalizedState = await enforceEnterpriseClientSession(authState, { showToast: false })
     authGuestAccepted.value = Boolean(normalizedState?.authenticated)
-    await hydratePointTemplateBackend()
     await reloadScopedMapData()
-    await refreshState()
+    await Promise.all([
+      syncLegacyCustomPointsToBackend(legacyCustomPoints),
+      syncLegacyCustomTemplatesToBackend(legacyCustomTemplates)
+    ])
     if (
       normalizedState?.authenticated &&
       Array.isArray(normalizedState?.capabilities) &&
@@ -15995,7 +16010,6 @@ async function bootstrapInitialScopeData() {
     console.error('Initial scoped bootstrap error:', error)
     try {
       await reloadScopedMapData()
-      await refreshState()
     } catch (recoveryError) {
       console.error('Initial scoped bootstrap recovery error:', recoveryError)
     }
@@ -16415,6 +16429,7 @@ watch([
   deadlockTimeoutSec,
   idleReturnTimeoutSec,
   idleChargeTimeoutSec,
+  idleChargeBatteryThreshold,
   batteryActiveDrainPerSec,
   batteryWaitingDrainPerSec,
   batteryIdleDrainPerSec,
@@ -17095,6 +17110,7 @@ const mapSettingsPanelBindings = {
   deadlockTimeoutSec,
   idleReturnTimeoutSec,
   idleChargeTimeoutSec,
+  idleChargeBatteryThreshold,
   batteryActiveDrainPerSec,
   batteryWaitingDrainPerSec,
   batteryIdleDrainPerSec,
@@ -17485,6 +17501,7 @@ const enterpriseSettingsDialogBindings = {
   deadlockTimeoutSec,
   idleReturnTimeoutSec,
   idleChargeTimeoutSec,
+  idleChargeBatteryThreshold,
   batteryActiveDrainPerSec,
   batteryWaitingDrainPerSec,
   batteryIdleDrainPerSec,
@@ -18433,7 +18450,7 @@ onBeforeUnmount(() => {
               v-for="group in enterpriseRuntimeTopologySpecialGroups.filter(item => item.hasIntegratedShell)"
               :key="`runtime-topology-special-group-shell-${group.key}`"
               class="map-topology-special-group-shell"
-              :class="`is-${group.nodeType}`"
+              :class="[`is-${group.nodeType}`, `is-${group.layoutMode}`]"
               :style="{
                 left: `${group.shellLeft}px`,
                 top: `${group.shellTop}px`,
@@ -18445,96 +18462,52 @@ onBeforeUnmount(() => {
               @click.stop="openTopologyStationDockDialog(group.key)"
             >
               <div class="map-topology-special-group-shell-surface" aria-hidden="true"></div>
-              <div class="map-topology-special-group-shell-head">
-                <div class="map-topology-special-group-shell-heading">
-                  <span class="map-topology-special-group-shell-mark">
-                    {{ group.nodeType === 'parking' ? 'P' : 'C' }}
-                  </span>
-                  <span class="map-topology-special-group-shell-title">{{ topologySpecialGroupBaseLabel(group.nodeType) }}</span>
-                </div>
-                <span
-                  class="map-topology-special-group-shell-metric"
-                  :class="{ 'is-secondary': group.nodeType === 'parking' }"
-                >
-                  {{
-                    group.nodeType === 'parking'
-                      ? `${t('enterprise_settings_route_topology_group_available_stat')} ${Math.max(Number(group.capacityTotal || 0) - Number(group.occupancyCount || 0), 0)}`
-                      : `${group.occupancyCount}/${group.capacityTotal}`
-                  }}
+              <div class="map-topology-special-group-shell-badge">
+                <span class="map-topology-special-group-shell-mark">
+                  {{ group.nodeType === 'parking' ? 'P' : 'C' }}
+                </span>
+                <span class="map-topology-special-group-shell-metric">
+                  {{ group.occupancyCount }}/{{ group.capacityTotal }}
                 </span>
               </div>
+              <div class="map-topology-special-group-shell-body" aria-hidden="true"></div>
+            </div>
+            <template v-for="group in enterpriseRuntimeTopologyContourGroups" :key="`runtime-topology-special-group-contour-${group.key}`">
               <div
-                v-if="group.nodeType === 'parking'"
-                class="map-topology-special-group-shell-body"
-                aria-hidden="true"
+                v-for="cell in group.cellRects"
+                :key="`runtime-topology-special-group-contour-cell-${cell.key}`"
+                class="map-topology-special-group-contour-cell"
+                :class="[`is-${group.nodeType}`, `is-${group.layoutMode}`]"
+                :style="{
+                  left: `${cell.left}px`,
+                  top: `${cell.top}px`,
+                  width: `${cell.width}px`,
+                  height: `${cell.height}px`,
+                  borderRadius: cell.borderRadius
+                }"
+                :title="formatTopologySpecialGroupRuntimeLabel(group)"
+                @mousedown.stop
+                @click.stop="openTopologyStationDockDialog(group.key)"
               ></div>
               <div
-                v-if="group.nodeType === 'parking'"
-                class="map-topology-special-group-shell-core"
-                aria-hidden="true"
+                class="map-topology-special-group-contour-badge"
+                :class="[`is-${group.nodeType}`, `is-${group.layoutMode}`]"
+                :style="{
+                  left: `${group.badgeLeft}px`,
+                  top: `${group.badgeTop}px`
+                }"
+                :title="formatTopologySpecialGroupRuntimeLabel(group)"
+                @mousedown.stop
+                @click.stop="openTopologyStationDockDialog(group.key)"
               >
-                <small>{{ t('enterprise_settings_route_topology_group_occupied_stat') }}</small>
-                <strong>{{ group.occupancyCount }}/{{ group.capacityTotal }}</strong>
+                <span class="map-topology-special-group-shell-mark">
+                  {{ group.nodeType === 'parking' ? 'P' : 'C' }}
+                </span>
+                <span class="map-topology-special-group-shell-metric">
+                  {{ group.occupancyCount }}/{{ group.capacityTotal }}
+                </span>
               </div>
-              <div
-                v-if="group.nodeType === 'parking'"
-                class="map-topology-special-group-shell-footer"
-                aria-hidden="true"
-              >
-                <span>{{ t('enterprise_settings_route_topology_group_slots_stat') }} {{ group.count }}</span>
-                <span>{{ t('enterprise_settings_route_topology_group_capacity_stat') }} {{ group.capacityTotal }}</span>
-              </div>
-            </div>
-            <div
-              v-for="group in enterpriseRuntimeTopologySpecialGroups.filter(item => !item.hasIntegratedShell)"
-              :key="`runtime-topology-special-group-label-${group.key}`"
-              class="map-topology-special-group-label"
-              :class="`is-${group.nodeType}`"
-              :style="{
-                left: `${group.labelLeft}px`,
-                top: `${group.labelTop}px`
-              }"
-            >
-              {{ formatTopologySpecialGroupRuntimeLabel(group) }}
-            </div>
-            <div
-              v-for="cell in enterpriseRuntimeTopologySpecialGroupCells"
-              :key="`runtime-topology-special-group-cell-${cell.key}`"
-              class="map-topology-special-group-cell"
-              :class="[`is-${cell.nodeType}`, { 'has-shell': cell.hasIntegratedShell }]"
-              :style="{
-                left: `${cell.left}px`,
-                top: `${cell.top}px`,
-                width: `${cell.width}px`,
-                height: `${cell.height}px`
-              }"
-              @mousedown.stop
-              @click.stop="openTopologyStationDockDialog(cell.groupKey)"
-            ></div>
-            <div
-              v-for="slot in enterpriseRuntimeTopologySpecialGroupSlotCards"
-              :key="`runtime-topology-special-group-slot-${slot.key}`"
-              class="map-topology-special-group-slot"
-              :class="[
-                `is-${slot.nodeType}`,
-                {
-                  'has-shell': slot.hasIntegratedShell,
-                  'is-occupied': Number(slot.occupancyCount || 0) > 0
-                }
-              ]"
-              :style="{
-                left: `${slot.left}px`,
-                top: `${slot.top}px`
-              }"
-              :title="`${slot.title}\n${formatTopologySpecialGroupSlotLine(slot)}`"
-              @mousedown.stop
-              @click.stop="openTopologyStationDockDialog(slot.groupKey)"
-            >
-              <span>{{ slot.badge }}</span>
-              <small class="map-topology-special-group-slot-count">
-                {{ slot.occupancyCount }}/{{ slot.capacity }}
-              </small>
-            </div>
+            </template>
             <div
               v-for="node in enterpriseRuntimeTopologyDisplayNodes"
               :key="`topology-node-${node.key}`"
