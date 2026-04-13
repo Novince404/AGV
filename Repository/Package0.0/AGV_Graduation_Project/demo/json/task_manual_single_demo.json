@@ -1,17 +1,16 @@
 {
   "tasks": [
     {
-      "start_x": 1,
-      "start_y": 6,
+      "start_x": 2,
+      "start_y": 4,
       "end_x": 2,
-      "end_y": 6,
+      "end_y": 5,
       "grid_cols": 10,
       "grid_rows": 8,
       "priority": 2,
       "dispatch_mode": "manual",
-      "preferred_agv_id": 1,
       "dispatch_algorithm": "simple",
-      "dispatch_reason": "???????????????? AGV #1?"
+      "dispatch_reason": "Manual demo task waiting for AGV binding."
     }
   ]
 }

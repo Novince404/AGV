@@ -105,6 +105,49 @@ def _build_task_stages(item: Any, grid_cols: int, grid_rows: int):
     return stage_models
 
 
+def _resolve_import_preferred_agv_id(item: Any):
+    preferred_agv_id = _get_field(item, "preferred_agv_id")
+    if preferred_agv_id is None:
+        return None
+
+    try:
+        normalized_preferred_agv_id = int(preferred_agv_id)
+    except Exception:
+        return preferred_agv_id
+
+    if get_agv_by_id(normalized_preferred_agv_id) is not None:
+        return normalized_preferred_agv_id
+
+    dispatch_mode = str(_get_field(item, "dispatch_mode") or "").strip().lower()
+    if dispatch_mode != "manual":
+        return normalized_preferred_agv_id
+
+    origin_x = _get_field(item, "dispatch_origin_x")
+    origin_y = _get_field(item, "dispatch_origin_y")
+    if origin_x is None or origin_y is None:
+        return normalized_preferred_agv_id
+
+    try:
+        normalized_origin_x = int(origin_x)
+        normalized_origin_y = int(origin_y)
+    except Exception:
+        return normalized_preferred_agv_id
+
+    matched_agv = next(
+        (
+            agv
+            for agv in list_agvs()
+            if int(getattr(agv, "x", -1)) == normalized_origin_x
+            and int(getattr(agv, "y", -1)) == normalized_origin_y
+        ),
+        None,
+    )
+    if matched_agv is not None:
+        return int(matched_agv.id)
+
+    return normalized_preferred_agv_id
+
+
 def serialize_task_for_json(task: Task):
     payload = {
         "id": task.id,
@@ -296,7 +339,7 @@ def import_tasks(items: list[Any], actor: dict | None = None):
             overall_end_y=last_stage.end_y,
             stages=stages,
             dispatch_mode=_get_field(item, "dispatch_mode"),
-            preferred_agv_id=_get_field(item, "preferred_agv_id"),
+            preferred_agv_id=_resolve_import_preferred_agv_id(item),
             dispatch_origin_x=_get_field(item, "dispatch_origin_x"),
             dispatch_origin_y=_get_field(item, "dispatch_origin_y"),
             dispatch_algorithm=_get_field(item, "dispatch_algorithm"),

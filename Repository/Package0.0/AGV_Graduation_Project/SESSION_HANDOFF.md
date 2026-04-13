@@ -408,3 +408,30 @@ git -C "Repository/Package0.0/AGV_Graduation_Project" push AGV main
   - `backend\\venv\\Scripts\\python.exe backend\\scripts\\runtime_conflict_smoke.py` 通过
   - `backend\\venv\\Scripts\\python.exe backend\\scripts\\sqlite_smoke_check.py` 通过
   - `backend\\venv\\Scripts\\python.exe backend\\scripts\\enterprise_client_login_smoke.py` 通过
+
+### 14.7 2026-04-13 追加：第五项 JSON 任务导入已补齐自动化回归
+- 新增 `backend/scripts/task_json_import_smoke.py`
+  - 覆盖三条第四阶段清单里的 demo 导入链：
+    - `task_auto_single_demo.json`
+    - `task_manual_single_demo.json`
+    - `task_multi_stage_demo.json`
+  - 额外补了一条“手动绑定任务按 dispatch origin 自动重映射 preferred_agv_id”的兼容性回归，避免不同 scope 下默认 AGV id 不一致时导入失效
+- 已对齐 demo 语义与验收清单：
+  - `demo/json/task_manual_single_demo.json`
+  - `dist/AGV_Dispatch_Package_v2/demo/json/task_manual_single_demo.json`
+  - 现在手动 demo 默认不预绑定 AGV，用于验证“导入后保留在待绑定队列，并显示清楚说明”
+  - 原先那条会撞上默认种子 AGV 的历史路线已移除，不再依赖某个固定 `AGV #1`
+- 已补齐说明文档：
+  - `demo/json/README_demo_assets.md`
+  - `dist/AGV_Dispatch_Package_v2/demo/json/README_demo_assets.md`
+  - `enterprise_client/docs/PHASE4_ENTERPRISE_ACCEPTANCE_CHECKLIST.md`
+  - 现在清单启动前健康检查也会显式跑 `backend/scripts/task_json_import_smoke.py`
+- 已保留并验证后端兼容修复：
+  - `backend/app/services/task_service.py`
+  - 当手动导入 payload 带着旧的 `preferred_agv_id`，但当前 scope 下实际 AGV id 已变化时，系统会优先根据 `dispatch_origin_x / dispatch_origin_y` 解析当前作用域里的真实 AGV id
+- 相关验证结果：
+  - `backend\\venv\\Scripts\\python.exe -m compileall backend\\app backend\\scripts` 通过
+  - `backend\\venv\\Scripts\\python.exe backend\\scripts\\task_json_import_smoke.py` 通过
+  - `backend\\venv\\Scripts\\python.exe backend\\scripts\\sqlite_smoke_check.py` 通过
+  - `backend\\venv\\Scripts\\python.exe backend\\scripts\\runtime_conflict_smoke.py` 通过
+  - `backend\\venv\\Scripts\\python.exe backend\\scripts\\enterprise_client_login_smoke.py` 通过

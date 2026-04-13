@@ -10,6 +10,7 @@
 backend\venv\Scripts\python.exe -m compileall backend\app
 backend\venv\Scripts\python.exe backend\scripts\sqlite_smoke_check.py
 backend\venv\Scripts\python.exe backend\scripts\runtime_conflict_smoke.py
+backend\venv\Scripts\python.exe backend\scripts\task_json_import_smoke.py
 backend\venv\Scripts\python.exe backend\scripts\enterprise_client_login_smoke.py
 cd frontend\agv-frontend
 npm run lint
@@ -103,6 +104,7 @@ dist\AGV_Enterprise_Client_v1\start_enterprise_client.bat
 
 - 自动任务导入后可以进入自动分配，不只是停在任务卡片里。
 - 手动任务显示清楚的待指定车辆说明。
+  当前 `task_manual_single_demo.json` 默认不预绑定 AGV，用于验证这一条。
 - 多阶段任务导入不报失败。
 
 ## 6. 拓扑主干道
