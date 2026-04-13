@@ -397,7 +397,17 @@ def _build_topology_indexes(topology: dict | None):
             continue
         direction = str(edge.get("direction") or "bidirectional").strip().lower()
         lane_type = str(edge.get("lane_type") or "main").strip().lower()
-        weight = max(float(edge.get("weight") or 1.0), 0.1)
+        source_node = node_by_key[source_key]
+        target_node = node_by_key[target_key]
+        geometry_weight = max(
+            abs(int(target_node["x"]) - int(source_node["x"])) + abs(int(target_node["y"]) - int(source_node["y"])),
+            1,
+        )
+        try:
+            parsed_weight = float(edge.get("weight", geometry_weight))
+        except (TypeError, ValueError):
+            parsed_weight = float(geometry_weight)
+        weight = max(parsed_weight, float(geometry_weight), 0.1)
         speed_multiplier = max(float(edge.get("speed_multiplier") or 1.0), 0.1)
         base_edge = {
             "key": key,

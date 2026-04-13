@@ -36,7 +36,7 @@ from app.utils.agv_movement import (  # noqa: E402
     _detect_topology_edge_conflict,
     _should_current_agv_reroute,
 )
-from app.utils.path_planner import build_runtime_special_node_constraints  # noqa: E402
+from app.utils.path_planner import build_runtime_special_node_constraints, plan_path  # noqa: E402
 from app.utils.task_chain import set_stage_paths  # noqa: E402
 
 
@@ -681,6 +681,108 @@ def assert_task_path_lifecycle() -> None:
         expect(str(getattr(manual_agv_runtime, "motion_state", "") or "") == "idle", "manual-finish AGV motion state was not cleared")
 
 
+def assert_topology_trunk_lane_behavior() -> None:
+    topology_payload = {
+        "topology_version": 1,
+        "nodes": [
+            {"key": "a", "x": 1, "y": 1, "label": "A", "node_type": "station", "capacity": 1},
+            {"key": "b", "x": 7, "y": 1, "label": "B", "node_type": "station", "capacity": 1},
+        ],
+        "edges": [
+            {"key": "edge_ab", "source": "a", "target": "b", "direction": "bidirectional", "lane_type": "main", "speed_multiplier": 5.0},
+        ],
+    }
+
+    actor = {
+        "id": "smoke_topology_trunk",
+        "username": "smoke_topology_trunk",
+        "role": "personal",
+    }
+    trunk_scope = build_scope_key_from_actor(actor)
+
+    with use_scope(trunk_scope):
+        status_service.update_map_layout([], None, 10, 8, topology=topology_payload)
+
+        endpoint_path = plan_path("astar", 1, 1, 7, 1, 10, 8)
+        expect(endpoint_path and str(endpoint_path[-1].get("topology_edge_key") or "") == "edge_ab", "endpoint trunk path did not use the topology edge")
+        expect(float(endpoint_path[-1].get("topology_speed_multiplier") or 1.0) == 5.0, "endpoint trunk path lost edge speed multiplier")
+
+        start_mid_path = plan_path("astar", 3, 1, 7, 1, 10, 8)
+        expect(start_mid_path and len(start_mid_path) == 2, "mid-edge start should connect directly to the endpoint on the same trunk edge")
+        expect(int(start_mid_path[-1]["x"]) == 7 and int(start_mid_path[-1]["y"]) == 1, "mid-edge start path reached the wrong endpoint")
+        expect(
+            all(not (int(point["x"]) == 1 and int(point["y"]) == 1) for point in start_mid_path[1:]),
+            "mid-edge start path incorrectly backtracked to the source endpoint before using the trunk edge",
+        )
+
+        end_mid_path = plan_path("astar", 1, 1, 5, 1, 10, 8)
+        expect(end_mid_path and len(end_mid_path) == 2, "mid-edge end should exit directly on the same trunk edge")
+        expect(int(end_mid_path[-1]["x"]) == 5 and int(end_mid_path[-1]["y"]) == 1, "mid-edge end path exited at the wrong point")
+        expect(
+            all(not (int(point["x"]) == 7 and int(point["y"]) == 1) for point in end_mid_path[1:-1]),
+            "mid-edge end path incorrectly overshot to the far endpoint before leaving the trunk edge",
+        )
+
+        join_leave_path = plan_path("astar", 0, 2, 8, 2, 10, 8)
+        expect(
+            any(str(point.get("topology_edge_key") or "") == "edge_ab" for point in join_leave_path),
+            "off-edge route did not join the trunk edge when it should save time",
+        )
+
+        nearby_direct_path = plan_path("astar", 0, 0, 2, 0, 10, 8)
+        expect(
+            all("topology_edge_key" not in point for point in nearby_direct_path),
+            "nearby direct route should stay on the normal grid when the trunk edge is not beneficial",
+        )
+
+        runtime_agv = agv_service.create_agv(1, 1, actor=actor)["agv"]
+        runtime_task_id = int(
+            task_service.create_task(
+                TaskCreateRequest(
+                    start_x=1,
+                    start_y=1,
+                    end_x=8,
+                    end_y=4,
+                    priority=2,
+                ),
+                actor=actor,
+            )["task"]["id"]
+        )
+        schedule_service.schedule_task_with_path(
+            runtime_task_id,
+            runtime_agv.id,
+            "manual",
+            "astar",
+            10,
+            8,
+            actor=actor,
+        )
+
+        seen_topology_speed = False
+        seen_grid_speed_after_exit = False
+        runtime_deadline = time.time() + 12.0
+        while time.time() < runtime_deadline:
+            runtime_snapshot = next((item for item in list_agvs() if int(item.id) == int(runtime_agv.id)), None)
+            runtime_task = get_task_by_id(runtime_task_id)
+            if runtime_snapshot is None or runtime_task is None:
+                break
+
+            current_edge = str(getattr(runtime_snapshot, "current_edge", "") or "")
+            current_lane_type = str(getattr(runtime_snapshot, "current_lane_type", "") or "")
+            current_speed_multiplier = float(getattr(runtime_snapshot, "current_speed_multiplier", 1.0) or 1.0)
+            if current_edge == "edge_ab":
+                seen_topology_speed = seen_topology_speed or abs(current_speed_multiplier - 5.0) < 1e-6
+            elif seen_topology_speed and (current_edge.startswith("grid:") or current_lane_type in {"", "grid"}):
+                seen_grid_speed_after_exit = seen_grid_speed_after_exit or abs(current_speed_multiplier - 1.0) < 1e-6
+
+            if str(runtime_task.status) == "finished" and seen_topology_speed and seen_grid_speed_after_exit:
+                break
+            time.sleep(0.05)
+
+        expect(seen_topology_speed, "runtime AGV never reported the trunk-lane speed while travelling on the topology edge")
+        expect(seen_grid_speed_after_exit, "runtime AGV did not restore the base speed after leaving the topology edge")
+
+
 def assert_topology_conflict_rules() -> None:
     topology_payload = {
         "topology_version": 1,
@@ -951,9 +1053,10 @@ def main() -> None:
     assert_reserved_special_node_constraints()
     assert_ui_settings_roundtrip()
     assert_task_path_lifecycle()
+    assert_topology_trunk_lane_behavior()
     assert_topology_conflict_rules()
 
-    print("SQLITE_SMOKE_OK point/template/map/scope/reserved_special_node/ui_settings/task_path_lifecycle/topology_conflict_rules")
+    print("SQLITE_SMOKE_OK point/template/map/scope/reserved_special_node/ui_settings/task_path_lifecycle/topology_trunk_lane_behavior/topology_conflict_rules")
     cleanup_db_file()
 
 

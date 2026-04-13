@@ -285,6 +285,7 @@ def normalize_map_topology_payload(
         seen_positions.add((x, y))
 
     node_keys = {node["key"] for node in nodes}
+    node_by_key = {node["key"]: node for node in nodes}
     edges = []
     seen_edge_keys: set[str] = set()
     for index, raw_edge in enumerate(payload.get("edges", []) or []):
@@ -304,10 +305,16 @@ def normalize_map_topology_payload(
         lane_type = str(item.get("lane_type") or "main").strip().lower()
         if lane_type not in {"main", "branch", "service"}:
             lane_type = "main"
+        source_node = node_by_key[source]
+        target_node = node_by_key[target]
+        geometry_weight = max(
+            abs(int(target_node["x"]) - int(source_node["x"])) + abs(int(target_node["y"]) - int(source_node["y"])),
+            1,
+        )
         try:
-            weight = float(item.get("weight", 1.0))
+            weight = float(item.get("weight", geometry_weight))
         except (TypeError, ValueError):
-            weight = 1.0
+            weight = float(geometry_weight)
         try:
             speed_multiplier = float(item.get("speed_multiplier", 1.0))
         except (TypeError, ValueError):
@@ -319,7 +326,7 @@ def normalize_map_topology_payload(
                 "target": target,
                 "direction": direction,
                 "lane_type": lane_type,
-                "weight": weight if weight > 0 else 1.0,
+                "weight": max(weight, float(geometry_weight), 1.0),
                 "speed_multiplier": speed_multiplier if speed_multiplier > 0 else 1.0,
             }
         )

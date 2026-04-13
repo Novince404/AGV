@@ -435,3 +435,33 @@ git -C "Repository/Package0.0/AGV_Graduation_Project" push AGV main
   - `backend\\venv\\Scripts\\python.exe backend\\scripts\\sqlite_smoke_check.py` 通过
   - `backend\\venv\\Scripts\\python.exe backend\\scripts\\runtime_conflict_smoke.py` 通过
   - `backend\\venv\\Scripts\\python.exe backend\\scripts\\enterprise_client_login_smoke.py` 通过
+
+### 14.8 2026-04-13 追加：第六项拓扑主干道默认权重与中途接入/离开已修复
+- 已修复主干道路径规划的一个真实底层问题：
+  - 文件：
+    - `backend/app/utils/warehouse_map.py`
+    - `backend/app/utils/path_planner.py`
+  - 问题：
+    - 当拓扑边没有显式 `weight` 时，系统一直按 `1.0` 处理，而不是按边的真实几何长度处理
+    - 对长边来说，这会错误地让 planner 认为“先退回端点，再跑完整条主干道”更便宜
+  - 典型错误现象：
+    - `(3,1) -> (7,1)` 会被算成 `3 -> 1 -> 7`
+    - `(1,1) -> (5,1)` 会被算成 `1 -> 7 -> 5`
+  - 修复：
+    - 规范化拓扑 payload 时，默认把边权重补成节点间真实网格长度
+    - 运行时读取已有拓扑时，也把真实几何长度作为最小合法权重兜底，兼容历史上已经存成 `weight=1.0` 的长边
+- 已把第四阶段清单第 6 项补进 SQLite 冒烟：
+  - 文件：`backend/scripts/sqlite_smoke_check.py`
+  - 新增 `assert_topology_trunk_lane_behavior()`
+  - 当前覆盖：
+    - 端点到端点会使用主干道，并保留速度倍率
+    - 起点在主干道中段时，会直接沿边到目标端，不再回退到远端节点
+    - 终点在主干道中段时，会直接在中段离边，不再先跑到远端再折返
+    - 起终点都不在边上时，会在合适场景中途接入主干道再离开
+    - 如果主干道并不划算，会直接走普通网格路
+    - AGV 正在拓扑边上时使用主干道速度；离开拓扑边后恢复基础速率
+- 相关验证结果：
+  - `backend\\venv\\Scripts\\python.exe -m compileall backend\\app backend\\scripts` 通过
+  - `backend\\venv\\Scripts\\python.exe backend\\scripts\\sqlite_smoke_check.py` 通过
+  - `backend\\venv\\Scripts\\python.exe backend\\scripts\\runtime_conflict_smoke.py` 通过
+  - `backend\\venv\\Scripts\\python.exe backend\\scripts\\task_json_import_smoke.py` 通过
