@@ -12,6 +12,7 @@ backend\venv\Scripts\python.exe backend\scripts\sqlite_smoke_check.py
 backend\venv\Scripts\python.exe backend\scripts\runtime_conflict_smoke.py
 backend\venv\Scripts\python.exe backend\scripts\task_json_import_smoke.py
 backend\venv\Scripts\python.exe backend\scripts\enterprise_client_login_smoke.py
+backend\venv\Scripts\python.exe backend\scripts\feedback_notification_smoke.py
 cd frontend\agv-frontend
 npm run lint
 npm run build
@@ -143,6 +144,12 @@ dist\AGV_Enterprise_Client_v1\start_enterprise_client.bat
 - 平台 Bug 反馈被创建后，平台管理员能在治理侧或反馈入口看到。
 - 地图右下角的小铃铛不遮挡页面返回顶部按钮。
 - 小铃铛有未读/待处理变化时，视觉状态应有变化。
+
+当前已补的自动化回归：
+
+- `backend\scripts\feedback_notification_smoke.py`
+- 已覆盖“企业内部请求创建 -> 目标岗位可见 -> 状态更新后企业管理员侧同步刷新”
+- 已覆盖“个人/企业用户提交平台 Bug -> 平台管理员可见并处理 -> 提交者侧状态回刷”
 
 ## 9. 说明中心与设置弹窗
 

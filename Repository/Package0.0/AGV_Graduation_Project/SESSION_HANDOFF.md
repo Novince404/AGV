@@ -493,3 +493,28 @@ git -C "Repository/Package0.0/AGV_Graduation_Project" push AGV main
 - 相关验证结果：
   - `backend\\venv\\Scripts\\python.exe backend\\scripts\\sqlite_smoke_check.py` 通过
   - `backend\\venv\\Scripts\\python.exe backend\\scripts\\runtime_conflict_smoke.py` 通过
+
+### 14.10 2026-04-13 追加：第八项通知与协同已补后端自动化回归
+- 新增 `backend/scripts/feedback_notification_smoke.py`
+  - 这条脚本没有走 `fastapi.testclient`，而是和企业独立客户端登录冒烟保持一致，直接启动本地 uvicorn，再通过真实 HTTP 请求回归通知链
+  - 这样不依赖额外的 `httpx` 开发包，也更贴近第四阶段验收场景
+- 当前覆盖两条核心通知链：
+  - 企业内部请求：
+    - `enterprise_operator_demo` 创建面向后勤岗的内部请求
+    - `enterprise_logistics_demo` 能在请求列表里看到新请求，摘要 `open` 计数同步变化
+    - `enterprise_demo` 也能看到该请求
+    - `personal_demo` 访问企业内部请求接口会收到 `403`
+    - 后勤岗更新状态为 `in_progress` 后，企业管理员刷新列表能看到同步后的状态
+  - 平台 Bug 反馈：
+    - `personal_demo` 提交平台 Bug
+    - 提交者自己能在个人反馈列表里看到新反馈，且 `management=false`
+    - 企业操作工不会看到别人的平台 Bug
+    - `platform_admin_demo` 能在平台治理侧看到该反馈，且摘要 `open` 计数同步变化
+    - 平台管理员将状态更新为 `resolved` 后，提交者刷新列表能看到已解决状态
+- 当前结论：
+  - 第八项里“企业内部请求通知链”和“平台 Bug 反馈通知链”已经都有后端自动化护栏
+  - 但第八项还没有完全签收，因为前端层面的“小铃铛未读态变化”和“右下角不遮挡返回顶部按钮”仍需要继续走界面回归
+- 相关验证结果：
+  - `backend\\venv\\Scripts\\python.exe -m compileall backend\\scripts` 通过
+  - `backend\\venv\\Scripts\\python.exe backend\\scripts\\feedback_notification_smoke.py` 通过
+  - `backend\\venv\\Scripts\\python.exe backend\\scripts\\sqlite_smoke_check.py` 通过
