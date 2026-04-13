@@ -465,3 +465,31 @@ git -C "Repository/Package0.0/AGV_Graduation_Project" push AGV main
   - `backend\\venv\\Scripts\\python.exe backend\\scripts\\sqlite_smoke_check.py` 通过
   - `backend\\venv\\Scripts\\python.exe backend\\scripts\\runtime_conflict_smoke.py` 通过
   - `backend\\venv\\Scripts\\python.exe backend\\scripts\\task_json_import_smoke.py` 通过
+
+### 14.9 2026-04-13 追加：第七项站点/停车点/充电点已补容量与电量趋势回归
+- 本轮没有重做站点 UI，而是先把第七项里最关键的两条底层链补进自动化：
+  - `backend/scripts/sqlite_smoke_check.py`
+- 新增 `assert_special_node_capacity_runtime()`
+  - 覆盖：
+    - 停车节点的运行时占用统计会同时计入“已在站内的 AGV”和“正在返仓、已预留该节点的 AGV”
+    - 当停车节点达到容量上限后，`build_runtime_special_node_constraints()` 会把该节点加入 `blocked_positions / avoid_node_keys`
+    - 目标节点本身不会被错误地一起避让
+  - 这条回归也再次确认了一个系统约束：
+    - `parking / charge` 节点容量不会低于默认下限 `4`
+    - 因此如果拓扑里手工写 `capacity: 2`，运行时仍会被规范化到默认下限
+- 新增 `assert_battery_runtime_behavior()`
+  - 直接验证 `_sync_battery_runtime()` 的四类趋势是否符合配置：
+    - 行驶中按 `battery_active_drain_per_sec` 掉电
+    - 等待/让行中按 `battery_waiting_drain_per_sec` 掉电
+    - 停在停车点时按 `battery_parking_idle_drain_per_sec` 掉电
+    - 普通空闲时按 `battery_idle_drain_per_sec` 掉电
+    - 充电中按 `battery_charge_per_sec` 回电
+  - 同时验证 `_release_from_charging_if_ready()`：
+    - 电量达到释放阈值后，AGV 会退出 `charging`，恢复到 `idle`
+    - `auto_target_node / auto_target_type` 与充电态运动字段会一起清理
+- 当前结论：
+  - 第七项里“容量允许的站内多车收纳”和“电量趋势符合配置”已经都有后端自动化护栏
+  - 但第七项还不能完全算签收，因为前端层面的 `n/m` 遮挡、悬停交互、站内 AGV 列表观感仍要继续按界面实际回归
+- 相关验证结果：
+  - `backend\\venv\\Scripts\\python.exe backend\\scripts\\sqlite_smoke_check.py` 通过
+  - `backend\\venv\\Scripts\\python.exe backend\\scripts\\runtime_conflict_smoke.py` 通过

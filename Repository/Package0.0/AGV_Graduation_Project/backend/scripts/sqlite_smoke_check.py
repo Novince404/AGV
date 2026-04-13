@@ -31,6 +31,12 @@ from app.schemas.status import BlockedCellPayload, UiSettingsUpdateRequest  # no
 from app.schemas.task import TaskCreateRequest  # noqa: E402
 from app.schemas.template import TaskTemplateStagePayload, TaskTemplateUpsertRequest  # noqa: E402
 from app.services import agv_service, point_service, schedule_service, status_service, task_service, template_service  # noqa: E402
+from app.utils.agv_autonomy import (  # noqa: E402
+    _build_runtime_topology_node_indexes,
+    _build_runtime_topology_occupancy_counts,
+    _release_from_charging_if_ready,
+    _sync_battery_runtime,
+)
 from app.utils.agv_movement import (  # noqa: E402
     _detect_same_corridor_follow_conflict,
     _detect_topology_edge_conflict,
@@ -522,6 +528,203 @@ def assert_reserved_special_node_constraints() -> None:
             charge_a_key in set(constraints["avoid_node_keys"]),
             "reserved charge node key missing from runtime avoidance constraints",
         )
+
+
+def assert_special_node_capacity_runtime() -> None:
+    capacity_scope = "organization:smoke_special_node_capacity"
+    parking_a_key = "parking_capacity_a"
+    parking_b_key = "parking_capacity_b"
+
+    with use_scope(capacity_scope):
+        status_service.update_map_layout(
+            [],
+            None,
+            10,
+            8,
+            topology={
+                "topology_version": 1,
+                "nodes": [
+                    {
+                        "key": parking_a_key,
+                        "x": 1,
+                        "y": 1,
+                        "label": "Parking Capacity A",
+                        "node_type": "parking",
+                        "capacity": 4,
+                    },
+                    {
+                        "key": parking_b_key,
+                        "x": 2,
+                        "y": 1,
+                        "label": "Parking Capacity B",
+                        "node_type": "parking",
+                        "capacity": 4,
+                    },
+                ],
+                "edges": [],
+            },
+        )
+
+        parked_agv = agv_service.create_agv(1, 1)["agv"]
+        returning_agv = agv_service.create_agv(0, 1)["agv"]
+        returning_agv_b = agv_service.create_agv(0, 2)["agv"]
+        returning_agv_c = agv_service.create_agv(0, 3)["agv"]
+        probe_agv = agv_service.create_agv(8, 1)["agv"]
+
+        parked_agv.status = "idle"
+        parked_agv.current_node = parking_a_key
+        parked_agv.auto_target_node = None
+        parked_agv.auto_target_type = None
+        parked_agv.clear_motion()
+
+        returning_agv.status = "idle_returning"
+        returning_agv.current_node = "grid:0:1"
+        returning_agv.auto_target_node = parking_a_key
+        returning_agv.auto_target_type = "parking"
+        returning_agv.clear_motion(motion_state="waiting")
+
+        returning_agv_b.status = "idle_returning"
+        returning_agv_b.current_node = "grid:0:2"
+        returning_agv_b.auto_target_node = parking_a_key
+        returning_agv_b.auto_target_type = "parking"
+        returning_agv_b.clear_motion(motion_state="waiting")
+
+        returning_agv_c.status = "idle_returning"
+        returning_agv_c.current_node = "grid:0:3"
+        returning_agv_c.auto_target_node = parking_a_key
+        returning_agv_c.auto_target_type = "parking"
+        returning_agv_c.clear_motion(motion_state="waiting")
+
+        probe_agv.status = "idle"
+        probe_agv.current_node = "grid:8:1"
+        probe_agv.auto_target_node = None
+        probe_agv.auto_target_type = None
+        probe_agv.clear_motion()
+
+        node_by_key, node_by_position = _build_runtime_topology_node_indexes()
+        occupancy_counts = _build_runtime_topology_occupancy_counts(
+            exclude_agv_id=probe_agv.id,
+            node_by_key=node_by_key,
+            node_by_position=node_by_position,
+        )
+        expect(int(occupancy_counts.get(parking_a_key, 0) or 0) == 4, "parking node occupancy did not include both parked and reserved AGVs up to node capacity")
+        expect(int(occupancy_counts.get(parking_b_key, 0) or 0) == 0, "empty parking node incorrectly reported occupancy")
+
+        constraints = build_runtime_special_node_constraints(
+            exclude_agv_id=probe_agv.id,
+            goal_node_key=parking_b_key,
+            allowed_node_keys={parking_b_key},
+        )
+        expect((1, 1) in set(constraints["blocked_positions"]), "full parking node was not blocked after reaching capacity")
+        expect(parking_a_key in set(constraints["avoid_node_keys"]), "full parking node key missing from runtime avoidance constraints")
+        expect(parking_b_key not in set(constraints["avoid_node_keys"]), "goal parking node should stay selectable for the probing AGV")
+
+
+def assert_battery_runtime_behavior() -> None:
+    battery_scope = "organization:smoke_battery_runtime"
+    parking_key = "battery_parking"
+    charge_key = "battery_charge"
+    station_key = "battery_station"
+    now = datetime.now().replace(microsecond=0)
+    energy_updated_at = (now - timedelta(seconds=10)).isoformat(timespec="seconds")
+    policy_settings = {
+        "battery_active_drain_per_sec": 1.0,
+        "battery_waiting_drain_per_sec": 0.5,
+        "battery_idle_drain_per_sec": 0.2,
+        "battery_parking_idle_drain_per_sec": 0.05,
+        "battery_charge_per_sec": 1.2,
+    }
+
+    with use_scope(battery_scope):
+        status_service.update_map_layout(
+            [],
+            None,
+            10,
+            8,
+            topology={
+                "topology_version": 1,
+                "nodes": [
+                    {
+                        "key": parking_key,
+                        "x": 1,
+                        "y": 1,
+                        "label": "Battery Parking",
+                        "node_type": "parking",
+                        "capacity": 2,
+                    },
+                    {
+                        "key": charge_key,
+                        "x": 3,
+                        "y": 1,
+                        "label": "Battery Charge",
+                        "node_type": "charge",
+                        "capacity": 2,
+                    },
+                    {
+                        "key": station_key,
+                        "x": 5,
+                        "y": 1,
+                        "label": "Battery Station",
+                        "node_type": "station",
+                        "capacity": 1,
+                    },
+                ],
+                "edges": [],
+            },
+        )
+
+        moving_agv = agv_service.create_agv(7, 1)["agv"]
+        waiting_agv = agv_service.create_agv(8, 1)["agv"]
+        parking_idle_agv = agv_service.create_agv(1, 1)["agv"]
+        station_idle_agv = agv_service.create_agv(5, 1)["agv"]
+        charging_agv = agv_service.create_agv(3, 1)["agv"]
+
+        moving_agv.status = "running"
+        moving_agv.motion_state = "running"
+        moving_agv.battery_level = 80.0
+        moving_agv.energy_updated_at = energy_updated_at
+
+        waiting_agv.status = "running"
+        waiting_agv.motion_state = "waiting"
+        waiting_agv.battery_level = 80.0
+        waiting_agv.energy_updated_at = energy_updated_at
+
+        parking_idle_agv.status = "idle"
+        parking_idle_agv.current_node = parking_key
+        parking_idle_agv.battery_level = 80.0
+        parking_idle_agv.energy_updated_at = energy_updated_at
+        parking_idle_agv.clear_motion()
+
+        station_idle_agv.status = "idle"
+        station_idle_agv.current_node = station_key
+        station_idle_agv.battery_level = 80.0
+        station_idle_agv.energy_updated_at = energy_updated_at
+        station_idle_agv.clear_motion()
+
+        charging_agv.status = "charging"
+        charging_agv.current_node = charge_key
+        charging_agv.auto_target_node = charge_key
+        charging_agv.auto_target_type = "charge"
+        charging_agv.battery_level = 70.0
+        charging_agv.energy_updated_at = energy_updated_at
+        charging_agv.clear_motion(motion_state="charging")
+
+        node_by_key, node_by_position = _build_runtime_topology_node_indexes()
+        for agv in (moving_agv, waiting_agv, parking_idle_agv, station_idle_agv, charging_agv):
+            _sync_battery_runtime(agv, now, policy_settings, node_by_key, node_by_position)
+
+        expect(abs(float(moving_agv.battery_level) - 70.0) < 1e-6, "moving AGV battery drain did not match the active drain rate")
+        expect(abs(float(waiting_agv.battery_level) - 75.0) < 1e-6, "waiting AGV battery drain did not match the waiting drain rate")
+        expect(abs(float(parking_idle_agv.battery_level) - 79.5) < 1e-6, "parking-idle AGV battery drain did not match the parking idle drain rate")
+        expect(abs(float(station_idle_agv.battery_level) - 78.0) < 1e-6, "idle AGV battery drain did not match the normal idle drain rate")
+        expect(abs(float(charging_agv.battery_level) - 82.0) < 1e-6, "charging AGV battery gain did not match the charging rate")
+
+        charging_agv.battery_level = 89.0
+        released = _release_from_charging_if_ready(charging_agv, now)
+        expect(released is True, "charging AGV should be released after reaching the charge release threshold")
+        expect(charging_agv.status == "idle", "released charging AGV did not return to idle")
+        expect(charging_agv.auto_target_node is None and charging_agv.auto_target_type is None, "released charging AGV retained charge target metadata")
+        expect(str(getattr(charging_agv, "motion_state", "") or "") == "idle", "released charging AGV motion state was not cleared")
 
 
 def assert_ui_settings_roundtrip() -> None:
@@ -1051,12 +1254,14 @@ def main() -> None:
 
     assert_scope_isolation()
     assert_reserved_special_node_constraints()
+    assert_special_node_capacity_runtime()
+    assert_battery_runtime_behavior()
     assert_ui_settings_roundtrip()
     assert_task_path_lifecycle()
     assert_topology_trunk_lane_behavior()
     assert_topology_conflict_rules()
 
-    print("SQLITE_SMOKE_OK point/template/map/scope/reserved_special_node/ui_settings/task_path_lifecycle/topology_trunk_lane_behavior/topology_conflict_rules")
+    print("SQLITE_SMOKE_OK point/template/map/scope/reserved_special_node/special_node_capacity/battery_runtime/ui_settings/task_path_lifecycle/topology_trunk_lane_behavior/topology_conflict_rules")
     cleanup_db_file()
 
 
