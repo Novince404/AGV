@@ -518,3 +518,37 @@ git -C "Repository/Package0.0/AGV_Graduation_Project" push AGV main
   - `backend\\venv\\Scripts\\python.exe -m compileall backend\\scripts` 通过
   - `backend\\venv\\Scripts\\python.exe backend\\scripts\\feedback_notification_smoke.py` 通过
   - `backend\\venv\\Scripts\\python.exe backend\\scripts\\sqlite_smoke_check.py` 通过
+
+### 14.11 2026-04-14 追加：第四阶段当前完成度与新聊天接手顺序
+- 已在文档中标注完成状态：
+  - `PHASE4_ACCEPTANCE_EXECUTION_PLAN_v1.md`
+  - `enterprise_client/docs/PHASE4_ENTERPRISE_ACCEPTANCE_CHECKLIST.md`
+- 当前可视为“已完成 / 已有自动化护栏”的项：
+  - 启动前健康检查基线
+  - 第 2 项账号与数据隔离
+  - 第 3 项企业独立客户端登录核心链
+  - 第 4 项派发任务与路线显示
+  - 第 5 项 JSON 任务导入
+  - 第 6 项拓扑主干道
+  - 第 4D 的同路不超车 / 双向避让 / 死锁打破核心规则自动化
+  - 第 7 项中的后端容量、电量趋势、充满释放
+  - 第 8 项中的企业内部请求与平台 Bug 反馈后端通知链
+- 当前仍未收口的项：
+  - 第 7 项前端：停车站 / 充电站的站级显示、`n/m`、悬停、站内 AGV 列表观感
+  - 第 8 项前端：小铃铛未读态、小铃铛与返回顶部按钮的布局关系
+  - 第 9 项：说明中心首次打开、`H` 重开、和企业设置 / 页面设置的层级关系
+  - 4B 补充项：拓扑保存链与运行态界面实机回归
+  - 4F 补充项：完整 EXE 演示链人工签收
+  - 4D 补充项：复杂交汇口、长时间运行稳定性
+- 新聊天建议的继续顺序：
+  1. 先处理第 9 项“说明中心与设置弹窗”，因为它和第 8 项前端弹层关系相邻，适合一起收口
+  2. 再处理第 8 项剩余前端问题：小铃铛未读态与遮挡关系
+  3. 接着回到第 7 项前端站级显示，把停车站 / 充电站的视觉与悬停继续收细
+  4. 最后做 4F EXE 人工签收与 4D 长时稳定性回归
+- 新聊天启动后建议先跑：
+  - `backend\\venv\\Scripts\\python.exe backend\\scripts\\sqlite_smoke_check.py`
+  - `backend\\venv\\Scripts\\python.exe backend\\scripts\\runtime_conflict_smoke.py`
+  - `backend\\venv\\Scripts\\python.exe backend\\scripts\\task_json_import_smoke.py`
+  - `backend\\venv\\Scripts\\python.exe backend\\scripts\\enterprise_client_login_smoke.py`
+  - `backend\\venv\\Scripts\\python.exe backend\\scripts\\feedback_notification_smoke.py`
+  - `cd frontend\\agv-frontend && npm run lint && npm run build`

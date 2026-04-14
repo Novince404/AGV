@@ -4,6 +4,8 @@
 
 ## 0. 启动前健康检查
 
+当前状态：`[已完成并持续使用]`
+
 在仓库根目录运行：
 
 ```bat
@@ -44,6 +46,8 @@ dist\AGV_Enterprise_Client_v1\start_enterprise_client.bat
 
 ## 2. 账号与数据隔离
 
+当前状态：`[已完成]` 已补自动化回归，当前主要作为演示前复核项。
+
 网页端回归：
 
 1. 登录个人用户，修改地图，例如切换地图方案或保存一处障碍。
@@ -60,6 +64,8 @@ dist\AGV_Enterprise_Client_v1\start_enterprise_client.bat
 - 企业管理员、企业操作工、企业后勤岗共享同一企业组织数据。
 
 ## 3. 企业独立客户端登录链
+
+当前状态：`[核心链已完成]` 已补三角色登录自动化与 `fail to fetch` 关键修复，完整 EXE 演示签收仍建议继续人工复核。
 
 分别登录：
 
@@ -79,6 +85,8 @@ dist\AGV_Enterprise_Client_v1\start_enterprise_client.bat
 
 ## 4. 派发任务与路线显示
 
+当前状态：`[已完成]` 路径即时显示与任务完成后路径清理已补回归。
+
 建议先用企业管理员或企业操作工验收：
 
 1. 新建或选择一台空闲 AGV。
@@ -95,6 +103,8 @@ dist\AGV_Enterprise_Client_v1\start_enterprise_client.bat
 
 ## 5. JSON 任务导入
 
+当前状态：`[已完成]` 已补自动化回归，并已对齐 demo 语义。
+
 在任务区域测试：
 
 - 导入 `demo/json/task_auto_single_demo.json`
@@ -109,6 +119,8 @@ dist\AGV_Enterprise_Client_v1\start_enterprise_client.bat
 - 多阶段任务导入不报失败。
 
 ## 6. 拓扑主干道
+
+当前状态：`[已完成]` 主干道默认权重、中途接入/离开、速度倍率链已补自动化回归。
 
 建议准备一条主干道，并把速度倍率临时调高到 4-5，便于肉眼观察。
 
@@ -127,6 +139,8 @@ dist\AGV_Enterprise_Client_v1\start_enterprise_client.bat
 
 ## 7. 站点、停车点、充电点
 
+当前状态：`[部分完成]` 后端容量、电量趋势、充满释放等核心链已补回归；前端站级显示、悬停、站内列表观感仍待继续收口。
+
 检查：
 
 - 站点、停车点、充电点可以显示容量。
@@ -137,6 +151,8 @@ dist\AGV_Enterprise_Client_v1\start_enterprise_client.bat
 - AGV 行驶、等待、停车、充电时，电量趋势符合当前配置。
 
 ## 8. 通知与协同
+
+当前状态：`[部分完成]` 后端通知链已补自动化回归；小铃铛未读态与不遮挡返回顶部按钮仍待前端界面回归。
 
 检查：
 
@@ -152,6 +168,8 @@ dist\AGV_Enterprise_Client_v1\start_enterprise_client.bat
 - 已覆盖“个人/企业用户提交平台 Bug -> 平台管理员可见并处理 -> 提交者侧状态回刷”
 
 ## 9. 说明中心与设置弹窗
+
+当前状态：`[未完全收口]` 需要继续确认首次打开、`H` 重开、层级覆盖和说明内容在界面上的实际体验。
 
 检查：
 
