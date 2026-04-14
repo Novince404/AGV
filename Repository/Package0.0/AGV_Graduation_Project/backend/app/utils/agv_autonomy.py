@@ -573,6 +573,34 @@ def _finalize_autonomy_target(agv, target_type: str, now: datetime) -> bool:
     return False
 
 
+def _normalize_stalled_autonomy_motion_if_needed(agv, expected_status: str, now: datetime, node_by_position: dict) -> bool:
+    current_edge = str(getattr(agv, "current_edge", "") or "").strip()
+    if not current_edge:
+        return True
+
+    motion_updated_sec = _seconds_since(getattr(agv, "motion_updated_at", None), now)
+    motion_started_at = _parse_iso(getattr(agv, "motion_started_at", None))
+    try:
+        motion_duration_ms = max(float(getattr(agv, "motion_duration_ms", 0) or 0), 0.0)
+    except Exception:
+        motion_duration_ms = 0.0
+    motion_finished = False
+    if motion_started_at is not None and motion_duration_ms > 0:
+        motion_finished = (now - motion_started_at).total_seconds() * 1000.0 >= motion_duration_ms
+
+    if motion_updated_sec < AUTONOMY_STALLED_RECOVERY_SEC and not motion_finished:
+        return False
+
+    position_key = (int(getattr(agv, "x", 0) or 0), int(getattr(agv, "y", 0) or 0))
+    position_node = node_by_position.get(position_key)
+    if position_node is not None:
+        agv.current_node = str(position_node.get("key") or agv.current_node or "")
+    elif not str(getattr(agv, "current_node", "") or "").strip():
+        agv.current_node = f"grid:{position_key[0]}:{position_key[1]}"
+    agv.clear_motion(motion_state=expected_status)
+    return True
+
+
 def _recover_stalled_autonomy_if_needed(agv, now: datetime, grid_cols: int, grid_rows: int) -> bool:
     if agv.task_id is not None:
         return False
@@ -585,16 +613,18 @@ def _recover_stalled_autonomy_if_needed(agv, now: datetime, grid_cols: int, grid
     expected_status = "waiting_for_charge" if target_type == "charge" else "idle_returning"
     if str(getattr(agv, "status", "") or "").strip().lower() != expected_status:
         return False
-    if str(getattr(agv, "current_edge", "") or "").strip():
-        return False
 
     motion_state = str(getattr(agv, "motion_state", "") or expected_status).strip().lower()
     if motion_state not in {"waiting", "yielding", expected_status}:
         return False
-    if _seconds_since(getattr(agv, "motion_updated_at", None), now) < AUTONOMY_STALLED_RECOVERY_SEC:
+
+    had_current_edge = bool(str(getattr(agv, "current_edge", "") or "").strip())
+    node_by_key, node_by_position = _build_runtime_topology_node_indexes()
+    if not _normalize_stalled_autonomy_motion_if_needed(agv, expected_status, now, node_by_position):
+        return False
+    if not had_current_edge and _seconds_since(getattr(agv, "motion_updated_at", None), now) < AUTONOMY_STALLED_RECOVERY_SEC:
         return False
 
-    node_by_key, _ = _build_runtime_topology_node_indexes()
     target_node = node_by_key.get(target_key)
     if target_node is not None:
         target_x = int(target_node.get("x") or 0)

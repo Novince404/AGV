@@ -36,11 +36,13 @@ from app.utils.agv_autonomy import (  # noqa: E402
     _build_runtime_topology_occupancy_counts,
     _release_from_charging_if_ready,
     _sync_battery_runtime,
+    sync_agv_autonomy,
 )
 from app.utils.agv_movement import (  # noqa: E402
     _detect_same_corridor_follow_conflict,
     _detect_topology_edge_conflict,
     _should_current_agv_reroute,
+    move_agv_to_autonomy_target,
 )
 from app.utils.path_planner import build_runtime_special_node_constraints, plan_path  # noqa: E402
 from app.utils.task_chain import set_stage_paths  # noqa: E402
@@ -727,6 +729,120 @@ def assert_battery_runtime_behavior() -> None:
         expect(str(getattr(charging_agv, "motion_state", "") or "") == "idle", "released charging AGV motion state was not cleared")
 
 
+def assert_autonomy_target_motion_lifecycle() -> None:
+    actor = {
+        "id": "smoke_autonomy_motion",
+        "username": "smoke_autonomy_motion",
+        "role": "personal",
+    }
+    autonomy_scope = build_scope_key_from_actor(actor)
+    topology_payload = {
+        "topology_version": 1,
+        "nodes": [
+            {"key": "parking_a", "x": 2, "y": 1, "label": "Parking A", "node_type": "parking", "capacity": 4},
+            {"key": "charge_a", "x": 4, "y": 1, "label": "Charge A", "node_type": "charge", "capacity": 4},
+        ],
+        "edges": [],
+        "parking_nodes": ["parking_a"],
+        "charge_nodes": ["charge_a"],
+    }
+
+    with use_scope(autonomy_scope):
+        status_service.update_map_layout([], None, 10, 8, topology=topology_payload)
+
+        parking_agv = agv_service.create_agv(1, 1, actor=actor)["agv"]
+        started_parking = move_agv_to_autonomy_target(
+            parking_agv.id,
+            2,
+            1,
+            target_key="parking_a",
+            target_type="parking",
+            algorithm="astar",
+            grid_cols=10,
+            grid_rows=8,
+        )
+        expect(started_parking is True, "parking autonomy motion did not start")
+
+        parking_deadline = time.time() + 4.0
+        while time.time() < parking_deadline:
+            snapshot = next((item for item in list_agvs() if int(item.id) == int(parking_agv.id)), None)
+            if (
+                snapshot is not None
+                and str(getattr(snapshot, "status", "") or "") == "idle"
+                and int(getattr(snapshot, "x", 0) or 0) == 2
+                and int(getattr(snapshot, "y", 0) or 0) == 1
+                and str(getattr(snapshot, "current_node", "") or "") == "parking_a"
+                and not str(getattr(snapshot, "current_edge", "") or "").strip()
+            ):
+                break
+            time.sleep(0.05)
+
+        expect(snapshot is not None, "parking autonomy AGV snapshot missing")
+        expect(str(getattr(snapshot, "status", "") or "") == "idle", "parking autonomy AGV did not finish at idle")
+        expect(int(getattr(snapshot, "x", 0) or 0) == 2 and int(getattr(snapshot, "y", 0) or 0) == 1, "parking autonomy AGV did not reach the parking node")
+        expect(str(getattr(snapshot, "current_node", "") or "") == "parking_a", "parking autonomy AGV did not settle on the parking node")
+        expect(not str(getattr(snapshot, "current_edge", "") or "").strip(), "parking autonomy AGV retained current_edge after arrival")
+
+        charging_agv = agv_service.create_agv(3, 1, actor=actor)["agv"]
+        started_charge = move_agv_to_autonomy_target(
+            charging_agv.id,
+            4,
+            1,
+            target_key="charge_a",
+            target_type="charge",
+            algorithm="astar",
+            grid_cols=10,
+            grid_rows=8,
+        )
+        expect(started_charge is True, "charge autonomy motion did not start")
+
+        charging_deadline = time.time() + 4.0
+        while time.time() < charging_deadline:
+            charging_snapshot = next((item for item in list_agvs() if int(item.id) == int(charging_agv.id)), None)
+            if (
+                charging_snapshot is not None
+                and str(getattr(charging_snapshot, "status", "") or "") == "charging"
+                and int(getattr(charging_snapshot, "x", 0) or 0) == 4
+                and int(getattr(charging_snapshot, "y", 0) or 0) == 1
+                and str(getattr(charging_snapshot, "current_node", "") or "") == "charge_a"
+                and not str(getattr(charging_snapshot, "current_edge", "") or "").strip()
+            ):
+                break
+            time.sleep(0.05)
+
+        expect(charging_snapshot is not None, "charge autonomy AGV snapshot missing")
+        expect(str(getattr(charging_snapshot, "status", "") or "") == "charging", "charge autonomy AGV did not enter charging state")
+        expect(int(getattr(charging_snapshot, "x", 0) or 0) == 4 and int(getattr(charging_snapshot, "y", 0) or 0) == 1, "charge autonomy AGV did not reach the charge node")
+        expect(str(getattr(charging_snapshot, "current_node", "") or "") == "charge_a", "charge autonomy AGV did not settle on the charge node")
+        expect(not str(getattr(charging_snapshot, "current_edge", "") or "").strip(), "charge autonomy AGV retained current_edge after arrival")
+
+        stalled_agv = agv_service.create_agv(4, 2, actor=actor)["agv"]
+        stalled_agv.x = 4
+        stalled_agv.y = 1
+        stalled_agv.status = "waiting_for_charge"
+        stalled_agv.auto_target_node = "charge_a"
+        stalled_agv.auto_target_type = "charge"
+        stalled_agv.current_node = "grid:3:1"
+        stalled_agv.current_edge = "grid:3:1->grid:4:1"
+        stalled_agv.motion_state = "waiting_for_charge"
+        stalled_agv.motion_started_at = (datetime.now() - timedelta(seconds=4)).isoformat(timespec="milliseconds")
+        stalled_agv.motion_updated_at = (datetime.now() - timedelta(seconds=4)).isoformat(timespec="milliseconds")
+        stalled_agv.motion_duration_ms = 200
+        stalled_agv.motion_source_x = 3.0
+        stalled_agv.motion_source_y = 1.0
+        stalled_agv.motion_target_x = 4.0
+        stalled_agv.motion_target_y = 1.0
+        stalled_agv.render_x = 3.0
+        stalled_agv.render_y = 1.0
+
+        sync_agv_autonomy()
+        recovered_snapshot = next((item for item in list_agvs() if int(item.id) == int(stalled_agv.id)), None)
+        expect(recovered_snapshot is not None, "stalled autonomy AGV snapshot missing")
+        expect(str(getattr(recovered_snapshot, "status", "") or "") == "charging", "stalled autonomy AGV did not recover into charging")
+        expect(str(getattr(recovered_snapshot, "current_node", "") or "") == "charge_a", "stalled autonomy AGV did not recover onto the target node")
+        expect(not str(getattr(recovered_snapshot, "current_edge", "") or "").strip(), "stalled autonomy AGV retained stale current_edge after recovery")
+
+
 def assert_ui_settings_roundtrip() -> None:
     initial_settings = status_service.get_ui_settings()
     expect(
@@ -1256,12 +1372,13 @@ def main() -> None:
     assert_reserved_special_node_constraints()
     assert_special_node_capacity_runtime()
     assert_battery_runtime_behavior()
+    assert_autonomy_target_motion_lifecycle()
     assert_ui_settings_roundtrip()
     assert_task_path_lifecycle()
     assert_topology_trunk_lane_behavior()
     assert_topology_conflict_rules()
 
-    print("SQLITE_SMOKE_OK point/template/map/scope/reserved_special_node/special_node_capacity/battery_runtime/ui_settings/task_path_lifecycle/topology_trunk_lane_behavior/topology_conflict_rules")
+    print("SQLITE_SMOKE_OK point/template/map/scope/reserved_special_node/special_node_capacity/battery_runtime/autonomy_motion/ui_settings/task_path_lifecycle/topology_trunk_lane_behavior/topology_conflict_rules")
     cleanup_db_file()
 
 

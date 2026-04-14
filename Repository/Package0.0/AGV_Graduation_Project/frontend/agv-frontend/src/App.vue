@@ -3462,20 +3462,8 @@ const topologyEdgeByKey = computed(() =>
 const enterpriseTopologyRuntimeOccupancyMap = computed(() => {
   if (!uiTreatAsEnterpriseRole.value || !currentMapTopologySummary.value.enabled) return {}
   const byKey = Object.create(null)
-  const nodeByPosition = new Map(
-    (currentMapTopology.value?.nodes || []).map(node => [blockedCellKey(node.x, node.y), node])
-  )
   for (const agv of displayAgvs.value) {
-    const currentNodeKey = String(agv?.current_node || '').trim()
-    const activeEdgeKey = String(agv?.current_edge || '').trim()
-    let targetNode = null
-    if (!activeEdgeKey && currentNodeKey) {
-      targetNode = (currentMapTopology.value?.nodes || []).find(node => node.key === currentNodeKey) || null
-    }
-    if (!targetNode && !activeEdgeKey) {
-      const positionKey = blockedCellKey(Math.round(Number(agv?.x || 0)), Math.round(Number(agv?.y || 0)))
-      targetNode = nodeByPosition.get(positionKey) || null
-    }
+    const targetNode = resolveEnterpriseRuntimeTopologyNodeForAgv(agv)
     if (!targetNode) continue
     const key = String(targetNode.key || '')
     if (!key) continue
@@ -4300,8 +4288,17 @@ function resolveRenderedBackendAgv(agv, nowMs = agvAnimationNow.value) {
     Number.isFinite(startedMs) &&
     (sourceX !== targetX || sourceY !== targetY)
 
-  const displayX = shouldAnimate ? sourceX + (targetX - sourceX) * progress : enterpriseMotionEnabled ? renderX : normalizeAgvMotionNumber(agv?.x)
-  const displayY = shouldAnimate ? sourceY + (targetY - sourceY) * progress : enterpriseMotionEnabled ? renderY : normalizeAgvMotionNumber(agv?.y)
+  const preferPhysicalPosition = enterpriseMotionEnabled && currentEdgeKey && !shouldAnimate
+  const displayX = shouldAnimate
+    ? sourceX + (targetX - sourceX) * progress
+    : enterpriseMotionEnabled
+      ? (preferPhysicalPosition ? normalizeAgvMotionNumber(agv?.x) : renderX)
+      : normalizeAgvMotionNumber(agv?.x)
+  const displayY = shouldAnimate
+    ? sourceY + (targetY - sourceY) * progress
+    : enterpriseMotionEnabled
+      ? (preferPhysicalPosition ? normalizeAgvMotionNumber(agv?.y) : renderY)
+      : normalizeAgvMotionNumber(agv?.y)
 
   return {
     ...agv,
@@ -4708,7 +4705,9 @@ function resolveEnterpriseRuntimeTopologyNodeForAgv(agv) {
   if (!uiTreatAsEnterpriseRole.value || !currentMapTopologySummary.value.enabled || agv?.source !== 'backend') return null
   const topologyNodes = currentMapTopology.value?.nodes || []
   const currentNodeKey = String(agv?.current_node || '').trim()
-  if (currentNodeKey) {
+  const activeEdgeKey = String(agv?.current_edge || '').trim()
+  const motionActive = isBackendAgvMotionActive(agv, agvAnimationNow.value)
+  if (currentNodeKey && (!activeEdgeKey || motionActive)) {
     const byKey = topologyNodes.find(node => String(node.key || '') === currentNodeKey)
     if (byKey) return byKey
   }
@@ -19593,7 +19592,4 @@ onBeforeUnmount(() => {
     </div>
   </div>
 </template>
-
-
-
 

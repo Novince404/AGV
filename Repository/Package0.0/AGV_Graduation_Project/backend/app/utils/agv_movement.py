@@ -1281,18 +1281,28 @@ def move_agv_to_autonomy_target(
                             if topology_conflict is None:
                                 blocking_agv = _find_blocking_agv_at_position(agv.id, next_x, next_y)
                         if topology_conflict is None and blocking_agv is None:
-                            target_node, target_speed, travel_duration_sec = _begin_motion_segment(
+                            motion_segment = _begin_motion_segment(
                                 agv,
                                 point,
                                 active_status,
                                 motion_settings=runtime_motion_settings,
                             )
-                            moved = True
+                            if motion_segment is not None:
+                                target_node, target_speed, travel_duration_sec, edge_key = motion_segment
+                                moved = True
 
                     waited_sec = max(time.monotonic() - wait_started_at, 0.0)
                     if moved:
                         time.sleep(travel_duration_sec)
-                        _finish_motion_segment(agv, next_x, next_y, target_node, active_status, target_speed)
+                        _finish_motion_segment(
+                            agv,
+                            next_x,
+                            next_y,
+                            target_node,
+                            active_status,
+                            target_speed,
+                            edge_key,
+                        )
                         break
 
                     if topology_conflict is not None:

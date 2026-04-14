@@ -552,3 +552,33 @@ git -C "Repository/Package0.0/AGV_Graduation_Project" push AGV main
   - `backend\\venv\\Scripts\\python.exe backend\\scripts\\enterprise_client_login_smoke.py`
   - `backend\\venv\\Scripts\\python.exe backend\\scripts\\feedback_notification_smoke.py`
   - `cd frontend\\agv-frontend && npm run lint && npm run build`
+
+### 14.12 2026-04-14 追加：修复“进站后 0/8 + 回仓/充电只走一步就卡住”
+- 根因确认：
+  - `backend/app/utils/agv_movement.py` 的自治移动线程里，`_begin_motion_segment()` 已经改成返回 4 个值，但 `move_agv_to_autonomy_target()` 里的调用方仍按 3 个值解包
+  - 同一段代码在 `_finish_motion_segment()` 调用时也漏传了 `edge_key`
+  - 结果是自治回仓 / 回充线程会在第一段移动刚开始时直接异常退出：
+    - AGV 看起来只走了一步
+    - `current_edge` 残留
+    - 如果目标是站点 / 停车站 / 充电站，前端会把静止车隐藏掉，但占用统计又因为残留 `current_edge` 没把它重新计回去，于是出现“车消失且显示 0/8”
+- 已做修复：
+  - `backend/app/utils/agv_movement.py`
+    - 修正自治线程对 `_begin_motion_segment()` 的返回值解包
+    - 补上 `_finish_motion_segment()` 所需的 `edge_key`
+  - `backend/app/utils/agv_autonomy.py`
+    - 新增“残留 `current_edge` 的自治卡死恢复”
+    - 当自治车仍处于 `idle_returning / waiting_for_charge`，但边状态明显过期时，会先把当前位置重新规范化，再自动续跑或直接在目标站点收尾
+  - `frontend/agv-frontend/src/App.vue`
+    - 运行态站点占用统计改为复用 `resolveEnterpriseRuntimeTopologyNodeForAgv()`
+    - 当 AGV 仍带着过期 `current_edge` 但动画已结束时，前端不再错误忽略该 AGV，也不再继续拿旧的 `render_x / render_y` 作为停驻位置
+- 已补自动化回归：
+  - `backend/scripts/sqlite_smoke_check.py`
+  - 新增 `assert_autonomy_target_motion_lifecycle()`
+    - 覆盖“自治回仓一格到站后能正常收尾”
+    - 覆盖“自治回充一格到站后会进入 charging”
+    - 覆盖“历史残留 current_edge 的自治车会被自动恢复，不再长期卡死”
+- 相关验证结果：
+  - `backend\\venv\\Scripts\\python.exe -m compileall backend\\app backend\\scripts` 通过
+  - `backend\\venv\\Scripts\\python.exe backend\\scripts\\sqlite_smoke_check.py` 通过
+  - `cd frontend\\agv-frontend && npm run lint` 通过
+  - `cd frontend\\agv-frontend && npm run build` 通过
