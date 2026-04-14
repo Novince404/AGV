@@ -582,3 +582,19 @@ git -C "Repository/Package0.0/AGV_Graduation_Project" push AGV main
   - `backend\\venv\\Scripts\\python.exe backend\\scripts\\sqlite_smoke_check.py` 通过
   - `cd frontend\\agv-frontend && npm run lint` 通过
   - `cd frontend\\agv-frontend && npm run build` 通过
+
+### 14.13 2026-04-14 追加：修复“电量耗尽后回弹成 100%”
+- 根因确认：
+  - `backend/app/utils/agv_autonomy.py` 中有两处把电量读取写成了 `float(getattr(agv, "battery_level", 100.0) or 100.0)`
+  - 这会把合法的 `0.0` 当成假值处理，下一轮电量同步或低电量自治判断时直接回退到 `100.0`
+  - 结果表现为：AGV 电量耗尽后，下一次自治同步会异常显示回到 `100%`
+- 已做修复：
+  - 新增 `_read_battery_level()`，统一按“只对 `None` 和非法值兜底，不吞掉 `0`”读取电量
+  - `_sync_battery_runtime()` 改为使用 `_read_battery_level()`
+  - `_start_autonomy_if_needed()` 改为使用 `_read_battery_level()`，确保 0 电量仍会被判定为低电量而不是满电
+- 已补自动化回归：
+  - `backend/scripts/sqlite_smoke_check.py`
+  - 在 `assert_battery_runtime_behavior()` 中新增“耗尽电量 AGV”场景，验证 `0.0` 不会回弹成 `100.0`
+- 相关验证结果：
+  - `backend\\venv\\Scripts\\python.exe -m compileall backend\\app backend\\scripts` 通过
+  - `backend\\venv\\Scripts\\python.exe backend\\scripts\\sqlite_smoke_check.py` 通过

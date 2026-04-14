@@ -711,8 +711,15 @@ def assert_battery_runtime_behavior() -> None:
         charging_agv.energy_updated_at = energy_updated_at
         charging_agv.clear_motion(motion_state="charging")
 
+        depleted_agv = agv_service.create_agv(5, 4)["agv"]
+        depleted_agv.status = "idle"
+        depleted_agv.current_node = station_key
+        depleted_agv.battery_level = 0.0
+        depleted_agv.energy_updated_at = energy_updated_at
+        depleted_agv.clear_motion()
+
         node_by_key, node_by_position = _build_runtime_topology_node_indexes()
-        for agv in (moving_agv, waiting_agv, parking_idle_agv, station_idle_agv, charging_agv):
+        for agv in (moving_agv, waiting_agv, parking_idle_agv, station_idle_agv, charging_agv, depleted_agv):
             _sync_battery_runtime(agv, now, policy_settings, node_by_key, node_by_position)
 
         expect(abs(float(moving_agv.battery_level) - 70.0) < 1e-6, "moving AGV battery drain did not match the active drain rate")
@@ -720,6 +727,7 @@ def assert_battery_runtime_behavior() -> None:
         expect(abs(float(parking_idle_agv.battery_level) - 79.5) < 1e-6, "parking-idle AGV battery drain did not match the parking idle drain rate")
         expect(abs(float(station_idle_agv.battery_level) - 78.0) < 1e-6, "idle AGV battery drain did not match the normal idle drain rate")
         expect(abs(float(charging_agv.battery_level) - 82.0) < 1e-6, "charging AGV battery gain did not match the charging rate")
+        expect(abs(float(depleted_agv.battery_level) - 0.0) < 1e-6, "depleted AGV battery unexpectedly reset instead of staying at 0")
 
         charging_agv.battery_level = 89.0
         released = _release_from_charging_if_ready(charging_agv, now)

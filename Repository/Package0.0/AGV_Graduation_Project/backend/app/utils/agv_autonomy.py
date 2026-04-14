@@ -64,6 +64,16 @@ def _clamp_battery(value: float) -> float:
     return round(min(max(float(value), 0.0), 100.0), 2)
 
 
+def _read_battery_level(agv, default: float = 100.0) -> float:
+    raw_value = getattr(agv, "battery_level", None)
+    if raw_value is None:
+        return float(default)
+    try:
+        return float(raw_value)
+    except (TypeError, ValueError):
+        return float(default)
+
+
 def _get_autonomy_policy_settings() -> dict:
     payload = get_ui_settings_store(AUTONOMY_UI_SETTINGS_DEFAULTS)
     try:
@@ -512,7 +522,7 @@ def _retarget_active_autonomy_if_needed(agv, grid_cols: int, grid_rows: int) -> 
 
 def _sync_battery_runtime(agv, now: datetime, policy_settings: dict, node_by_key: dict[str, dict], node_by_position: dict[tuple[int, int], dict]) -> None:
     elapsed = _seconds_since(getattr(agv, "energy_updated_at", None), now)
-    battery_level = float(getattr(agv, "battery_level", 100.0) or 100.0)
+    battery_level = _read_battery_level(agv)
     if elapsed <= 0:
         if not getattr(agv, "energy_updated_at", None):
             agv.energy_updated_at = now.isoformat(timespec="seconds")
@@ -677,7 +687,7 @@ def _start_autonomy_if_needed(agv, now: datetime, grid_cols: int, grid_rows: int
     if agv.task_id is not None or agv.status in AUTONOMY_BLOCKING_STATUSES or agv.status == "charging":
         return
 
-    battery_level = float(getattr(agv, "battery_level", 100.0) or 100.0)
+    battery_level = _read_battery_level(agv)
     current_node = str(getattr(agv, "current_node", "") or "")
     idle_elapsed = _seconds_since(getattr(agv, "idle_since_at", None), now)
     idle_charge_timeout_sec = float(policy_settings.get("idle_charge_timeout_sec", DEFAULT_IDLE_CHARGE_TIMEOUT_SEC) or DEFAULT_IDLE_CHARGE_TIMEOUT_SEC)
