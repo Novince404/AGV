@@ -1817,6 +1817,7 @@
       "topologyBaseSpeed": "普通区域使用基础速率；进入主干道后，实际速度 = 基础速率 × 该边速度倍率。",
       "topologyLaneHint": "主干道、支路、服务道都属于拓扑边，只是速度与调度优先级不同。",
       "topologyYieldHint": "当主干道发生会车、跟驰或占用冲突时，系统会根据优先级、让行代价和任务顺序做等待、让行或重规划。",
+      "topologyAutonomyHint": "空闲回仓、低电量回充、等待和让行都会继续遵守站点容量、主干道速度与冲突避让规则。",
       "reopenHint": "已关闭操作说明。按 H 可重新打开。"
     },
     "toolbarGuideHintText": "",

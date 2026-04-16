@@ -891,6 +891,7 @@ const startPoint = ref(null)
 const endPoint = ref(null)
 const showGuideCenter = ref(false)
 const showGuideCenterOnLoad = ref(true)
+const guideCenterAutoOpenSessionKey = ref('')
 const feedbackBellMenuOpen = ref(false)
 const enterpriseRequestUnreadIds = ref([])
 const platformBugFeedbackUnreadIds = ref([])
@@ -1659,7 +1660,8 @@ const guideCenterTopologyEntries = computed(() => [
   guideCenterLocale.value.topologyDefinition,
   guideCenterLocale.value.topologyBaseSpeed,
   guideCenterLocale.value.topologyLaneHint,
-  guideCenterLocale.value.topologyYieldHint
+  guideCenterLocale.value.topologyYieldHint,
+  guideCenterLocale.value.topologyAutonomyHint
 ].filter(Boolean))
 const shortcutEditorActionDefinitions = computed(() => [
   {
@@ -2526,7 +2528,8 @@ const enterpriseRequestBellCount = computed(() =>
   enterpriseRequestUnreadCount.value > 0 ? enterpriseRequestUnreadCount.value : enterpriseRequestOpenCount.value
 )
 const feedbackBellBadgeCount = computed(() =>
-  enterpriseRequestBellCount.value + (!isPlatformAdmin.value ? 0 : platformBugFeedbackUnreadCount.value)
+  enterpriseRequestBellCount.value +
+  (showPlatformBugFeedbackToolbarEntry.value ? platformBugFeedbackUnreadCount.value : 0)
 )
 const feedbackBellHasAttention = computed(() => feedbackBellBadgeCount.value > 0)
 const enterpriseToolbarStatusBadgeText = computed(() => {
@@ -12637,6 +12640,24 @@ function closeGuideCenter() {
   showFloatingToast(guideCenterLocale.value.reopenHint || 'Press H to reopen the guide.', 'info')
 }
 
+function resolveGuideCenterAutoOpenKey() {
+  if (!dashboardUnlocked.value || isPlatformAdminGovernanceMode.value) return ''
+  const currentUser = authCurrentUser.value || {}
+  const userKey =
+    String(currentUser.id || '').trim() ||
+    String(currentUser.username || authUsername.value || '').trim() ||
+    'guest'
+  return `${effectiveSurfaceRole.value || 'guest'}:${userKey}`
+}
+
+function syncGuideCenterAutoOpen() {
+  if (!showGuideCenterOnLoad.value) return
+  const sessionKey = resolveGuideCenterAutoOpenKey()
+  if (!sessionKey || guideCenterAutoOpenSessionKey.value === sessionKey) return
+  guideCenterAutoOpenSessionKey.value = sessionKey
+  showGuideCenter.value = true
+}
+
 function toggleFeedbackBellMenu() {
   feedbackBellMenuOpen.value = !feedbackBellMenuOpen.value
 }
@@ -15851,6 +15872,12 @@ function onKeyDown(event) {
 
   const normalizedKey = normalizeShortcutKeyValue(event.key)
 
+  if (showGuideCenter.value && normalizedKey === 'Escape') {
+    event.preventDefault()
+    closeGuideCenter()
+    return
+  }
+
   if (enterpriseShortcutPlannerDialogOpen.value && shortcutEditorCaptureActionKey.value) {
     if (!normalizedKey || ['Shift', 'Control', 'Alt', 'Meta'].includes(normalizedKey)) return
     event.preventDefault()
@@ -15858,13 +15885,13 @@ function onKeyDown(event) {
     return
   }
 
-  if (enterpriseShortcutPlannerDialogOpen.value) return
-
   if (normalizedKey === 'H') {
     event.preventDefault()
     openGuideCenter()
     return
   }
+
+  if (enterpriseShortcutPlannerDialogOpen.value) return
 
   if (normalizedKey && normalizedKey === normalizeShortcutKeyValue(activeShortcutBindings.value.selection_cancel)) {
     event.preventDefault()
@@ -16070,11 +16097,19 @@ onMounted(() => {
   window.addEventListener('resize', onWindowResize)
   window.addEventListener('mousemove', onGlobalMouseMove)
   window.addEventListener('mouseup', onGlobalMouseUp)
-  showGuideCenter.value = showGuideCenterOnLoad.value
+  syncGuideCenterAutoOpen()
   if (typeof document !== 'undefined') {
     document.title = authAppTitle.value
   }
 })
+
+watch(
+  [dashboardUnlocked, effectiveSurfaceRole, authCurrentUser, showGuideCenterOnLoad, isPlatformAdminGovernanceMode],
+  () => {
+    syncGuideCenterAutoOpen()
+  },
+  { immediate: true }
+)
 
 watch(
   authAppTitle,
@@ -19087,10 +19122,16 @@ onBeforeUnmount(() => {
               <button
                 v-if="showPlatformBugFeedbackToolbarEntry"
                 class="feedback-fab-menu-item"
+                :class="{ 'has-alert': platformBugFeedbackUnreadCount > 0 }"
                 type="button"
                 @click="openPlatformBugFeedbackDialogFromBell"
               >
-                <strong>{{ t('platform_bug_feedback_entry') }}</strong>
+                <strong>
+                  {{ t('platform_bug_feedback_entry') }}
+                  <span v-if="platformBugFeedbackUnreadCount > 0" class="feedback-fab-menu-badge">
+                    {{ platformBugFeedbackUnreadCount }}
+                  </span>
+                </strong>
                 <span>{{ t('feedback_bell_platform_bug_hint') }}</span>
               </button>
             </div>
@@ -19592,4 +19633,3 @@ onBeforeUnmount(() => {
     </div>
   </div>
 </template>
-

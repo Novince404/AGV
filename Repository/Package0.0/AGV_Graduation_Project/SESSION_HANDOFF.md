@@ -598,3 +598,20 @@ git -C "Repository/Package0.0/AGV_Graduation_Project" push AGV main
 - 相关验证结果：
   - `backend\\venv\\Scripts\\python.exe -m compileall backend\\app backend\\scripts` 通过
   - `backend\\venv\\Scripts\\python.exe backend\\scripts\\sqlite_smoke_check.py` 通过
+
+### 14.14 2026-04-16 追加：第四阶段第 8/9 项前端基础链补强
+- 第 9 项“说明中心与设置弹窗”已补：
+  - `GuideCenterDialog.vue` 改为 `Teleport to="body"`，并补 `role="dialog"` / `aria-modal`，让说明中心稳定浮在企业设置、页面设置等弹窗上层
+  - 首次打开逻辑改为等工作台真正解锁后再自动打开，并按“角色 + 用户”只打开一次，避免登录页阶段误弹或切账号后状态混乱
+  - `H` 快捷键可在非快捷键录制状态下重新打开说明中心，`Escape` 可关闭说明中心
+  - 说明中心拓扑说明补入“空闲回仓、低电量回充、等待和让行仍遵守容量、主干道速度与冲突避让规则”
+- 第 8 项“通知与协同”前端基础链已补：
+  - 小铃铛未读数字现在同时统计企业内部请求与平台 Bug 反馈未读项
+  - 平台 Bug 反馈菜单项增加未读徽标和高亮态
+  - 小铃铛右下角位置上移，避开右侧面板“返回顶部”按钮的视觉占位
+- 文档状态已同步：
+  - `enterprise_client/docs/PHASE4_ENTERPRISE_ACCEPTANCE_CHECKLIST.md`
+  - `PHASE4_ACCEPTANCE_EXECUTION_PLAN_v1.md`
+- 后续仍建议：
+  - 在完整企业演示链中人工复核第 8/9 项一次
+  - 继续推进第 7 项前端站级显示、4F EXE 演示签收、4D 长时间稳定性回归

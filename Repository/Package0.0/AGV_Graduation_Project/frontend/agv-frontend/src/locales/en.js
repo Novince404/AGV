@@ -1817,6 +1817,7 @@
       "topologyBaseSpeed": "Normal areas use the base speed. Once an AGV enters a trunk lane, the actual speed becomes base speed × the speed multiplier of that edge.",
       "topologyLaneHint": "Main, branch, and service lanes are all topology edges. They differ only in speed and scheduling priority.",
       "topologyYieldHint": "When a trunk lane has head-on traffic, following conflicts, or occupancy conflicts, the system decides whether to wait, yield, or replan based on priority, yield cost, and task order.",
+      "topologyAutonomyHint": "Idle return, low-battery charging, waiting, and yielding all continue to respect station capacity, trunk-lane speed, and conflict-avoidance rules.",
       "reopenHint": "Guide closed. Press H to reopen it."
     },
     "toolbarGuideHintText": "",
