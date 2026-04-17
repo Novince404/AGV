@@ -685,3 +685,25 @@ git -C "Repository/Package0.0/AGV_Graduation_Project" push AGV main
 - 当前 4D 状态：
   - 同路不超车、双向避让、死锁打破、并发抢边、复杂交汇口多轮长跑都有自动化护栏
   - 仍建议最终演示前进行真实界面长时间人工复核
+
+### 14.18 2026-04-17 追加：第四阶段最终演示前自动化总回归
+- 已按 `enterprise_client/docs/PHASE4_ENTERPRISE_ACCEPTANCE_CHECKLIST.md` 的启动前健康检查做总回归。
+- 本轮通过项：
+  - `backend\\venv\\Scripts\\python.exe -m compileall backend\\app`
+  - `backend\\venv\\Scripts\\python.exe backend\\scripts\\sqlite_smoke_check.py`
+  - `backend\\venv\\Scripts\\python.exe backend\\scripts\\runtime_conflict_smoke.py`
+  - `backend\\venv\\Scripts\\python.exe backend\\scripts\\runtime_long_run_smoke.py`
+  - `backend\\venv\\Scripts\\python.exe backend\\scripts\\task_json_import_smoke.py`
+  - `backend\\venv\\Scripts\\python.exe backend\\scripts\\enterprise_client_login_smoke.py`
+  - `backend\\venv\\Scripts\\python.exe backend\\scripts\\feedback_notification_smoke.py`
+  - `build_enterprise_windows_package.bat`
+  - `backend\\venv\\Scripts\\python.exe backend\\scripts\\enterprise_packaged_backend_smoke.py`
+  - `cd frontend\\agv-frontend && npm run lint`
+  - `cd frontend\\agv-frontend && npm run build`
+- 当前结论：
+  - 第四阶段自动化健康检查链已整体通过
+  - 4A/4C/4D/4E/4F 的核心后端与打包链均有自动化护栏
+  - 仍不建议把“全部正式完成”写死，因为还剩浏览器/EXE 真实人工演示复核：
+    - 双击 `dist\\AGV_Enterprise_Client_v1\\start_enterprise_client.bat`
+    - 三个企业角色登录并观察页面、地图、AGV、任务、企业设置 / 反馈入口
+    - 实机复核拓扑保存链、站级显示、说明中心、反馈铃和长时间运行观感
