@@ -12,6 +12,7 @@
 backend\venv\Scripts\python.exe -m compileall backend\app
 backend\venv\Scripts\python.exe backend\scripts\sqlite_smoke_check.py
 backend\venv\Scripts\python.exe backend\scripts\runtime_conflict_smoke.py
+backend\venv\Scripts\python.exe backend\scripts\runtime_long_run_smoke.py
 backend\venv\Scripts\python.exe backend\scripts\task_json_import_smoke.py
 backend\venv\Scripts\python.exe backend\scripts\enterprise_client_login_smoke.py
 backend\venv\Scripts\python.exe backend\scripts\enterprise_packaged_backend_smoke.py

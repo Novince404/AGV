@@ -661,3 +661,27 @@ git -C "Repository/Package0.0/AGV_Graduation_Project" push AGV main
   - 源码三角色登录链已自动化
   - 包内 `backend.exe` 三角色核心链已自动化
   - 仍建议人工双击 `dist\\AGV_Enterprise_Client_v1\\start_enterprise_client.bat`，确认浏览器打开、页面登录、企业设置 / 反馈入口实际可操作
+
+### 14.17 2026-04-17 追加：4D 复杂交汇口长跑自动化
+- 本轮没有改调度逻辑，而是把“复杂交汇口 + 多轮长时间运行”补成可重复脚本。
+- 新增：
+  - `backend/scripts/runtime_long_run_smoke.py`
+  - 使用独立 SQLite smoke 数据库
+  - 构造十字交汇拓扑：东西向与南北向两条主干道共享中心点
+  - 两台 AGV 连续 4 轮往返穿越中心点
+  - 每轮检查：
+    - 两个任务都能完成
+    - 采样过程中参与车辆不会同格
+    - 至少出现过 `waiting / yielding`，确认确实触发了交汇口冲突处理
+    - 参与车辆最终回到 `idle`
+    - `current_edge` 和 `task_id` 不残留
+- 文档状态已同步：
+  - `enterprise_client/docs/PHASE4_ENTERPRISE_ACCEPTANCE_CHECKLIST.md`
+  - `PHASE4_ACCEPTANCE_EXECUTION_PLAN_v1.md`
+- 相关验证结果：
+  - `backend\\venv\\Scripts\\python.exe backend\\scripts\\runtime_conflict_smoke.py` 通过
+  - `backend\\venv\\Scripts\\python.exe backend\\scripts\\runtime_long_run_smoke.py` 通过
+  - `backend\\venv\\Scripts\\python.exe -m compileall backend\\app backend\\scripts` 通过
+- 当前 4D 状态：
+  - 同路不超车、双向避让、死锁打破、并发抢边、复杂交汇口多轮长跑都有自动化护栏
+  - 仍建议最终演示前进行真实界面长时间人工复核
