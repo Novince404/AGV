@@ -615,3 +615,25 @@ git -C "Repository/Package0.0/AGV_Graduation_Project" push AGV main
 - 后续仍建议：
   - 在完整企业演示链中人工复核第 8/9 项一次
   - 继续推进第 7 项前端站级显示、4F EXE 演示签收、4D 长时间稳定性回归
+
+### 14.15 2026-04-17 追加：第四阶段第 7 项运行态站级显示基础链补强
+- 本轮只改前端运行态显示，不改调度、容量统计、回仓回充或路径逻辑。
+- 已做修复：
+  - `frontend/agv-frontend/src/App.vue`
+    - 聚合停车站 / 充电站的 hover 标题改为多行详情：站点名、当前占用、点位数、站内 AGV 编号或空站提示
+    - 聚合站点、异形站点徽标、单个特殊节点补 `role="button"`、`tabindex` 和 Enter / Space 打开站内详情
+    - 单个站点 / 停车点 / 充电点也补前端 hover 卡片，避免只能依赖浏览器原生 title
+  - `frontend/agv-frontend/src/assets/agv-map.css`
+    - 聚合站点主图继续只保留 `P/C + n/m`，详细信息下沉到 hover 和点击详情
+    - 停车站 / 充电站主体阴影从外扩阴影收敛为内描边，减少相邻站点互相遮蔽
+    - 竖向连续站点、异形轮廓站点统一使用站级徽标和 hover 弹层
+    - `n/m` 字号略微加粗放大，保持比站名/详情更克制
+- 文档状态已同步：
+  - `enterprise_client/docs/PHASE4_ENTERPRISE_ACCEPTANCE_CHECKLIST.md`
+  - `PHASE4_ACCEPTANCE_EXECUTION_PLAN_v1.md`
+- 相关验证结果：
+  - `cd frontend\\agv-frontend && npm run lint` 通过
+  - `cd frontend\\agv-frontend && npm run build` 通过
+- 后续仍建议：
+  - 在实际企业地图中人工复核横向、竖向、L 形聚合站点显示
+  - 继续推进 4F EXE 演示签收与 4D 长时间稳定性回归

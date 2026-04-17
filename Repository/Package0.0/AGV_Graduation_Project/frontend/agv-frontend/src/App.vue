@@ -661,11 +661,40 @@ function formatTopologySpecialGroupEditorLabel(group) {
   })
 }
 
-function formatTopologySpecialGroupRuntimeLabel(group) {
-  return formatInlineMessage(t('enterprise_settings_route_topology_group_runtime_label'), {
-    label: topologySpecialGroupBaseLabel(group?.nodeType),
-    occupied: String(Number(group?.occupancyCount || 0)),
-    capacity: String(Number(group?.capacityTotal || 0)),
+function formatTopologySpecialGroupOccupancyTitle(group) {
+  if (!group) return ''
+  const lines = [
+    formatTopologyStationDockTitle(group),
+    formatInlineMessage(t('topology_station_dialog_capacity_line'), {
+      count: String(Number(group?.occupancyCount || 0)),
+      capacity: String(Number(group?.capacityTotal || 0))
+    })
+  ]
+  if (Number(group?.count || 0) > 1) {
+    lines.push(
+      formatInlineMessage(t('topology_station_dialog_group_nodes'), {
+        count: String(Number(group.count || 0))
+      })
+    )
+  }
+  const occupiedAgvs = Array.isArray(group?.occupiedAgvs) ? group.occupiedAgvs : []
+  if (occupiedAgvs.length) {
+    lines.push(
+      formatInlineMessage(t('topology_station_dialog_hover_ids'), {
+        ids: occupiedAgvs.map(agv => agv.label).join(', ')
+      })
+    )
+  } else {
+    lines.push(t('topology_station_dialog_empty'))
+  }
+  return lines.join('\n')
+}
+
+function formatTopologySpecialGroupHoverAgvs(group) {
+  const occupiedAgvs = Array.isArray(group?.occupiedAgvs) ? group.occupiedAgvs : []
+  if (!occupiedAgvs.length) return t('topology_station_dialog_empty')
+  return formatInlineMessage(t('topology_station_dialog_hover_ids'), {
+    ids: occupiedAgvs.map(agv => agv.label).join(', ')
   })
 }
 
@@ -18516,9 +18545,14 @@ onBeforeUnmount(() => {
                 width: `${group.shellWidth}px`,
                 height: `${group.shellHeight}px`
               }"
-              :title="formatTopologySpecialGroupRuntimeLabel(group)"
+              :title="formatTopologySpecialGroupOccupancyTitle(group)"
+              :aria-label="formatTopologySpecialGroupOccupancyTitle(group)"
+              role="button"
+              tabindex="0"
               @mousedown.stop
               @click.stop="openTopologyStationDockDialog(group.key)"
+              @keydown.enter.prevent="openTopologyStationDockDialog(group.key)"
+              @keydown.space.prevent="openTopologyStationDockDialog(group.key)"
             >
               <div class="map-topology-special-group-shell-surface" aria-hidden="true"></div>
               <div class="map-topology-special-group-shell-badge">
@@ -18530,6 +18564,18 @@ onBeforeUnmount(() => {
                 </span>
               </div>
               <div class="map-topology-special-group-shell-body" aria-hidden="true"></div>
+              <div class="map-topology-special-group-hover-card" aria-hidden="true">
+                <strong>{{ formatTopologyStationDockTitle(group) }}</strong>
+                <span>
+                  {{
+                    formatInlineMessage(t('topology_station_dialog_capacity_line'), {
+                      count: String(Number(group.occupancyCount || 0)),
+                      capacity: String(Number(group.capacityTotal || 0))
+                    })
+                  }}
+                </span>
+                <span>{{ formatTopologySpecialGroupHoverAgvs(group) }}</span>
+              </div>
             </div>
             <template v-for="group in enterpriseRuntimeTopologyContourGroups" :key="`runtime-topology-special-group-contour-${group.key}`">
               <div
@@ -18544,7 +18590,7 @@ onBeforeUnmount(() => {
                   height: `${cell.height}px`,
                   borderRadius: cell.borderRadius
                 }"
-                :title="formatTopologySpecialGroupRuntimeLabel(group)"
+                :title="formatTopologySpecialGroupOccupancyTitle(group)"
                 @mousedown.stop
                 @click.stop="openTopologyStationDockDialog(group.key)"
               ></div>
@@ -18555,15 +18601,32 @@ onBeforeUnmount(() => {
                   left: `${group.badgeLeft}px`,
                   top: `${group.badgeTop}px`
                 }"
-                :title="formatTopologySpecialGroupRuntimeLabel(group)"
+                :title="formatTopologySpecialGroupOccupancyTitle(group)"
+                :aria-label="formatTopologySpecialGroupOccupancyTitle(group)"
+                role="button"
+                tabindex="0"
                 @mousedown.stop
                 @click.stop="openTopologyStationDockDialog(group.key)"
+                @keydown.enter.prevent="openTopologyStationDockDialog(group.key)"
+                @keydown.space.prevent="openTopologyStationDockDialog(group.key)"
               >
                 <span class="map-topology-special-group-shell-mark">
                   {{ group.nodeType === 'parking' ? 'P' : 'C' }}
                 </span>
                 <span class="map-topology-special-group-shell-metric">
                   {{ group.occupancyCount }}/{{ group.capacityTotal }}
+                </span>
+                <span class="map-topology-special-group-contour-popover" aria-hidden="true">
+                  <strong>{{ formatTopologyStationDockTitle(group) }}</strong>
+                  <span>
+                    {{
+                      formatInlineMessage(t('topology_station_dialog_capacity_line'), {
+                        count: String(Number(group.occupancyCount || 0)),
+                        capacity: String(Number(group.capacityTotal || 0))
+                      })
+                    }}
+                  </span>
+                  <span>{{ formatTopologySpecialGroupHoverAgvs(group) }}</span>
                 </span>
               </div>
             </template>
@@ -18584,13 +18647,37 @@ onBeforeUnmount(() => {
                 top: `${node.y * CELL_SIZE + (CELL_SIZE - 22) / 2}px`
               }"
               :title="formatTopologyNodeOccupancyTitle(node)"
+              :aria-label="node.isSpecial ? formatTopologyNodeOccupancyTitle(node) : undefined"
+              :role="node.isSpecial ? 'button' : undefined"
+              :tabindex="node.isSpecial ? 0 : undefined"
               @mousedown.stop
               @click.stop="openTopologyStationDockDialog(node)"
+              @keydown.enter.prevent="openTopologyStationDockDialog(node)"
+              @keydown.space.prevent="openTopologyStationDockDialog(node)"
             >
               <span>{{ node.badge }}</span>
               <small v-if="node.isSpecial" class="map-topology-node-count">
                 {{ node.occupancyCount }}/{{ node.capacity }}
               </small>
+              <span v-if="node.isSpecial" class="map-topology-node-hover-card" aria-hidden="true">
+                <strong>{{ formatTopologyNodeTitle(node) }}</strong>
+                <span>
+                  {{
+                    formatInlineMessage(t('topology_station_dialog_capacity_line'), {
+                      count: String(Number(node.occupancyCount || 0)),
+                      capacity: String(formatTopologyNodeCapacity(node))
+                    })
+                  }}
+                </span>
+                <span v-if="Array.isArray(node.occupiedAgvs) && node.occupiedAgvs.length">
+                  {{
+                    formatInlineMessage(t('topology_station_dialog_hover_ids'), {
+                      ids: node.occupiedAgvs.map(agv => agv.label).join(', ')
+                    })
+                  }}
+                </span>
+                <span v-else>{{ t('topology_station_dialog_empty') }}</span>
+              </span>
             </div>
 
             <div
