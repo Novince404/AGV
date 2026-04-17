@@ -637,3 +637,27 @@ git -C "Repository/Package0.0/AGV_Graduation_Project" push AGV main
 - 后续仍建议：
   - 在实际企业地图中人工复核横向、竖向、L 形聚合站点显示
   - 继续推进 4F EXE 演示签收与 4D 长时间稳定性回归
+
+### 14.16 2026-04-17 追加：4F 企业独立客户端打包链与包内后端 smoke 收口
+- 发现并修复一个真实 4F 打包问题：
+  - `build_enterprise_windows_package.bat` 原先把 PyInstaller 参数放在 spec 文件后面，脚本会返回成功，但 `backend\\dist\\AGV_Enterprise_Client\\backend.exe` 没有刷新
+  - 结果是 `dist\\AGV_Enterprise_Client_v1\\backend.exe` 仍停留在 2026-04-09 旧版本，包内 `/status/ui-settings` 缺少近期新增的低电量阈值字段
+- 已做修复：
+  - `build_enterprise_windows_package.bat`
+    - 将 PyInstaller 参数放到 spec 前面
+    - 用显式删除 `backend\\build\\backend_enterprise` 和 `backend\\dist\\AGV_Enterprise_Client` 替代当前环境下不稳定的 `--clean`
+    - 增加 `backend.exe` 产物存在性检查，避免“假成功”
+  - `backend/scripts/enterprise_packaged_backend_smoke.py`
+    - 新增包内 `backend.exe` smoke
+    - 会启动 `dist\\AGV_Enterprise_Client_v1\\backend.exe`
+    - 依次验证企业管理员、企业操作工、企业后勤岗登录
+    - 验证地图、AGV、任务、UI 设置接口，并明确检查 `low_battery_threshold` 和 `idle_charge_battery_threshold`
+- 已验证：
+  - `backend\\venv\\Scripts\\python.exe backend\\scripts\\enterprise_client_login_smoke.py` 通过
+  - `build_enterprise_windows_package.bat` 通过
+  - `backend\\venv\\Scripts\\python.exe backend\\scripts\\enterprise_packaged_backend_smoke.py` 通过
+  - `backend\\venv\\Scripts\\python.exe -m compileall backend\\app backend\\scripts` 通过
+- 当前 4F 状态：
+  - 源码三角色登录链已自动化
+  - 包内 `backend.exe` 三角色核心链已自动化
+  - 仍建议人工双击 `dist\\AGV_Enterprise_Client_v1\\start_enterprise_client.bat`，确认浏览器打开、页面登录、企业设置 / 反馈入口实际可操作

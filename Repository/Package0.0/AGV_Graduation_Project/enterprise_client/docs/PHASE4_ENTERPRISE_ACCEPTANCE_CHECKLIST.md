@@ -14,6 +14,7 @@ backend\venv\Scripts\python.exe backend\scripts\sqlite_smoke_check.py
 backend\venv\Scripts\python.exe backend\scripts\runtime_conflict_smoke.py
 backend\venv\Scripts\python.exe backend\scripts\task_json_import_smoke.py
 backend\venv\Scripts\python.exe backend\scripts\enterprise_client_login_smoke.py
+backend\venv\Scripts\python.exe backend\scripts\enterprise_packaged_backend_smoke.py
 backend\venv\Scripts\python.exe backend\scripts\feedback_notification_smoke.py
 cd frontend\agv-frontend
 npm run lint
@@ -65,7 +66,7 @@ dist\AGV_Enterprise_Client_v1\start_enterprise_client.bat
 
 ## 3. 企业独立客户端登录链
 
-当前状态：`[核心链已完成]` 已补三角色登录自动化与 `fail to fetch` 关键修复，完整 EXE 演示签收仍建议继续人工复核。
+当前状态：`[包内后端 smoke 已完成，浏览器演示待人工复核]` 已补三角色源码登录自动化、包内 `backend.exe` 三角色 smoke 与 `fail to fetch` 关键修复；完整双击启动浏览器演示仍建议人工复核。
 
 分别登录：
 

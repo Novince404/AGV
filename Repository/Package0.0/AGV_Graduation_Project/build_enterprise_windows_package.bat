@@ -4,6 +4,7 @@ setlocal
 echo === AGV Enterprise Client Package Build ===
 set "ROOT_PACKAGE_DIR=%~dp0dist\AGV_Enterprise_Client_v1"
 set "PYI_PACKAGE_DIR=%~dp0backend\dist\AGV_Enterprise_Client"
+set "PYI_BUILD_DIR=%~dp0backend\build\backend_enterprise"
 set "ENTERPRISE_DOCS_DIR=%~dp0enterprise_client\docs"
 set "DEMO_SOURCE_DIR=%~dp0demo"
 
@@ -21,9 +22,16 @@ if errorlevel 1 (
   exit /b 1
 )
 
-"%PACKAGE_PYTHON%" -m PyInstaller backend\packaging\backend_enterprise.spec --noconfirm --clean --distpath backend\dist --workpath backend\build
+if exist "%PYI_BUILD_DIR%" rmdir /s /q "%PYI_BUILD_DIR%"
+if exist "%PYI_PACKAGE_DIR%" rmdir /s /q "%PYI_PACKAGE_DIR%"
+
+"%PACKAGE_PYTHON%" -m PyInstaller --noconfirm --distpath backend\dist --workpath backend\build backend\packaging\backend_enterprise.spec
 if errorlevel 1 (
   echo Enterprise PyInstaller build failed.
+  exit /b 1
+)
+if not exist "%PYI_PACKAGE_DIR%\backend.exe" (
+  echo Enterprise PyInstaller build did not produce backend.exe.
   exit /b 1
 )
 
