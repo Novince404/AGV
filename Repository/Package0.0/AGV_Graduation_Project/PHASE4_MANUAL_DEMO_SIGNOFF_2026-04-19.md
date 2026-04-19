@@ -26,6 +26,8 @@
 dist\AGV_Enterprise_Client_v1\start_enterprise_client.bat
 ```
 
+如果从仓库根目录直接双击 `start_enterprise_client.bat`，脚本会自动转发到上面的打包目录启动器。
+
 通过标准：
 
 - 后端窗口持续运行
