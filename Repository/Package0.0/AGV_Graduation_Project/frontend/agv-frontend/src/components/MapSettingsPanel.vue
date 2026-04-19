@@ -27,6 +27,11 @@
         <input v-model="showMinimap" type="checkbox" />
         <span>{{ settingsLocale.showMinimap }}</span>
       </label>
+      <label class="map-setting-row">
+        <input v-model="showBusinessPoints" type="checkbox" />
+        <span>{{ settingsLocale.showBusinessPoints }}</span>
+      </label>
+      <p class="panel-hint map-settings-hint">{{ settingsLocale.showBusinessPointsHint }}</p>
       <div v-if="enterpriseTopologyViewAvailable" class="map-settings-select-group">
         <label class="map-settings-select-label" for="topology-view-mode">
           {{ settingsLocale.topologyViewMode }}

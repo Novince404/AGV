@@ -89,6 +89,7 @@ class UiSettingsUpdateRequest(BaseModel):
     show_minimap: bool = True
     show_marker_icons: bool = True
     show_path_arrows: bool = False
+    show_business_points: bool = True
     show_status_legend: bool = True
     show_topology_edge_speed: bool = False
     show_runtime_segment_type: bool = False

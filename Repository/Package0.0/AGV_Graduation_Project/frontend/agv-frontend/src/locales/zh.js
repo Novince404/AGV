@@ -169,6 +169,8 @@
     "showPathArrows": "显示路径方向箭头",
     "showAutoPath": "显示自动路径",
     "showMinimap": "显示小地图",
+    "showBusinessPoints": "显示常用点位",
+    "showBusinessPointsHint": "关闭后地图更简洁；点位列表里的“定位地图”仍会临时高亮目标格。",
     "topologyViewMode": "拓扑视图模式",
     "topologyViewModeStandard": "编辑视图",
     "topologyViewModePure": "纯拓扑视图",
@@ -1712,6 +1714,9 @@
     "point_apply_end": "设为终点",
     "point_locate_map": "定位地图",
     "point_locate_success": "已在地图上定位到 {point}",
+    "business_point_dialog_kicker": "常用点位详情",
+    "business_point_dialog_title": "业务点位",
+    "business_point_dialog_hint": "当前位置有 {count} 个常用点位，坐标: ({x}, {y})",
     "point_add": "保存点位",
     "point_delete": "删除点位",
     "point_custom": "自定义",
@@ -1806,6 +1811,55 @@
       "open": "使用说明",
       "title": "操作说明中心",
       "close": "关闭",
+      "personalTitle": "个人端使用说明",
+      "personalSubtitle": "面向个人实验与演示，优先说明 AGV 创建、任务派发和常用点位。",
+      "enterpriseTitle": "企业端使用说明",
+      "enterpriseSubtitle": "面向企业调度，优先说明站点、拓扑、常用点位与左右键交互。",
+      "personalQuickTitle": "个人端快速开始",
+      "personalQuickHint": "适合快速跑通单车、多车和算法对比。",
+      "personalQuickLines": [
+        "双击地图空白格可创建个人 AGV；选择自动调度后，左键依次选择起点和终点。",
+        "手动调车时先左键选择 AGV，再左键选择目标位置。",
+        "常用点位可一键填入任务表单，也可直接在地图上作为起终点点击。"
+      ],
+      "personalInteractionTitle": "地图交互",
+      "personalInteractionHint": "左键偏调度，右键偏取消和查看。",
+      "personalInteractionLines": [
+        "左键地图格、常用点位或站点位置：设置当前任务的起点/终点。",
+        "右键地图空白处：取消选车或当前选点流程。",
+        "右键常用点位：查看该坐标下的业务点位详情。"
+      ],
+      "personalPointsTitle": "常用点位",
+      "personalPointsHint": "常用点位只表达业务位置，不再表达充电站或停车站。",
+      "personalPointsLines": [
+        "常用点位适合维护入库口、出库口、备料台、装配位、质检台等业务地标。",
+        "显示设置里可以关闭地图上的常用点位，让调度视图更简洁。",
+        "即使关闭显示，点位列表里的“定位地图”仍会临时高亮目标格。"
+      ],
+      "enterpriseQuickTitle": "企业端快速开始",
+      "enterpriseQuickHint": "先理解站点和常用点位的边界，再进行派发。",
+      "enterpriseQuickLines": [
+        "停车站、充电站和普通站点来自路网拓扑，负责容量、回仓、回充和占用状态。",
+        "常用点位只表示业务地标，例如入库口、出库口、质检台或装配位。",
+        "运行态地图左键用于选择起终点，右键用于打开站点或常用点位详情。"
+      ],
+      "enterpriseInteractionTitle": "左右键规则",
+      "enterpriseInteractionHint": "避免点站点时误打开详情，也避免派发选点困难。",
+      "enterpriseInteractionLines": [
+        "左键停车站、充电站、普通拓扑点或常用点位：作为任务起点/终点。",
+        "右键停车站或充电站：打开站点详情，查看容量、占用 AGV 和入驻操作。",
+        "右键常用点位：查看业务点位详情；右键空白地图仍用于取消。"
+      ],
+      "enterprisePointsTitle": "站点与业务点",
+      "enterprisePointsHint": "杜绝“充电区”和“充电站”语义重叠。",
+      "enterprisePointsLines": [
+        "充电站/充电点只在路网拓扑里维护，承担真实充电与容量逻辑。",
+        "常用点位面板不再默认提供充电区；如果需要作业地标，请命名为质检台、备料台或入库口等。",
+        "显示常用点位开关只影响地图标记，不影响任务表单、模板和定位功能。"
+      ],
+      "shortcutsHint": "快捷键可在企业设置中调整，H 用于重新打开说明中心。",
+      "statusHint": "状态说明默认折叠，需要时展开查看。",
+      "topologyHint": "企业端主干道、支路、服务道都由路网拓扑决定。",
       "modeTitle": "模式说明",
       "modeAutoTitle": "自动调度",
       "modeManualTitle": "手动调车",

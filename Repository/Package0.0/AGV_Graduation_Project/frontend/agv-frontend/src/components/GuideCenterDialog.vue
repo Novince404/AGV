@@ -9,15 +9,43 @@
         class="guide-modal"
         role="dialog"
         aria-modal="true"
-        :aria-label="guideCenterLocale.title"
+        :aria-label="guideCenterTitle || guideCenterLocale.title"
       >
         <header class="guide-modal-header">
-          <strong>{{ guideCenterLocale.title }}</strong>
+          <div>
+            <strong>{{ guideCenterTitle || guideCenterLocale.title }}</strong>
+            <p v-if="guideCenterSubtitle" class="guide-modal-subtitle">
+              {{ guideCenterSubtitle }}
+            </p>
+          </div>
           <button class="btn-ghost" type="button" @click="closeGuideCenter">
             {{ guideCenterLocale.close }}
           </button>
         </header>
         <div class="guide-modal-body">
+          <template v-if="Array.isArray(guideCenterSections) && guideCenterSections.length">
+            <details
+              v-for="section in guideCenterSections"
+              :key="`guide-section-${section.key}`"
+              class="guide-section guide-section-collapsible"
+              :open="section.open !== false"
+            >
+              <summary class="guide-section-summary">
+                <span>{{ section.title }}</span>
+                <small v-if="section.hint">{{ section.hint }}</small>
+              </summary>
+              <div class="guide-section-content">
+                <div
+                  v-for="(line, index) in section.lines"
+                  :key="`guide-section-line-${section.key}-${index}`"
+                  class="guide-line"
+                >
+                  {{ line }}
+                </div>
+              </div>
+            </details>
+          </template>
+          <template v-else>
           <div class="guide-section">
             <div class="guide-section-title">{{ guideCenterLocale.modeTitle }}</div>
             <div class="guide-line">
@@ -76,6 +104,7 @@
               {{ entry }}
             </div>
           </div>
+          </template>
         </div>
       </section>
     </div>

@@ -32,6 +32,7 @@ export function useLocalPersistence(options) {
     batteryParkingIdleDrainPerSec,
     batteryChargePerSec,
     showMinimap,
+    showBusinessPoints,
     topologyViewMode,
     showGuideCenterOnLoad,
     compareDisplayMode,
@@ -286,6 +287,9 @@ export function useLocalPersistence(options) {
       if (typeof parsed?.showMinimap === 'boolean') {
         showMinimap.value = parsed.showMinimap
       }
+      if (typeof parsed?.showBusinessPoints === 'boolean') {
+        showBusinessPoints.value = parsed.showBusinessPoints
+      }
       if (parsed?.topologyViewMode === 'standard' || parsed?.topologyViewMode === 'pure') {
         topologyViewMode.value = parsed.topologyViewMode
       }
@@ -331,6 +335,7 @@ export function useLocalPersistence(options) {
           batteryParkingIdleDrainPerSec: batteryParkingIdleDrainPerSec.value,
           batteryChargePerSec: batteryChargePerSec.value,
           showMinimap: showMinimap.value,
+          showBusinessPoints: showBusinessPoints.value,
           topologyViewMode: topologyViewMode.value,
           showGuideCenterOnLoad: showGuideCenterOnLoad.value,
           dispatchMode: dispatchMode.value,

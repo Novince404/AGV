@@ -740,3 +740,43 @@ git -C "Repository/Package0.0/AGV_Graduation_Project" push AGV main
     - 这些标记只展示业务位置，不参与容量、回仓、回充逻辑
   - `frontend/agv-frontend/src/assets/agv-map.css`
     - 新增业务点位标记样式，和停车站 / 充电站视觉区分
+
+### 14.21 2026-04-19 追加：常用点位显示开关、左右键分工与说明中心重构
+- 本轮继续收口用户提出的三个前端体验点：
+  - 常用点位地图标记需要可开关，避免企业运行图过密
+  - 运行态地图左键应优先用于起终点选点，右键才打开站点或点位详情
+  - `H` 说明中心需要区分个人端 / 企业端，并通过折叠分组降低阅读压力
+- 已做修改：
+  - `frontend/agv-frontend/src/App.vue`
+    - 新增 `showBusinessPoints`，主地图和小地图的常用点位标记受该开关控制
+    - 新增常用点位右键详情弹窗，展示同一坐标下的业务点位、类型、分区和坐标，并保留“定位地图”
+    - 运行态站点、聚合站点、异形站点从“左键打开详情”改为“右键打开详情”，左键事件回到地图选点流程
+    - `H` 说明中心改为按当前角色生成个人端 / 企业端内容
+  - `frontend/agv-frontend/src/components/MapSettingsPanel.vue`
+    - 地图显示组新增“显示常用点位”开关
+  - `frontend/agv-frontend/src/components/EnterpriseSettingsDialog.vue`
+    - 企业页面设置里同步新增“显示常用点位”开关
+  - `frontend/agv-frontend/src/components/GuideCenterDialog.vue`
+    - 说明中心改为折叠分组展示，保留旧结构兜底
+  - `frontend/agv-frontend/src/composables/useLocalPersistence.js`
+    - 本地持久化新增 `showBusinessPoints`
+  - `frontend/agv-frontend/src/composables/useUiSettingsBackend.js`
+    - UI 设置后端同步新增 `show_business_points`
+  - `backend/app/schemas/status.py`
+  - `backend/app/services/status_service.py`
+  - `backend/app/repositories/sql_models.py`
+  - `backend/app/repositories/sql/ui_settings_store.py`
+    - UI 设置模型、默认值、SQLite 自动补列与读写 payload 新增 `show_business_points`
+  - `frontend/agv-frontend/src/locales/zh.js`
+  - `frontend/agv-frontend/src/locales/en.js`
+  - `frontend/agv-frontend/src/locales/ja.js`
+    - 补充常用点位开关、业务点位详情、个人/企业说明中心文案；同步弱化旧“充电类常用点位”语义
+  - `PHASE4_ACCEPTANCE_EXECUTION_PLAN_v1.md`
+  - `PHASE4_MANUAL_DEMO_SIGNOFF_2026-04-19.md`
+    - 补充常用点位开关、左右键分工和说明中心专项验收项
+- 后续需要验证：
+  - 前端 `lint` / `build`
+  - 后端 `compileall`
+  - `sqlite_smoke_check.py`
+  - 企业包重打与包内后端 smoke
+  - 人工查看：关闭常用点位后地图是否更干净；左键站点/点位是否顺利选起终点；右键详情是否好用；H 说明中心是否足够清晰

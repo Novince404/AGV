@@ -14,6 +14,7 @@ UI_SETTINGS_STORE_DEFAULTS = {
     "show_minimap": True,
     "show_marker_icons": True,
     "show_path_arrows": False,
+    "show_business_points": True,
     "show_status_legend": True,
     "show_topology_edge_speed": False,
     "show_runtime_segment_type": False,
@@ -69,6 +70,8 @@ def _ensure_schema() -> None:
         ddl_statements.append("ALTER TABLE ui_settings ADD COLUMN show_runtime_conflict_reason BOOLEAN NOT NULL DEFAULT 0")
     if "show_selected_agv_runtime_overlay" not in columns:
         ddl_statements.append("ALTER TABLE ui_settings ADD COLUMN show_selected_agv_runtime_overlay BOOLEAN NOT NULL DEFAULT 0")
+    if "show_business_points" not in columns:
+        ddl_statements.append("ALTER TABLE ui_settings ADD COLUMN show_business_points BOOLEAN NOT NULL DEFAULT 1")
     if "base_speed" not in columns:
         ddl_statements.append("ALTER TABLE ui_settings ADD COLUMN base_speed FLOAT NOT NULL DEFAULT 1.11")
     if "follow_distance" not in columns:
@@ -116,6 +119,7 @@ def _entity_to_payload(entity: UiSettingsEntity) -> dict:
         "show_minimap": bool(entity.show_minimap),
         "show_marker_icons": bool(entity.show_marker_icons),
         "show_path_arrows": bool(entity.show_path_arrows),
+        "show_business_points": bool(entity.show_business_points),
         "show_status_legend": bool(entity.show_status_legend),
         "show_topology_edge_speed": bool(entity.show_topology_edge_speed),
         "show_runtime_segment_type": bool(entity.show_runtime_segment_type),
@@ -146,6 +150,7 @@ def _apply_payload(entity: UiSettingsEntity, payload: dict, scope_key: str) -> U
     entity.show_minimap = bool(merged_payload["show_minimap"])
     entity.show_marker_icons = bool(merged_payload["show_marker_icons"])
     entity.show_path_arrows = bool(merged_payload["show_path_arrows"])
+    entity.show_business_points = bool(merged_payload["show_business_points"])
     entity.show_status_legend = bool(merged_payload["show_status_legend"])
     entity.show_topology_edge_speed = bool(merged_payload["show_topology_edge_speed"])
     entity.show_runtime_segment_type = bool(merged_payload["show_runtime_segment_type"])

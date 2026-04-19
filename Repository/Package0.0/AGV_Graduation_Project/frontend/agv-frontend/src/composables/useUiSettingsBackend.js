@@ -11,6 +11,7 @@ export function useUiSettingsBackend(options) {
     showMinimap,
     showMarkerIcons,
     showPathArrows,
+    showBusinessPoints,
     showStatusLegend,
     showTopologyEdgeSpeed,
     showRuntimeSegmentType,
@@ -72,6 +73,9 @@ export function useUiSettingsBackend(options) {
       }
       if (typeof payload?.show_path_arrows === 'boolean') {
         showPathArrows.value = payload.show_path_arrows
+      }
+      if (typeof payload?.show_business_points === 'boolean') {
+        showBusinessPoints.value = payload.show_business_points
       }
       if (typeof payload?.show_status_legend === 'boolean') {
         showStatusLegend.value = payload.show_status_legend
@@ -147,6 +151,7 @@ export function useUiSettingsBackend(options) {
       show_minimap: showMinimap.value,
       show_marker_icons: showMarkerIcons.value,
       show_path_arrows: showPathArrows.value,
+      show_business_points: showBusinessPoints.value,
       show_status_legend: showStatusLegend.value,
       show_topology_edge_speed: showTopologyEdgeSpeed.value,
       show_runtime_segment_type: showRuntimeSegmentType.value,
@@ -238,6 +243,7 @@ export function useUiSettingsBackend(options) {
       showMinimap,
       showMarkerIcons,
       showPathArrows,
+      showBusinessPoints,
       showStatusLegend,
       showTopologyEdgeSpeed,
       showRuntimeSegmentType,

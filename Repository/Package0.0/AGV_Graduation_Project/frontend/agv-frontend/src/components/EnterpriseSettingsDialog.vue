@@ -1739,6 +1739,11 @@
                   <input v-model="showMinimap" type="checkbox" />
                   <span>{{ settingsLocale.showMinimap }}</span>
                 </label>
+                <label class="map-setting-row">
+                  <input v-model="showBusinessPoints" type="checkbox" />
+                  <span>{{ settingsLocale.showBusinessPoints }}</span>
+                </label>
+                <p class="panel-hint">{{ settingsLocale.showBusinessPointsHint }}</p>
                 <label v-if="enterpriseTopologyViewAvailable" class="auth-field">
                   <span>{{ settingsLocale.topologyViewMode }}</span>
                   <select v-model="topologyViewMode" class="auth-input">

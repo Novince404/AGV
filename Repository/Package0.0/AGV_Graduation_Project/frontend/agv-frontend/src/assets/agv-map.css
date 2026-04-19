@@ -4465,6 +4465,64 @@ h2 {
   color: #9f6312;
 }
 
+.business-point-dialog-card {
+  width: min(640px, calc(100vw - 32px));
+}
+
+.business-point-dialog-meta {
+  margin-bottom: 12px;
+}
+
+.business-point-dialog-list {
+  max-height: min(48vh, 420px);
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.business-point-dialog-item {
+  justify-content: flex-start;
+}
+
+.business-point-dialog-item .topology-station-dialog-copy {
+  flex: 1 1 220px;
+}
+
+.business-point-dialog-mark.is-inbound {
+  border-color: rgba(41, 128, 185, 0.24);
+  background: rgba(232, 244, 253, 0.96);
+  color: #1f5d88;
+}
+
+.business-point-dialog-mark.is-outbound {
+  border-color: rgba(198, 105, 63, 0.24);
+  background: rgba(255, 239, 230, 0.96);
+  color: #9a4d26;
+}
+
+.business-point-dialog-mark.is-storage {
+  border-color: rgba(91, 122, 66, 0.24);
+  background: rgba(239, 247, 234, 0.96);
+  color: #476733;
+}
+
+.business-point-dialog-mark.is-assembly {
+  border-color: rgba(157, 111, 46, 0.24);
+  background: rgba(255, 247, 229, 0.96);
+  color: #8b5b17;
+}
+
+.business-point-dialog-mark.is-quality {
+  border-color: rgba(70, 134, 118, 0.24);
+  background: rgba(232, 248, 244, 0.96);
+  color: #2f7567;
+}
+
+.business-point-dialog-mark.is-maintenance {
+  border-color: rgba(117, 111, 100, 0.24);
+  background: rgba(243, 240, 235, 0.96);
+  color: #6f6658;
+}
+
 .topology-station-dialog-slot-copy {
   display: grid;
   gap: 3px;
@@ -6349,6 +6407,19 @@ h2 {
   background: rgba(255, 253, 249, 0.98);
 }
 
+.guide-modal-header > div {
+  display: grid;
+  gap: 4px;
+}
+
+.guide-modal-subtitle {
+  margin: 0;
+  max-width: 560px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted-text);
+}
+
 .guide-modal-body {
   display: grid;
   gap: 12px;
@@ -6367,6 +6438,58 @@ h2 {
   font-size: 13px;
   font-weight: 700;
   color: var(--strong-text);
+}
+
+.guide-section-collapsible {
+  padding: 0;
+  overflow: hidden;
+}
+
+.guide-section-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px 12px;
+  align-items: center;
+  padding: 12px;
+  cursor: pointer;
+  list-style: none;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--strong-text);
+}
+
+.guide-section-summary::-webkit-details-marker {
+  display: none;
+}
+
+.guide-section-summary::after {
+  content: "+";
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid rgba(139, 111, 78, 0.24);
+  background: rgba(255, 253, 249, 0.78);
+  color: #7c684f;
+}
+
+.guide-section-collapsible[open] .guide-section-summary::after {
+  content: "-";
+}
+
+.guide-section-summary small {
+  grid-column: 1 / -1;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.45;
+  color: var(--muted-text);
+}
+
+.guide-section-content {
+  display: grid;
+  gap: 4px;
+  padding: 0 12px 12px;
 }
 
 .guide-line {

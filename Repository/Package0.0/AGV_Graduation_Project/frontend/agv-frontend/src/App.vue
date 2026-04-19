@@ -909,6 +909,8 @@ const selectedAgvId = ref(null)
 const topologyStationDockDialogOpen = ref(false)
 const topologyStationDockNodeKey = ref('')
 const topologyStationDockOnboarding = ref(false)
+const businessPointDetailDialogOpen = ref(false)
+const businessPointDetailMarkerKey = ref('')
 const trackedManualTaskId = ref(null)
 const manualDispatchStep = ref('idle')
 const manualPreviewMinVisibleUntil = ref(0)
@@ -986,6 +988,7 @@ const batteryChargePerSec = ref(6)
 const showMarkerIcons = ref(true)
 const showPathArrows = ref(false)
 const showMinimap = ref(true)
+const showBusinessPoints = ref(true)
 const topologyViewMode = ref('standard')
 const obstacleEditMode = ref(false)
 const obstacleMapSaving = ref(false)
@@ -1692,6 +1695,99 @@ const guideCenterTopologyEntries = computed(() => [
   guideCenterLocale.value.topologyYieldHint,
   guideCenterLocale.value.topologyAutonomyHint
 ].filter(Boolean))
+const isEnterpriseGuideCenterMode = computed(() => Boolean(uiTreatAsEnterpriseRole.value))
+
+function guideCenterLines(key) {
+  const lines = guideCenterLocale.value?.[key]
+  return Array.isArray(lines) ? lines.filter(Boolean) : []
+}
+
+const guideCenterTitleText = computed(() => {
+  const localeKey = isEnterpriseGuideCenterMode.value ? 'enterpriseTitle' : 'personalTitle'
+  return guideCenterLocale.value?.[localeKey] || guideCenterLocale.value.title
+})
+const guideCenterSubtitleText = computed(() => {
+  const localeKey = isEnterpriseGuideCenterMode.value ? 'enterpriseSubtitle' : 'personalSubtitle'
+  return guideCenterLocale.value?.[localeKey] || ''
+})
+const guideCenterSections = computed(() => {
+  const shortcutSection = {
+    key: 'shortcuts',
+    title: guideCenterLocale.value.shortcutsTitle,
+    hint: guideCenterLocale.value.shortcutsHint,
+    lines: shortcutGuideEntries.value
+  }
+  const statusSection = {
+    key: 'status',
+    title: guideCenterLocale.value.statusTitle,
+    hint: guideCenterLocale.value.statusHint,
+    lines: guideCenterStatusEntries.value,
+    open: false
+  }
+
+  if (isEnterpriseGuideCenterMode.value) {
+    return [
+      {
+        key: 'enterprise-quick',
+        title: guideCenterLocale.value.enterpriseQuickTitle,
+        hint: guideCenterLocale.value.enterpriseQuickHint,
+        lines: guideCenterLines('enterpriseQuickLines')
+      },
+      {
+        key: 'enterprise-interaction',
+        title: guideCenterLocale.value.enterpriseInteractionTitle,
+        hint: guideCenterLocale.value.enterpriseInteractionHint,
+        lines: [
+          ...guideCenterLines('enterpriseInteractionLines'),
+          `${guideCenterLocale.value.modeAutoTitle}: ${panelLocale.value.modeAutoHint}`,
+          `${guideCenterLocale.value.modeManualTitle}: ${panelLocale.value.modeManualHint}`
+        ]
+      },
+      {
+        key: 'enterprise-points',
+        title: guideCenterLocale.value.enterprisePointsTitle,
+        hint: guideCenterLocale.value.enterprisePointsHint,
+        lines: guideCenterLines('enterprisePointsLines')
+      },
+      {
+        key: 'enterprise-topology',
+        title: guideCenterLocale.value.topologyTitle,
+        hint: guideCenterLocale.value.topologyHint,
+        lines: guideCenterTopologyEntries.value,
+        open: false
+      },
+      shortcutSection,
+      statusSection
+    ].filter(section => section.title && Array.isArray(section.lines) && section.lines.length)
+  }
+
+  return [
+    {
+      key: 'personal-quick',
+      title: guideCenterLocale.value.personalQuickTitle,
+      hint: guideCenterLocale.value.personalQuickHint,
+      lines: guideCenterLines('personalQuickLines')
+    },
+    {
+      key: 'personal-interaction',
+      title: guideCenterLocale.value.personalInteractionTitle,
+      hint: guideCenterLocale.value.personalInteractionHint,
+      lines: [
+        ...guideCenterLines('personalInteractionLines'),
+        `${guideCenterLocale.value.modeAutoTitle}: ${panelLocale.value.modeAutoHint}`,
+        `${guideCenterLocale.value.modeManualTitle}: ${panelLocale.value.modeManualHint}`
+      ]
+    },
+    {
+      key: 'personal-points',
+      title: guideCenterLocale.value.personalPointsTitle,
+      hint: guideCenterLocale.value.personalPointsHint,
+      lines: guideCenterLines('personalPointsLines')
+    },
+    shortcutSection,
+    statusSection
+  ].filter(section => section.title && Array.isArray(section.lines) && section.lines.length)
+})
 const shortcutEditorActionDefinitions = computed(() => [
   {
     key: 'selection_cancel',
@@ -4673,6 +4769,13 @@ function openTopologyStationDockDialog(target) {
   topologyStationDockDialogOpen.value = Boolean(topologyStationDockNodeKey.value)
 }
 
+function onTopologyNodeContextMenu(node, event) {
+  if (!node?.isSpecial) return
+  event.preventDefault()
+  event.stopPropagation()
+  openTopologyStationDockDialog(node)
+}
+
 function closeTopologyStationDockDialog() {
   topologyStationDockDialogOpen.value = false
   topologyStationDockNodeKey.value = ''
@@ -6373,6 +6476,40 @@ function formatBusinessPointMarkerTitle(marker) {
   ].filter(Boolean).join('\n')
 }
 
+const selectedBusinessPointMarker = computed(() =>
+  businessPointMarkers.value.find(marker => marker.key === businessPointDetailMarkerKey.value) || null
+)
+const selectedBusinessPointItems = computed(() =>
+  (selectedBusinessPointMarker.value?.points || []).map(point => ({
+    id: String(point?.id || `${point?.x}-${point?.y}-${pointName(point)}`),
+    name: pointName(point),
+    zone: pointZone(point),
+    type: pointTypeText(point),
+    kind: pointKindKey(point),
+    kindText: pointKindText(point),
+    code: pointKindCode(point),
+    x: Number(point?.x || 0),
+    y: Number(point?.y || 0),
+    raw: point
+  }))
+)
+
+function openBusinessPointDetailDialog(marker) {
+  if (!marker?.key) return
+  businessPointDetailMarkerKey.value = String(marker.key)
+  businessPointDetailDialogOpen.value = true
+}
+
+function closeBusinessPointDetailDialog() {
+  businessPointDetailDialogOpen.value = false
+  businessPointDetailMarkerKey.value = ''
+}
+
+function focusBusinessPointFromDialog(point) {
+  focusPointOnMap(point)
+  closeBusinessPointDetailDialog()
+}
+
 function focusPointOnMap(point) {
   if (!point || !Number.isFinite(Number(point.x)) || !Number.isFinite(Number(point.y))) return
   focusMapPreviewCell({
@@ -6511,6 +6648,7 @@ const {
   batteryParkingIdleDrainPerSec,
   batteryChargePerSec,
   showMinimap,
+  showBusinessPoints,
   topologyViewMode,
   showGuideCenterOnLoad,
   compareDisplayMode,
@@ -6541,6 +6679,7 @@ const {
   showMinimap,
   showMarkerIcons,
   showPathArrows,
+  showBusinessPoints,
   showStatusLegend,
   showTopologyEdgeSpeed,
   showRuntimeSegmentType,
@@ -16552,6 +16691,7 @@ watch([
   showAutoPath,
   showMarkerIcons,
   showPathArrows,
+  showBusinessPoints,
   showStatusLegend,
   showTopologyEdgeSpeed,
   showRuntimeSegmentType,
@@ -17233,6 +17373,7 @@ const mapSettingsPanelBindings = {
   showMarkerIcons,
   showPathArrows,
   showMinimap,
+  showBusinessPoints,
   showTopologyEdgeSpeed,
   showRuntimeSegmentType,
   showRuntimeConflictReason,
@@ -17358,6 +17499,9 @@ const guideCenterDialogBindings = {
   showGuideCenter,
   closeGuideCenter,
   guideCenterLocale,
+  guideCenterTitle: guideCenterTitleText,
+  guideCenterSubtitle: guideCenterSubtitleText,
+  guideCenterSections,
   shortcutGuideEntries,
   statusGuideEntries: guideCenterStatusEntries,
   topologyGuideEntries: guideCenterTopologyEntries,
@@ -17624,6 +17768,7 @@ const enterpriseSettingsDialogBindings = {
   showMarkerIcons,
   showPathArrows,
   showMinimap,
+  showBusinessPoints,
   showStatusLegend,
   showTopologyEdgeSpeed,
   showRuntimeSegmentType,
@@ -18132,6 +18277,68 @@ onBeforeUnmount(() => {
       </section>
     </div>
 
+    <div
+      v-if="businessPointDetailDialogOpen && selectedBusinessPointMarker"
+      class="auth-dialog-backdrop"
+      @click.self="closeBusinessPointDetailDialog"
+    >
+      <section class="auth-dialog-card topology-station-dialog-card business-point-dialog-card" role="dialog" aria-modal="true">
+        <header class="auth-dialog-header">
+          <div>
+            <div class="auth-dialog-kicker">{{ t('business_point_dialog_kicker') }}</div>
+            <h2 class="auth-dialog-title">{{ t('business_point_dialog_title') }}</h2>
+            <p class="auth-dialog-hint">
+              {{
+                formatInlineMessage(t('business_point_dialog_hint'), {
+                  count: String(selectedBusinessPointMarker.count || 0),
+                  x: String(selectedBusinessPointMarker.x),
+                  y: String(selectedBusinessPointMarker.y)
+                })
+              }}
+            </p>
+          </div>
+          <button class="auth-dialog-close" type="button" @click="closeBusinessPointDetailDialog">×</button>
+        </header>
+
+        <div class="topology-station-dialog-meta business-point-dialog-meta">
+          <span class="point-badge">{{ t('point_library') }}</span>
+          <span
+            v-if="selectedBusinessPointMarker.hasCustom"
+            class="point-badge enterprise-settings-chip-muted"
+          >
+            {{ t('point_custom') }}
+          </span>
+          <span class="point-badge enterprise-settings-chip-muted">
+            {{ t('point_coords') }}: ({{ selectedBusinessPointMarker.x }}, {{ selectedBusinessPointMarker.y }})
+          </span>
+        </div>
+
+        <div class="topology-station-dialog-list business-point-dialog-list">
+          <article
+            v-for="item in selectedBusinessPointItems"
+            :key="`business-point-dialog-${item.id}`"
+            class="topology-station-dialog-item business-point-dialog-item"
+          >
+            <div class="topology-station-dialog-slot-mark business-point-dialog-mark" :class="`is-${item.kind}`">
+              {{ item.code }}
+            </div>
+            <div class="topology-station-dialog-copy">
+              <strong>{{ item.name }}</strong>
+              <span>{{ item.kindText }} · {{ item.zone }}</span>
+              <span>{{ item.type }} · ({{ item.x }}, {{ item.y }})</span>
+            </div>
+            <button
+              class="btn-secondary topology-station-dialog-action"
+              type="button"
+              @click="focusBusinessPointFromDialog(item.raw)"
+            >
+              {{ t('point_locate_map') }}
+            </button>
+          </article>
+        </div>
+      </section>
+    </div>
+
     <div v-if="isPlatformAdminGovernanceMode" class="page-top page-top-governance">
       <div class="page-top-main">
         <button class="page-title-auth" type="button" :title="authTitleButtonTitle" @click="openAuthDialog">
@@ -18598,8 +18805,7 @@ onBeforeUnmount(() => {
               :aria-label="formatTopologySpecialGroupOccupancyTitle(group)"
               role="button"
               tabindex="0"
-              @mousedown.stop
-              @click.stop="openTopologyStationDockDialog(group.key)"
+              @contextmenu.prevent.stop="openTopologyStationDockDialog(group.key)"
               @keydown.enter.prevent="openTopologyStationDockDialog(group.key)"
               @keydown.space.prevent="openTopologyStationDockDialog(group.key)"
             >
@@ -18640,8 +18846,7 @@ onBeforeUnmount(() => {
                   borderRadius: cell.borderRadius
                 }"
                 :title="formatTopologySpecialGroupOccupancyTitle(group)"
-                @mousedown.stop
-                @click.stop="openTopologyStationDockDialog(group.key)"
+                @contextmenu.prevent.stop="openTopologyStationDockDialog(group.key)"
               ></div>
               <div
                 class="map-topology-special-group-contour-badge"
@@ -18654,8 +18859,7 @@ onBeforeUnmount(() => {
                 :aria-label="formatTopologySpecialGroupOccupancyTitle(group)"
                 role="button"
                 tabindex="0"
-                @mousedown.stop
-                @click.stop="openTopologyStationDockDialog(group.key)"
+                @contextmenu.prevent.stop="openTopologyStationDockDialog(group.key)"
                 @keydown.enter.prevent="openTopologyStationDockDialog(group.key)"
                 @keydown.space.prevent="openTopologyStationDockDialog(group.key)"
               >
@@ -18699,10 +18903,9 @@ onBeforeUnmount(() => {
               :aria-label="node.isSpecial ? formatTopologyNodeOccupancyTitle(node) : undefined"
               :role="node.isSpecial ? 'button' : undefined"
               :tabindex="node.isSpecial ? 0 : undefined"
-              @mousedown.stop
-              @click.stop="openTopologyStationDockDialog(node)"
-              @keydown.enter.prevent="openTopologyStationDockDialog(node)"
-              @keydown.space.prevent="openTopologyStationDockDialog(node)"
+              @contextmenu="onTopologyNodeContextMenu(node, $event)"
+              @keydown.enter.prevent="node.isSpecial && openTopologyStationDockDialog(node)"
+              @keydown.space.prevent="node.isSpecial && openTopologyStationDockDialog(node)"
             >
               <span>{{ node.badge }}</span>
               <small v-if="node.isSpecial" class="map-topology-node-count">
@@ -18729,18 +18932,25 @@ onBeforeUnmount(() => {
               </span>
             </div>
 
-            <div
-              v-for="marker in businessPointMarkers"
-              :key="`business-point-${marker.key}`"
-              class="map-business-point"
-              :class="[`is-${marker.kind}`, { 'is-custom': marker.hasCustom, 'is-stack': marker.count > 1 }]"
-              :style="pointStyle(marker, CELL_SIZE, 26)"
-              :title="formatBusinessPointMarkerTitle(marker)"
-              :aria-label="formatBusinessPointMarkerTitle(marker)"
-            >
-              <span>{{ marker.code }}</span>
-              <small v-if="marker.count > 1">{{ marker.count }}</small>
-            </div>
+            <template v-if="showBusinessPoints">
+              <div
+                v-for="marker in businessPointMarkers"
+                :key="`business-point-${marker.key}`"
+                class="map-business-point"
+                :class="[`is-${marker.kind}`, { 'is-custom': marker.hasCustom, 'is-stack': marker.count > 1 }]"
+                :style="pointStyle(marker, CELL_SIZE, 26)"
+                :title="formatBusinessPointMarkerTitle(marker)"
+                :aria-label="formatBusinessPointMarkerTitle(marker)"
+                role="button"
+                tabindex="0"
+                @contextmenu.prevent.stop="openBusinessPointDetailDialog(marker)"
+                @keydown.enter.prevent="openBusinessPointDetailDialog(marker)"
+                @keydown.space.prevent="openBusinessPointDetailDialog(marker)"
+              >
+                <span>{{ marker.code }}</span>
+                <small v-if="marker.count > 1">{{ marker.count }}</small>
+              </div>
+            </template>
 
             <div
               v-for="focusCell in mapPreviewFocusCells"
@@ -19186,14 +19396,16 @@ onBeforeUnmount(() => {
             >
               <span>{{ node.badge }}</span>
             </div>
-            <div
-              v-for="marker in businessPointMarkers"
-              :key="`mini-business-point-${marker.key}`"
-              class="minimap-business-point"
-              :class="[`is-${marker.kind}`, { 'is-custom': marker.hasCustom, 'is-stack': marker.count > 1 }]"
-              :style="pointStyle(marker, minimapCellSize, 8)"
-              :title="formatBusinessPointMarkerTitle(marker)"
-            ></div>
+            <template v-if="showBusinessPoints">
+              <div
+                v-for="marker in businessPointMarkers"
+                :key="`mini-business-point-${marker.key}`"
+                class="minimap-business-point"
+                :class="[`is-${marker.kind}`, { 'is-custom': marker.hasCustom, 'is-stack': marker.count > 1 }]"
+                :style="pointStyle(marker, minimapCellSize, 8)"
+                :title="formatBusinessPointMarkerTitle(marker)"
+              ></div>
+            </template>
             <div
               v-for="agv in visibleMapAgvs"
               :key="`mini-${agv.id}`"

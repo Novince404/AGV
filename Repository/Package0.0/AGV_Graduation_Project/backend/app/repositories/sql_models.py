@@ -342,6 +342,7 @@ class UiSettingsEntity(Base):
     show_minimap: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     show_marker_icons: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     show_path_arrows: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    show_business_points: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     show_status_legend: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     show_topology_edge_speed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     show_runtime_segment_type: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
