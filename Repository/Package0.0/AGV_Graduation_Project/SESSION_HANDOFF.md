@@ -1,5 +1,22 @@
 # AGV Graduation Project Session Handoff
 
+## 2026-04-19 Personal Defense Demo Pack
+
+- 新增个人端导师答辩演示方案：
+  - `PERSONAL_DEFENSE_DEMO_PLAN_2026-04-19.md`
+  - `demo/docs/PERSONAL_DEFENSE_DEMO_RUNBOOK.md`
+- 新增个人端答辩演示 JSON 资产：
+  - `demo/json/personal_defense_map_profile_10x8.json`
+  - `demo/json/personal_defense_obstacle_layout_10x8.json`
+  - `demo/json/personal_defense_busy_tasks.json`
+- 资产设计要点：
+  - 使用 `10 x 8` 货架通道地图，障碍物避开默认 3 台 AGV 和默认常用业务点位。
+  - 批量任务一次导入 8 条，默认会让多台 AGV 先运行，其余任务进入队列，适合导师现场观察“车忙起来”的效果。
+  - 常用点位只作为业务地标说明，停车点、充电点、停车站、充电站继续保留为运行资源语义，避免“充电区”和“充电站”概念混淆。
+- 已做轻量校验：
+  - 新增 3 个 JSON 文件均可正常解析。
+  - 8 条任务在配套障碍物布局下均可达。
+
 ## 2026-04-12 Incremental Update
 
 - 第四阶段验收执行计划 `v1` 已继续推进到“账号与数据隔离”高优先级链路：
