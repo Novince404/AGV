@@ -64,12 +64,12 @@ export const DEFAULT_POINT_LIBRARY = [
     aliases: ['station', 'line', '装配', '组立', '6,5']
   },
   {
-    id: 'charge',
+    id: 'inspection_1',
     x: 1,
     y: 7,
-    nameKey: 'point_name_charge',
-    zoneKey: 'point_zone_service',
-    aliases: ['charger', 'battery', '充电', '充電', '1,7']
+    nameKey: 'point_name_inspection_1',
+    zoneKey: 'point_zone_quality',
+    aliases: ['quality', 'inspection', 'check', '质检', '检验', '复核', '1,7']
   },
   {
     id: 'maintenance',

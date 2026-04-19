@@ -719,3 +719,24 @@ git -C "Repository/Package0.0/AGV_Graduation_Project" push AGV main
   - 自动化总回归与包内后端三角色链已通过
   - 浏览器 / EXE 真实页面仍待人工双击 `dist\\AGV_Enterprise_Client_v1\\start_enterprise_client.bat` 后按签收记录逐项确认
   - 通过人工确认前，仍不建议把第四阶段写成“正式全部完成”
+
+### 14.20 2026-04-19 追加：常用点位与充电站语义分离
+- 用户已大体试过 `PHASE4_MANUAL_DEMO_SIGNOFF_2026-04-19.md`，反馈主要问题转向点位语义：
+  - 常用点位设置在面板里有变化，但地图上没有持续体现
+  - “充电区 / 充电位 / 服务 / 预设 / 坐标”容易和拓扑里的充电点、充电站混淆
+  - 入库口、出库口等需要明确是业务地标，而不是调度站点
+- 本轮收口原则：
+  - 常用点位 = 任务起终点业务地标
+  - 路网拓扑节点 = 调度、容量、回仓、回充依据
+  - 默认常用点位不再提供“充电区 / 充电位”
+- 已做修改：
+  - `frontend/agv-frontend/src/config/defaultData.js`
+    - 默认 `charge` 常用点位替换为 `inspection_1`，显示为“质检台 1”
+  - `frontend/agv-frontend/src/locales/zh.js`
+    - 常用点位提示明确“回仓、回充请在路网拓扑里设置停车点和充电点”
+    - 新增质检位文案，弱化旧的充电类常用点位含义
+  - `frontend/agv-frontend/src/App.vue`
+    - 主地图和小地图新增常用点位业务标记层
+    - 这些标记只展示业务位置，不参与容量、回仓、回充逻辑
+  - `frontend/agv-frontend/src/assets/agv-map.css`
+    - 新增业务点位标记样式，和停车站 / 充电站视觉区分

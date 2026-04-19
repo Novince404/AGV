@@ -5230,6 +5230,42 @@ const minimapViewportStyle = computed(() => {
   }
 })
 const pointLibrary = computed(() => [...builtinPoints.value, ...customPoints.value])
+const businessPointMarkers = computed(() => {
+  const groupedByCell = new Map()
+
+  for (const point of pointLibrary.value) {
+    const x = Number(point?.x)
+    const y = Number(point?.y)
+    if (!Number.isInteger(x) || !Number.isInteger(y)) continue
+    if (!isWithinCurrentGrid({ x, y })) continue
+    if (isPointInvalid(point)) continue
+
+    const key = blockedCellKey(x, y)
+    if (!groupedByCell.has(key)) {
+      groupedByCell.set(key, {
+        key,
+        x,
+        y,
+        points: []
+      })
+    }
+    groupedByCell.get(key).points.push(point)
+  }
+
+  return Array.from(groupedByCell.values()).map(marker => {
+    const primaryPoint = marker.points[0]
+    const kind = pointKindKey(primaryPoint)
+    const names = marker.points.map(point => pointName(point)).filter(Boolean)
+    return {
+      ...marker,
+      kind,
+      code: pointKindCode(primaryPoint),
+      count: marker.points.length,
+      hasCustom: marker.points.some(point => Boolean(point?.custom)),
+      names
+    }
+  })
+})
 const taskTemplates = computed(() => [...builtinTemplates.value, ...customTaskTemplates.value])
 const currentDispatchModeLabel = computed(() =>
   dispatchMode.value === 'auto' ? panelLocale.value.modeAuto : panelLocale.value.modeManual
@@ -6297,7 +6333,7 @@ function pointKindKey(point) {
     ['outbound', ['outbound', 'shipping', 'delivery', '出库', '出庫', '出荷']],
     ['storage', ['storage', 'rack', 'buffer', 'store', '仓', '倉', '库存', '保管']],
     ['assembly', ['assembly', 'station', 'line', '装配', '組立']],
-    ['charge', ['charge', 'charger', 'battery', '充电', '充電']],
+    ['quality', ['quality', 'inspection', 'check', 'qc', '质检', '检验', '复核', '品質']],
     ['maintenance', ['maintenance', 'repair', 'service', '维护', '維護', '维修', '修理', '保守']],
   ]
 
@@ -6317,11 +6353,24 @@ function pointKindCode(point) {
     outbound: 'OUT',
     storage: 'ST',
     assembly: 'ASM',
+    quality: 'QC',
     charge: 'CH',
     maintenance: 'SV',
     generic: 'PT',
   }
   return codeMap[pointKindKey(point)] || codeMap.generic
+}
+
+function formatBusinessPointMarkerTitle(marker) {
+  if (!marker) return t('point_library')
+  const pointLines = Array.isArray(marker.points)
+    ? marker.points.map(point => `${pointName(point)} · ${pointKindText(point)}`)
+    : []
+  return [
+    t('point_library'),
+    ...pointLines,
+    `${t('point_coords')}: (${marker.x}, ${marker.y})`
+  ].filter(Boolean).join('\n')
 }
 
 function focusPointOnMap(point) {
@@ -18681,6 +18730,19 @@ onBeforeUnmount(() => {
             </div>
 
             <div
+              v-for="marker in businessPointMarkers"
+              :key="`business-point-${marker.key}`"
+              class="map-business-point"
+              :class="[`is-${marker.kind}`, { 'is-custom': marker.hasCustom, 'is-stack': marker.count > 1 }]"
+              :style="pointStyle(marker, CELL_SIZE, 26)"
+              :title="formatBusinessPointMarkerTitle(marker)"
+              :aria-label="formatBusinessPointMarkerTitle(marker)"
+            >
+              <span>{{ marker.code }}</span>
+              <small v-if="marker.count > 1">{{ marker.count }}</small>
+            </div>
+
+            <div
               v-for="focusCell in mapPreviewFocusCells"
               :key="focusCell.key"
               class="map-preview-focus-cell"
@@ -19124,6 +19186,14 @@ onBeforeUnmount(() => {
             >
               <span>{{ node.badge }}</span>
             </div>
+            <div
+              v-for="marker in businessPointMarkers"
+              :key="`mini-business-point-${marker.key}`"
+              class="minimap-business-point"
+              :class="[`is-${marker.kind}`, { 'is-custom': marker.hasCustom, 'is-stack': marker.count > 1 }]"
+              :style="pointStyle(marker, minimapCellSize, 8)"
+              :title="formatBusinessPointMarkerTitle(marker)"
+            ></div>
             <div
               v-for="agv in visibleMapAgvs"
               :key="`mini-${agv.id}`"
