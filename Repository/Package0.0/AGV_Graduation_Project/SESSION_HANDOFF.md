@@ -707,3 +707,15 @@ git -C "Repository/Package0.0/AGV_Graduation_Project" push AGV main
     - 双击 `dist\\AGV_Enterprise_Client_v1\\start_enterprise_client.bat`
     - 三个企业角色登录并观察页面、地图、AGV、任务、企业设置 / 反馈入口
     - 实机复核拓扑保存链、站级显示、说明中心、反馈铃和长时间运行观感
+
+### 14.19 2026-04-19 追加：第四阶段人工演示签收前置记录
+- 已复跑包内后端预检：
+  - `backend\\venv\\Scripts\\python.exe backend\\scripts\\enterprise_packaged_backend_smoke.py` 通过
+  - 输出：`PACKAGED_ENTERPRISE_BACKEND_SMOKE_OK enterprise_admin enterprise_operator enterprise_logistics`
+- 新增人工演示签收记录：
+  - `PHASE4_MANUAL_DEMO_SIGNOFF_2026-04-19.md`
+- 本次只做签收资产和状态收口，不改业务逻辑。
+- 当前边界：
+  - 自动化总回归与包内后端三角色链已通过
+  - 浏览器 / EXE 真实页面仍待人工双击 `dist\\AGV_Enterprise_Client_v1\\start_enterprise_client.bat` 后按签收记录逐项确认
+  - 通过人工确认前，仍不建议把第四阶段写成“正式全部完成”
