@@ -11,11 +11,12 @@
 - `personal_defense_busy_tasks.json`
   - 个人端答辩批量任务。
   - 一次导入多条任务，默认 3 台 AGV 会先运行一部分任务，其余任务进入队列等待空闲车。
+  - 坐标避开默认障碍和 `personal_defense_obstacle_layout_10x8.json`，即使现场还没切到配套地图，也不容易踩到“终点位于障碍格”。
 - `task_auto_single_demo.json`
   - 自动派发的单阶段任务示例。
 - `task_manual_single_demo.json`
   - 手动派发的单阶段任务示例。
-  - 默认不预绑定 AGV，导入后应显示“待指定车辆 / 待绑定 AGV”说明。
+  - 默认不预绑定 AGV，导入后应显示“待指定车辆 / 待绑定 AGV”说明，并保留在待分配队列，不应被自动派车。
 - `task_multi_stage_demo.json`
   - 自动派发的多阶段任务示例。
 - `obstacle_layout_demo.json`

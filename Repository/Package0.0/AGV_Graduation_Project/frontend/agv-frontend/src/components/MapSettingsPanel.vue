@@ -713,7 +713,7 @@
         />
       </div>
     </div>
-    <div class="map-settings-group">
+    <div v-if="showAutonomyPolicySettings" class="map-settings-group">
       <div class="map-settings-subtitle">{{ settingsLocale.autonomyGroup }}</div>
       <p class="panel-hint map-settings-hint">{{ settingsLocale.autonomyGroupHint }}</p>
       <div class="map-settings-select-group">

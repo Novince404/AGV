@@ -70,9 +70,6 @@ def _reason_requires_bound_agv(reason: str) -> bool:
 
 
 def _task_requires_bound_agv(task) -> bool:
-    preferred_agv_id = getattr(task, "preferred_agv_id", None)
-    if preferred_agv_id is None:
-        return False
     reason = str(getattr(task, "dispatch_reason", "") or "")
     return task.dispatch_mode == "manual" or _reason_requires_bound_agv(reason)
 

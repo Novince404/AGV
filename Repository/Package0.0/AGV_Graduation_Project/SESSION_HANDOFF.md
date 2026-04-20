@@ -17,6 +17,14 @@
   - 新增 3 个 JSON 文件均可正常解析。
   - 8 条任务在配套障碍物布局下均可达。
 
+## 2026-04-20 Personal Demo Bugfix Notes
+
+- 本轮针对个人端演示收口：
+  - 前端 `normalizeBlockedCellList` 增加非数组防御，避免保存地图/任务相关更改时出现 `cells.filter is not a function`。
+  - 个人用户隐藏地图设置里的“自治策略”组，降低个人端设置复杂度。
+  - 自动调度不再接走未绑定 AGV 的 `manual` 导入任务，`task_manual_single_demo.json` 应保留在待绑定队列。
+  - `personal_defense_busy_tasks.json` 坐标改为同时避开默认障碍与个人答辩演示障碍模板。
+
 ## 2026-04-12 Incremental Update
 
 - 第四阶段验收执行计划 `v1` 已继续推进到“账号与数据隔离”高优先级链路：

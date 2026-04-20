@@ -1572,6 +1572,9 @@ const effectiveSurfaceRole = computed(() => {
 const uiTreatAsEnterpriseRole = computed(() =>
   ['enterprise_operator', 'enterprise_logistics', 'enterprise_admin'].includes(effectiveSurfaceRole.value)
 )
+const showAutonomyPolicySettings = computed(() =>
+  uiTreatAsEnterpriseRole.value || authCurrentRole.value === 'platform_admin'
+)
 const enterpriseUiRole = computed(() =>
   uiTreatAsEnterpriseRole.value ? effectiveSurfaceRole.value : 'enterprise_admin'
 )
@@ -11778,7 +11781,11 @@ function topologyStationDockAgvAvailabilityTone(agv) {
 }
 
 function hasPendingTask() {
-  return tasks.value.some(task => task.status === 'pending')
+  return tasks.value.some(
+    task =>
+      task.status === 'pending' &&
+      String(task.dispatch_mode || 'auto').trim().toLowerCase() !== 'manual'
+  )
 }
 
 function hasActiveTask() {
@@ -15042,6 +15049,7 @@ function detectObstacleSceneKey(cells, nextValidCells = validCells.value) {
 }
 
 function normalizeBlockedCellList(cells) {
+  if (!Array.isArray(cells)) return []
   return Array.from(new Set(
     cells
       .filter(cell => Number.isInteger(cell.x) && Number.isInteger(cell.y))
@@ -17378,6 +17386,7 @@ const mapSettingsPanelBindings = {
   showRuntimeSegmentType,
   showRuntimeConflictReason,
   showSelectedAgvRuntimeOverlay,
+  showAutonomyPolicySettings,
   enterpriseTopologyViewAvailable,
   topologyViewMode,
   showGuideCenterOnLoad,

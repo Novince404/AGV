@@ -2,58 +2,58 @@
   "version": 2,
   "scenario": "personal_defense_busy_10x8",
   "map_profile": "personal_defense_map_profile_10x8.json",
-  "description": "个人端答辩演示批量任务：一次导入后，默认 3 台 AGV 会先接收部分任务，其余任务进入队列等待空闲车辆。",
+  "description": "个人端答辩演示批量任务：一次导入后，默认 3 台 AGV 会先接收部分任务，其余任务进入队列等待空闲车辆。坐标避开默认障碍和 personal_defense 障碍模板，适合现场兜底。",
   "tasks": [
     {
       "start_x": 0,
       "start_y": 1,
-      "end_x": 3,
+      "end_x": 1,
       "end_y": 2,
       "grid_cols": 10,
       "grid_rows": 8,
       "priority": 5,
       "dispatch_mode": "auto",
       "dispatch_algorithm": "astar",
-      "dispatch_reason": "答辩演示：入库口 A 到存储位 C1"
+      "dispatch_reason": "答辩演示：入库口 A 到临时缓存 A"
     },
     {
       "start_x": 0,
       "start_y": 6,
-      "end_x": 3,
+      "end_x": 1,
       "end_y": 5,
       "grid_cols": 10,
       "grid_rows": 8,
       "priority": 4,
       "dispatch_mode": "auto",
       "dispatch_algorithm": "astar",
-      "dispatch_reason": "答辩演示：入库口 B 到存储位 C2"
+      "dispatch_reason": "答辩演示：入库口 B 到临时缓存 B"
     },
     {
-      "start_x": 3,
+      "start_x": 1,
       "start_y": 2,
-      "end_x": 6,
+      "end_x": 5,
       "end_y": 2,
       "grid_cols": 10,
       "grid_rows": 8,
       "priority": 5,
       "dispatch_mode": "auto",
       "dispatch_algorithm": "astar",
-      "dispatch_reason": "答辩演示：存储位 C1 到装配位 1"
+      "dispatch_reason": "答辩演示：临时缓存 A 到装配前工位"
     },
     {
-      "start_x": 3,
+      "start_x": 1,
       "start_y": 5,
-      "end_x": 6,
+      "end_x": 5,
       "end_y": 5,
       "grid_cols": 10,
       "grid_rows": 8,
       "priority": 4,
       "dispatch_mode": "auto",
       "dispatch_algorithm": "astar",
-      "dispatch_reason": "答辩演示：存储位 C2 到装配位 2"
+      "dispatch_reason": "答辩演示：临时缓存 B 到装配后工位"
     },
     {
-      "start_x": 6,
+      "start_x": 5,
       "start_y": 2,
       "end_x": 9,
       "end_y": 1,
@@ -62,10 +62,10 @@
       "priority": 5,
       "dispatch_mode": "auto",
       "dispatch_algorithm": "astar",
-      "dispatch_reason": "答辩演示：装配位 1 到出库口 A"
+      "dispatch_reason": "答辩演示：装配前工位到出库口 A"
     },
     {
-      "start_x": 6,
+      "start_x": 5,
       "start_y": 5,
       "end_x": 9,
       "end_y": 6,
@@ -74,7 +74,7 @@
       "priority": 4,
       "dispatch_mode": "auto",
       "dispatch_algorithm": "astar",
-      "dispatch_reason": "答辩演示：装配位 2 到出库口 B"
+      "dispatch_reason": "答辩演示：装配后工位到出库口 B"
     },
     {
       "start_x": 1,
@@ -100,19 +100,19 @@
           "label": "入库收料",
           "start_x": 0,
           "start_y": 1,
-          "end_x": 3,
+          "end_x": 1,
           "end_y": 2
         },
         {
           "label": "跨区转运",
-          "start_x": 3,
+          "start_x": 1,
           "start_y": 2,
-          "end_x": 6,
+          "end_x": 5,
           "end_y": 5
         },
         {
           "label": "出库发运",
-          "start_x": 6,
+          "start_x": 5,
           "start_y": 5,
           "end_x": 9,
           "end_y": 6

@@ -91,7 +91,7 @@
 
 - `demo/json/personal_defense_map_profile_10x8.json`：推荐优先使用，导入后形成可复用地图方案。
 - `demo/json/personal_defense_obstacle_layout_10x8.json`：只恢复障碍物布局时使用，导入后记得保存障碍。
-- `demo/json/personal_defense_busy_tasks.json`：个人端答辩用批量任务，一次导入后让多台车同时忙起来。
+- `demo/json/personal_defense_busy_tasks.json`：个人端答辩用批量任务，一次导入后让多台车同时忙起来；坐标已避开默认障碍和配套演示障碍，适合作为现场兜底版本。
 - `demo/docs/PERSONAL_DEFENSE_DEMO_RUNBOOK.md`：现场逐步操作手册。
 
 ## 6. 现场兜底方案
