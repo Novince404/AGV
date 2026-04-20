@@ -13,7 +13,7 @@
 运行：
 
 ```bat
-run_sqlite_dev.bat
+tools\windows\run_sqlite_dev.bat
 ```
 
 特点：
@@ -25,7 +25,7 @@ run_sqlite_dev.bat
 运行：
 
 ```bat
-run_packaged_dev.bat
+tools\windows\run_packaged_dev.bat
 ```
 
 特点：
@@ -73,7 +73,7 @@ dist\AGV_Dispatch_Package\data\agv_dispatch.db
 1. 先跑一次：
 
 ```bat
-run_sqlite_smoke.bat
+tools\windows\run_sqlite_smoke.bat
 ```
 
 2. 确认看到：
@@ -82,7 +82,7 @@ run_sqlite_smoke.bat
 SQLITE_SMOKE_OK point/template/map
 ```
 
-3. 再使用 `run_packaged_dev.bat` 或封装包启动
+3. 再使用 `tools\windows\run_packaged_dev.bat` 或封装包启动
 
 ## 演示时的建议说法
 - 当前系统默认支持 `memory / sqlite / mysql` 三种后端模式

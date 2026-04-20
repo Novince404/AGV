@@ -34,7 +34,7 @@ export const COMFY_PROMPT_STYLES = {
       'presentation report style',
       'clear storytelling',
       'balanced labels and visuals',
-      'designed for advisor or management review'
+      'designed for technical or management review'
     ],
     negativeFragments: ['chaotic composition', 'overly artistic abstraction', 'visual confusion']
   },
@@ -161,7 +161,7 @@ export function buildDefaultComfyPromptText({
 
   const sourceStyleFragments = {
     map_profile: {
-      report: ['advisor presentation board', 'clear map explanation priority'],
+      report: ['technical presentation board', 'clear map explanation priority'],
       industrial_realistic: ['credible warehouse floor texture', 'real operational facility mood'],
       infographic: ['layout legend friendly composition', 'diagram-ready zone separation']
     },

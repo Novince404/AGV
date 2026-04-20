@@ -17,7 +17,7 @@
 启动脚本：
 
 ```bat
-run_dev.bat
+tools\windows\run_dev.bat
 ```
 
 特点：
@@ -34,7 +34,7 @@ run_dev.bat
 启动脚本：
 
 ```bat
-run_sqlite_dev.bat
+tools\windows\run_sqlite_dev.bat
 ```
 
 特点：
@@ -51,7 +51,7 @@ run_sqlite_dev.bat
 启动脚本：
 
 ```bat
-run_packaged_dev.bat
+tools\windows\run_packaged_dev.bat
 ```
 
 特点：
@@ -79,11 +79,11 @@ dist\AGV_Dispatch_Package\start_agv.bat
 ## 推荐使用顺序
 
 ### 开发阶段
-1. `run_dev.bat`
-2. 有数据库验证需求时切 `run_sqlite_dev.bat` 或 `run_mysql_dev.bat`
+1. `tools\windows\run_dev.bat`
+2. 有数据库验证需求时切 `tools\windows\run_sqlite_dev.bat` 或 `run_mysql_dev.bat`
 
 ### 演示彩排阶段
-1. `run_packaged_dev.bat`
+1. `tools\windows\run_packaged_dev.bat`
 2. 验证无 Vite 环境下是否可运行
 
 ### 最终演示 / 交付阶段
@@ -95,7 +95,7 @@ dist\AGV_Dispatch_Package\start_agv.bat
 - `backend/venv` 已可用
 - 若使用 MySQL：
   - `backend/.env` 已配置正确
-  - `run_mysql_check.bat` 可通过
+  - `tools\windows\run_mysql_check.bat` 可通过
 
 ## 启动失败时先看哪里
 - 前端启动失败：
@@ -103,5 +103,5 @@ dist\AGV_Dispatch_Package\start_agv.bat
 - 后端启动失败：
   - 看后端窗口是否报 `uvicorn` / 数据库连接错误
 - 封装模式失败：
-  - 优先看 `PACKAGING_WINDOWS.md`
-  - 再看 `TROUBLESHOOTING_MINIMUM_DELIVERY.md`
+  - 优先看 `docs/release/PACKAGING_WINDOWS.md`
+  - 再看 `docs/demo/TROUBLESHOOTING_MINIMUM_DELIVERY.md`

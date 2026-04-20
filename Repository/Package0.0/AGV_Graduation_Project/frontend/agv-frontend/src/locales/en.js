@@ -1451,7 +1451,7 @@
     "ai_render_builtin_current_template": "Current Template",
     "ai_render_builtin_recommended_for": "Recommended for: ",
     "ai_render_builtin_preview_report": "Quick Report Starter",
-    "ai_render_builtin_preview_report_hint": "Fast preview with readable layout, suitable for quick validation and advisor review.",
+    "ai_render_builtin_preview_report_hint": "Fast preview with readable layout, suitable for quick validation and solution review.",
     "ai_render_builtin_showcase_realistic": "Industrial Showcase Starter",
     "ai_render_builtin_showcase_realistic_hint": "Balanced enterprise showcase with more realistic warehouse materials and cleaner presentation lighting.",
     "ai_render_builtin_showcase_infographic": "Infographic Showcase Starter",

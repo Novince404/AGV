@@ -64,8 +64,8 @@ AGV_DATABASE_AUTO_CREATE=true
 
 Convenience scripts:
 
-- `run_sqlite_dev.bat`
-- `run_sqlite_smoke.bat`
+- `tools\windows\run_sqlite_dev.bat`
+- `tools\windows\run_sqlite_smoke.bat`
 
 Expected smoke result:
 
@@ -91,7 +91,7 @@ AGV_DATABASE_ECHO=false
 
 Convenience scripts:
 
-- `run_mysql_check.bat`
+- `tools\windows\run_mysql_check.bat`
 - `run_mysql_dev.bat`
 
 Expected config-check result:

@@ -1,4 +1,4 @@
-﻿AGV_Graduation_Project 项目结构与模块功能说明
+AGV_Graduation_Project 项目结构与模块功能说明
 ========================================
 
 文档目的
@@ -63,7 +63,7 @@ AGV_Graduation_Project/
           pointHelpers.js
           csv.js
           fileDownload.js
-  run_dev.bat
+  tools\windows\run_dev.bat
   CHANGELOG.md
   .gitignore
 
@@ -284,7 +284,7 @@ AGV_Graduation_Project/
 
 六、运行入口与启动方式
 ----------------------
-1) 推荐启动脚本：run_dev.bat
+1) 推荐启动脚本：tools\windows\run_dev.bat
 - 自动启动 backend（uvicorn）
 - 自动启动 frontend（vite）
 - 自动尝试打开浏览器到 http://localhost:5173/

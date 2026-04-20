@@ -30,7 +30,7 @@
   - 结果：通过
 
 ### 3. SQLite 回归
-- `run_sqlite_smoke.bat`
+- `tools\windows\run_sqlite_smoke.bat`
   - 结果：通过
   - 输出：
 
@@ -39,7 +39,7 @@ SQLITE_SMOKE_OK point/template/map
 ```
 
 ### 4. MySQL 回归
-- `run_mysql_check.bat`
+- `tools\windows\run_mysql_check.bat`
   - 结果：通过
   - 输出关键结果：
 
@@ -89,7 +89,7 @@ PACKAGED_EXE_SMOKE_OK
   - 等待后端真正 ready
   - 再打开浏览器
 
-### 2. `run_mysql_check.bat` 配置修复
+### 2. `tools\windows\run_mysql_check.bat` 配置修复
 - 修复了脚本里强塞默认 `root:password` 的问题
 - 现在优先读取 `backend/.env` 中真实的 MySQL 配置
 

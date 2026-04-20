@@ -3,13 +3,13 @@
 ## 文件说明
 
 - `personal_defense_map_profile_10x8.json`
-  - 个人端答辩推荐地图 Profile。
+  - 个人端综合演示推荐地图 Profile。
   - 导入后在地图方案列表中点击“应用”，即可恢复 10x8 货架通道地图。
 - `personal_defense_obstacle_layout_10x8.json`
-  - 个人端答辩备用障碍物布局。
+  - 个人端综合演示备用障碍物布局。
   - 只想临时恢复障碍物时使用，导入后需要点击“保存障碍”。
 - `personal_defense_busy_tasks.json`
-  - 个人端答辩批量任务。
+  - 个人端综合演示批量任务。
   - 一次导入多条任务，默认 3 台 AGV 会先运行一部分任务，其余任务进入队列等待空闲车。
   - 坐标避开默认障碍和 `personal_defense_obstacle_layout_10x8.json`，即使现场还没切到配套地图，也不容易踩到“终点位于障碍格”。
 - `task_auto_single_demo.json`
@@ -26,7 +26,7 @@
 
 ## 推荐用法
 
-- 导师答辩个人端演示：
+- 个人端综合演示：
   - 先导入并应用 `personal_defense_map_profile_10x8.json`。
   - 再导入 `personal_defense_busy_tasks.json`。
   - 观察多台 AGV 同时运行、任务队列接续、路径绕开货架障碍。
@@ -38,6 +38,6 @@
 
 ## 当前约定
 
-- 个人端答辩资产默认基于 `10 x 8` 地图。
+- 个人端综合演示资产默认基于 `10 x 8` 地图。
 - 批量任务导入依赖配套地图障碍物；如果任务导入提示阶段被阻塞，请先应用配套地图 Profile。
 - 常用点位用于表达业务地标，不等同于停车点、充电点、停车站或充电站。

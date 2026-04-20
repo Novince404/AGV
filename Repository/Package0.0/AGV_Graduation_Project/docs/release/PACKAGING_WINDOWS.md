@@ -6,18 +6,18 @@
 - 为最低可交付版准备 Windows 演示包。
 - 默认使用 `sqlite`，不强制依赖 MySQL。
 - 支持两种运行方式：
-  - 本地“类封装”运行：`run_packaged_dev.bat`
+  - 本地“类封装”运行：`tools\windows\run_packaged_dev.bat`
   - 真正打包：`build_windows_package.bat`
 
 ## 目录与脚本
 - `build_frontend_dist.bat`
   - 构建前端 `frontend/agv-frontend/dist`
-- `run_packaged_dev.bat`
+- `tools\windows\run_packaged_dev.bat`
   - 本地直接用后端托管 `dist`，不再依赖 Vite
 - `build_windows_package.bat`
   - 使用 `PyInstaller` 构建 one-folder 包
 - `start_agv.bat`
-  - 封装包启动器；若当前目录没有 `backend.exe`，则自动回退到 `run_packaged_dev.bat`
+  - 封装包启动器；若当前目录没有 `backend.exe`，则自动回退到 `tools\windows\run_packaged_dev.bat`
 - `backend/package_entry.py`
   - PyInstaller 入口，默认将后端切到 `sqlite + serve_frontend_dist`
 - `backend/packaging/backend.spec`
@@ -29,7 +29,7 @@
 在项目根目录执行：
 
 ```bat
-run_packaged_dev.bat
+tools\windows\run_packaged_dev.bat
 ```
 
 效果：

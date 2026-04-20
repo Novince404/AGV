@@ -1451,7 +1451,7 @@
     "ai_render_builtin_current_template": "当前模板",
     "ai_render_builtin_recommended_for": "推荐用于：",
     "ai_render_builtin_preview_report": "快速汇报起步版",
-    "ai_render_builtin_preview_report_hint": "适合快速验证和导师查看，重点是布局清晰、生成速度稳。",
+    "ai_render_builtin_preview_report_hint": "适合快速验证和方案预览，重点是布局清晰、生成速度稳。",
     "ai_render_builtin_showcase_realistic": "工业展示起步版",
     "ai_render_builtin_showcase_realistic_hint": "更偏企业展示与仓储写实质感，适合常规展示图。",
     "ai_render_builtin_showcase_infographic": "信息图展示起步版",
@@ -1991,5 +1991,4 @@
     }
   }
 }
-
 

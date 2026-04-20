@@ -7,7 +7,7 @@
 
 ## 演示前准备
 1. 选择一种启动方式：
-   - `run_packaged_dev.bat`
+   - `tools\windows\run_packaged_dev.bat`
    - 或 `dist\AGV_Dispatch_Package\start_agv.bat`
 2. 确认页面可正常打开
 3. 确认地图、点位、模板、障碍预设都能正常显示

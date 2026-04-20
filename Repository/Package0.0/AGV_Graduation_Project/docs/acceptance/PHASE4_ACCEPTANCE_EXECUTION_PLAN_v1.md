@@ -73,7 +73,7 @@
 
 - `SESSION_HANDOFF.md`
 - `PLAN_INDEX_AND_OPEN_ITEMS_FOR_NEW_CHAT.md`
-- `PROJECT_IMPLEMENTATION_PLAN_v4.md`
+- `docs/plans/PROJECT_IMPLEMENTATION_PLAN_v4.md`
 - `enterprise_client/docs/PHASE4_ENTERPRISE_ACCEPTANCE_CHECKLIST.md`
 
 当前自动化总回归已于 `2026-04-17` 通过，包内后端 smoke 已于 `2026-04-19` 复跑通过。仍未形成“正式人工签收”结论的包括：
@@ -83,7 +83,7 @@
 - 停车站 / 充电站前端站级显示、悬停、站内列表观感：前端基础链已补，仍建议演示复核
 - 小铃铛未读态、与返回顶部按钮的布局关系：前端基础链已补，仍建议演示复核
 - 说明中心与设置弹窗层级、首次打开与 `H` 重开链：前端基础链已补，仍建议演示复核
-- 企业独立客户端完整 EXE 演示签收：包内后端 smoke 已补并复跑，已新增 `PHASE4_MANUAL_DEMO_SIGNOFF_2026-04-19.md`，仍建议双击启动浏览器人工复核
+- 企业独立客户端完整 EXE 演示签收：包内后端 smoke 已补并复跑，已新增 `docs/acceptance/PHASE4_MANUAL_DEMO_SIGNOFF_2026-04-19.md`，仍建议双击启动浏览器人工复核
 
 ## 4. 口头讨论过但尚未完全收口的内容
 
@@ -149,7 +149,7 @@
 - 三角色登录链
 - `fail to fetch`
 - 地图、AGV、任务、企业设置等关键入口可用
-- 人工演示签收记录：`PHASE4_MANUAL_DEMO_SIGNOFF_2026-04-19.md`
+- 人工演示签收记录：`docs/acceptance/PHASE4_MANUAL_DEMO_SIGNOFF_2026-04-19.md`
 
 #### C. 拓扑与运行链 4B/4C `[大部分已完成，拓扑保存链待补实机回归]`
 - 拓扑保存链

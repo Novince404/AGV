@@ -9,7 +9,7 @@ set "CHROME_EXE=C:\Program Files\Google\Chrome\Application\chrome.exe"
 if exist "%~dp0backend.exe" (
   start "AGV Backend Package" "%~dp0backend.exe"
 ) else (
-  call "%~dp0run_packaged_dev.bat"
+  call "%~dp0tools\windows\run_packaged_dev.bat"
   exit /b %errorlevel%
 )
 

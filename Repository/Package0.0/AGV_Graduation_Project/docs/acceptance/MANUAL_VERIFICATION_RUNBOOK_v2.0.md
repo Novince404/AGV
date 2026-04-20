@@ -10,7 +10,7 @@
 - 执行清单：`TEST_CHECKLIST_MINIMUM_DELIVERY.md`
 - 记录模板：`MANUAL_VERIFICATION_RECORD_v2.0.md`
 - 自动化基线：`MINIMUM_DELIVERY_BASELINE_v2.0.md`
-- 演示脚本：`DEMO_SCRIPT_MINIMUM_DELIVERY.md`
+- 演示脚本：`docs/demo/DEMO_SCRIPT_MINIMUM_DELIVERY.md`
 
 ## 终验前准备
 
@@ -20,10 +20,10 @@
 3. 封装模式
 
 ### 启动方式
-- SQLite 演示模式：`run_sqlite_dev.bat`
+- SQLite 演示模式：`tools\windows\run_sqlite_dev.bat`
 - MySQL 模式：`run_mysql_dev.bat`
 - 封装模式：
-  - 开发态封装模拟：`run_packaged_dev.bat`
+  - 开发态封装模拟：`tools\windows\run_packaged_dev.bat`
   - 打包产物：`dist/AGV_Dispatch_Package/start_agv.bat`
 
 ### 执行原则

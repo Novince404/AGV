@@ -232,7 +232,7 @@
 请先阅读以下文件，并用中文总结当前计划状态与未完成项，再继续接手开发：
 1. `Repository/Package0.0/AGV_Graduation_Project/SESSION_HANDOFF.md`
 2. `Repository/Package0.0/AGV_Graduation_Project/PLAN_INDEX_AND_OPEN_ITEMS_FOR_NEW_CHAT.md`
-3. `Repository/Package0.0/AGV_Graduation_Project/PROJECT_IMPLEMENTATION_PLAN_v4.md`
+3. `Repository/Package0.0/AGV_Graduation_Project/docs/plans/PROJECT_IMPLEMENTATION_PLAN_v4.md`
 4. `Repository/Package0.0/AGV_Graduation_Project/enterprise_client/docs/PHASE4_ENTERPRISE_ACCEPTANCE_CHECKLIST.md`
 
 重点回答：

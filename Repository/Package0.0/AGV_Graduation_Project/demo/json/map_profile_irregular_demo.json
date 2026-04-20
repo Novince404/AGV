@@ -2,8 +2,8 @@
   "version": 1,
   "exported_at": "2026-03-31T00:00:00Z",
   "profile": {
-    "name": "导师演示异形地图",
-    "description": "用于导师演示的异形网格地图方案，包含有效区域与障碍布局。",
+    "name": "综合演示异形地图",
+    "description": "用于综合演示的异形网格地图方案，包含有效区域与障碍布局。",
     "grid_cols": 12,
     "grid_rows": 9,
     "blocked_cells": [

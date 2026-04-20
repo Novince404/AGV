@@ -3,7 +3,7 @@
 ## 2026-04-19 Personal Defense Demo Pack
 
 - 新增个人端导师答辩演示方案：
-  - `PERSONAL_DEFENSE_DEMO_PLAN_2026-04-19.md`
+  - `docs/demo/PERSONAL_DEFENSE_DEMO_PLAN_2026-04-19.md`
   - `demo/docs/PERSONAL_DEFENSE_DEMO_RUNBOOK.md`
 - 新增个人端答辩演示 JSON 资产：
   - `demo/json/personal_defense_map_profile_10x8.json`
@@ -738,7 +738,7 @@ git -C "Repository/Package0.0/AGV_Graduation_Project" push AGV main
   - `backend\\venv\\Scripts\\python.exe backend\\scripts\\enterprise_packaged_backend_smoke.py` 通过
   - 输出：`PACKAGED_ENTERPRISE_BACKEND_SMOKE_OK enterprise_admin enterprise_operator enterprise_logistics`
 - 新增人工演示签收记录：
-  - `PHASE4_MANUAL_DEMO_SIGNOFF_2026-04-19.md`
+  - `docs/acceptance/PHASE4_MANUAL_DEMO_SIGNOFF_2026-04-19.md`
 - 本次只做签收资产和状态收口，不改业务逻辑。
 - 当前边界：
   - 自动化总回归与包内后端三角色链已通过
@@ -746,7 +746,7 @@ git -C "Repository/Package0.0/AGV_Graduation_Project" push AGV main
   - 通过人工确认前，仍不建议把第四阶段写成“正式全部完成”
 
 ### 14.20 2026-04-19 追加：常用点位与充电站语义分离
-- 用户已大体试过 `PHASE4_MANUAL_DEMO_SIGNOFF_2026-04-19.md`，反馈主要问题转向点位语义：
+- 用户已大体试过 `docs/acceptance/PHASE4_MANUAL_DEMO_SIGNOFF_2026-04-19.md`，反馈主要问题转向点位语义：
   - 常用点位设置在面板里有变化，但地图上没有持续体现
   - “充电区 / 充电位 / 服务 / 预设 / 坐标”容易和拓扑里的充电点、充电站混淆
   - 入库口、出库口等需要明确是业务地标，而不是调度站点
@@ -797,7 +797,7 @@ git -C "Repository/Package0.0/AGV_Graduation_Project" push AGV main
   - `frontend/agv-frontend/src/locales/ja.js`
     - 补充常用点位开关、业务点位详情、个人/企业说明中心文案；同步弱化旧“充电类常用点位”语义
   - `PHASE4_ACCEPTANCE_EXECUTION_PLAN_v1.md`
-  - `PHASE4_MANUAL_DEMO_SIGNOFF_2026-04-19.md`
+  - `docs/acceptance/PHASE4_MANUAL_DEMO_SIGNOFF_2026-04-19.md`
     - 补充常用点位开关、左右键分工和说明中心专项验收项
 - 后续需要验证：
   - 前端 `lint` / `build`

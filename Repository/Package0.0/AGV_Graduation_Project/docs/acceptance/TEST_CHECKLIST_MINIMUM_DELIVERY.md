@@ -10,10 +10,10 @@
   - `MANUAL_VERIFICATION_RECORD_v2.0.md`
 
 ## 一、启动与环境
-- [ ] `run_dev.bat` 可正常启动
-- [ ] `run_sqlite_dev.bat` 可正常启动
-- [ ] `run_packaged_dev.bat` 可正常启动
-- [ ] `run_mysql_check.bat` 在 MySQL 配置正确时可通过
+- [ ] `tools\windows\run_dev.bat` 可正常启动
+- [ ] `tools\windows\run_sqlite_dev.bat` 可正常启动
+- [ ] `tools\windows\run_packaged_dev.bat` 可正常启动
+- [ ] `tools\windows\run_mysql_check.bat` 在 MySQL 配置正确时可通过
 - [ ] `build_windows_package.bat` 可成功产出 `dist/AGV_Dispatch_Package`
 - [ ] `dist/AGV_Dispatch_Package/start_agv.bat` 可打开系统
 
@@ -75,11 +75,11 @@
 ## 九、数据库模式
 
 ### SQLite
-- [ ] `run_sqlite_smoke.bat` 通过
+- [ ] `tools\windows\run_sqlite_smoke.bat` 通过
 - [ ] 刷新后点位、模板、障碍预设仍保留
 
 ### MySQL
-- [ ] `run_mysql_check.bat` 通过
+- [ ] `tools\windows\run_mysql_check.bat` 通过
 - [ ] MySQL 模式下自动 / 手动 / 多段任务正常
 
 ## 十、封装试运行

@@ -1,7 +1,8 @@
 @echo off
 setlocal
 
-cd /d %~dp0backend
+for %%I in ("%~dp0..\..") do set "PROJECT_ROOT=%%~fI"
+cd /d %PROJECT_ROOT%\backend
 call .\venv\Scripts\activate
 set AGV_DATA_BACKEND=sqlite
 set AGV_DATABASE_URL=sqlite:///./agv_dispatch_smoke.db

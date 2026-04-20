@@ -34,10 +34,10 @@ if not exist "%ROOT_PACKAGE_DIR%\demo" mkdir "%ROOT_PACKAGE_DIR%\demo"
 if exist "%DEMO_SOURCE_DIR%\*" xcopy "%DEMO_SOURCE_DIR%\*" "%ROOT_PACKAGE_DIR%\demo\" /E /I /Y >nul
 if not exist "%ROOT_PACKAGE_DIR%\demo\docs" mkdir "%ROOT_PACKAGE_DIR%\demo\docs"
 copy /Y "%~dp0start_agv.bat" "%ROOT_PACKAGE_DIR%\start_agv.bat" >nul
-copy /Y "%~dp0DEMO_SCRIPT_MINIMUM_DELIVERY.md" "%ROOT_PACKAGE_DIR%\demo\docs\DEMO_SCRIPT_MINIMUM_DELIVERY.md" >nul
-copy /Y "%~dp0QUICKSTART_MINIMUM_DELIVERY.md" "%ROOT_PACKAGE_DIR%\demo\docs\QUICKSTART_MINIMUM_DELIVERY.md" >nul
-copy /Y "%~dp0SQLITE_DEMO_GUIDE.md" "%ROOT_PACKAGE_DIR%\demo\docs\SQLITE_DEMO_GUIDE.md" >nul
-copy /Y "%~dp0TROUBLESHOOTING_MINIMUM_DELIVERY.md" "%ROOT_PACKAGE_DIR%\demo\docs\TROUBLESHOOTING_MINIMUM_DELIVERY.md" >nul
+copy /Y "%~dp0docs\demo\DEMO_SCRIPT_MINIMUM_DELIVERY.md" "%ROOT_PACKAGE_DIR%\demo\docs\DEMO_SCRIPT_MINIMUM_DELIVERY.md" >nul
+copy /Y "%~dp0docs\demo\QUICKSTART_MINIMUM_DELIVERY.md" "%ROOT_PACKAGE_DIR%\demo\docs\QUICKSTART_MINIMUM_DELIVERY.md" >nul
+copy /Y "%~dp0docs\demo\SQLITE_DEMO_GUIDE.md" "%ROOT_PACKAGE_DIR%\demo\docs\SQLITE_DEMO_GUIDE.md" >nul
+copy /Y "%~dp0docs\demo\TROUBLESHOOTING_MINIMUM_DELIVERY.md" "%ROOT_PACKAGE_DIR%\demo\docs\TROUBLESHOOTING_MINIMUM_DELIVERY.md" >nul
 
 echo Package build completed:
 echo   %ROOT_PACKAGE_DIR%

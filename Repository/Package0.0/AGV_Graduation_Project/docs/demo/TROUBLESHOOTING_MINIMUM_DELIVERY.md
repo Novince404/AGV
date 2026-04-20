@@ -12,9 +12,9 @@
 1. 前端是否正常启动
 2. 后端是否正常启动
 3. 当前使用的是哪种模式：
-   - `run_dev.bat`
-   - `run_sqlite_dev.bat`
-   - `run_packaged_dev.bat`
+   - `tools\windows\run_dev.bat`
+   - `tools\windows\run_sqlite_dev.bat`
+   - `tools\windows\run_packaged_dev.bat`
    - `start_agv.bat`
 
 ### 常见处理
@@ -22,12 +22,12 @@
   - 重启前端 `npm run dev`
 - 封装模式下：
   - 先重新执行 `build_frontend_dist.bat`
-  - 再运行 `run_packaged_dev.bat`
+  - 再运行 `tools\windows\run_packaged_dev.bat`
 
 ## 2. MySQL 检查失败
 
 ### 现象
-- `run_mysql_check.bat` 输出 `MYSQL_CONFIG_FAILED`
+- `tools\windows\run_mysql_check.bat` 输出 `MYSQL_CONFIG_FAILED`
 
 ### 常见原因
 - 用户名或密码不对
@@ -41,7 +41,7 @@
 3. 重新执行：
 
 ```bat
-run_mysql_check.bat
+tools\windows\run_mysql_check.bat
 ```
 
 4. 如果提示缺依赖，确保后端虚拟环境已安装：
@@ -53,14 +53,14 @@ backend\venv\Scripts\python.exe -m pip install cryptography
 ## 3. SQLite 冒烟检查失败
 
 ### 现象
-- `run_sqlite_smoke.bat` 未输出 `SQLITE_SMOKE_OK point/template/map`
+- `tools\windows\run_sqlite_smoke.bat` 未输出 `SQLITE_SMOKE_OK point/template/map`
 
 ### 处理步骤
 1. 确认后端虚拟环境完整
 2. 再执行一次：
 
 ```bat
-run_sqlite_smoke.bat
+tools\windows\run_sqlite_smoke.bat
 ```
 
 3. 查看报错集中在哪一类：
@@ -119,7 +119,7 @@ run_sqlite_smoke.bat
 - 先用：
 
 ```bat
-run_packaged_dev.bat
+tools\windows\run_packaged_dev.bat
 ```
 
 确认“后端托管 dist”模式是通的，再回头看打包。

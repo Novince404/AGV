@@ -8,7 +8,7 @@
 
 最近一次总回归：`2026-04-17` 已通过。除下方需要人工打开浏览器/EXE 观察的项目外，自动化健康检查链均为绿色。
 
-最近一次包内后端预检：`2026-04-19` 已通过 `backend\scripts\enterprise_packaged_backend_smoke.py`。完整浏览器 / EXE 人工签收记录见仓库根目录 `PHASE4_MANUAL_DEMO_SIGNOFF_2026-04-19.md`。
+最近一次包内后端预检：`2026-04-19` 已通过 `backend\scripts\enterprise_packaged_backend_smoke.py`。完整浏览器 / EXE 人工签收记录见仓库 `docs/acceptance/PHASE4_MANUAL_DEMO_SIGNOFF_2026-04-19.md`。
 
 在仓库根目录运行：
 
@@ -71,7 +71,7 @@ dist\AGV_Enterprise_Client_v1\start_enterprise_client.bat
 
 ## 3. 企业独立客户端登录链
 
-当前状态：`[包内后端 smoke 已完成，浏览器演示待人工复核]` 已补三角色源码登录自动化、包内 `backend.exe` 三角色 smoke 与 `fail to fetch` 关键修复；`2026-04-19` 已复跑包内后端 smoke。完整双击启动浏览器演示仍建议按 `PHASE4_MANUAL_DEMO_SIGNOFF_2026-04-19.md` 人工复核。
+当前状态：`[包内后端 smoke 已完成，浏览器演示待人工复核]` 已补三角色源码登录自动化、包内 `backend.exe` 三角色 smoke 与 `fail to fetch` 关键修复；`2026-04-19` 已复跑包内后端 smoke。完整双击启动浏览器演示仍建议按 `docs/acceptance/PHASE4_MANUAL_DEMO_SIGNOFF_2026-04-19.md` 人工复核。
 
 分别登录：
 

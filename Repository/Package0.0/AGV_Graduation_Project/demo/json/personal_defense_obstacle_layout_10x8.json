@@ -1,7 +1,7 @@
 {
   "version": 1,
   "name": "personal_defense_obstacle_layout_10x8",
-  "description": "个人端答辩演示障碍物布局：使用三组竖向货架列形成绕行通道，同时避开默认 AGV 和常用业务点位。",
+  "description": "个人端综合演示障碍物布局：使用三组竖向货架列形成绕行通道，同时避开默认 AGV 和常用业务点位。",
   "grid_cols": 10,
   "grid_rows": 8,
   "blocked_cells": [
