@@ -160,6 +160,16 @@
             </div>
             <div class="task-actions">
               <button
+                v-if="isManualTaskBindingCandidate(task)"
+                class="btn-secondary task-action-button"
+                type="button"
+                :disabled="!authCanDispatchWrite || isManualTaskBindingBusy(task.id)"
+                :title="buildCapabilityLockedTitle('dispatch', authCanDispatchWrite)"
+                @click="bindManualTaskToSelectedOrPick(task)"
+              >
+                {{ manualTaskBindingButtonText(task) }}
+              </button>
+              <button
                 v-if="isTaskDeletable(task)"
                 class="btn-delete task-action-button"
                 type="button"

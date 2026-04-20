@@ -140,7 +140,7 @@
           type="button"
           :disabled="!authCanMapWrite || obstacleMapSaving || obstacleMutationLocked || !obstacleLayoutDirty"
           :title="buildCapabilityLockedTitle('map', authCanMapWrite)"
-          @click="saveBlockedCells"
+          @click="saveBlockedCells()"
         >
           {{ settingsLocale.obstacleSave }}
         </button>

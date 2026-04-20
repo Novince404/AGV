@@ -906,6 +906,8 @@ const summaryZoomArmed = ref(false)
 
 const localAgvs = ref([])
 const selectedAgvId = ref(null)
+const manualTaskBindingTaskId = ref(null)
+const manualTaskBindingBusyId = ref(null)
 const topologyStationDockDialogOpen = ref(false)
 const topologyStationDockNodeKey = ref('')
 const topologyStationDockOnboarding = ref(false)
@@ -5692,6 +5694,58 @@ function manualTaskQueuedText(task) {
     return `任务已创建，正在等待指定 AGV #${agvId} 空闲后自动执行。`
   }
   return `Task created. Waiting for bound AGV #${agvId} to become idle before execution.`
+}
+
+function manualTaskBindingPickPromptText(task) {
+  if (locale.value === 'ja') return `手動タスク #${task?.id ?? ''} の割り当て先 AGV をマップ上でクリックしてください。`
+  if (locale.value === 'zh') return `请在地图上点击一台空闲小车，作为手动任务 #${task?.id ?? ''} 的指定车辆。`
+  return `Click an idle AGV on the map to assign manual task #${task?.id ?? ''}.`
+}
+
+function manualTaskBindingUnavailableText(agv) {
+  const agvId = agv?.id ? ` #${agv.id}` : ''
+  if (locale.value === 'ja') return `AGV${agvId} は現在割り当てできません。待機中の AGV を選択してください。`
+  if (locale.value === 'zh') return `AGV${agvId} 当前不可指定，请选择空闲或回仓中的小车。`
+  return `AGV${agvId} cannot be assigned right now. Choose an idle or returning AGV.`
+}
+
+function manualTaskBindingSuccessText(task, agv) {
+  if (locale.value === 'ja') return `手動タスク #${task?.id ?? ''} を AGV #${agv?.id ?? ''} に割り当てました。`
+  if (locale.value === 'zh') return `已将手动任务 #${task?.id ?? ''} 指定给 AGV #${agv?.id ?? ''}。`
+  return `Manual task #${task?.id ?? ''} assigned to AGV #${agv?.id ?? ''}.`
+}
+
+function hasIntegerId(value) {
+  return value !== null && value !== undefined && Number.isInteger(Number(value))
+}
+
+function isManualTaskBindingCandidate(task) {
+  return (
+    task &&
+    ['pending', 'blocked'].includes(String(task.status || '')) &&
+    String(task.dispatch_mode || '').trim().toLowerCase() === 'manual' &&
+    !hasIntegerId(task.preferred_agv_id) &&
+    !hasIntegerId(task.agv_id)
+  )
+}
+
+function isManualTaskBindingBusy(taskId) {
+  const normalizedTaskId = Number(taskId)
+  return (
+    Number(manualTaskBindingBusyId.value) === normalizedTaskId ||
+    Number(manualTaskBindingTaskId.value) === normalizedTaskId
+  )
+}
+
+function manualTaskBindingButtonText() {
+  if (selectedBackendAgv.value && isSchedulableIdleAgvStatus(selectedBackendAgv.value.status)) {
+    if (locale.value === 'ja') return `AGV #${selectedBackendAgv.value.id} を指定`
+    if (locale.value === 'zh') return `使用 AGV #${selectedBackendAgv.value.id}`
+    return `Use AGV #${selectedBackendAgv.value.id}`
+  }
+  if (locale.value === 'ja') return 'AGV を指定'
+  if (locale.value === 'zh') return '指定小车'
+  return 'Assign AGV'
 }
 
 function autoTaskQueuedText(task) {
@@ -12429,10 +12483,90 @@ async function dispatchNearestEnterpriseAgvToCell(x, y) {
   )
 }
 
+async function scheduleManualTaskWithAgv(task, agv) {
+  if (!task || !agv || !isManualTaskBindingCandidate(task)) return false
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'dispatch.write', buildCapabilityDeniedMessage('dispatch'))) return false
+  if (!isSchedulableIdleAgvStatus(agv.status)) {
+    showFloatingToast(manualTaskBindingUnavailableText(agv), 'warning')
+    return false
+  }
+
+  manualTaskBindingBusyId.value = Number(task.id)
+  autoScheduleGuard.value = true
+  try {
+    const scheduleRes = await fetch(`${API_BASE}/schedule/with_path`, {
+      method: 'POST',
+      headers: buildAuthorizedJsonHeaders(),
+      body: JSON.stringify({
+        task_id: Number(task.id),
+        agv_id: Number(agv.id),
+        schedule_mode: 'manual',
+        algorithm: String(task.dispatch_algorithm || algorithm.value || 'simple').toLowerCase(),
+        grid_cols: gridColsValue(),
+        grid_rows: gridRowsValue()
+      })
+    })
+    const scheduleData = await scheduleRes.json()
+    if (!scheduleRes.ok) {
+      throw createApiError(scheduleData, t('task_manual_unreachable'))
+    }
+
+    selectedAgvId.value = Number(agv.id)
+    dispatchMode.value = 'manual'
+    preferredRuntimeDisplayMode.value = 'manual'
+    trackedManualTaskId.value = Number(scheduleData?.task?.id ?? task.id)
+    manualDraftPicking.value = false
+    manualDispatchStep.value = 'running'
+    manualPathToStart.value = scheduleData.path_to_start ?? []
+    manualPathToEnd.value = scheduleData.path_to_end ?? scheduleData.path ?? []
+    rememberRuntimeRouteOverlay(scheduleData, 'manual')
+    await nextTick()
+    primeAgvFirstMotionFrame(scheduleData)
+    await refreshStateAfterDispatchStarted()
+    bumpManualPreviewMinVisible()
+    showFloatingToast(manualTaskBindingSuccessText(task, agv), 'success')
+    return true
+  } catch (error) {
+    console.error('Manual imported task schedule error:', error)
+    showFloatingToast(error?.message || t('task_manual_unreachable'), 'error')
+    return false
+  } finally {
+    autoScheduleGuard.value = false
+    manualTaskBindingBusyId.value = null
+    if (Number(manualTaskBindingTaskId.value) === Number(task.id)) {
+      manualTaskBindingTaskId.value = null
+    }
+  }
+}
+
+async function bindManualTaskToSelectedOrPick(task) {
+  if (!isManualTaskBindingCandidate(task)) return
+  if (selectedBackendAgv.value && isSchedulableIdleAgvStatus(selectedBackendAgv.value.status)) {
+    await scheduleManualTaskWithAgv(task, selectedBackendAgv.value)
+    return
+  }
+
+  manualTaskBindingTaskId.value = Number(task.id)
+  dispatchMode.value = 'manual'
+  preferredRuntimeDisplayMode.value = 'manual'
+  manualDraftPicking.value = false
+  showFloatingToast(manualTaskBindingPickPromptText(task), 'info', 5000)
+}
+
 function onAgvClick(agv, event) {
   event.stopPropagation()
   if (agv.source !== 'backend') return
   mapDraftPrimedMode.value = null
+  const pendingManualTask = tasks.value.find(task => Number(task?.id) === Number(manualTaskBindingTaskId.value))
+  if (pendingManualTask && isManualTaskBindingCandidate(pendingManualTask)) {
+    selectedAgvId.value = Number(agv.id)
+    if (!isSchedulableIdleAgvStatus(agv?.status)) {
+      showFloatingToast(manualTaskBindingUnavailableText(agv), 'warning')
+      return
+    }
+    scheduleManualTaskWithAgv(pendingManualTask, agv)
+    return
+  }
   selectedAgvId.value = agv.id
   if (dispatchMode.value !== 'manual') return
   if (!isSchedulableIdleAgvStatus(agv?.status)) return
@@ -15207,12 +15341,14 @@ async function saveBlockedCells(
   }
   obstacleMapSaving.value = true
   try {
+    const requestedBlockedCells = Array.isArray(nextBlockedCells) ? nextBlockedCells : blockedCells.value
+    const requestedValidCells = Array.isArray(nextValidCells) ? nextValidCells : validCells.value
     const targetGridCols = sanitizeGridDimensionInput(nextGridCols, gridColsValue())
     const targetGridRows = sanitizeGridDimensionInput(nextGridRows, gridRowsValue())
-    const normalizedValidCells = normalizeValidCellList(nextValidCells, targetGridCols, targetGridRows)
+    const normalizedValidCells = normalizeValidCellList(requestedValidCells, targetGridCols, targetGridRows)
     const normalizedTopology = normalizeMapTopology(nextTopology, targetGridCols, targetGridRows, normalizedValidCells)
     const { filtered, skipped } = filterBlockedCellsAgainstOccupied(
-      filterBlockedCellsAgainstValid(nextBlockedCells, normalizedValidCells)
+      filterBlockedCellsAgainstValid(requestedBlockedCells, normalizedValidCells)
     )
     const requestPayload = {
       blocked_cells: filtered,
@@ -17215,6 +17351,10 @@ const taskQueuePanelBindings = {
   formatMapInvalidReason,
   isTaskDeletable,
   deleteTask,
+  isManualTaskBindingCandidate,
+  isManualTaskBindingBusy,
+  manualTaskBindingButtonText,
+  bindManualTaskToSelectedOrPick,
   isRecoveryRequiredTask,
   isCellOccupiedTimeoutTask,
   isTaskRecoveryBusy,

@@ -805,3 +805,28 @@ git -C "Repository/Package0.0/AGV_Graduation_Project" push AGV main
   - `sqlite_smoke_check.py`
   - 企业包重打与包内后端 smoke
   - 人工查看：关闭常用点位后地图是否更干净；左键站点/点位是否顺利选起终点；右键详情是否好用；H 说明中心是否足够清晰
+
+### 14.22 2026-04-20 追加：手动导入任务指定小车与障碍物保存修复
+- 本轮修复用户演示前发现的两个前端问题：
+  - 手动导入的未绑定 AGV 任务只显示“等待指定车辆执行”，但任务卡没有指定入口。
+  - 导入障碍物模板后点击“保存障碍物”会把障碍物清空。
+- 已做修改：
+  - `frontend/agv-frontend/src/components/TaskQueuePanel.vue`
+    - 对未绑定 AGV 的手动待执行任务显示“指定小车”按钮。
+    - 如果当前已经选中可调度 AGV，按钮文案变为“使用 AGV #x”。
+  - `frontend/agv-frontend/src/App.vue`
+    - 新增手动任务绑定状态。
+    - 点击任务卡“指定小车”后，如果已有可调度选中 AGV，则直接派发该任务。
+    - 如果没有选中 AGV，则进入地图点选模式，提示用户点击一台空闲小车完成绑定并派发。
+    - 点到不可调度 AGV 时给出提示，不会错误派发。
+    - `saveBlockedCells` 增加防御：非数组参数不再被当作障碍物列表，避免点击事件对象导致保存空列表。
+  - `frontend/agv-frontend/src/components/MapSettingsPanel.vue`
+    - “保存障碍物”按钮改为显式调用 `saveBlockedCells()`，避免 Vue 把 click event 传入保存函数。
+- 已验证：
+  - `frontend/agv-frontend` 下 `npm run lint` 通过。
+  - `frontend/agv-frontend` 下 `npm run build` 通过。
+  - `backend\\venv\\Scripts\\python.exe -m compileall backend\\app` 通过。
+- 后续人工复核建议：
+  - 导入 `task_manual_single_demo.json` 后，不预选 AGV 时应出现“指定小车”，点击后再点地图空闲 AGV 应能派发。
+  - 先选中空闲 AGV，再点击任务卡按钮，应直接使用该 AGV 派发。
+  - 导入障碍物模板后点击保存，障碍物应保持不消失。
