@@ -104,7 +104,7 @@ h2 {
 .feedback-fab {
   position: absolute;
   right: 14px;
-  bottom: 66px;
+  bottom: 14px;
   z-index: 24;
   display: grid;
   justify-items: end;

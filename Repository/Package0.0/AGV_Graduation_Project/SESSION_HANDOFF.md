@@ -848,3 +848,12 @@ git -C "Repository/Package0.0/AGV_Graduation_Project" push AGV main
 - 后续人工复核建议：
   - 粘贴 `demo/json/task_manual_single_demo.json` 内容后点击“导入文本”，应成功导入并提示手动任务等待指定 AGV。
   - 个人端未选 AGV 时，右侧不再出现“个人 AGV 管理”空提示；选中 AGV 后再显示送修下线入口。
+
+### 14.24 2026-04-20 追加：企业端反馈小铃铛位置微调
+- 本轮修复企业端运行地图上的反馈 / 报错小铃铛位置问题：
+  - 之前 `.feedback-fab` 使用 `bottom: 66px`，导致按钮悬在地图右下角上方一截。
+  - 已改为 `bottom: 14px`，与地图右侧和底部内边距保持一致，更贴近地图右下角。
+- 已修改：
+  - `frontend/agv-frontend/src/assets/agv-map.css`
+- 后续人工复核建议：
+  - 企业端地图中，小铃铛应位于地图内部右下角，而不是右下角上方。
