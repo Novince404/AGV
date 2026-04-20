@@ -830,3 +830,21 @@ git -C "Repository/Package0.0/AGV_Graduation_Project" push AGV main
   - 导入 `task_manual_single_demo.json` 后，不预选 AGV 时应出现“指定小车”，点击后再点地图空闲 AGV 应能派发。
   - 先选中空闲 AGV，再点击任务卡按钮，应直接使用该 AGV 派发。
   - 导入障碍物模板后点击保存，障碍物应保持不消失。
+
+### 14.23 2026-04-20 追加：导入文本按钮与个人 AGV 管理空提示修复
+- 本轮继续修复演示前个人端体验问题：
+  - 用户把 `task_manual_single_demo.json` 内容粘贴到 JSON 工具后点击“导入文本”，界面显示“导入失败”。
+  - 个人端未选中 AGV 时显示“个人 AGV 管理 / 先选中一台你创建的 AGV，才能在这里送修下线”，演示时显得多余。
+- 已做修改：
+  - `frontend/agv-frontend/src/components/JsonToolsPanel.vue`
+    - “导入文本”按钮改为显式调用 `importTasksFromJson()`，避免 Vue 把 click event 当成 JSON 文本传入。
+  - `frontend/agv-frontend/src/App.vue`
+    - `importTasksFromJson` 增加防御：如果收到的不是字符串，回退使用文本框内的 `jsonText`。
+  - `frontend/agv-frontend/src/components/DispatchControlSummaryPanel.vue`
+    - 个人 AGV 管理卡片仅在已选中个人 AGV 时显示；未选车时不再显示重复提示。
+- 已验证：
+  - `frontend/agv-frontend` 下 `npm run lint` 通过。
+  - `frontend/agv-frontend` 下 `npm run build` 通过。
+- 后续人工复核建议：
+  - 粘贴 `demo/json/task_manual_single_demo.json` 内容后点击“导入文本”，应成功导入并提示手动任务等待指定 AGV。
+  - 个人端未选 AGV 时，右侧不再出现“个人 AGV 管理”空提示；选中 AGV 后再显示送修下线入口。

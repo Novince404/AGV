@@ -72,28 +72,25 @@
       <p v-else>{{ t('runtime_inspector_empty') }}</p>
     </section>
 
-    <section v-if="canManagePersonalAgvs" class="dispatch-summary runtime-inspector-card personal-agv-delete-card">
+    <section v-if="canManagePersonalAgvs && selectedBackendAgv" class="dispatch-summary runtime-inspector-card personal-agv-delete-card">
       <span class="dispatch-summary-label">{{ t('agv_delete_panel_title') }}</span>
-      <template v-if="selectedBackendAgv">
-        <strong>{{ `AGV #${selectedBackendAgv.id}` }}</strong>
-        <p>{{ statusText(selectedBackendAgv.status) }}</p>
-        <p class="task-line">{{ t('agv_send_to_repair_panel_hint') }}</p>
-        <div class="runtime-inspector-actions">
-          <button
-            class="btn-secondary runtime-inspector-delete-button"
-            type="button"
-            :disabled="
-              !authCanFaultWrite ||
-              agvActionLoadingId === selectedBackendAgv.id ||
-              selectedBackendAgv.status === 'maintenance'
-            "
-            @click="sendSelectedPersonalAgvToMaintenance"
-          >
-            {{ t('agv_send_to_repair') }}
-          </button>
-        </div>
-      </template>
-      <p v-else>{{ t('agv_personal_manage_select_hint') }}</p>
+      <strong>{{ `AGV #${selectedBackendAgv.id}` }}</strong>
+      <p>{{ statusText(selectedBackendAgv.status) }}</p>
+      <p class="task-line">{{ t('agv_send_to_repair_panel_hint') }}</p>
+      <div class="runtime-inspector-actions">
+        <button
+          class="btn-secondary runtime-inspector-delete-button"
+          type="button"
+          :disabled="
+            !authCanFaultWrite ||
+            agvActionLoadingId === selectedBackendAgv.id ||
+            selectedBackendAgv.status === 'maintenance'
+          "
+          @click="sendSelectedPersonalAgvToMaintenance"
+        >
+          {{ t('agv_send_to_repair') }}
+        </button>
+      </div>
     </section>
   </div>
 </template>

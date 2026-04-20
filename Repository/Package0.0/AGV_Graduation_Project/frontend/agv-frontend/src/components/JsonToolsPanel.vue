@@ -43,7 +43,7 @@
           type="button"
           :disabled="!authCanJsonWrite"
           :title="buildCapabilityLockedTitle('data', authCanJsonWrite)"
-          @click="importTasksFromJson"
+          @click="importTasksFromJson()"
         >
           {{ taskJsonLocale.importText || t('import_json') }}
         </button>

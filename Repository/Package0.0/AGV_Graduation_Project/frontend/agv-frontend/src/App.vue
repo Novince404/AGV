@@ -14102,7 +14102,8 @@ async function scheduleImportedTasks(taskIds = []) {
 }
 
 async function importTasksFromJson(rawText = jsonText.value) {
-  const jsonPayload = String(rawText || '').trim()
+  const sourceText = typeof rawText === 'string' ? rawText : jsonText.value
+  const jsonPayload = String(sourceText || '').trim()
   if (!jsonPayload) return
   if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'json.write', buildCapabilityDeniedMessage('data'))) return
   jsonStatus.value = ''
