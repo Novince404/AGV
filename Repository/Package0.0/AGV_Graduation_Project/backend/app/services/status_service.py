@@ -726,6 +726,23 @@ def get_map_profile_detail(profile_key: str):
 
     profile_definition = get_map_profile_definition(profile_key)
     if profile_definition is None:
+        grid_cols, grid_rows = get_current_grid_size()
+        valid_cells = get_valid_cells(grid_cols, grid_rows)
+        current_topology = normalize_map_topology_payload(
+            get_map_layout_state().get("topology"),
+            grid_cols,
+            grid_rows,
+            valid_cells,
+        )
+        current_profile = _resolve_current_profile_payload(
+            grid_cols,
+            grid_rows,
+            get_blocked_cells(grid_cols, grid_rows),
+            valid_cells,
+            current_topology,
+        )
+        if str(current_profile.get("key") or "") == str(profile_key):
+            return _attach_map_profile_audit(current_profile)
         raise_api_error(404, "profile_not_found")
 
     cells = {(int(x), int(y)) for x, y in profile_definition["cells"]}

@@ -15,6 +15,8 @@
     "task_not_schedulable": "このタスクは現在スケジュールできません。",
     "task_not_running": "このタスクは現在実行中ではありません。",
     "related_agv_not_found": "関連する AGV が見つかりません。",
+    "profile_not_found": "マップ構成が見つかりません。",
+    "map_profile_not_found": "マップ構成が見つかりません。",
     "auth_credentials_required": "ユーザー名とパスワードを入力してください。",
     "auth_invalid_credentials": "ユーザー名またはパスワードが正しくありません。",
     "auth_login_required": "この操作を続けるには、先にログインしてください。",

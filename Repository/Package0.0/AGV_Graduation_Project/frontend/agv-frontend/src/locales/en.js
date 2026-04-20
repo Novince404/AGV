@@ -15,6 +15,8 @@
     "task_not_schedulable": "This task cannot be scheduled right now.",
     "task_not_running": "This task is not running.",
     "related_agv_not_found": "Related AGV not found.",
+    "profile_not_found": "Map profile not found.",
+    "map_profile_not_found": "Map profile not found.",
     "auth_credentials_required": "Please enter both username and password.",
     "auth_invalid_credentials": "The username or password is incorrect.",
     "auth_login_required": "Please sign in before continuing.",

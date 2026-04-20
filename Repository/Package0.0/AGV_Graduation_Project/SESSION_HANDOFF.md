@@ -857,3 +857,25 @@ git -C "Repository/Package0.0/AGV_Graduation_Project" push AGV main
   - `frontend/agv-frontend/src/assets/agv-map.css`
 - 后续人工复核建议：
   - 企业端地图中，小铃铛应位于地图内部右下角，而不是右下角上方。
+
+### 14.25 2026-04-20 追加：AI 素材地图方案请求失败修复
+- 本轮修复用户使用 AI 素材时出现 `Map profile request failed` 的问题。
+- 根因：
+  - AI 素材默认以“当前地图方案”为输入源。
+  - 当当前地图是运行时方案（例如 `runtime_10x8`，不是已保存/内置方案）时，前端仍请求 `/status/map/profile/runtime_10x8`。
+  - 后端详情接口此前只支持内置方案和已保存自定义方案，因此返回找不到方案。
+- 已做修改：
+  - `frontend/agv-frontend/src/App.vue`
+    - AI 素材构建地图方案输入时，如果目标 key 就是当前地图方案，且当前方案已经带有 `blocked_cells` / `valid_cells`，直接使用当前已加载数据，不再额外请求详情接口。
+  - `backend/app/services/status_service.py`
+    - `get_map_profile_detail` 在找不到内置/自定义方案时，会计算当前运行时地图方案；如果请求 key 与当前运行时方案 key 一致，则直接返回当前方案详情。
+  - `frontend/agv-frontend/src/locales/zh.js`
+  - `frontend/agv-frontend/src/locales/en.js`
+  - `frontend/agv-frontend/src/locales/ja.js`
+    - 补充地图方案未找到的本地化兜底文案。
+- 已验证：
+  - `frontend/agv-frontend` 下 `npm run lint` 通过。
+  - `frontend/agv-frontend` 下 `npm run build` 通过。
+  - `backend\\venv\\Scripts\\python.exe -m compileall backend\\app` 通过。
+- 后续人工复核建议：
+  - 在当前地图未保存为自定义方案时打开 AI 素材，选择“地图方案”输入并提交/加载源 JSON，不应再出现 `Map profile request failed`。

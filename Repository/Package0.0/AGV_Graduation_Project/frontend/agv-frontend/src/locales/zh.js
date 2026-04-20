@@ -15,6 +15,8 @@
     "task_not_schedulable": "该任务当前不可调度。",
     "task_not_running": "该任务当前不在运行中。",
     "related_agv_not_found": "未找到关联的 AGV。",
+    "profile_not_found": "未找到地图方案。",
+    "map_profile_not_found": "未找到地图方案。",
     "auth_credentials_required": "请输入用户名和密码。",
     "auth_invalid_credentials": "用户名或密码不正确。",
     "auth_login_required": "请先登录后再继续操作。",

@@ -11339,12 +11339,39 @@ function parseJsonObjectOrThrow(rawText, fallbackValue, errorMessage) {
   }
 }
 
+function clonePlainPayload(value) {
+  try {
+    return JSON.parse(JSON.stringify(value ?? {}))
+  } catch {
+    return value && typeof value === 'object' && !Array.isArray(value) ? { ...value } : {}
+  }
+}
+
+function buildDirectCurrentMapProfilePayload(targetProfileKey) {
+  const normalizedTargetKey = String(targetProfileKey || '').trim()
+  const currentProfile = currentMapProfile.value
+  if (!normalizedTargetKey || String(currentProfile?.key || '').trim() !== normalizedTargetKey) {
+    return null
+  }
+  if (!Array.isArray(currentProfile?.blocked_cells) || !Array.isArray(currentProfile?.valid_cells)) {
+    return null
+  }
+  return clonePlainPayload(currentProfile)
+}
+
 async function buildComfySourcePayload() {
   const sourceType = comfyRenderSourceType.value
   if (sourceType === 'map_profile') {
     const targetProfileKey = String(comfyRenderSourceRef.value || currentMapProfile.value?.key || '').trim()
     if (!targetProfileKey) {
       throw new Error(t('ai_render_source_ref_required'))
+    }
+    const directCurrentProfile = buildDirectCurrentMapProfilePayload(targetProfileKey)
+    if (directCurrentProfile) {
+      return {
+        sourceRef: targetProfileKey,
+        inputPayload: directCurrentProfile
+      }
     }
     const response = await fetch(`${API_BASE}/status/map/profile/${encodeURIComponent(targetProfileKey)}`, {
       headers: buildAuthorizedHeaders()
