@@ -12,6 +12,12 @@
   - 个人端综合演示批量任务。
   - 一次导入多条任务，默认 3 台 AGV 会先运行一部分任务，其余任务进入队列等待空闲车。
   - 坐标避开默认障碍和 `personal_defense_obstacle_layout_10x8.json`，即使现场还没切到配套地图，也不容易踩到“终点位于障碍格”。
+- `dynamic_avoidance_map_profile_12x8.json`
+  - 动态避让窄通道演示地图 Profile。
+  - 中部横向窄通道和十字交汇口用于制造同路、对向和节点占用冲突。
+- `dynamic_avoidance_conflict_tasks.json`
+  - 动态避让批量任务。
+  - 配合 `dynamic_avoidance_map_profile_12x8.json` 使用，一次导入多条任务，观察等待、让行、重试和恢复。
 - `task_auto_single_demo.json`
   - 自动派发的单阶段任务示例。
 - `task_manual_single_demo.json`
@@ -35,9 +41,15 @@
   - 点击“保存障碍”后再导入任务。
 - 企业端或地图能力展示：
   - 使用 `map_profile_irregular_demo.json` 演示异形地图 Profile。
+- 动态避让演示：
+  - 先导入并应用 `dynamic_avoidance_map_profile_12x8.json`。
+  - 再导入 `dynamic_avoidance_conflict_tasks.json`。
+  - 观察中部窄通道和十字交汇口的等待、让行、重规划倾向和恢复继续运行。
+  - 详细步骤见 `docs/demo/DYNAMIC_AVOIDANCE_DEMO_RUNBOOK.md`。
 
 ## 当前约定
 
 - 个人端综合演示资产默认基于 `10 x 8` 地图。
+- 动态避让演示资产默认基于 `12 x 8` 地图，建议至少保留 3 台空闲 AGV。
 - 批量任务导入依赖配套地图障碍物；如果任务导入提示阶段被阻塞，请先应用配套地图 Profile。
 - 常用点位用于表达业务地标，不等同于停车点、充电点、停车站或充电站。

@@ -897,3 +897,24 @@ git -C "Repository/Package0.0/AGV_Graduation_Project" push AGV main
   - `backend\\venv\\Scripts\\python.exe -m compileall backend\\app` 通过。
 - 后续人工复核建议：
   - 在当前地图未保存为自定义方案时打开 AI 素材，选择“地图方案”输入并提交/加载源 JSON，不应再出现 `Map profile request failed`。
+
+### 14.26 2026-04-22 追加：动态避让演示素材与设计说明
+- 本轮不改调度核心逻辑，只补产品化演示和说明资产。
+- 新增：
+  - `demo/json/dynamic_avoidance_map_profile_12x8.json`
+  - `demo/json/dynamic_avoidance_conflict_tasks.json`
+  - `docs/demo/DYNAMIC_AVOIDANCE_DEMO_RUNBOOK.md`
+  - `docs/plans/DYNAMIC_AVOIDANCE_DESIGN_NOTE.md`
+- 演示意图：
+  - 12x8 地图中部设置窄通道和十字交汇口。
+  - 批量任务从西向东、东向西和南北方向同时进入中心区域。
+  - 用于观察同路不超车、对向相遇、节点占用、等待、让行、重试和恢复。
+- 文档状态已同步：
+  - `demo/json/README_demo_assets.md`
+  - `docs/plans/POST_DEFENSE_PRODUCTIZATION_PLAN_2026-04-22.md`
+  - `docs/plans/PLAN_INDEX_AND_OPEN_ITEMS_FOR_NEW_CHAT.md`
+  - `docs/README.md`
+- 后续建议：
+  - 先人工导入并跑一遍动态避让演示包。
+  - 如果效果稳定，下一步做前端等待 / 让行 / 重规划状态可视化。
+  - 站级调度实体仍建议作为单独专题设计，不要和当前视觉聚合站点混在一起改。

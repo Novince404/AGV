@@ -1,0 +1,97 @@
+{
+  "version": 2,
+  "scenario": "dynamic_avoidance_narrow_crossing",
+  "map_profile": "动态避让窄通道演示地图 12x8",
+  "description": "配合 dynamic_avoidance_map_profile_12x8.json 使用。一次导入后，多台 AGV 会从西向东、东向西和南北方向同时进入中部窄通道，用于观察等待、让行、重规划和恢复。",
+  "tasks": [
+    {
+      "grid_cols": 12,
+      "grid_rows": 8,
+      "priority": 6,
+      "dispatch_mode": "auto",
+      "dispatch_algorithm": "astar",
+      "dispatch_reason": "动态避让演示：西侧车辆穿越中部窄通道，优先级较高。",
+      "stages": [
+        {
+          "label": "西侧入廊口到东侧入廊口",
+          "start_x": 1,
+          "start_y": 3,
+          "end_x": 10,
+          "end_y": 3
+        },
+        {
+          "label": "东侧入廊口到东侧等待位",
+          "start_x": 10,
+          "start_y": 3,
+          "end_x": 10,
+          "end_y": 6
+        }
+      ]
+    },
+    {
+      "grid_cols": 12,
+      "grid_rows": 8,
+      "priority": 5,
+      "dispatch_mode": "auto",
+      "dispatch_algorithm": "astar",
+      "dispatch_reason": "动态避让演示：东侧车辆反向穿越同一走廊，用于触发对向相遇。",
+      "stages": [
+        {
+          "label": "东侧入廊口到西侧入廊口",
+          "start_x": 10,
+          "start_y": 3,
+          "end_x": 1,
+          "end_y": 3
+        },
+        {
+          "label": "西侧入廊口到西侧等待位",
+          "start_x": 1,
+          "start_y": 3,
+          "end_x": 1,
+          "end_y": 1
+        }
+      ]
+    },
+    {
+      "grid_cols": 12,
+      "grid_rows": 8,
+      "priority": 4,
+      "dispatch_mode": "auto",
+      "dispatch_algorithm": "astar",
+      "dispatch_reason": "动态避让演示：南北方向穿越中心交汇点，用于触发节点占用等待。",
+      "stages": [
+        {
+          "label": "南侧交汇口到北侧交汇口",
+          "start_x": 6,
+          "start_y": 6,
+          "end_x": 5,
+          "end_y": 1
+        },
+        {
+          "label": "北侧交汇口到东侧入廊口",
+          "start_x": 5,
+          "start_y": 1,
+          "end_x": 10,
+          "end_y": 3
+        }
+      ]
+    },
+    {
+      "grid_cols": 12,
+      "grid_rows": 8,
+      "priority": 3,
+      "dispatch_mode": "auto",
+      "dispatch_algorithm": "astar",
+      "dispatch_reason": "动态避让演示：低优先级补充任务，通常会在前车占用时排队，验证恢复后继续派发。",
+      "stages": [
+        {
+          "label": "西侧等待位到东侧等待位",
+          "start_x": 1,
+          "start_y": 1,
+          "end_x": 10,
+          "end_y": 6
+        }
+      ]
+    }
+  ]
+}
