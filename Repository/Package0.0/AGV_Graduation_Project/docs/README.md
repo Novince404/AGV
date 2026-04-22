@@ -1,6 +1,6 @@
 # Documentation Index
 
-这个目录用于把根目录中过多的阶段材料分区收纳。答辩前优先看 `defense/`，开发排查时再看对应专题。
+这个目录用于把根目录中过多的阶段材料分区收纳。项目已通过毕业设计答辩，后续开发优先看 `plans/POST_DEFENSE_PRODUCTIZATION_PLAN_2026-04-22.md`，需要回看答辩口径时再看 `defense/`。
 
 ## 分区
 

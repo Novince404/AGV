@@ -1,6 +1,6 @@
 # AGV Dispatch Graduation Project
 
-这是一个面向毕业设计演示和系统答辩的 AGV 调度平台，包含个人端、企业端、平台治理、地图配置、任务调度、路径规划、数据库持久化和 ComfyUI 素材生成能力。
+这是一个 AGV 调度平台，包含个人端、企业端、平台治理、地图配置、任务调度、路径规划、数据库持久化和 ComfyUI 素材生成能力。项目已通过毕业设计答辩，当前主线转向产品化收口和系统设计增强。
 
 ## 常用入口
 
@@ -21,6 +21,12 @@
 - `docs/demo/`：演示脚本、快速启动和故障排查说明。
 - `docs/release/`：打包、发布和版本策略材料。
 - `tools/windows/`：不常用的开发、检查、SQLite 和类封装启动脚本。
+
+## 当前产品化主线
+
+1. `docs/plans/POST_DEFENSE_PRODUCTIZATION_PLAN_2026-04-22.md`
+2. `docs/acceptance/PHASE4_ACCEPTANCE_EXECUTION_PLAN_v1.md`
+3. `enterprise_client/docs/PHASE4_ENTERPRISE_ACCEPTANCE_CHECKLIST.md`
 
 ## 答辩阅读顺序
 
