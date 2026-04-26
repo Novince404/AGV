@@ -57,6 +57,46 @@ export function useLocaleText(locale) {
       return `Cell is still occupied. Replanning and auto retrying (${retryCount}).`
     }
 
+    if (reason.startsWith('grid_dynamic_yield:')) {
+      const blockerMatch = reason.match(/blocker_agv=(\d+)/)
+      const targetMatch = reason.match(/yield_to=(-?\d+),(-?\d+)/)
+      const blockerText = blockerMatch ? `AGV #${blockerMatch[1]}` : 'another AGV'
+      const targetText = targetMatch ? `(${targetMatch[1]}, ${targetMatch[2]})` : ''
+      if (locale.value === 'ja') {
+        return targetText
+          ? `前方が ${blockerText} に占有されています。退避格 ${targetText} に一時退避しています。`
+          : `前方が ${blockerText} に占有されています。近くの退避格に一時退避しています。`
+      }
+      if (locale.value === 'zh') {
+        return targetText
+          ? `前方被 ${blockerText} 占用，正在临时让行到 ${targetText}。`
+          : `前方被 ${blockerText} 占用，正在临时让行。`
+      }
+      return targetText
+        ? `Path occupied by ${blockerText}. Yielding to ${targetText}.`
+        : `Path occupied by ${blockerText}. Yielding to a nearby safe cell.`
+    }
+
+    if (reason.startsWith('grid_dynamic_replan:')) {
+      const blockerMatch = reason.match(/blocker_agv=(\d+)/)
+      const retryMatch = reason.match(/retry=(\d+)/)
+      const blockerText = blockerMatch ? `AGV #${blockerMatch[1]}` : 'another AGV'
+      const retryText = retryMatch ? retryMatch[1] : ''
+      if (locale.value === 'ja') {
+        return retryText
+          ? `前方が ${blockerText} に占有されています。経路を再計算しています（${retryText} 回目）。`
+          : `前方が ${blockerText} に占有されています。経路を再計算しています。`
+      }
+      if (locale.value === 'zh') {
+        return retryText
+          ? `前方被 ${blockerText} 占用，正在重新规划路线（第 ${retryText} 次）。`
+          : `前方被 ${blockerText} 占用，正在重新规划路线。`
+      }
+      return retryText
+        ? `Path occupied by ${blockerText}. Replanning route (${retryText}).`
+        : `Path occupied by ${blockerText}. Replanning route.`
+    }
+
     if (reason.startsWith('topology_edge_waiting:')) {
       if (locale.value === 'ja') return '路網エッジまたは目標ノードが他の AGV に占有されているため、一時的に待機しています。'
       if (locale.value === 'zh') return '当前拓扑路段或目标节点被其他 AGV 占用，任务正在等待可通行路段。'

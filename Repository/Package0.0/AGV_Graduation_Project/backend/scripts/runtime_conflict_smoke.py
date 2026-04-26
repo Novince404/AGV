@@ -184,8 +184,9 @@ def wait_for_personal_grid_pair_finish(
     *,
     timeout_sec: float = 24.0,
     interval_sec: float = 0.08,
-) -> bool:
+) -> dict[str, bool]:
     observed_grid_replan = False
+    observed_grid_yield = False
     deadline = time.time() + timeout_sec
     while time.time() < deadline:
         left_agv = get_agv_by_id(left_agv_id)
@@ -203,8 +204,12 @@ def wait_for_personal_grid_pair_finish(
             str(getattr(task, "dispatch_reason", "") or "").startswith("grid_dynamic_replan")
             for task in (left_task, right_task)
         )
+        observed_grid_yield = observed_grid_yield or any(
+            str(getattr(task, "dispatch_reason", "") or "").startswith("grid_dynamic_yield")
+            for task in (left_task, right_task)
+        )
         if left_task.status == "finished" and right_task.status == "finished":
-            return observed_grid_replan
+            return {"replan": observed_grid_replan, "yield": observed_grid_yield}
         time.sleep(interval_sec)
     raise AssertionError(
         f"personal grid head-on smoke timed out: left={get_task_by_id(left_task_id).status} right={get_task_by_id(right_task_id).status}"
@@ -365,14 +370,18 @@ def assert_personal_grid_headon_dynamic_reroute() -> None:
         time.sleep(0.12)
         schedule_service.schedule_task_with_path(right_task_id, right_agv.id, "manual", "astar", 10, 8, actor=actor)
 
-        observed_grid_replan = wait_for_personal_grid_pair_finish(
+        avoidance_observations = wait_for_personal_grid_pair_finish(
             left_agv.id,
             right_agv.id,
             left_task_id,
             right_task_id,
         )
         assert_finished_pair(left_task_id, right_task_id, "personal grid head-on")
-        expect(observed_grid_replan, "personal grid head-on runtime never triggered dynamic replan")
+        expect(
+            avoidance_observations["replan"] or avoidance_observations["yield"],
+            "personal grid head-on runtime never triggered dynamic avoidance",
+        )
+        expect(avoidance_observations["yield"], "personal grid head-on runtime never triggered a yield maneuver")
 
 
 def main() -> None:

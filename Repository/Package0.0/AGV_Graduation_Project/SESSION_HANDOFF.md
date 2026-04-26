@@ -948,3 +948,31 @@ git -C "Repository/Package0.0/AGV_Graduation_Project" push AGV main
 - 后续建议：
   - 在前端补充 `grid_dynamic_replan` / `cell_occupied_waiting` 的可读状态提示，例如“前方占用，正在重新规划”。
   - 如果还要继续强化，可做更完整的多车 reservation table 和集中式时间窗规划。
+
+### 14.28 2026-04-26 追加：个人端真实让行格动态避让
+- 背景：
+  - 用户继续反馈个人端动态避让演示中仍可能面对面卡住。
+  - 需要在“纯网格、一格一格走”的前提下，补上更接近真实调度的让行行为，而不是只等待或重规划。
+- 本轮修复：
+  - `backend/app/utils/agv_movement.py`
+    - 新增个人端网格临时让行搜索，范围默认 4 格，单次让行路径最多 4 步。
+    - 遇到同格占用或对向边段冲突时，优先级低或任务较晚的一方会尝试寻找附近安全空格，并走一步进入 `grid_dynamic_yield`。
+    - 让行前仍检查运动边段锁和目标格占用，避免让行过程中穿车或进入其它 AGV 已占用位置。
+    - 找不到让行格时保留原有 `grid_dynamic_replan` / 等待 / 超时重试兜底。
+  - `backend/scripts/runtime_conflict_smoke.py`
+    - 个人端 head-on smoke 从“必须看到 replan”升级为“必须看到动态避让，且本轮要求观测到 yield”。
+    - 继续检查两车不同时占同一逻辑格、不同时使用同一无向运动边段，最后任务完成。
+  - `docs/demo/DYNAMIC_AVOIDANCE_DEMO_RUNBOOK.md`
+  - `demo/json/README_demo_assets.md`
+    - 补充 `grid_dynamic_yield` 观察口径。
+  - `frontend/agv-frontend/src/composables/useLocaleText.js`
+    - 补充 `grid_dynamic_yield` / `grid_dynamic_replan` 的中英日可读调度说明，避免任务卡直接露出内部状态码。
+- 已验证：
+  - `backend\venv\Scripts\python.exe -m compileall backend\app backend\scripts`
+  - `backend\venv\Scripts\python.exe backend\scripts\runtime_conflict_smoke.py`
+  - `backend\venv\Scripts\python.exe backend\scripts\runtime_long_run_smoke.py`
+  - `frontend/agv-frontend` 下 `npm run lint`
+  - `frontend/agv-frontend` 下 `npm run build`
+- 后续建议：
+  - 前端可继续把 `grid_dynamic_yield` 显示成“前方占用，正在临时让行”，把 `grid_dynamic_replan` 显示成“前方占用，正在重新规划”。
+  - 如果后续要进一步接近真实工业系统，可设计集中式时间窗 reservation table，提前按时间片预订格子和边段。

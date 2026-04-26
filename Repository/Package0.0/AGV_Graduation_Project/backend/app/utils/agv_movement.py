@@ -34,6 +34,8 @@ MOVE_WAIT_INTERVAL_SEC = 0.25
 MOVE_WAIT_TIMEOUT_SEC = 12
 GRID_DYNAMIC_REPLAN_INTERVAL_SEC = 1.1
 GRID_DYNAMIC_REPLAN_RETRY_BUDGET = 12
+GRID_YIELD_SEARCH_RADIUS = 4
+GRID_YIELD_MAX_PATH_STEPS = 4
 TOPOLOGY_EDGE_REPLAN_INTERVAL_SEC = 1.2
 TOPOLOGY_OCCUPIED_NODE_REPLAN_INTERVAL_SEC = 1.4
 TOPOLOGY_DEADLOCK_BREAK_TIMEOUT_SEC = 4.5
@@ -448,6 +450,191 @@ def _plan_task_runtime_path(
         avoid_edge_keys=avoid_edge_keys,
         avoid_node_keys=avoid_node_keys,
     )
+
+
+def _grid_manhattan(ax: int, ay: int, bx: int, by: int) -> int:
+    return abs(int(ax) - int(bx)) + abs(int(ay) - int(by))
+
+
+def _is_in_grid(x: int, y: int, grid_cols: int, grid_rows: int) -> bool:
+    return 0 <= int(x) < int(grid_cols) and 0 <= int(y) < int(grid_rows)
+
+
+def _build_grid_yield_blocked_cells(agv, grid_cols: int, grid_rows: int) -> set[tuple[int, int]]:
+    blocked_cells = set(get_navigation_blocked_cells(grid_cols, grid_rows))
+    for other in list_agvs():
+        try:
+            other_id = int(other.id)
+        except Exception:
+            continue
+        if other_id == int(agv.id) or getattr(other, "status", None) == "maintenance":
+            continue
+        _add_agv_runtime_cells(blocked_cells, other)
+
+    blocked_cells.discard((int(agv.x), int(agv.y)))
+    return blocked_cells
+
+
+def _score_grid_yield_candidate(
+    source: tuple[int, int],
+    blocked_target: tuple[int, int],
+    blocker_cell: tuple[int, int],
+    candidate: tuple[int, int],
+    path: list[dict],
+) -> tuple[int, int, int, int, int]:
+    desired_dx = blocked_target[0] - source[0]
+    desired_dy = blocked_target[1] - source[1]
+    if len(path) >= 2:
+        first_step = (int(path[1]["x"]), int(path[1]["y"]))
+    else:
+        first_step = candidate
+    yield_dx = first_step[0] - source[0]
+    yield_dy = first_step[1] - source[1]
+    dot = desired_dx * yield_dx + desired_dy * yield_dy
+    if dot == 0:
+        direction_rank = 0
+    elif dot < 0:
+        direction_rank = 1
+    else:
+        direction_rank = 2
+    path_len = max(len(path) - 1, 0)
+    blocker_distance = _grid_manhattan(candidate[0], candidate[1], blocker_cell[0], blocker_cell[1])
+    target_distance = _grid_manhattan(candidate[0], candidate[1], blocked_target[0], blocked_target[1])
+    return direction_rank, path_len, -blocker_distance, target_distance, candidate[1] * 1000 + candidate[0]
+
+
+def _find_grid_yield_path(
+    agv,
+    blocking_agv,
+    target_x: int,
+    target_y: int,
+    grid_cols: int,
+    grid_rows: int,
+) -> list[dict]:
+    source = (int(agv.x), int(agv.y))
+    blocked_target = (int(target_x), int(target_y))
+    blocker_cell = (int(blocking_agv.x), int(blocking_agv.y))
+    blocked_cells = _build_grid_yield_blocked_cells(agv, grid_cols, grid_rows)
+    blocked_cells.add(blocker_cell)
+    blocked_cells.add(blocked_target)
+    blocked_cells.discard(source)
+
+    candidates: list[tuple[tuple[int, int, int, int, int], list[dict]]] = []
+    for radius in range(1, GRID_YIELD_SEARCH_RADIUS + 1):
+        for dx in range(-radius, radius + 1):
+            remaining = radius - abs(dx)
+            for dy in ({remaining, -remaining} if remaining else {0}):
+                candidate = (source[0] + dx, source[1] + dy)
+                if candidate == source or candidate == blocked_target or candidate == blocker_cell:
+                    continue
+                if not _is_in_grid(candidate[0], candidate[1], grid_cols, grid_rows):
+                    continue
+                if candidate in blocked_cells:
+                    continue
+
+                path = plan_path(
+                    "astar",
+                    source[0],
+                    source[1],
+                    candidate[0],
+                    candidate[1],
+                    grid_cols,
+                    grid_rows,
+                    blocked=blocked_cells,
+                    topology={},
+                    agv_id=int(agv.id),
+                )
+                path_len = max(len(path) - 1, 0)
+                if path_len <= 0 or path_len > GRID_YIELD_MAX_PATH_STEPS:
+                    continue
+                candidates.append(
+                    (
+                        _score_grid_yield_candidate(source, blocked_target, blocker_cell, candidate, path),
+                        path,
+                    )
+                )
+        if candidates:
+            break
+
+    if not candidates:
+        return []
+    candidates.sort(key=lambda item: item[0])
+    return candidates[0][1]
+
+
+def _attempt_grid_yield_step(
+    agv,
+    task,
+    active_status: str,
+    blocking_agv,
+    target_x: int,
+    target_y: int,
+    *,
+    motion_settings: dict | None = None,
+) -> bool:
+    if _should_use_task_topology() or blocking_agv is None:
+        return False
+    if not _should_reroute_for_blocker(
+        agv,
+        task,
+        int(blocking_agv.id),
+        int(blocking_agv.task_id) if getattr(blocking_agv, "task_id", None) is not None else None,
+    ):
+        return False
+
+    grid_cols, grid_rows = get_current_grid_size()
+    yield_path = _find_grid_yield_path(agv, blocking_agv, target_x, target_y, grid_cols, grid_rows)
+    if len(yield_path) < 2:
+        return False
+
+    next_point = {"x": int(yield_path[1]["x"]), "y": int(yield_path[1]["y"])}
+    source_x = int(agv.x)
+    source_y = int(agv.y)
+    yield_x = int(next_point["x"])
+    yield_y = int(next_point["y"])
+    moved = False
+    target_node = _build_grid_node_key(yield_x, yield_y)
+    target_speed = 0.0
+    travel_duration_sec = CELL_TRAVEL_DURATION_SEC
+    edge_key = None
+    segment_claim_key = None
+
+    with movement_lock:
+        if _find_motion_segment_claim_blocking_agv(int(agv.id), source_x, source_y, next_point) is not None:
+            return False
+        if _find_blocking_agv_at_position(int(agv.id), yield_x, yield_y) is not None:
+            return False
+        motion_segment = _begin_motion_segment(
+            agv,
+            next_point,
+            active_status,
+            motion_settings=motion_settings,
+            use_topology=False,
+        )
+        if motion_segment is not None:
+            target_node, target_speed, travel_duration_sec, edge_key, segment_claim_key = motion_segment
+            moved = True
+
+    if not moved:
+        return False
+
+    task.dispatch_reason = (
+        f"grid_dynamic_yield:blocker_agv={int(blocking_agv.id)};"
+        f"yield_to={yield_x},{yield_y}"
+    )
+    if source_x != yield_x or source_y != yield_y:
+        time.sleep(travel_duration_sec)
+    _finish_motion_segment(
+        agv,
+        yield_x,
+        yield_y,
+        target_node,
+        active_status,
+        target_speed,
+        edge_key,
+        segment_claim_key,
+    )
+    return True
 
 
 def _get_special_topology_node_at_position(x: int, y: int) -> dict | None:
@@ -1189,8 +1376,29 @@ def move_to_point_with_collision_guard(agv, task, point, algorithm: str, active_
             task.dispatch_reason = "cell_occupied_waiting"
             waiting_noted = True
 
-        _set_waiting_motion_state(agv, active_status, motion_state="waiting")
+        grid_yield_preferred = (
+            blocking_agv is not None
+            and not use_topology
+            and _should_reroute_for_blocker(
+                agv,
+                task,
+                int(blocking_agv.id),
+                int(blocking_agv.task_id) if getattr(blocking_agv, "task_id", None) is not None else None,
+            )
+        )
+        _set_waiting_motion_state(agv, active_status, motion_state="yielding" if grid_yield_preferred else "waiting")
         if blocking_agv is not None and waited_sec >= GRID_DYNAMIC_REPLAN_INTERVAL_SEC:
+            if grid_yield_preferred and _attempt_grid_yield_step(
+                agv,
+                task,
+                active_status,
+                blocking_agv,
+                target_x,
+                target_y,
+                motion_settings=runtime_motion_settings,
+            ):
+                return "retry"
+
             retry_budget = max(
                 int(getattr(task, "cell_wait_retry_budget", GRID_DYNAMIC_REPLAN_RETRY_BUDGET) or 0),
                 GRID_DYNAMIC_REPLAN_RETRY_BUDGET,
