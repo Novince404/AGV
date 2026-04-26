@@ -50,7 +50,7 @@ def build_actor(actor_id: str) -> dict[str, str]:
     return {
         "id": actor_id,
         "username": actor_id,
-        "role": "personal",
+        "role": "platform_admin",
     }
 
 

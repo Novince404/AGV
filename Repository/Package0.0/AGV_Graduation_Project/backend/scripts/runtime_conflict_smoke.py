@@ -55,6 +55,14 @@ def build_actor(actor_id: str) -> dict[str, str]:
     return {
         "id": actor_id,
         "username": actor_id,
+        "role": "platform_admin",
+    }
+
+
+def build_personal_actor(actor_id: str) -> dict[str, str]:
+    return {
+        "id": actor_id,
+        "username": actor_id,
         "role": "personal",
     }
 
@@ -82,7 +90,7 @@ def build_follow_topology() -> dict:
         "topology_version": 1,
         "nodes": [
             {"key": "a", "x": 1, "y": 1, "label": "A", "node_type": "station", "capacity": 1},
-            {"key": "b", "x": 5, "y": 1, "label": "B", "node_type": "station", "capacity": 1},
+            {"key": "b", "x": 8, "y": 1, "label": "B", "node_type": "station", "capacity": 1},
         ],
         "edges": [
             {"key": "edge_ab", "source": "a", "target": "b", "direction": "bidirectional", "lane_type": "main", "speed_multiplier": 1.0},
@@ -130,6 +138,22 @@ def snapshot_pair(left_agv_id: int, right_agv_id: int, left_task_id: int, right_
     }
 
 
+def active_motion_segment_key(agv) -> tuple[tuple[int, int], tuple[int, int]] | None:
+    if not getattr(agv, "motion_started_at", None) or int(getattr(agv, "motion_duration_ms", 0) or 0) <= 0:
+        return None
+    source = (
+        int(round(float(getattr(agv, "motion_source_x", agv.x) or agv.x))),
+        int(round(float(getattr(agv, "motion_source_y", agv.y) or agv.y))),
+    )
+    target = (
+        int(round(float(getattr(agv, "motion_target_x", agv.x) or agv.x))),
+        int(round(float(getattr(agv, "motion_target_y", agv.y) or agv.y))),
+    )
+    if source == target:
+        return None
+    return tuple(sorted((source, target)))
+
+
 def wait_for_pair_finish(
     left_agv_id: int,
     right_agv_id: int,
@@ -149,6 +173,41 @@ def wait_for_pair_finish(
         time.sleep(interval_sec)
     raise AssertionError(
         f"runtime conflict smoke timed out: left={get_task_by_id(left_task_id).status} right={get_task_by_id(right_task_id).status}"
+    )
+
+
+def wait_for_personal_grid_pair_finish(
+    left_agv_id: int,
+    right_agv_id: int,
+    left_task_id: int,
+    right_task_id: int,
+    *,
+    timeout_sec: float = 24.0,
+    interval_sec: float = 0.08,
+) -> bool:
+    observed_grid_replan = False
+    deadline = time.time() + timeout_sec
+    while time.time() < deadline:
+        left_agv = get_agv_by_id(left_agv_id)
+        right_agv = get_agv_by_id(right_agv_id)
+        left_task = get_task_by_id(left_task_id)
+        right_task = get_task_by_id(right_task_id)
+
+        expect((int(left_agv.x), int(left_agv.y)) != (int(right_agv.x), int(right_agv.y)), "personal grid AGVs occupied the same cell")
+        left_segment = active_motion_segment_key(left_agv)
+        right_segment = active_motion_segment_key(right_agv)
+        if left_segment is not None and right_segment is not None:
+            expect(left_segment != right_segment, f"personal grid AGVs used the same motion segment {left_segment}")
+
+        observed_grid_replan = observed_grid_replan or any(
+            str(getattr(task, "dispatch_reason", "") or "").startswith("grid_dynamic_replan")
+            for task in (left_task, right_task)
+        )
+        if left_task.status == "finished" and right_task.status == "finished":
+            return observed_grid_replan
+        time.sleep(interval_sec)
+    raise AssertionError(
+        f"personal grid head-on smoke timed out: left={get_task_by_id(left_task_id).status} right={get_task_by_id(right_task_id).status}"
     )
 
 
@@ -196,8 +255,8 @@ def assert_same_corridor_follow_runtime() -> None:
         status_service.update_map_layout([], None, 10, 8, topology=build_follow_topology())
         lead_agv = agv_service.create_agv(2, 1, actor=actor)["agv"]
         follower_agv = agv_service.create_agv(1, 1, actor=actor)["agv"]
-        lead_task_id = create_task(actor, start_x=2, start_y=1, end_x=5, end_y=1, priority=5)
-        follower_task_id = create_task(actor, start_x=1, start_y=1, end_x=5, end_y=1, priority=3)
+        lead_task_id = create_task(actor, start_x=2, start_y=1, end_x=8, end_y=1, priority=5)
+        follower_task_id = create_task(actor, start_x=1, start_y=1, end_x=8, end_y=1, priority=3)
 
         schedule_service.schedule_task_with_path(lead_task_id, lead_agv.id, "manual", "astar", 10, 8, actor=actor)
         time.sleep(0.15)
@@ -292,6 +351,30 @@ def assert_concurrent_edge_claim_runtime() -> None:
         )
 
 
+def assert_personal_grid_headon_dynamic_reroute() -> None:
+    actor = build_personal_actor("runtime_personal_grid_headon")
+    scope_key = build_scope_key_from_actor(actor)
+    with use_scope(scope_key):
+        status_service.update_map_layout([], None, 10, 8, topology=None, force_apply=True, actor=actor)
+        left_agv = agv_service.create_agv(1, 2, actor=actor)["agv"]
+        right_agv = agv_service.create_agv(5, 2, actor=actor)["agv"]
+        left_task_id = create_task(actor, start_x=1, start_y=2, end_x=5, end_y=2, priority=8)
+        right_task_id = create_task(actor, start_x=5, start_y=2, end_x=1, end_y=2, priority=4)
+
+        schedule_service.schedule_task_with_path(left_task_id, left_agv.id, "manual", "astar", 10, 8, actor=actor)
+        time.sleep(0.12)
+        schedule_service.schedule_task_with_path(right_task_id, right_agv.id, "manual", "astar", 10, 8, actor=actor)
+
+        observed_grid_replan = wait_for_personal_grid_pair_finish(
+            left_agv.id,
+            right_agv.id,
+            left_task_id,
+            right_task_id,
+        )
+        assert_finished_pair(left_task_id, right_task_id, "personal grid head-on")
+        expect(observed_grid_replan, "personal grid head-on runtime never triggered dynamic replan")
+
+
 def main() -> None:
     cleanup_db_file()
     try:
@@ -302,8 +385,9 @@ def main() -> None:
         assert_headon_planner_priority_reroute()
         assert_headon_planner_deadlock_tiebreak()
         assert_concurrent_edge_claim_runtime()
+        assert_personal_grid_headon_dynamic_reroute()
 
-        print("RUNTIME_CONFLICT_SMOKE_OK follow_runtime planner_priority planner_deadlock concurrent_claim")
+        print("RUNTIME_CONFLICT_SMOKE_OK follow_runtime planner_priority planner_deadlock concurrent_claim personal_grid_headon")
     finally:
         cleanup_db_file()
 

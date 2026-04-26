@@ -2,7 +2,7 @@
   "version": 2,
   "scenario": "dynamic_avoidance_split_lane_v2",
   "map_profile": "动态避让分流演示地图 v2 12x8",
-  "description": "配合 dynamic_avoidance_split_map_profile_12x8.json 使用。任务起点贴合默认三台 AGV 的初始位置，高优先级任务走中部主通道，低优先级任务跟随进入主通道，第三条任务走下侧服务支路。",
+  "description": "配合 dynamic_avoidance_split_map_profile_12x8.json 使用。任务使用纯网格 A*，高优先级任务占用中部主通道，低优先级任务在遇到占用或对向冲突后应等待并重新规划到上侧或下侧通道。",
   "tasks": [
     {
       "grid_cols": 12,
@@ -10,10 +10,10 @@
       "priority": 8,
       "dispatch_mode": "auto",
       "dispatch_algorithm": "astar",
-      "dispatch_reason": "动态避让演示：高优先级车辆优先穿越中部主通道，随后离开东侧入口。",
+      "dispatch_reason": "动态避让演示：高优先级车辆优先穿越中部主通道。",
       "stages": [
-        { "label": "默认西侧车辆到东侧入廊口", "start_x": 2, "start_y": 3, "end_x": 10, "end_y": 3 },
-        { "label": "东侧入廊口到东侧服务等待位", "start_x": 10, "start_y": 3, "end_x": 10, "end_y": 6 }
+        { "label": "西侧车辆穿越中部主通道", "start_x": 2, "start_y": 3, "end_x": 10, "end_y": 3 },
+        { "label": "东侧入口转入下侧等待位", "start_x": 10, "start_y": 3, "end_x": 10, "end_y": 6 }
       ]
     },
     {
@@ -22,10 +22,10 @@
       "priority": 4,
       "dispatch_mode": "auto",
       "dispatch_algorithm": "astar",
-      "dispatch_reason": "动态避让演示：低优先级车辆跟随进入主通道，遇到前车占用时应等待并保持安全间距。",
+      "dispatch_reason": "动态避让演示：低优先级车辆跟随进入主通道，遇到占用后等待并重新规划。",
       "stages": [
-        { "label": "西侧入口跟随车辆到东段汇入口", "start_x": 1, "start_y": 3, "end_x": 8, "end_y": 3 },
-        { "label": "东段汇入口到东侧上等待位", "start_x": 8, "start_y": 3, "end_x": 10, "end_y": 1 }
+        { "label": "西侧跟随车辆到东段入口", "start_x": 1, "start_y": 3, "end_x": 8, "end_y": 3 },
+        { "label": "东段入口绕行到上侧等待位", "start_x": 8, "start_y": 3, "end_x": 10, "end_y": 1 }
       ]
     },
     {
@@ -34,10 +34,10 @@
       "priority": 3,
       "dispatch_mode": "auto",
       "dispatch_algorithm": "astar",
-      "dispatch_reason": "动态避让演示：第三台车辆走下侧服务支路，让画面保持多车运行但不再全部挤入中心。",
+      "dispatch_reason": "动态避让演示：第三台车辆走下侧支路，制造多车并行但保留绕行空间。",
       "stages": [
-        { "label": "默认南侧车辆到下侧服务东段", "start_x": 5, "start_y": 7, "end_x": 7, "end_y": 6 },
-        { "label": "下侧服务东段到西侧上等待位", "start_x": 7, "start_y": 6, "end_x": 1, "end_y": 1 }
+        { "label": "南侧车辆进入下侧通道", "start_x": 5, "start_y": 7, "end_x": 7, "end_y": 6 },
+        { "label": "下侧通道绕行到西侧上方等待位", "start_x": 7, "start_y": 6, "end_x": 1, "end_y": 1 }
       ]
     }
   ]

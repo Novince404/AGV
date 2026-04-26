@@ -1,5 +1,11 @@
 # Demo JSON Assets
 
+## 动态避让 v2 说明
+
+- `dynamic_avoidance_split_map_profile_12x8.json` 现在是个人端纯网格 A* 演示地图，不再携带企业路网拓扑节点和边。
+- `dynamic_avoidance_split_tasks.json` 用于观察网格级动态避让：系统会把其它 AGV 的当前格、运动源格和运动目标格作为临时障碍；遇到对向边段冲突时会短暂等待并触发重新规划。
+- 如果需要演示企业端拓扑边、节点容量和站点调度，请使用企业路网拓扑编辑器单独配置，不建议与个人端动态避让演示混用。
+
 ## 文件说明
 
 - `personal_defense_map_profile_10x8.json`

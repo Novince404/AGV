@@ -921,3 +921,30 @@ git -C "Repository/Package0.0/AGV_Graduation_Project" push AGV main
   - 先人工导入并跑一遍动态避让演示包。
   - 如果效果稳定，下一步做前端等待 / 让行 / 重规划状态可视化。
   - 站级调度实体仍建议作为单独专题设计，不要和当前视觉聚合站点混在一起改。
+
+### 14.27 2026-04-26 追加：个人端纯网格动态避让修复
+- 背景：
+  - 用户反馈 `dynamic_avoidance_split_tasks.json` 中车辆仍可能面对面卡住。
+  - 已澄清个人端不应暴露或依赖企业路网拓扑；此前 v2 演示地图虽然在个人端使用，但 JSON 内仍带有 topology，容易造成后端按拓扑边规划。
+- 本轮修复：
+  - `backend/app/services/schedule_service.py`
+    - 个人用户作用域下调度预览和初始路径规划强制使用纯网格路径，不再优先尝试 topology。
+  - `backend/app/utils/agv_movement.py`
+    - 个人用户作用域下运行时路径重算同样使用纯网格 A*。
+    - 规划时把其它 AGV 的当前格、渲染格、运动源格、运动目标格加入临时障碍集合。
+    - 运行时遇到同格占用或对向运动边段冲突时，先进入等待，再在短阈值后触发 `grid_dynamic_replan`，避免一直面对面僵住。
+    - 保留企业端拓扑边占用、同廊道跟车和节点容量逻辑，不把个人端纯网格规则套到企业拓扑上。
+  - `demo/json/dynamic_avoidance_split_map_profile_12x8.json`
+    - 改为纯网格地图，只保留尺寸和障碍物，不再携带 topology。
+  - `demo/json/dynamic_avoidance_split_tasks.json`
+    - 更新说明文案，明确用于个人端纯网格 A* 动态避让。
+  - `backend/scripts/runtime_conflict_smoke.py`
+    - 增加个人端纯网格 head-on 对向交换烟测，检查不会同格、不会同运动边段，并确认触发动态重规划后完成。
+- 已验证：
+  - `backend\venv\Scripts\python.exe -m compileall backend\app backend\scripts`
+  - `backend\venv\Scripts\python.exe backend\scripts\runtime_conflict_smoke.py`
+  - `backend\venv\Scripts\python.exe backend\scripts\runtime_long_run_smoke.py`
+  - `dynamic_avoidance_split_map_profile_12x8.json` / `dynamic_avoidance_split_tasks.json` JSON 解析
+- 后续建议：
+  - 在前端补充 `grid_dynamic_replan` / `cell_occupied_waiting` 的可读状态提示，例如“前方占用，正在重新规划”。
+  - 如果还要继续强化，可做更完整的多车 reservation table 和集中式时间窗规划。

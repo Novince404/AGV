@@ -32,6 +32,8 @@ topology_edge_motion_claims: dict[str, int] = {}
 motion_segment_claims: dict[str, int] = {}
 MOVE_WAIT_INTERVAL_SEC = 0.25
 MOVE_WAIT_TIMEOUT_SEC = 12
+GRID_DYNAMIC_REPLAN_INTERVAL_SEC = 1.1
+GRID_DYNAMIC_REPLAN_RETRY_BUDGET = 12
 TOPOLOGY_EDGE_REPLAN_INTERVAL_SEC = 1.2
 TOPOLOGY_OCCUPIED_NODE_REPLAN_INTERVAL_SEC = 1.4
 TOPOLOGY_DEADLOCK_BREAK_TIMEOUT_SEC = 4.5
@@ -49,6 +51,10 @@ RUNTIME_MOTION_UI_SETTINGS_DEFAULTS = {
 
 def _is_personal_runtime_scope() -> bool:
     return get_current_scope_key().startswith("user:")
+
+
+def _should_use_task_topology() -> bool:
+    return not _is_personal_runtime_scope()
 
 
 def now_iso():
@@ -336,6 +342,112 @@ def _build_autonomy_runtime_path_constraints(
     blocked_cells.discard((int(agv.x), int(agv.y)))
     blocked_cells.discard((int(target_x), int(target_y)))
     return blocked_cells, set(constraints["avoid_node_keys"])
+
+
+def _coerce_grid_cell(value_x, value_y) -> tuple[int, int] | None:
+    try:
+        return int(round(float(value_x))), int(round(float(value_y)))
+    except Exception:
+        return None
+
+
+def _add_agv_runtime_cells(blocked_cells: set[tuple[int, int]], agv) -> None:
+    candidate_cells = [
+        _coerce_grid_cell(getattr(agv, "x", None), getattr(agv, "y", None)),
+        _coerce_grid_cell(getattr(agv, "render_x", None), getattr(agv, "render_y", None)),
+        _coerce_grid_cell(getattr(agv, "motion_source_x", None), getattr(agv, "motion_source_y", None)),
+        _coerce_grid_cell(getattr(agv, "motion_target_x", None), getattr(agv, "motion_target_y", None)),
+    ]
+    for cell in candidate_cells:
+        if cell is not None:
+            blocked_cells.add(cell)
+
+
+def _build_task_runtime_path_constraints(
+    agv,
+    *,
+    grid_cols: int,
+    grid_rows: int,
+    target_x: int,
+    target_y: int,
+) -> set[tuple[int, int]]:
+    blocked_cells = set(get_navigation_blocked_cells(grid_cols, grid_rows))
+    for other in list_agvs():
+        try:
+            other_id = int(other.id)
+        except Exception:
+            continue
+        if other_id == int(agv.id) or getattr(other, "status", None) == "maintenance":
+            continue
+        _add_agv_runtime_cells(blocked_cells, other)
+
+    blocked_cells.discard((int(agv.x), int(agv.y)))
+    blocked_cells.discard((int(target_x), int(target_y)))
+    return blocked_cells
+
+
+def _task_topology_payload():
+    return None if _should_use_task_topology() else {}
+
+
+def _plan_task_runtime_path(
+    algorithm: str,
+    agv,
+    sx: int,
+    sy: int,
+    ex: int,
+    ey: int,
+    grid_cols: int,
+    grid_rows: int,
+    *,
+    request_priority: int = 0,
+    avoid_edge_keys: set[str] | None = None,
+    avoid_node_keys: set[str] | None = None,
+):
+    dynamic_blocked = _build_task_runtime_path_constraints(
+        agv,
+        grid_cols=grid_cols,
+        grid_rows=grid_rows,
+        target_x=ex,
+        target_y=ey,
+    )
+    topology_payload = _task_topology_payload()
+    path = plan_path(
+        algorithm,
+        sx,
+        sy,
+        ex,
+        ey,
+        grid_cols,
+        grid_rows,
+        blocked=dynamic_blocked,
+        topology=topology_payload,
+        request_priority=request_priority,
+        agv_id=agv.id,
+        avoid_edge_keys=avoid_edge_keys,
+        avoid_node_keys=avoid_node_keys,
+    )
+    if path:
+        return path
+
+    # If temporary AGV reservations make the goal unreachable, keep the task alive
+    # with the static route and let the runtime collision guard wait/retry.
+    static_blocked = set(get_navigation_blocked_cells(grid_cols, grid_rows))
+    return plan_path(
+        algorithm,
+        sx,
+        sy,
+        ex,
+        ey,
+        grid_cols,
+        grid_rows,
+        blocked=static_blocked,
+        topology=topology_payload,
+        request_priority=request_priority,
+        agv_id=agv.id,
+        avoid_edge_keys=avoid_edge_keys,
+        avoid_node_keys=avoid_node_keys,
+    )
 
 
 def _get_special_topology_node_at_position(x: int, y: int) -> dict | None:
@@ -807,7 +919,14 @@ def _build_topology_segment_conflict(source_x: int, source_y: int, point: dict, 
     }
 
 
-def _begin_motion_segment(agv, point: dict, active_status: str, *, motion_settings: dict | None = None):
+def _begin_motion_segment(
+    agv,
+    point: dict,
+    active_status: str,
+    *,
+    motion_settings: dict | None = None,
+    use_topology: bool = True,
+):
     source_x = int(agv.x)
     source_y = int(agv.y)
     target_x, target_y = _point_coordinates(point)
@@ -817,6 +936,7 @@ def _begin_motion_segment(agv, point: dict, active_status: str, *, motion_settin
         target_x,
         target_y,
         edge_key=point.get("topology_edge_key"),
+        topology=None if use_topology else {},
     )
     start_node = str(segment.get("source_node") or _build_grid_node_key(source_x, source_y))
     edge_key = str(segment.get("edge_key") or f"{start_node}->{_build_grid_node_key(target_x, target_y)}")
@@ -935,17 +1055,19 @@ def move_to_point_with_collision_guard(agv, task, point, algorithm: str, active_
         source_y = int(agv.y)
         topology_conflict = None
         blocking_agv = None
+        use_topology = _should_use_task_topology()
         with movement_lock:
             runtime_motion_settings = _get_runtime_motion_settings()
-            topology_conflict = _detect_topology_edge_conflict(agv.id, source_x, source_y, point)
-            if topology_conflict is None:
-                topology_conflict = _detect_same_corridor_follow_conflict(
-                    agv.id,
-                    source_x,
-                    source_y,
-                    point,
-                    motion_settings=runtime_motion_settings,
-                )
+            if use_topology:
+                topology_conflict = _detect_topology_edge_conflict(agv.id, source_x, source_y, point)
+                if topology_conflict is None:
+                    topology_conflict = _detect_same_corridor_follow_conflict(
+                        agv.id,
+                        source_x,
+                        source_y,
+                        point,
+                        motion_settings=runtime_motion_settings,
+                    )
             if topology_conflict is None:
                 blocking_agv = _find_motion_segment_claim_blocking_agv(agv.id, source_x, source_y, point)
             if topology_conflict is None and blocking_agv is None:
@@ -956,6 +1078,7 @@ def move_to_point_with_collision_guard(agv, task, point, algorithm: str, active_
                     point,
                     active_status,
                     motion_settings=runtime_motion_settings,
+                    use_topology=use_topology,
                 )
                 if motion_segment is not None:
                     target_node, target_speed, travel_duration_sec, edge_key, segment_claim_key = motion_segment
@@ -1007,7 +1130,11 @@ def move_to_point_with_collision_guard(agv, task, point, algorithm: str, active_
             continue
 
         if blocking_agv is not None:
-            topology_cell_conflict = _build_topology_segment_conflict(source_x, source_y, point, blocking_agv)
+            topology_cell_conflict = (
+                _build_topology_segment_conflict(source_x, source_y, point, blocking_agv)
+                if use_topology
+                else None
+            )
             if topology_cell_conflict is not None:
                 if not waiting_noted:
                     task.dispatch_reason = _build_topology_wait_reason(topology_cell_conflict)
@@ -1063,6 +1190,20 @@ def move_to_point_with_collision_guard(agv, task, point, algorithm: str, active_
             waiting_noted = True
 
         _set_waiting_motion_state(agv, active_status, motion_state="waiting")
+        if blocking_agv is not None and waited_sec >= GRID_DYNAMIC_REPLAN_INTERVAL_SEC:
+            retry_budget = max(
+                int(getattr(task, "cell_wait_retry_budget", GRID_DYNAMIC_REPLAN_RETRY_BUDGET) or 0),
+                GRID_DYNAMIC_REPLAN_RETRY_BUDGET,
+            )
+            retry_count = max(int(getattr(task, "cell_wait_retry_count", 0) or 0), 0)
+            if retry_count < retry_budget:
+                task.cell_wait_retry_count = retry_count + 1
+                task.cell_wait_retry_budget = retry_budget
+                task.dispatch_reason = (
+                    f"grid_dynamic_replan:blocker_agv={int(blocking_agv.id)};"
+                    f"retry={int(task.cell_wait_retry_count)}"
+                )
+                return "retry"
 
         time.sleep(MOVE_WAIT_INTERVAL_SEC)
 
@@ -1101,8 +1242,9 @@ def move_agv(
             running_from_current = task.status == "running" or agv.status == "running"
             if running_from_current:
                 path_to_start = [{"x": agv.x, "y": agv.y}]
-                path_to_end = plan_path(
+                path_to_end = _plan_task_runtime_path(
                     algorithm,
+                    agv,
                     agv.x,
                     agv.y,
                     stage.end_x,
@@ -1110,13 +1252,13 @@ def move_agv(
                     grid_cols,
                     grid_rows,
                     request_priority=int(getattr(task, "priority", 0) or 0),
-                    agv_id=agv.id,
                     avoid_edge_keys=avoid_edge_keys,
                     avoid_node_keys=avoid_node_keys,
                 )
             else:
-                path_to_start = plan_path(
+                path_to_start = _plan_task_runtime_path(
                     algorithm,
+                    agv,
                     agv.x,
                     agv.y,
                     stage.start_x,
@@ -1124,12 +1266,12 @@ def move_agv(
                     grid_cols,
                     grid_rows,
                     request_priority=int(getattr(task, "priority", 0) or 0),
-                    agv_id=agv.id,
                     avoid_edge_keys=avoid_edge_keys,
                     avoid_node_keys=avoid_node_keys,
                 )
-                path_to_end = plan_path(
+                path_to_end = _plan_task_runtime_path(
                     algorithm,
+                    agv,
                     stage.start_x,
                     stage.start_y,
                     stage.end_x,
@@ -1137,7 +1279,6 @@ def move_agv(
                     grid_cols,
                     grid_rows,
                     request_priority=int(getattr(task, "priority", 0) or 0),
-                    agv_id=agv.id,
                     avoid_edge_keys=avoid_edge_keys,
                     avoid_node_keys=avoid_node_keys,
                 )
@@ -1207,8 +1348,9 @@ def move_agv(
 
             next_stage = get_current_stage(task)
             next_avoid_edge_keys, next_avoid_node_keys = _extract_topology_avoidance(getattr(task, "dispatch_reason", None))
-            next_path_to_start = plan_path(
+            next_path_to_start = _plan_task_runtime_path(
                 algorithm,
+                agv,
                 agv.x,
                 agv.y,
                 next_stage.start_x,
@@ -1216,12 +1358,12 @@ def move_agv(
                 grid_cols,
                 grid_rows,
                 request_priority=int(getattr(task, "priority", 0) or 0),
-                agv_id=agv.id,
                 avoid_edge_keys=next_avoid_edge_keys,
                 avoid_node_keys=next_avoid_node_keys,
             )
-            next_path_to_end = plan_path(
+            next_path_to_end = _plan_task_runtime_path(
                 algorithm,
+                agv,
                 next_stage.start_x,
                 next_stage.start_y,
                 next_stage.end_x,
@@ -1229,7 +1371,6 @@ def move_agv(
                 grid_cols,
                 grid_rows,
                 request_priority=int(getattr(task, "priority", 0) or 0),
-                agv_id=agv.id,
                 avoid_edge_keys=next_avoid_edge_keys,
                 avoid_node_keys=next_avoid_node_keys,
             )

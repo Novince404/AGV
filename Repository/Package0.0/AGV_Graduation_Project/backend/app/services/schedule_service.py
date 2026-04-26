@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
+from app.core.data_scope import get_current_scope_key
 from app.repositories.agv_repository import get_agv_by_id, list_agvs
 from app.repositories.task_repository import get_task_by_id, list_tasks
 from app.services.operation_audit_service import record_operation_audit
@@ -23,6 +24,14 @@ from app.utils.warehouse_map import get_blocked_cell_payload
 
 def now_iso() -> str:
     return datetime.now().isoformat(timespec="seconds")
+
+
+def _should_use_topology_for_scope() -> bool:
+    return not get_current_scope_key().startswith("user:")
+
+
+def _planner_topology_payload():
+    return None if _should_use_topology_for_scope() else {}
 
 
 def _is_valid_grid_coordinate(value: int, max_value: int) -> bool:
@@ -156,6 +165,7 @@ def _path_length(
         ey,
         grid_cols,
         grid_rows,
+        topology=_planner_topology_payload(),
         request_priority=request_priority,
         agv_id=agv_id,
     )
@@ -409,6 +419,7 @@ def _compare_algorithm(
             stage["end_y"],
             grid_cols,
             grid_rows,
+            topology=_planner_topology_payload(),
             request_priority=0,
         )
         if not path:
@@ -516,6 +527,7 @@ def _schedule_task(
             stage.end_y,
             grid_cols,
             grid_rows,
+            topology=_planner_topology_payload(),
             request_priority=int(getattr(task, "priority", 0) or 0),
             agv_id=agv.id,
         )
@@ -528,6 +540,7 @@ def _schedule_task(
             stage.start_y,
             grid_cols,
             grid_rows,
+            topology=_planner_topology_payload(),
             request_priority=int(getattr(task, "priority", 0) or 0),
             agv_id=agv.id,
         )
@@ -539,6 +552,7 @@ def _schedule_task(
             stage.end_y,
             grid_cols,
             grid_rows,
+            topology=_planner_topology_payload(),
             request_priority=int(getattr(task, "priority", 0) or 0),
             agv_id=agv.id,
         )
