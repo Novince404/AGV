@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "exported_at": "2026-04-26T00:00:00+08:00",
+  "profile": {
+    "name": "动态避让分流演示地图 v2 12x8",
+    "description": "用于展示调度层动态避让的 12x8 地图。中部横向主通道制造跟车冲突，上侧等待位和下侧服务支路提供分流空间，避免多车全部挤死在中心。",
+    "grid_cols": 12,
+    "grid_rows": 8,
+    "blocked_cells": [
+      { "x": 2, "y": 2 },
+      { "x": 3, "y": 2 },
+      { "x": 4, "y": 2 },
+      { "x": 7, "y": 2 },
+      { "x": 8, "y": 2 },
+      { "x": 9, "y": 2 },
+      { "x": 2, "y": 4 },
+      { "x": 3, "y": 4 },
+      { "x": 4, "y": 4 },
+      { "x": 7, "y": 4 },
+      { "x": 8, "y": 4 },
+      { "x": 9, "y": 4 },
+      { "x": 5, "y": 5 },
+      { "x": 6, "y": 5 }
+    ],
+    "topology": {
+      "topology_version": 1,
+      "nodes": [
+        { "key": "west_buffer", "x": 1, "y": 1, "label": "西侧上等待位", "node_type": "station", "capacity": 1 },
+        { "key": "upper_w", "x": 4, "y": 1, "label": "上侧绕行西段", "node_type": "waypoint", "capacity": 1 },
+        { "key": "upper_e", "x": 7, "y": 1, "label": "上侧绕行东段", "node_type": "waypoint", "capacity": 1 },
+        { "key": "east_buffer", "x": 10, "y": 1, "label": "东侧上等待位", "node_type": "station", "capacity": 1 },
+        { "key": "west_gate", "x": 1, "y": 3, "label": "西侧入廊口", "node_type": "station", "capacity": 1 },
+        { "key": "west_merge", "x": 3, "y": 3, "label": "西段汇入口", "node_type": "waypoint", "capacity": 1 },
+        { "key": "center_w", "x": 5, "y": 3, "label": "中心窄道西", "node_type": "waypoint", "capacity": 1 },
+        { "key": "center_e", "x": 6, "y": 3, "label": "中心窄道东", "node_type": "waypoint", "capacity": 1 },
+        { "key": "east_merge", "x": 8, "y": 3, "label": "东段汇入口", "node_type": "waypoint", "capacity": 1 },
+        { "key": "east_gate", "x": 10, "y": 3, "label": "东侧入廊口", "node_type": "station", "capacity": 1 },
+        { "key": "west_service", "x": 1, "y": 6, "label": "西侧服务等待位", "node_type": "station", "capacity": 1 },
+        { "key": "service_w", "x": 4, "y": 6, "label": "下侧服务西段", "node_type": "waypoint", "capacity": 1 },
+        { "key": "service_e", "x": 7, "y": 6, "label": "下侧服务东段", "node_type": "waypoint", "capacity": 1 },
+        { "key": "east_service", "x": 10, "y": 6, "label": "东侧服务等待位", "node_type": "station", "capacity": 1 }
+      ],
+      "edges": [
+        { "key": "edge_west_gate_buffer", "source": "west_gate", "target": "west_buffer", "direction": "bidirectional", "lane_type": "branch", "weight": 2, "speed_multiplier": 1 },
+        { "key": "edge_west_buffer_upper_w", "source": "west_buffer", "target": "upper_w", "direction": "bidirectional", "lane_type": "branch", "weight": 3, "speed_multiplier": 1 },
+        { "key": "edge_upper_w_upper_e", "source": "upper_w", "target": "upper_e", "direction": "bidirectional", "lane_type": "branch", "weight": 3, "speed_multiplier": 1 },
+        { "key": "edge_upper_e_east_buffer", "source": "upper_e", "target": "east_buffer", "direction": "bidirectional", "lane_type": "branch", "weight": 3, "speed_multiplier": 1 },
+        { "key": "edge_east_buffer_gate", "source": "east_buffer", "target": "east_gate", "direction": "bidirectional", "lane_type": "branch", "weight": 2, "speed_multiplier": 1 },
+        { "key": "edge_west_gate_merge", "source": "west_gate", "target": "west_merge", "direction": "bidirectional", "lane_type": "main", "weight": 2, "speed_multiplier": 0.95 },
+        { "key": "edge_west_merge_center_w", "source": "west_merge", "target": "center_w", "direction": "bidirectional", "lane_type": "main", "weight": 2, "speed_multiplier": 0.85 },
+        { "key": "edge_center_lock", "source": "center_w", "target": "center_e", "direction": "bidirectional", "lane_type": "main", "weight": 1, "speed_multiplier": 0.75 },
+        { "key": "edge_center_e_east_merge", "source": "center_e", "target": "east_merge", "direction": "bidirectional", "lane_type": "main", "weight": 2, "speed_multiplier": 0.85 },
+        { "key": "edge_east_merge_gate", "source": "east_merge", "target": "east_gate", "direction": "bidirectional", "lane_type": "main", "weight": 2, "speed_multiplier": 0.95 },
+        { "key": "edge_west_gate_service", "source": "west_gate", "target": "west_service", "direction": "bidirectional", "lane_type": "service", "weight": 3, "speed_multiplier": 0.95 },
+        { "key": "edge_west_service_service_w", "source": "west_service", "target": "service_w", "direction": "bidirectional", "lane_type": "service", "weight": 3, "speed_multiplier": 0.95 },
+        { "key": "edge_service_w_service_e", "source": "service_w", "target": "service_e", "direction": "bidirectional", "lane_type": "service", "weight": 3, "speed_multiplier": 0.95 },
+        { "key": "edge_service_e_east_service", "source": "service_e", "target": "east_service", "direction": "bidirectional", "lane_type": "service", "weight": 3, "speed_multiplier": 0.95 },
+        { "key": "edge_east_service_gate", "source": "east_service", "target": "east_gate", "direction": "bidirectional", "lane_type": "service", "weight": 3, "speed_multiplier": 0.95 }
+      ],
+      "stations": ["west_buffer", "east_buffer", "west_gate", "east_gate", "west_service", "east_service"],
+      "parking_nodes": [],
+      "charge_nodes": []
+    }
+  }
+}

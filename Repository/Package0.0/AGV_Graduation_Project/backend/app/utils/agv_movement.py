@@ -29,6 +29,7 @@ from app.utils.warehouse_map import (
 )
 movement_lock = threading.Lock()
 topology_edge_motion_claims: dict[str, int] = {}
+motion_segment_claims: dict[str, int] = {}
 MOVE_WAIT_INTERVAL_SEC = 0.25
 MOVE_WAIT_TIMEOUT_SEC = 12
 TOPOLOGY_EDGE_REPLAN_INTERVAL_SEC = 1.2
@@ -44,6 +45,10 @@ RUNTIME_MOTION_UI_SETTINGS_DEFAULTS = {
     "follow_distance": TOPOLOGY_FOLLOW_MIN_GAP_CELLS,
     "deadlock_timeout_sec": TOPOLOGY_DEADLOCK_BREAK_TIMEOUT_SEC,
 }
+
+
+def _is_personal_runtime_scope() -> bool:
+    return get_current_scope_key().startswith("user:")
 
 
 def now_iso():
@@ -144,6 +149,87 @@ def _release_topology_motion_edge_claim(agv_id: int | None = None, edge_key: str
             topology_edge_motion_claims.pop(claimed_edge_key, None)
 
 
+def _build_motion_segment_claim_key(
+    source_x: int,
+    source_y: int,
+    target_x: int,
+    target_y: int,
+) -> str:
+    source = (int(source_x), int(source_y))
+    target = (int(target_x), int(target_y))
+    if source == target:
+        return ""
+    first, second = sorted((source, target))
+    return f"segment:{first[0]}:{first[1]}-{second[0]}:{second[1]}"
+
+
+def _claim_motion_segment(agv_id: int, segment_key: str | None) -> bool:
+    normalized_segment_key = str(segment_key or "").strip()
+    if not normalized_segment_key:
+        return True
+
+    normalized_agv_id = int(agv_id)
+    for claimed_segment_key, claimed_agv_id in list(motion_segment_claims.items()):
+        if int(claimed_agv_id) == normalized_agv_id and claimed_segment_key != normalized_segment_key:
+            motion_segment_claims.pop(claimed_segment_key, None)
+
+    owner_agv_id = motion_segment_claims.get(normalized_segment_key)
+    if owner_agv_id is not None and int(owner_agv_id) != normalized_agv_id:
+        return False
+
+    motion_segment_claims[normalized_segment_key] = normalized_agv_id
+    return True
+
+
+def _release_motion_segment_claim(agv_id: int | None = None, segment_key: str | None = None) -> None:
+    normalized_segment_key = str(segment_key or "").strip()
+    normalized_agv_id = int(agv_id) if agv_id is not None else None
+
+    if normalized_segment_key:
+        owner_agv_id = motion_segment_claims.get(normalized_segment_key)
+        if owner_agv_id is None:
+            return
+        if normalized_agv_id is None or int(owner_agv_id) == normalized_agv_id:
+            motion_segment_claims.pop(normalized_segment_key, None)
+        return
+
+    if normalized_agv_id is None:
+        return
+
+    for claimed_segment_key, claimed_agv_id in list(motion_segment_claims.items()):
+        if int(claimed_agv_id) == normalized_agv_id:
+            motion_segment_claims.pop(claimed_segment_key, None)
+
+
+def _find_motion_segment_claim_blocking_agv(
+    agv_id: int,
+    source_x: int,
+    source_y: int,
+    point: dict,
+):
+    target_x, target_y = _point_coordinates(point)
+    segment_key = _build_motion_segment_claim_key(source_x, source_y, target_x, target_y)
+    if not segment_key:
+        return None
+    blocker_agv_id = motion_segment_claims.get(segment_key)
+    if blocker_agv_id is None or int(blocker_agv_id) == int(agv_id):
+        return None
+
+    blocker_agv = get_agv_by_id(int(blocker_agv_id))
+    if blocker_agv is None or getattr(blocker_agv, "status", None) == "maintenance":
+        motion_segment_claims.pop(segment_key, None)
+        return None
+    return blocker_agv
+
+
+def _clear_agv_motion(agv, **kwargs) -> None:
+    if agv is None:
+        return
+    _release_motion_segment_claim(int(agv.id))
+    _release_topology_motion_edge_claim(int(agv.id))
+    agv.clear_motion(**kwargs)
+
+
 def _segment_heading(source_x: int, source_y: int, target_x: int, target_y: int) -> float:
     dx = float(target_x) - float(source_x)
     dy = float(target_y) - float(source_y)
@@ -172,6 +258,8 @@ def _get_runtime_motion_settings() -> dict:
         base_speed = max(0.2, min(6.0, float(payload.get("base_speed", DEFAULT_BASE_SPEED))))
     except Exception:
         base_speed = DEFAULT_BASE_SPEED
+    if _is_personal_runtime_scope():
+        base_speed = min(base_speed, DEFAULT_BASE_SPEED)
     try:
         follow_distance = max(0.25, min(3.0, float(payload.get("follow_distance", TOPOLOGY_FOLLOW_MIN_GAP_CELLS))))
     except Exception:
@@ -744,7 +832,11 @@ def _begin_motion_segment(agv, point: dict, active_status: str, *, motion_settin
     target_speed = max(base_speed * speed_multiplier, 0.05)
     travel_duration_sec = segment_distance / target_speed
     heading = _segment_heading(source_x, source_y, target_x, target_y)
+    segment_claim_key = _build_motion_segment_claim_key(source_x, source_y, target_x, target_y)
     if segment_mode == "topology" and not _claim_topology_motion_edge(int(agv.id), edge_key):
+        return None
+    if not _claim_motion_segment(int(agv.id), segment_claim_key):
+        _release_topology_motion_edge_claim(int(agv.id), edge_key=edge_key)
         return None
 
     agv.apply_motion_fields(
@@ -771,7 +863,7 @@ def _begin_motion_segment(agv, point: dict, active_status: str, *, motion_settin
         motion_target_x=float(target_x),
         motion_target_y=float(target_y),
     )
-    return target_node, target_speed, travel_duration_sec, edge_key
+    return target_node, target_speed, travel_duration_sec, edge_key, segment_claim_key
 
 
 def _finish_motion_segment(
@@ -782,6 +874,7 @@ def _finish_motion_segment(
     active_status: str,
     target_speed: float,
     edge_key: str | None,
+    segment_claim_key: str | None,
 ):
     agv.apply_motion_fields(
         render_x=float(target_x),
@@ -793,11 +886,13 @@ def _finish_motion_segment(
         target_speed=target_speed,
         motion_updated_at=now_iso_ms(),
     )
+    _release_motion_segment_claim(int(agv.id), segment_key=segment_claim_key)
     _release_topology_motion_edge_claim(int(agv.id), edge_key=edge_key)
 
 
 def _set_waiting_motion_state(agv, active_status: str, motion_state: str = "waiting"):
     current_node_key = _get_runtime_topology_node_key_at_position(int(agv.x), int(agv.y)) or _build_grid_node_key(int(agv.x), int(agv.y))
+    _release_motion_segment_claim(int(agv.id))
     _release_topology_motion_edge_claim(int(agv.id))
     agv.apply_motion_fields(
         status=active_status,
@@ -852,6 +947,8 @@ def move_to_point_with_collision_guard(agv, task, point, algorithm: str, active_
                     motion_settings=runtime_motion_settings,
                 )
             if topology_conflict is None:
+                blocking_agv = _find_motion_segment_claim_blocking_agv(agv.id, source_x, source_y, point)
+            if topology_conflict is None and blocking_agv is None:
                 blocking_agv = _find_blocking_agv_at_position(agv.id, target_x, target_y)
             if topology_conflict is None and blocking_agv is None:
                 motion_segment = _begin_motion_segment(
@@ -861,7 +958,7 @@ def move_to_point_with_collision_guard(agv, task, point, algorithm: str, active_
                     motion_settings=runtime_motion_settings,
                 )
                 if motion_segment is not None:
-                    target_node, target_speed, travel_duration_sec, edge_key = motion_segment
+                    target_node, target_speed, travel_duration_sec, edge_key, segment_claim_key = motion_segment
                     moved = True
 
         if moved:
@@ -869,7 +966,16 @@ def move_to_point_with_collision_guard(agv, task, point, algorithm: str, active_
                 task.dispatch_reason = previous_reason
             if source_x != target_x or source_y != target_y:
                 time.sleep(travel_duration_sec)
-            _finish_motion_segment(agv, target_x, target_y, target_node, active_status, target_speed, edge_key)
+            _finish_motion_segment(
+                agv,
+                target_x,
+                target_y,
+                target_node,
+                active_status,
+                target_speed,
+                edge_key,
+                segment_claim_key,
+            )
             return "moved"
 
         waited_sec = time.monotonic() - wait_started_at
@@ -1279,6 +1385,13 @@ def move_agv_to_autonomy_target(
                                     motion_settings=runtime_motion_settings,
                                 )
                             if topology_conflict is None:
+                                blocking_agv = _find_motion_segment_claim_blocking_agv(
+                                    agv.id,
+                                    source_x,
+                                    source_y,
+                                    point,
+                                )
+                            if topology_conflict is None and blocking_agv is None:
                                 blocking_agv = _find_blocking_agv_at_position(agv.id, next_x, next_y)
                         if topology_conflict is None and blocking_agv is None:
                             motion_segment = _begin_motion_segment(
@@ -1288,7 +1401,7 @@ def move_agv_to_autonomy_target(
                                 motion_settings=runtime_motion_settings,
                             )
                             if motion_segment is not None:
-                                target_node, target_speed, travel_duration_sec, edge_key = motion_segment
+                                target_node, target_speed, travel_duration_sec, edge_key, segment_claim_key = motion_segment
                                 moved = True
 
                     waited_sec = max(time.monotonic() - wait_started_at, 0.0)
@@ -1302,6 +1415,7 @@ def move_agv_to_autonomy_target(
                             active_status,
                             target_speed,
                             edge_key,
+                            segment_claim_key,
                         )
                         break
 

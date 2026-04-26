@@ -13,11 +13,17 @@
   - 一次导入多条任务，默认 3 台 AGV 会先运行一部分任务，其余任务进入队列等待空闲车。
   - 坐标避开默认障碍和 `personal_defense_obstacle_layout_10x8.json`，即使现场还没切到配套地图，也不容易踩到“终点位于障碍格”。
 - `dynamic_avoidance_map_profile_12x8.json`
-  - 动态避让窄通道演示地图 Profile。
-  - 中部横向窄通道和十字交汇口用于制造同路、对向和节点占用冲突。
+  - 动态避让分流演示地图 Profile。
+  - 中部横向窄通道用于制造主通道冲突，上侧绕行支路和下侧服务支路用于观察等待、绕行和恢复。
 - `dynamic_avoidance_conflict_tasks.json`
   - 动态避让批量任务。
-  - 配合 `dynamic_avoidance_map_profile_12x8.json` 使用，一次导入多条任务，观察等待、让行、重试和恢复。
+  - 配合 `dynamic_avoidance_map_profile_12x8.json` 使用，一次导入多条任务，观察高优先级主通道、低优先级跟车等待和服务支路并行。
+- `dynamic_avoidance_split_map_profile_12x8.json`
+  - 动态避让分流演示地图 v2，推荐优先使用。
+  - 文件名和地图名都带 `split` / `v2`，用于避开旧版“窄通道演示地图”残留方案。
+- `dynamic_avoidance_split_tasks.json`
+  - 动态避让分流演示任务 v2，推荐优先使用。
+  - 配合 `dynamic_avoidance_split_map_profile_12x8.json` 使用，降低三车挤入同一个中心瓶颈的概率。
 - `task_auto_single_demo.json`
   - 自动派发的单阶段任务示例。
 - `task_manual_single_demo.json`
@@ -42,9 +48,9 @@
 - 企业端或地图能力展示：
   - 使用 `map_profile_irregular_demo.json` 演示异形地图 Profile。
 - 动态避让演示：
-  - 先导入并应用 `dynamic_avoidance_map_profile_12x8.json`。
-  - 再导入 `dynamic_avoidance_conflict_tasks.json`。
-  - 观察中部窄通道和十字交汇口的等待、让行、重规划倾向和恢复继续运行。
+  - 先导入并应用 `dynamic_avoidance_split_map_profile_12x8.json`。
+  - 再导入 `dynamic_avoidance_split_tasks.json`。
+  - 观察中部主通道、上侧等待位、下侧服务支路之间的跟车等待、让行倾向和恢复继续运行。
   - 详细步骤见 `docs/demo/DYNAMIC_AVOIDANCE_DEMO_RUNBOOK.md`。
 
 ## 当前约定

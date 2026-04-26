@@ -1,54 +1,30 @@
 {
   "version": 2,
-  "scenario": "dynamic_avoidance_narrow_crossing",
-  "map_profile": "动态避让窄通道演示地图 12x8",
-  "description": "配合 dynamic_avoidance_map_profile_12x8.json 使用。一次导入后，多台 AGV 会从西向东、东向西和南北方向同时进入中部窄通道，用于观察等待、让行、重规划和恢复。",
+  "scenario": "dynamic_avoidance_split_lane",
+  "map_profile": "动态避让分流演示地图 12x8",
+  "description": "配合 dynamic_avoidance_map_profile_12x8.json 使用。任务起点贴合默认三台 AGV 的初始位置，导入后高优先级任务先走中部主通道，第二条任务跟随进入主通道并观察前车占用等待，第三条任务走下侧服务支路。",
   "tasks": [
     {
       "grid_cols": 12,
       "grid_rows": 8,
-      "priority": 6,
+      "priority": 8,
       "dispatch_mode": "auto",
       "dispatch_algorithm": "astar",
-      "dispatch_reason": "动态避让演示：西侧车辆穿越中部窄通道，优先级较高。",
+      "dispatch_reason": "动态避让演示：高优先级车辆优先穿越中部主通道，随后离开东侧入口。",
       "stages": [
         {
-          "label": "西侧入廊口到东侧入廊口",
-          "start_x": 1,
+          "label": "默认西侧车辆到东侧入廊口",
+          "start_x": 2,
           "start_y": 3,
           "end_x": 10,
           "end_y": 3
         },
         {
-          "label": "东侧入廊口到东侧等待位",
+          "label": "东侧入廊口到东侧服务等待位",
           "start_x": 10,
           "start_y": 3,
           "end_x": 10,
           "end_y": 6
-        }
-      ]
-    },
-    {
-      "grid_cols": 12,
-      "grid_rows": 8,
-      "priority": 5,
-      "dispatch_mode": "auto",
-      "dispatch_algorithm": "astar",
-      "dispatch_reason": "动态避让演示：东侧车辆反向穿越同一走廊，用于触发对向相遇。",
-      "stages": [
-        {
-          "label": "东侧入廊口到西侧入廊口",
-          "start_x": 10,
-          "start_y": 3,
-          "end_x": 1,
-          "end_y": 3
-        },
-        {
-          "label": "西侧入廊口到西侧等待位",
-          "start_x": 1,
-          "start_y": 3,
-          "end_x": 1,
-          "end_y": 1
         }
       ]
     },
@@ -58,21 +34,21 @@
       "priority": 4,
       "dispatch_mode": "auto",
       "dispatch_algorithm": "astar",
-      "dispatch_reason": "动态避让演示：南北方向穿越中心交汇点，用于触发节点占用等待。",
+      "dispatch_reason": "动态避让演示：低优先级车辆跟随进入主通道，遇到前车占用时应等待并保持安全间距。",
       "stages": [
         {
-          "label": "南侧交汇口到北侧交汇口",
-          "start_x": 6,
-          "start_y": 6,
-          "end_x": 5,
-          "end_y": 1
+          "label": "西侧入口跟随车辆到东段汇入口",
+          "start_x": 1,
+          "start_y": 3,
+          "end_x": 8,
+          "end_y": 3
         },
         {
-          "label": "北侧交汇口到东侧入廊口",
-          "start_x": 5,
-          "start_y": 1,
+          "label": "东段汇入口到东侧上等待位",
+          "start_x": 8,
+          "start_y": 3,
           "end_x": 10,
-          "end_y": 3
+          "end_y": 1
         }
       ]
     },
@@ -82,14 +58,21 @@
       "priority": 3,
       "dispatch_mode": "auto",
       "dispatch_algorithm": "astar",
-      "dispatch_reason": "动态避让演示：低优先级补充任务，通常会在前车占用时排队，验证恢复后继续派发。",
+      "dispatch_reason": "动态避让演示：第三台车辆走下侧服务支路，让画面保持多车运行但不再全部挤入中心。",
       "stages": [
         {
-          "label": "西侧等待位到东侧等待位",
-          "start_x": 1,
-          "start_y": 1,
-          "end_x": 10,
+          "label": "默认南侧车辆到下侧服务东段",
+          "start_x": 5,
+          "start_y": 7,
+          "end_x": 7,
           "end_y": 6
+        },
+        {
+          "label": "下侧服务东段到西侧上等待位",
+          "start_x": 7,
+          "start_y": 6,
+          "end_x": 1,
+          "end_y": 1
         }
       ]
     }

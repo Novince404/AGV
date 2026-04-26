@@ -4380,12 +4380,28 @@ function clampMotionProgress(value) {
   return Math.max(0, Math.min(1, normalizeAgvMotionNumber(value, 0)))
 }
 
+function resolveSteppedBackendMotionPosition(sourceX, sourceY, targetX, targetY, progress) {
+  const deltaX = targetX - sourceX
+  const deltaY = targetY - sourceY
+  const steps = Math.max(Math.abs(Math.round(deltaX)), Math.abs(Math.round(deltaY)), 1)
+  const stepIndex = Math.max(0, Math.min(steps, Math.floor(clampMotionProgress(progress) * steps)))
+  const stepRatio = stepIndex / steps
+  return {
+    x: Math.round(sourceX + deltaX * stepRatio),
+    y: Math.round(sourceY + deltaY * stepRatio)
+  }
+}
+
 function isEnterpriseContinuousMotionEnabled() {
   return uiTreatAsEnterpriseRole.value
 }
 
+function isBackendMotionTimelineEnabled() {
+  return true
+}
+
 function isBackendAgvMotionActive(agv, nowMs = Date.now()) {
-  if (!isEnterpriseContinuousMotionEnabled()) return false
+  if (!isBackendMotionTimelineEnabled()) return false
   const startedMs = Date.parse(String(agv?.motion_started_at || ''))
   const durationMs = Math.max(0, normalizeAgvMotionNumber(agv?.motion_duration_ms, 0))
   const sourceX = normalizeAgvMotionNumber(agv?.motion_source_x, normalizeAgvMotionNumber(agv?.render_x, agv?.x))
@@ -4399,6 +4415,7 @@ function isBackendAgvMotionActive(agv, nowMs = Date.now()) {
 
 function resolveRenderedBackendAgv(agv, nowMs = agvAnimationNow.value) {
   const enterpriseMotionEnabled = isEnterpriseContinuousMotionEnabled()
+  const backendTimelineEnabled = isBackendMotionTimelineEnabled()
   const currentEdgeKey = String(agv?.current_edge || '').trim()
   const currentEdgeMeta = currentEdgeKey ? topologyEdgeByKey.value[currentEdgeKey] || null : null
   const sourceX = normalizeAgvMotionNumber(agv?.motion_source_x, normalizeAgvMotionNumber(agv?.render_x, agv?.x))
@@ -4415,20 +4432,27 @@ function resolveRenderedBackendAgv(agv, nowMs = agvAnimationNow.value) {
   const progress = timeProgress ?? clampMotionProgress(agv?.edge_progress)
   const motionState = String(agv?.motion_state || agv?.status || 'idle')
   const shouldAnimate =
-    enterpriseMotionEnabled &&
+    backendTimelineEnabled &&
     String(agv?.current_edge || '').trim() &&
     durationMs > 0 &&
     Number.isFinite(startedMs) &&
     (sourceX !== targetX || sourceY !== targetY)
 
   const preferPhysicalPosition = enterpriseMotionEnabled && currentEdgeKey && !shouldAnimate
+  const steppedPosition = shouldAnimate
+    ? resolveSteppedBackendMotionPosition(sourceX, sourceY, targetX, targetY, progress)
+    : null
   const displayX = shouldAnimate
-    ? sourceX + (targetX - sourceX) * progress
+    ? enterpriseMotionEnabled
+      ? sourceX + (targetX - sourceX) * progress
+      : steppedPosition.x
     : enterpriseMotionEnabled
       ? (preferPhysicalPosition ? normalizeAgvMotionNumber(agv?.x) : renderX)
       : normalizeAgvMotionNumber(agv?.x)
   const displayY = shouldAnimate
-    ? sourceY + (targetY - sourceY) * progress
+    ? enterpriseMotionEnabled
+      ? sourceY + (targetY - sourceY) * progress
+      : steppedPosition.y
     : enterpriseMotionEnabled
       ? (preferPhysicalPosition ? normalizeAgvMotionNumber(agv?.y) : renderY)
       : normalizeAgvMotionNumber(agv?.y)
@@ -4861,7 +4885,7 @@ function shouldHideEnterpriseAgvMarker(agv) {
   return !isBackendAgvMotionActive(agv, agvAnimationNow.value)
 }
 
-const enterpriseAgvMotionActive = computed(() =>
+const backendAgvMotionActive = computed(() =>
   agvs.value.some(agv => isBackendAgvMotionActive(agv, agvAnimationNow.value))
 )
 
@@ -15932,7 +15956,7 @@ function stopAgvAnimationLoop() {
 
 function runAgvAnimationLoop() {
   agvAnimationNow.value = Date.now()
-  if (!enterpriseAgvMotionActive.value || typeof window === 'undefined') {
+  if (!backendAgvMotionActive.value || typeof window === 'undefined') {
     agvAnimationFrameHandle = null
     return
   }
@@ -16522,7 +16546,7 @@ watch(
 )
 
 watch(
-  enterpriseAgvMotionActive,
+  backendAgvMotionActive,
   active => {
     if (active) {
       ensureAgvAnimationLoop()

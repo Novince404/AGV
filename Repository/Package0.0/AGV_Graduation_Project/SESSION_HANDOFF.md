@@ -903,12 +903,15 @@ git -C "Repository/Package0.0/AGV_Graduation_Project" push AGV main
 - 新增：
   - `demo/json/dynamic_avoidance_map_profile_12x8.json`
   - `demo/json/dynamic_avoidance_conflict_tasks.json`
+  - `demo/json/dynamic_avoidance_split_map_profile_12x8.json`
+  - `demo/json/dynamic_avoidance_split_tasks.json`
   - `docs/demo/DYNAMIC_AVOIDANCE_DEMO_RUNBOOK.md`
   - `docs/plans/DYNAMIC_AVOIDANCE_DESIGN_NOTE.md`
 - 演示意图：
-  - 12x8 地图中部设置窄通道和十字交汇口。
-  - 批量任务从西向东、东向西和南北方向同时进入中心区域。
-  - 用于观察同路不超车、对向相遇、节点占用、等待、让行、重试和恢复。
+  - 12x8 地图中部设置主窄通道，上侧提供绕行支路，下侧提供服务支路。
+  - 批量任务让高优先级车辆先走主通道，低优先级车辆跟随进入主通道并观察前车占用等待，第三台车走服务支路。
+  - 用于观察同路不超车、对向相遇、等待、让行、重试和恢复，同时避免三车全部挤死在中心。
+  - 2026-04-26 追加 `split` / `v2` 文件名，避免系统里旧版“动态避让窄通道演示地图”残留导致误用。
 - 文档状态已同步：
   - `demo/json/README_demo_assets.md`
   - `docs/plans/POST_DEFENSE_PRODUCTIZATION_PLAN_2026-04-22.md`
