@@ -2375,6 +2375,23 @@ h2 {
   color: var(--strong-text);
 }
 
+.enterprise-settings-subsection-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.enterprise-settings-head-actions {
+  margin-left: auto;
+  justify-content: flex-end;
+}
+
+.enterprise-settings-profile-import-button {
+  min-width: 96px;
+}
+
 .enterprise-settings-focus-card p {
   margin: 0;
   color: var(--muted-text);

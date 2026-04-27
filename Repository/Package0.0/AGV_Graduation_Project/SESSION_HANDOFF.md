@@ -1048,3 +1048,14 @@ git -C "Repository/Package0.0/AGV_Graduation_Project" push AGV main
 - 人工复核建议：
   - 企业端打开“企业设置 -> 地图方案”，点击“导入地图方案”，选择 `demo/json/enterprise_topology_headon_map_profile_12x8.json`。
   - 导入成功后，应能在地图方案列表看到新方案，再点击“应用”切换地图。
+
+### 14.32 2026-04-27 追加：企业端地图方案导入按钮位置优化
+- 背景：
+  - 用户测试企业端拓扑避让演示正常，但反馈“方案快照”下方单独出现“导入方案”按钮比较突兀。
+- 本轮调整：
+  - `frontend/agv-frontend/src/components/EnterpriseSettingsDialog.vue`
+    - 将“导入地图方案”移动到“方案快照”标题同行右侧，使其成为方案列表工具栏动作。
+  - `frontend/agv-frontend/src/assets/agv-map.css`
+    - 新增轻量标题栏布局样式，窄宽度下允许换行，避免标题和按钮互相挤压。
+- 人工复核建议：
+  - 企业端打开“企业设置 -> 地图方案”，确认“方案快照”右侧显示“导入方案”，按钮不再单独占一行。

@@ -760,17 +760,19 @@
                 </div>
               </div>
               <div class="enterprise-settings-subsection">
-                <div class="enterprise-settings-subtitle">{{ t('enterprise_settings_profile_list_title') }}</div>
-                <div class="enterprise-settings-actions">
-                  <button
-                    class="btn-secondary"
-                    type="button"
-                    :disabled="!authCanMapWrite || mapProfileImporting"
-                    :title="buildCapabilityLockedTitle('map', authCanMapWrite)"
-                    @click="triggerMapProfileImport"
-                  >
-                    {{ mapProfileImporting ? settingsLocale.mapProfileImporting : settingsLocale.mapProfileImport }}
-                  </button>
+                <div class="enterprise-settings-subsection-head">
+                  <div class="enterprise-settings-subtitle">{{ t('enterprise_settings_profile_list_title') }}</div>
+                  <div class="enterprise-settings-actions enterprise-settings-head-actions">
+                    <button
+                      class="btn-ghost enterprise-settings-profile-import-button"
+                      type="button"
+                      :disabled="!authCanMapWrite || mapProfileImporting"
+                      :title="buildCapabilityLockedTitle('map', authCanMapWrite)"
+                      @click="triggerMapProfileImport"
+                    >
+                      {{ mapProfileImporting ? settingsLocale.mapProfileImporting : settingsLocale.mapProfileImport }}
+                    </button>
+                  </div>
                 </div>
                 <input
                   :ref="setMapProfileFileInput"
