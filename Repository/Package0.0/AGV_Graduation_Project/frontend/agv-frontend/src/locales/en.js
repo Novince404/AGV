@@ -213,7 +213,7 @@
     "runtimeDebugGroupHint": "These toggles only change the enterprise runtime display on the current page. They do not affect the personal view.",
     "showTopologyEdgeSpeed": "Show Trunk Lane Speed",
     "showRuntimeSegmentType": "Show Current Segment Type",
-    "showRuntimeConflictReason": "Show Wait / Yield Reason",
+    "showRuntimeConflictReason": "Show Wait / Yield Labels And Reasons",
     "showSelectedAgvRuntimeOverlay": "Show Runtime Info Above Selected AGV",
     "obstacleEdit": "Edit Obstacles",
     "obstacleHint": "When enabled, click map cells to add or remove blocked cells. Save applies to future comparison and dispatch.",

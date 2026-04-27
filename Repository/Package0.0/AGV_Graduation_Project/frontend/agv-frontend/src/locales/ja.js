@@ -213,7 +213,7 @@
     "runtimeDebugGroupHint": "これらの切替は企業版の現在ページ表示だけに影響し、個人版の既定表示は変えません。",
     "showTopologyEdgeSpeed": "主幹レーン速度を表示",
     "showRuntimeSegmentType": "現在区間タイプを表示",
-    "showRuntimeConflictReason": "待機 / 譲り理由を表示",
+    "showRuntimeConflictReason": "待機 / 譲りラベルと理由を表示",
     "showSelectedAgvRuntimeOverlay": "選択中 AGV の上に運行情報を表示",
     "obstacleEdit": "障害物を編集",
     "obstacleHint": "有効にするとマップセルをクリックして障害物を追加・削除できます。保存後、経路比較と実際のスケジューリングに反映されます。",

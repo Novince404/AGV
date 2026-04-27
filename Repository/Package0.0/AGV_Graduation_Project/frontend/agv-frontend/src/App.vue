@@ -4609,14 +4609,111 @@ function buildEnterpriseRuntimeDebugItems(agv) {
   return items
 }
 
-function resolveAgvRuntimeConflictReason(agv) {
+function findActiveTaskForAgv(agv) {
   const agvId = Number(agv?.id)
-  if (!Number.isFinite(agvId)) return ''
-  const activeTask = tasks.value.find(task =>
+  if (!Number.isFinite(agvId)) return null
+  return tasks.value.find(task =>
     Number(task?.agv_id) === agvId && !['finished', 'cancelled', 'invalid'].includes(String(task?.status || ''))
-  )
+  ) || null
+}
+
+function resolveAgvRuntimeConflictReason(agv) {
+  const activeTask = findActiveTaskForAgv(agv)
   const localized = localizeDispatchReason(activeTask?.dispatch_reason)
   return String(localized || '').trim()
+}
+
+function parseDispatchReasonPayload(reason) {
+  const normalized = String(reason || '').trim()
+  const separatorIndex = normalized.indexOf(':')
+  const code = separatorIndex >= 0 ? normalized.slice(0, separatorIndex) : normalized
+  const rawPayload = separatorIndex >= 0 ? normalized.slice(separatorIndex + 1) : ''
+  const payload = Object.fromEntries(
+    rawPayload
+      .split(';')
+      .map(item => item.split('='))
+      .filter(parts => parts.length === 2 && parts[0])
+      .map(([key, value]) => [key.trim(), value.trim()])
+  )
+  return { code, payload, raw: normalized }
+}
+
+function formatEnterpriseAvoidanceBadgeLabel(kind) {
+  const normalized = String(kind || 'waiting').trim().toLowerCase()
+  const labels = {
+    zh: {
+      intersection: '交汇预约',
+      follow: '安全跟车',
+      reroute: '重规划中',
+      occupied: '等待占用',
+      yield: '正在让行',
+      waiting: '等待中',
+      edge: '等待路段'
+    },
+    ja: {
+      intersection: '交差予約',
+      follow: '安全追従',
+      reroute: '再計画中',
+      occupied: '占有待ち',
+      yield: '譲り中',
+      waiting: '待機中',
+      edge: '区間待ち'
+    },
+    en: {
+      intersection: 'Reserved',
+      follow: 'Safe Gap',
+      reroute: 'Rerouting',
+      occupied: 'Occupied',
+      yield: 'Yielding',
+      waiting: 'Waiting',
+      edge: 'Edge Wait'
+    }
+  }
+  const localeKey = locale.value === 'ja' ? 'ja' : locale.value === 'en' ? 'en' : 'zh'
+  return labels[localeKey][normalized] || labels[localeKey].waiting
+}
+
+function buildEnterpriseAvoidanceBadge(agv) {
+  if (!showRuntimeConflictReason.value || !uiTreatAsEnterpriseRole.value || agv?.source !== 'backend') return null
+
+  const activeTask = findActiveTaskForAgv(agv)
+  const parsed = parseDispatchReasonPayload(activeTask?.dispatch_reason)
+  const motionState = String(agv?.motionState || agv?.motion_state || agv?.status || '').trim().toLowerCase()
+  let kind = ''
+
+  if (parsed.code === 'topology_edge_reroute') {
+    kind = 'reroute'
+  } else if (parsed.code === 'topology_edge_waiting') {
+    if (parsed.payload.kind === 'intersection_reserved') {
+      kind = 'intersection'
+    } else if (parsed.payload.kind === 'follow_gap') {
+      kind = 'follow'
+    } else if (parsed.payload.kind === 'node_occupied') {
+      kind = 'occupied'
+    } else {
+      kind = 'edge'
+    }
+  } else if (
+    parsed.code === 'cell_occupied_waiting' ||
+    parsed.code === 'cell_occupied_retrying' ||
+    parsed.code === 'cell_occupied_timeout'
+  ) {
+    kind = 'occupied'
+  } else if (parsed.code === 'grid_dynamic_replan') {
+    kind = 'reroute'
+  } else if (parsed.code === 'grid_dynamic_yield') {
+    kind = 'yield'
+  }
+
+  if (!kind && motionState === 'yielding') kind = 'yield'
+  if (!kind && motionState === 'waiting') kind = 'waiting'
+  if (!kind) return null
+
+  return {
+    kind,
+    text: formatEnterpriseAvoidanceBadgeLabel(kind),
+    title: resolveAgvRuntimeConflictReason(agv) || formatEnterpriseAvoidanceBadgeLabel(kind)
+  }
 }
 
 function formatMapInvalidReason(reason) {
@@ -4897,6 +4994,7 @@ const displayAgvs = computed(() => {
       return {
         ...rendered,
         hideOnMap: shouldHideEnterpriseAgvMarker(rendered),
+        avoidanceBadge: buildEnterpriseAvoidanceBadge(rendered)
       }
     })
   const localDisplayAgvs = localAgvs.value.map(agv => ({
@@ -19369,6 +19467,14 @@ onBeforeUnmount(() => {
               @contextmenu.prevent="cancelSelection"
             >
               {{ agv.id }}
+              <span
+                v-if="agv.avoidanceBadge"
+                class="agv-avoidance-badge"
+                :class="`tone-${agv.avoidanceBadge.kind}`"
+                :title="agv.avoidanceBadge.title"
+              >
+                {{ agv.avoidanceBadge.text }}
+              </span>
             </div>
           </div>
 

@@ -213,7 +213,7 @@
     "runtimeDebugGroupHint": "这些调试项只影响企业版当前界面的展示，不会改变个人版默认视图。",
     "showTopologyEdgeSpeed": "显示主干道速度倍率",
     "showRuntimeSegmentType": "显示当前段类型",
-    "showRuntimeConflictReason": "显示等待/让行原因",
+    "showRuntimeConflictReason": "显示等待/让行标签与原因",
     "showSelectedAgvRuntimeOverlay": "在选中 AGV 头顶显示运行信息",
     "obstacleEdit": "编辑障碍",
     "obstacleHint": "开启后可点击地图格子增删障碍，保存后会同步用于路径对比与实际调度。",
@@ -1991,4 +1991,3 @@
     }
   }
 }
-

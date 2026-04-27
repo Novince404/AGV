@@ -1059,3 +1059,20 @@ git -C "Repository/Package0.0/AGV_Graduation_Project" push AGV main
     - 新增轻量标题栏布局样式，窄宽度下允许换行，避免标题和按钮互相挤压。
 - 人工复核建议：
   - 企业端打开“企业设置 -> 地图方案”，确认“方案快照”右侧显示“导入方案”，按钮不再单独占一行。
+
+### 14.33 2026-04-27 追加：企业端避让状态地图小标签
+- 背景：
+  - 企业端拓扑避让已能通过任务卡和 hover 查看原因，但演示时不够直观，难以一眼判断车辆是在等待路段、交汇预约、跟车还是重规划。
+- 本轮修复：
+  - `frontend/agv-frontend/src/App.vue`
+    - 新增企业 AGV 避让短标签生成逻辑，复用现有 `motion_state`、`current_edge`、`dispatch_reason`，不改后端 API。
+    - 在企业端 backend AGV 圆点上方显示短标签，受现有“显示等待/让行标签与原因”开关控制。
+  - `frontend/agv-frontend/src/assets/agv-map.css`
+    - 新增轻量工业风 badge 样式，区分交汇预约、安全跟车、等待路段、等待占用、让行和重规划。
+  - `frontend/agv-frontend/src/locales/zh.js`
+  - `frontend/agv-frontend/src/locales/en.js`
+  - `frontend/agv-frontend/src/locales/ja.js`
+    - 将设置项文案从“显示等待/让行原因”扩展为“显示等待/让行标签与原因”。
+- 人工复核建议：
+  - 企业端开启“显示等待/让行标签与原因”，导入对向会车、三车交汇和站点出入冲突演示任务，观察 AGV 上方出现短标签。
+  - 关闭该开关后，地图短标签应消失，但 hover 详情、任务卡和 AGV 点击不受影响。
