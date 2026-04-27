@@ -24,7 +24,7 @@ from app.repositories.agv_repository import get_agv_by_id  # noqa: E402
 from app.repositories.task_repository import get_task_by_id  # noqa: E402
 from app.schemas.task import TaskCreateRequest  # noqa: E402
 from app.services import agv_service, schedule_service, status_service, task_service  # noqa: E402
-from app.utils.agv_movement import move_agv  # noqa: E402
+from app.utils.agv_movement import _find_grid_yield_path, move_agv  # noqa: E402
 from app.utils.task_chain import set_stage_paths  # noqa: E402
 
 
@@ -384,6 +384,23 @@ def assert_personal_grid_headon_dynamic_reroute() -> None:
         expect(avoidance_observations["yield"], "personal grid head-on runtime never triggered a yield maneuver")
 
 
+def assert_personal_grid_yield_path_clears_corridor() -> None:
+    actor = build_personal_actor("runtime_personal_grid_yield_path")
+    scope_key = build_scope_key_from_actor(actor)
+    with use_scope(scope_key):
+        status_service.update_map_layout([], None, 10, 8, topology=None, force_apply=True, actor=actor)
+        yielding_agv = agv_service.create_agv(8, 3, actor=actor)["agv"]
+        blocker_agv = agv_service.create_agv(7, 3, actor=actor)["agv"]
+
+        yield_path = _find_grid_yield_path(yielding_agv, blocker_agv, 7, 3, 10, 8)
+        expect(len(yield_path) >= 3, "personal grid yield path did not leave the corridor deeply enough")
+        final_point = yield_path[-1]
+        expect(
+            abs(int(final_point["y"]) - int(yielding_agv.y)) >= 2,
+            f"personal grid yield target still stayed too close to the conflict corridor: {final_point}",
+        )
+
+
 def main() -> None:
     cleanup_db_file()
     try:
@@ -395,8 +412,9 @@ def main() -> None:
         assert_headon_planner_deadlock_tiebreak()
         assert_concurrent_edge_claim_runtime()
         assert_personal_grid_headon_dynamic_reroute()
+        assert_personal_grid_yield_path_clears_corridor()
 
-        print("RUNTIME_CONFLICT_SMOKE_OK follow_runtime planner_priority planner_deadlock concurrent_claim personal_grid_headon")
+        print("RUNTIME_CONFLICT_SMOKE_OK follow_runtime planner_priority planner_deadlock concurrent_claim personal_grid_headon personal_grid_yield_path")
     finally:
         cleanup_db_file()
 

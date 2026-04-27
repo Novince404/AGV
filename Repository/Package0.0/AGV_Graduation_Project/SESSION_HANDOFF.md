@@ -976,3 +976,25 @@ git -C "Repository/Package0.0/AGV_Graduation_Project" push AGV main
 - 后续建议：
   - 前端可继续把 `grid_dynamic_yield` 显示成“前方占用，正在临时让行”，把 `grid_dynamic_replan` 显示成“前方占用，正在重新规划”。
   - 如果后续要进一步接近真实工业系统，可设计集中式时间窗 reservation table，提前按时间片预订格子和边段。
+
+### 14.29 2026-04-27 追加：让行动作从“一步挪动”升级为“短路径退出冲突区”
+- 背景：
+  - 用户反馈现有 `grid_dynamic_yield` 虽然能看到避让动作，但经常只来回移动一格，没有真正让出可通行通道。
+  - `dynamic_avoidance_split_tasks.json` 本身偏多车分流演示，不保证每次都制造正面对向会车。
+- 本轮修复：
+  - `backend/app/utils/agv_movement.py`
+    - 让行候选格不再找到最近一格就停止，而是在搜索半径内综合选择更能离开冲突走廊的格子。
+    - 候选评分优先选择离开当前冲突轴约 2 格的位置，再考虑路径长度、冲突距离和方向。
+    - 执行让行时不再只走第一步，而是按离散网格逐步走完这段短让行路径；每一步仍做边段锁和目标格占用检查。
+    - `grid_dynamic_yield` 调度说明增加 `step=x/y`，方便观察当前让行进度。
+  - `backend/scripts/runtime_conflict_smoke.py`
+    - 新增 `personal_grid_yield_path` 检查，确认有空间时让行目标会离开原冲突走廊至少 2 格。
+  - `docs/demo/DYNAMIC_AVOIDANCE_DEMO_RUNBOOK.md`
+  - `demo/json/README_demo_assets.md`
+    - 补充 split 任务不是专门面对面压测；建议用 `(2,3)->(10,3)` 与 `(10,3)->(2,3)` 手动相向任务复核。
+- 已验证：
+  - `backend\venv\Scripts\python.exe -m compileall backend\app backend\scripts`
+  - `backend\venv\Scripts\python.exe backend\scripts\runtime_conflict_smoke.py`
+  - `backend\venv\Scripts\python.exe backend\scripts\runtime_long_run_smoke.py`
+- 后续建议：
+  - 如果三车交汇仍偶发僵持，下一步应上集中式时间窗 reservation table，而不是继续靠单车局部让行规则叠补丁。

@@ -481,9 +481,12 @@ def _score_grid_yield_candidate(
     blocker_cell: tuple[int, int],
     candidate: tuple[int, int],
     path: list[dict],
-) -> tuple[int, int, int, int, int]:
+) -> tuple[int, int, int, int, int, int, int]:
     desired_dx = blocked_target[0] - source[0]
     desired_dy = blocked_target[1] - source[1]
+    horizontal_pressure = abs(desired_dx) >= abs(desired_dy)
+    off_axis_distance = abs(candidate[1] - source[1]) if horizontal_pressure else abs(candidate[0] - source[0])
+    same_line_penalty = 0 if off_axis_distance > 0 else 1
     if len(path) >= 2:
         first_step = (int(path[1]["x"]), int(path[1]["y"]))
     else:
@@ -499,8 +502,21 @@ def _score_grid_yield_candidate(
         direction_rank = 2
     path_len = max(len(path) - 1, 0)
     blocker_distance = _grid_manhattan(candidate[0], candidate[1], blocker_cell[0], blocker_cell[1])
+    conflict_clearance = min(
+        blocker_distance,
+        _grid_manhattan(candidate[0], candidate[1], blocked_target[0], blocked_target[1]),
+    )
+    off_axis_shortfall = max(0, 2 - off_axis_distance)
     target_distance = _grid_manhattan(candidate[0], candidate[1], blocked_target[0], blocked_target[1])
-    return direction_rank, path_len, -blocker_distance, target_distance, candidate[1] * 1000 + candidate[0]
+    return (
+        same_line_penalty,
+        off_axis_shortfall,
+        path_len,
+        -conflict_clearance,
+        direction_rank,
+        target_distance,
+        candidate[1] * 1000 + candidate[0],
+    )
 
 
 def _find_grid_yield_path(
@@ -519,7 +535,7 @@ def _find_grid_yield_path(
     blocked_cells.add(blocked_target)
     blocked_cells.discard(source)
 
-    candidates: list[tuple[tuple[int, int, int, int, int], list[dict]]] = []
+    candidates: list[tuple[tuple[int, ...], list[dict]]] = []
     for radius in range(1, GRID_YIELD_SEARCH_RADIUS + 1):
         for dx in range(-radius, radius + 1):
             remaining = radius - abs(dx)
@@ -553,8 +569,6 @@ def _find_grid_yield_path(
                         path,
                     )
                 )
-        if candidates:
-            break
 
     if not candidates:
         return []
@@ -587,54 +601,61 @@ def _attempt_grid_yield_step(
     if len(yield_path) < 2:
         return False
 
-    next_point = {"x": int(yield_path[1]["x"]), "y": int(yield_path[1]["y"])}
-    source_x = int(agv.x)
-    source_y = int(agv.y)
-    yield_x = int(next_point["x"])
-    yield_y = int(next_point["y"])
-    moved = False
-    target_node = _build_grid_node_key(yield_x, yield_y)
-    target_speed = 0.0
-    travel_duration_sec = CELL_TRAVEL_DURATION_SEC
-    edge_key = None
-    segment_claim_key = None
+    final_yield_x = int(yield_path[-1]["x"])
+    final_yield_y = int(yield_path[-1]["y"])
+    completed_steps = 0
+    for path_point in yield_path[1:]:
+        next_point = {"x": int(path_point["x"]), "y": int(path_point["y"])}
+        source_x = int(agv.x)
+        source_y = int(agv.y)
+        yield_x = int(next_point["x"])
+        yield_y = int(next_point["y"])
+        moved = False
+        target_node = _build_grid_node_key(yield_x, yield_y)
+        target_speed = 0.0
+        travel_duration_sec = CELL_TRAVEL_DURATION_SEC
+        edge_key = None
+        segment_claim_key = None
 
-    with movement_lock:
-        if _find_motion_segment_claim_blocking_agv(int(agv.id), source_x, source_y, next_point) is not None:
-            return False
-        if _find_blocking_agv_at_position(int(agv.id), yield_x, yield_y) is not None:
-            return False
-        motion_segment = _begin_motion_segment(
-            agv,
-            next_point,
-            active_status,
-            motion_settings=motion_settings,
-            use_topology=False,
+        with movement_lock:
+            if _find_motion_segment_claim_blocking_agv(int(agv.id), source_x, source_y, next_point) is not None:
+                return completed_steps > 0
+            if _find_blocking_agv_at_position(int(agv.id), yield_x, yield_y) is not None:
+                return completed_steps > 0
+            motion_segment = _begin_motion_segment(
+                agv,
+                next_point,
+                active_status,
+                motion_settings=motion_settings,
+                use_topology=False,
+            )
+            if motion_segment is not None:
+                target_node, target_speed, travel_duration_sec, edge_key, segment_claim_key = motion_segment
+                moved = True
+
+        if not moved:
+            return completed_steps > 0
+
+        task.dispatch_reason = (
+            f"grid_dynamic_yield:blocker_agv={int(blocking_agv.id)};"
+            f"yield_to={final_yield_x},{final_yield_y};"
+            f"step={completed_steps + 1}/{len(yield_path) - 1}"
         )
-        if motion_segment is not None:
-            target_node, target_speed, travel_duration_sec, edge_key, segment_claim_key = motion_segment
-            moved = True
+        if source_x != yield_x or source_y != yield_y:
+            time.sleep(travel_duration_sec)
+        _finish_motion_segment(
+            agv,
+            yield_x,
+            yield_y,
+            target_node,
+            active_status,
+            target_speed,
+            edge_key,
+            segment_claim_key,
+        )
+        completed_steps += 1
 
-    if not moved:
-        return False
-
-    task.dispatch_reason = (
-        f"grid_dynamic_yield:blocker_agv={int(blocking_agv.id)};"
-        f"yield_to={yield_x},{yield_y}"
-    )
-    if source_x != yield_x or source_y != yield_y:
-        time.sleep(travel_duration_sec)
-    _finish_motion_segment(
-        agv,
-        yield_x,
-        yield_y,
-        target_node,
-        active_status,
-        target_speed,
-        edge_key,
-        segment_claim_key,
-    )
-    return True
+    return completed_steps > 0
 
 
 def _get_special_topology_node_at_position(x: int, y: int) -> dict | None:
