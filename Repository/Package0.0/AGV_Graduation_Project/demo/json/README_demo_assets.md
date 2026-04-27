@@ -30,6 +30,12 @@
 - `dynamic_avoidance_split_tasks.json`
   - 动态避让分流演示任务 v2，推荐优先使用。
   - 配合 `dynamic_avoidance_split_map_profile_12x8.json` 使用，降低三车挤入同一个中心瓶颈的概率。
+- `enterprise_topology_headon_map_profile_12x8.json` / `enterprise_topology_headon_tasks.json`
+  - 企业端拓扑单通道对向会车演示。
+- `enterprise_topology_intersection_map_profile_12x8.json` / `enterprise_topology_intersection_tasks.json`
+  - 企业端十字交汇三车抢占演示。
+- `enterprise_topology_station_entry_map_profile_12x8.json` / `enterprise_topology_station_entry_tasks.json`
+  - 企业端停车点、充电点和主干道出入站冲突演示。
 - `task_auto_single_demo.json`
   - 自动派发的单阶段任务示例。
 - `task_manual_single_demo.json`
@@ -58,6 +64,9 @@
   - 再导入 `dynamic_avoidance_split_tasks.json`。
   - 观察中部主通道、上侧等待位、下侧服务支路之间的跟车等待、让行倾向和恢复继续运行。
   - 详细步骤见 `docs/demo/DYNAMIC_AVOIDANCE_DEMO_RUNBOOK.md`。
+- 企业端拓扑避让演示：
+  - 先在企业端导入并应用 `enterprise_topology_headon_map_profile_12x8.json`，再导入配套任务，观察单通道对向会车。
+  - 再分别导入十字交汇和站点出入站演示资产，开启“显示运行冲突原因”，观察等待、让行、重规划和站点容量。
 
 ## 当前约定
 

@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "scenario": "enterprise_topology_station_entry",
+  "map_profile": "Enterprise topology station entry demo 12x8",
+  "description": "Use with enterprise_topology_station_entry_map_profile_12x8.json. Tasks enter and leave parking and charge areas to observe station capacity and merge control.",
+  "tasks": [
+    {
+      "grid_cols": 12,
+      "grid_rows": 8,
+      "priority": 7,
+      "dispatch_mode": "auto",
+      "dispatch_algorithm": "astar",
+      "dispatch_reason": "Enterprise station entry demo: parking AGV leaves station and enters the trunk lane.",
+      "start_x": 1,
+      "start_y": 2,
+      "end_x": 10,
+      "end_y": 4
+    },
+    {
+      "grid_cols": 12,
+      "grid_rows": 8,
+      "priority": 5,
+      "dispatch_mode": "auto",
+      "dispatch_algorithm": "astar",
+      "dispatch_reason": "Enterprise station entry demo: charge AGV leaves charge point and meets trunk traffic near the east merge.",
+      "start_x": 10,
+      "start_y": 2,
+      "end_x": 1,
+      "end_y": 4
+    },
+    {
+      "grid_cols": 12,
+      "grid_rows": 8,
+      "priority": 3,
+      "dispatch_mode": "auto",
+      "dispatch_algorithm": "astar",
+      "dispatch_reason": "Enterprise station entry demo: low-priority AGV enters parking and waits for merge clearance.",
+      "start_x": 3,
+      "start_y": 3,
+      "end_x": 1,
+      "end_y": 2
+    }
+  ]
+}

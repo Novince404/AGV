@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "exported_at": "2026-04-27T00:00:00+08:00",
+  "profile": {
+    "name": "Enterprise topology head-on demo 12x8",
+    "description": "Enterprise topology single-lane head-on scenario. Two AGVs run from opposite ends of the trunk lane to observe edge reservation, waiting, yielding, and rerouting.",
+    "grid_cols": 12,
+    "grid_rows": 8,
+    "blocked_cells": [
+      { "x": 3, "y": 2 },
+      { "x": 4, "y": 2 },
+      { "x": 5, "y": 2 },
+      { "x": 6, "y": 2 },
+      { "x": 7, "y": 2 },
+      { "x": 8, "y": 2 },
+      { "x": 3, "y": 4 },
+      { "x": 4, "y": 4 },
+      { "x": 5, "y": 4 },
+      { "x": 6, "y": 4 },
+      { "x": 7, "y": 4 },
+      { "x": 8, "y": 4 }
+    ],
+    "topology": {
+      "topology_version": 1,
+      "nodes": [
+        { "key": "west_gate", "x": 1, "y": 3, "label": "West Gate", "node_type": "station", "capacity": 1 },
+        { "key": "mid_gate", "x": 6, "y": 3, "label": "Single Lane Center", "node_type": "waypoint", "capacity": 1 },
+        { "key": "east_gate", "x": 10, "y": 3, "label": "East Gate", "node_type": "station", "capacity": 1 }
+      ],
+      "edges": [
+        { "key": "edge_west_mid", "source": "west_gate", "target": "mid_gate", "direction": "bidirectional", "lane_type": "main", "weight": 5, "speed_multiplier": 0.8 },
+        { "key": "edge_mid_east", "source": "mid_gate", "target": "east_gate", "direction": "bidirectional", "lane_type": "main", "weight": 4, "speed_multiplier": 0.8 }
+      ],
+      "stations": ["west_gate", "east_gate"],
+      "parking_nodes": [],
+      "charge_nodes": []
+    }
+  }
+}

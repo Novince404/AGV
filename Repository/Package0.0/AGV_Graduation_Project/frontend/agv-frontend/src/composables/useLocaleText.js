@@ -97,6 +97,36 @@ export function useLocaleText(locale) {
         : `Path occupied by ${blockerText}. Replanning route.`
     }
 
+    if (reason.startsWith('topology_edge_waiting:') || reason.startsWith('topology_edge_reroute:')) {
+      const [, rawPayload = ''] = reason.split(':')
+      const payload = Object.fromEntries(
+        rawPayload
+          .split(';')
+          .map(item => item.split('='))
+          .filter(parts => parts.length === 2 && parts[0])
+          .map(([key, value]) => [key.trim(), value.trim()])
+      )
+      const blockerText = payload.agv ? `AGV #${payload.agv}` : 'another AGV'
+      const nodeText = payload.node || ''
+      const edgeText = payload.edge || ''
+      const isReroute = reason.startsWith('topology_edge_reroute:')
+      const isIntersection = payload.kind === 'intersection_reserved'
+      const isFollowGap = payload.kind === 'follow_gap'
+      if (locale.value === 'ja') {
+        if (isReroute) return isIntersection ? `交差点 ${nodeText || edgeText} が ${blockerText} に予約されています。別経路を再計算しています。` : `路段 ${edgeText} が ${blockerText} に占有されています。別経路を再計算しています。`
+        if (isFollowGap) return `前方の ${blockerText} と安全間隔を保つため待機しています。`
+        return isIntersection ? `交差点 ${nodeText || edgeText} が ${blockerText} に予約されています。通過可能になるまで待機しています。` : `路段 ${edgeText} が ${blockerText} に占有されています。通過可能になるまで待機しています。`
+      }
+      if (locale.value === 'zh') {
+        if (isReroute) return isIntersection ? `交汇节点 ${nodeText || edgeText} 已被 ${blockerText} 预约，正在重新规划路线。` : `路段 ${edgeText} 被 ${blockerText} 占用，正在重新规划路线。`
+        if (isFollowGap) return `正在与前方 ${blockerText} 保持安全间距，暂时等待。`
+        return isIntersection ? `交汇节点 ${nodeText || edgeText} 已被 ${blockerText} 预约，正在等待放行。` : `路段 ${edgeText} 被 ${blockerText} 占用，正在等待放行。`
+      }
+      if (isReroute) return isIntersection ? `Intersection ${nodeText || edgeText} is reserved by ${blockerText}. Replanning route.` : `Edge ${edgeText} is occupied by ${blockerText}. Replanning route.`
+      if (isFollowGap) return `Keeping a safe gap behind ${blockerText}. Waiting.`
+      return isIntersection ? `Intersection ${nodeText || edgeText} is reserved by ${blockerText}. Waiting for clearance.` : `Edge ${edgeText} is occupied by ${blockerText}. Waiting for clearance.`
+    }
+
     if (reason.startsWith('topology_edge_waiting:')) {
       if (locale.value === 'ja') return '路網エッジまたは目標ノードが他の AGV に占有されているため、一時的に待機しています。'
       if (locale.value === 'zh') return '当前拓扑路段或目标节点被其他 AGV 占用，任务正在等待可通行路段。'

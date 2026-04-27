@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "exported_at": "2026-04-27T00:00:00+08:00",
+  "profile": {
+    "name": "Enterprise topology intersection demo 12x8",
+    "description": "Enterprise topology cross-intersection scenario. Multiple AGVs approach a center node from different directions to observe node reservation and queueing.",
+    "grid_cols": 12,
+    "grid_rows": 8,
+    "blocked_cells": [
+      { "x": 4, "y": 2 },
+      { "x": 5, "y": 2 },
+      { "x": 7, "y": 2 },
+      { "x": 8, "y": 2 },
+      { "x": 4, "y": 4 },
+      { "x": 5, "y": 4 },
+      { "x": 7, "y": 4 },
+      { "x": 8, "y": 4 }
+    ],
+    "topology": {
+      "topology_version": 1,
+      "nodes": [
+        { "key": "west_entry", "x": 1, "y": 3, "label": "West Entry", "node_type": "station", "capacity": 1 },
+        { "key": "east_entry", "x": 10, "y": 3, "label": "East Entry", "node_type": "station", "capacity": 1 },
+        { "key": "north_entry", "x": 6, "y": 1, "label": "North Entry", "node_type": "station", "capacity": 1 },
+        { "key": "south_entry", "x": 6, "y": 6, "label": "South Entry", "node_type": "station", "capacity": 1 },
+        { "key": "center_cross", "x": 6, "y": 3, "label": "Center Cross", "node_type": "waypoint", "capacity": 1 }
+      ],
+      "edges": [
+        { "key": "edge_west_center", "source": "west_entry", "target": "center_cross", "direction": "bidirectional", "lane_type": "main", "weight": 5, "speed_multiplier": 0.8 },
+        { "key": "edge_center_east", "source": "center_cross", "target": "east_entry", "direction": "bidirectional", "lane_type": "main", "weight": 4, "speed_multiplier": 0.8 },
+        { "key": "edge_north_center", "source": "north_entry", "target": "center_cross", "direction": "bidirectional", "lane_type": "main", "weight": 2, "speed_multiplier": 0.75 },
+        { "key": "edge_center_south", "source": "center_cross", "target": "south_entry", "direction": "bidirectional", "lane_type": "main", "weight": 3, "speed_multiplier": 0.75 }
+      ],
+      "stations": ["west_entry", "east_entry", "north_entry", "south_entry"],
+      "parking_nodes": [],
+      "charge_nodes": []
+    }
+  }
+}

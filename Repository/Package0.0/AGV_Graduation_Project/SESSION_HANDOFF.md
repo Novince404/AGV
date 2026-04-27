@@ -998,3 +998,39 @@ git -C "Repository/Package0.0/AGV_Graduation_Project" push AGV main
   - `backend\venv\Scripts\python.exe backend\scripts\runtime_long_run_smoke.py`
 - 后续建议：
   - 如果三车交汇仍偶发僵持，下一步应上集中式时间窗 reservation table，而不是继续靠单车局部让行规则叠补丁。
+
+### 14.30 2026-04-27 追加：企业端动态避让增强 v1
+- 背景：
+  - 用户确认个人端与企业端避让目标不同：个人端保持纯网格逐格行走；企业端继续基于拓扑节点、拓扑边、站点容量和运行状态做调度层避让。
+  - 本轮不重写企业端核心调度，而是先按“验收基线 -> 可视化 -> 运行时预约”的顺序增强可测性与稳定性。
+- 本轮新增：
+  - `docs/plans/ENTERPRISE_DYNAMIC_AVOIDANCE_ENHANCEMENT_PLAN.md`
+    - 记录企业端动态避让的目标、边界、接口兼容策略、测试场景和后续时间窗预约方向。
+  - `demo/json/enterprise_topology_headon_map_profile_12x8.json`
+  - `demo/json/enterprise_topology_headon_tasks.json`
+  - `demo/json/enterprise_topology_intersection_map_profile_12x8.json`
+  - `demo/json/enterprise_topology_intersection_tasks.json`
+  - `demo/json/enterprise_topology_station_entry_map_profile_12x8.json`
+  - `demo/json/enterprise_topology_station_entry_tasks.json`
+    - 分别覆盖企业端单通道对向会车、十字交汇三车抢占、停车/充电站出入站冲突。
+- 本轮修复：
+  - `backend/app/utils/agv_movement.py`
+    - 增加企业拓扑运行时内存预约表，先预约当前拓扑边和容量为 1 的目标节点。
+    - 预约失败时返回更明确的冲突字段，包括 `conflict_type`、阻塞 AGV、目标节点和预约释放时间。
+    - 运动完成、等待、取消、打断时统一释放拓扑边 claim 与运行时预约，避免残留占用。
+  - `frontend/agv-frontend/src/composables/useLocaleText.js`
+    - 增强 `topology_edge_waiting` / `topology_edge_reroute` 的中英日可读说明，区分交汇点预约、路段占用、同廊道跟车和重规划。
+  - `backend/scripts/runtime_conflict_smoke.py`
+    - 新增企业端 `enterprise_intersection` 与 `enterprise_station_entry` smoke，检查交汇点容量、站点入口冲突和最终恢复。
+  - `demo/json/README_demo_assets.md`
+    - 补充企业拓扑避让演示资产说明。
+- 已验证：
+  - 企业拓扑演示 JSON 均可解析。
+  - `backend\venv\Scripts\python.exe -m compileall backend\app backend\scripts`
+  - `backend\venv\Scripts\python.exe backend\scripts\runtime_conflict_smoke.py`
+  - `backend\venv\Scripts\python.exe backend\scripts\runtime_long_run_smoke.py`
+  - `frontend/agv-frontend` 下 `npm run lint`
+  - `frontend/agv-frontend` 下 `npm run build`
+- 后续建议：
+  - 人工导入三套企业拓扑演示资产，开启“显示运行冲突原因”，观察等待、让行、重规划提示是否清楚。
+  - 如果三车复杂交汇仍有僵持，再推进完整的未来多步时间窗预约表，而不是继续只靠当前边/节点瞬时预约。

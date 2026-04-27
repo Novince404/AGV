@@ -30,12 +30,14 @@ from app.utils.warehouse_map import (
 movement_lock = threading.Lock()
 topology_edge_motion_claims: dict[str, int] = {}
 motion_segment_claims: dict[str, int] = {}
+topology_runtime_reservations: dict[str, dict] = {}
 MOVE_WAIT_INTERVAL_SEC = 0.25
 MOVE_WAIT_TIMEOUT_SEC = 12
 GRID_DYNAMIC_REPLAN_INTERVAL_SEC = 1.1
 GRID_DYNAMIC_REPLAN_RETRY_BUDGET = 12
 GRID_YIELD_SEARCH_RADIUS = 4
 GRID_YIELD_MAX_PATH_STEPS = 4
+TOPOLOGY_RUNTIME_RESERVATION_GRACE_MS = 650
 TOPOLOGY_EDGE_REPLAN_INTERVAL_SEC = 1.2
 TOPOLOGY_OCCUPIED_NODE_REPLAN_INTERVAL_SEC = 1.4
 TOPOLOGY_DEADLOCK_BREAK_TIMEOUT_SEC = 4.5
@@ -80,6 +82,9 @@ def should_interrupt_agv(agv, task, algorithm: str):
     if not reason:
         return False
 
+    _release_motion_segment_claim(int(agv.id))
+    _release_topology_motion_edge_claim(int(agv.id))
+    _release_topology_runtime_reservations(int(agv.id))
     if task.status not in {"blocked", "finished"}:
         # Preserve AGV binding for later recovery actions.
         task.preferred_agv_id = task.preferred_agv_id or agv.id
@@ -155,6 +160,138 @@ def _release_topology_motion_edge_claim(agv_id: int | None = None, edge_key: str
     for claimed_edge_key, claimed_agv_id in list(topology_edge_motion_claims.items()):
         if int(claimed_agv_id) == normalized_agv_id:
             topology_edge_motion_claims.pop(claimed_edge_key, None)
+
+
+def _topology_reservation_now_ms() -> int:
+    return int(time.time() * 1000)
+
+
+def _prune_topology_runtime_reservations() -> None:
+    now_ms = _topology_reservation_now_ms()
+    for resource_key, reservation in list(topology_runtime_reservations.items()):
+        owner_agv_id = reservation.get("agv_id")
+        expires_at_ms = int(reservation.get("expires_at_ms") or 0)
+        owner_agv = get_agv_by_id(int(owner_agv_id)) if owner_agv_id is not None else None
+        if expires_at_ms <= now_ms or owner_agv is None or getattr(owner_agv, "status", None) == "maintenance":
+            topology_runtime_reservations.pop(resource_key, None)
+
+
+def _release_topology_runtime_reservations(agv_id: int | None = None, resource_keys: set[str] | None = None) -> None:
+    normalized_agv_id = int(agv_id) if agv_id is not None else None
+    normalized_resource_keys = {str(item) for item in resource_keys or set() if str(item or "").strip()}
+
+    for resource_key, reservation in list(topology_runtime_reservations.items()):
+        if normalized_resource_keys and resource_key not in normalized_resource_keys:
+            continue
+        if normalized_agv_id is not None and int(reservation.get("agv_id", -1)) != normalized_agv_id:
+            continue
+        topology_runtime_reservations.pop(resource_key, None)
+
+
+def _claim_topology_runtime_reservations(
+    agv_id: int,
+    resource_keys: set[str],
+    *,
+    ttl_ms: int,
+) -> dict | None:
+    normalized_resource_keys = {str(item) for item in resource_keys if str(item or "").strip()}
+    if not normalized_resource_keys:
+        return None
+
+    _prune_topology_runtime_reservations()
+    normalized_agv_id = int(agv_id)
+    now_ms = _topology_reservation_now_ms()
+    expires_at_ms = now_ms + max(int(ttl_ms or 0), TOPOLOGY_RUNTIME_RESERVATION_GRACE_MS)
+
+    for resource_key in sorted(normalized_resource_keys):
+        reservation = topology_runtime_reservations.get(resource_key)
+        if reservation is None:
+            continue
+        owner_agv_id = int(reservation.get("agv_id", -1))
+        if owner_agv_id == normalized_agv_id:
+            continue
+        return {
+            "resource_key": resource_key,
+            "blocker_agv_id": owner_agv_id,
+            "reserved_until_ms": int(reservation.get("expires_at_ms") or expires_at_ms),
+        }
+
+    for resource_key in sorted(normalized_resource_keys):
+        topology_runtime_reservations[resource_key] = {
+            "agv_id": normalized_agv_id,
+            "expires_at_ms": expires_at_ms,
+        }
+    return None
+
+
+def _topology_node_capacity_for_reservation(node_key: str) -> int:
+    normalized_node_key = str(node_key or "").strip()
+    if not normalized_node_key or normalized_node_key.startswith("grid:"):
+        return 0
+
+    topology = get_map_layout_state().get("topology") or {}
+    for node in topology.get("nodes", []) or []:
+        if str(node.get("key") or "").strip() != normalized_node_key:
+            continue
+        node_type = str(node.get("node_type") or "waypoint")
+        if node_type in {"station", "parking", "charge"}:
+            return int(normalize_topology_node_capacity(node_type, node.get("capacity")))
+        try:
+            return max(int(node.get("capacity") or 1), 1)
+        except Exception:
+            return 1
+    return 1
+
+
+def _build_topology_runtime_resource_keys(segment: dict, segment_mode: str) -> set[str]:
+    if str(segment_mode or "") != "topology":
+        return set()
+
+    resource_keys: set[str] = set()
+    edge_key = str(segment.get("edge_key") or "").strip()
+    if edge_key and not edge_key.startswith("grid:"):
+        resource_keys.add(f"edge:{edge_key}")
+
+    target_node = str(segment.get("target_node") or "").strip()
+    if target_node and _topology_node_capacity_for_reservation(target_node) <= 1:
+        resource_keys.add(f"node:{target_node}")
+    return resource_keys
+
+
+def _build_topology_reservation_conflict(
+    agv_id: int,
+    segment: dict,
+    segment_mode: str,
+) -> dict | None:
+    resource_keys = _build_topology_runtime_resource_keys(segment, segment_mode)
+    if not resource_keys:
+        return None
+
+    _prune_topology_runtime_reservations()
+    for resource_key in sorted(resource_keys):
+        reservation = topology_runtime_reservations.get(resource_key)
+        if reservation is None or int(reservation.get("agv_id", -1)) == int(agv_id):
+            continue
+        edge_key = str(segment.get("edge_key") or "").strip()
+        target_node = str(segment.get("target_node") or "").strip()
+        blocker_agv_id = int(reservation.get("agv_id"))
+        blocker_agv = get_agv_by_id(blocker_agv_id)
+        blocker_task = get_task_by_id(blocker_agv.task_id) if blocker_agv is not None and getattr(blocker_agv, "task_id", None) is not None else None
+        return {
+            "edge_key": edge_key,
+            "lane_type": str(segment.get("lane_type") or "main"),
+            "speed_multiplier": float(segment.get("speed_multiplier") or 1.0),
+            "target_node": target_node,
+            "blocker_node": str(getattr(blocker_agv, "current_node", "") or target_node) if blocker_agv is not None else target_node,
+            "blocker_agv_id": blocker_agv_id,
+            "blocker_task_id": int(blocker_agv.task_id) if blocker_agv is not None and getattr(blocker_agv, "task_id", None) is not None else None,
+            "blocker_priority": _get_task_priority(blocker_task),
+            "blocker_motion_state": str(getattr(blocker_agv, "motion_state", "") or getattr(blocker_agv, "status", "") or "idle") if blocker_agv is not None else "reserved",
+            "conflict_type": "intersection_reserved" if resource_key.startswith("node:") else "edge_occupied",
+            "resource_key": resource_key,
+            "reserved_until_ms": int(reservation.get("expires_at_ms") or 0),
+        }
+    return None
 
 
 def _build_motion_segment_claim_key(
@@ -772,6 +909,7 @@ def _detect_same_corridor_follow_conflict(
                 "blocker_task_id": int(other.task_id) if getattr(other, "task_id", None) is not None else None,
                 "blocker_priority": int(getattr(blocker_task, "priority", 0) or 0) if blocker_task else 0,
                 "blocker_motion_state": str(getattr(other, "motion_state", "") or getattr(other, "status", "") or "idle"),
+                "conflict_type": "follow_gap",
             }
     return None
 
@@ -797,13 +935,19 @@ def _build_topology_wait_reason(conflict: dict) -> str:
     target_node = str(conflict.get("target_node") or "")
     blocker_node = str(conflict.get("blocker_node") or "")
     blocker_agv_id = conflict.get("blocker_agv_id")
+    conflict_type = str(conflict.get("conflict_type") or "")
+    reserved_until_ms = conflict.get("reserved_until_ms")
     parts = [f"edge={edge_key}"]
+    if conflict_type:
+        parts.append(f"kind={conflict_type}")
     if target_node:
         parts.append(f"node={target_node}")
     if blocker_node and blocker_node != target_node:
         parts.append(f"node={blocker_node}")
     if blocker_agv_id is not None:
         parts.append(f"agv={int(blocker_agv_id)}")
+    if reserved_until_ms:
+        parts.append(f"until={int(reserved_until_ms)}")
     return f"topology_edge_waiting:{';'.join(parts)}"
 
 
@@ -812,13 +956,19 @@ def _build_topology_retry_reason(conflict: dict) -> str:
     target_node = str(conflict.get("target_node") or "")
     blocker_node = str(conflict.get("blocker_node") or "")
     blocker_agv_id = conflict.get("blocker_agv_id")
+    conflict_type = str(conflict.get("conflict_type") or "")
+    reserved_until_ms = conflict.get("reserved_until_ms")
     parts = [f"edge={edge_key}"]
+    if conflict_type:
+        parts.append(f"kind={conflict_type}")
     if target_node:
         parts.append(f"node={target_node}")
     if blocker_node and blocker_node != target_node:
         parts.append(f"node={blocker_node}")
     if blocker_agv_id is not None:
         parts.append(f"agv={int(blocker_agv_id)}")
+    if reserved_until_ms:
+        parts.append(f"until={int(reserved_until_ms)}")
     return f"topology_edge_reroute:{';'.join(parts)}"
 
 
@@ -856,6 +1006,9 @@ def _detect_topology_edge_conflict(agv_id: int, source_x: int, source_y: int, po
     if not edge_key or edge_key.startswith("grid:"):
         return None
     special_target = _special_topology_node_has_spare_capacity(target_x, target_y, exclude_agv_id=agv_id)
+    reservation_conflict = _build_topology_reservation_conflict(agv_id, segment, "topology")
+    if reservation_conflict is not None:
+        return reservation_conflict
 
     for other in list_agvs():
         if int(other.id) == int(agv_id) or other.status == "maintenance":
@@ -880,6 +1033,7 @@ def _detect_topology_edge_conflict(agv_id: int, source_x: int, source_y: int, po
             "blocker_task_id": int(other.task_id) if getattr(other, "task_id", None) is not None else None,
             "blocker_priority": int(getattr(blocker_task, "priority", 0) or 0) if blocker_task else 0,
             "blocker_motion_state": str(getattr(other, "motion_state", "") or getattr(other, "status", "") or "idle"),
+            "conflict_type": "edge_occupied",
         }
 
     claimed_blocker_agv_id = topology_edge_motion_claims.get(edge_key)
@@ -897,6 +1051,7 @@ def _detect_topology_edge_conflict(agv_id: int, source_x: int, source_y: int, po
                 "blocker_task_id": int(blocker_agv.task_id) if getattr(blocker_agv, "task_id", None) is not None else None,
                 "blocker_priority": int(getattr(blocker_task, "priority", 0) or 0) if blocker_task else 0,
                 "blocker_motion_state": str(getattr(blocker_agv, "motion_state", "") or getattr(blocker_agv, "status", "") or "idle"),
+                "conflict_type": "edge_occupied",
             }
     return None
 
@@ -1124,6 +1279,7 @@ def _build_topology_segment_conflict(source_x: int, source_y: int, point: dict, 
         "blocker_task_id": blocker_task_id,
         "blocker_priority": _get_task_priority(blocker_task),
         "blocker_motion_state": str(getattr(blocker_agv, "motion_state", "") or getattr(blocker_agv, "status", "") or "idle"),
+        "conflict_type": "node_occupied",
     }
 
 
@@ -1161,9 +1317,20 @@ def _begin_motion_segment(
     travel_duration_sec = segment_distance / target_speed
     heading = _segment_heading(source_x, source_y, target_x, target_y)
     segment_claim_key = _build_motion_segment_claim_key(source_x, source_y, target_x, target_y)
+    reservation_keys = _build_topology_runtime_resource_keys(segment, segment_mode)
+    reservation_ttl_ms = int(travel_duration_sec * 1000) + TOPOLOGY_RUNTIME_RESERVATION_GRACE_MS
     if segment_mode == "topology" and not _claim_topology_motion_edge(int(agv.id), edge_key):
         return None
+    reservation_conflict = _claim_topology_runtime_reservations(
+        int(agv.id),
+        reservation_keys,
+        ttl_ms=reservation_ttl_ms,
+    )
+    if reservation_conflict is not None:
+        _release_topology_motion_edge_claim(int(agv.id), edge_key=edge_key)
+        return None
     if not _claim_motion_segment(int(agv.id), segment_claim_key):
+        _release_topology_runtime_reservations(int(agv.id), reservation_keys)
         _release_topology_motion_edge_claim(int(agv.id), edge_key=edge_key)
         return None
 
@@ -1216,12 +1383,14 @@ def _finish_motion_segment(
     )
     _release_motion_segment_claim(int(agv.id), segment_key=segment_claim_key)
     _release_topology_motion_edge_claim(int(agv.id), edge_key=edge_key)
+    _release_topology_runtime_reservations(int(agv.id))
 
 
 def _set_waiting_motion_state(agv, active_status: str, motion_state: str = "waiting"):
     current_node_key = _get_runtime_topology_node_key_at_position(int(agv.x), int(agv.y)) or _build_grid_node_key(int(agv.x), int(agv.y))
     _release_motion_segment_claim(int(agv.id))
     _release_topology_motion_edge_claim(int(agv.id))
+    _release_topology_runtime_reservations(int(agv.id))
     agv.apply_motion_fields(
         status=active_status,
         render_x=float(agv.x),
@@ -1251,6 +1420,9 @@ def move_to_point_with_collision_guard(agv, task, point, algorithm: str, active_
 
     while True:
         if should_cancel_task(agv, task):
+            _release_motion_segment_claim(int(agv.id))
+            _release_topology_motion_edge_claim(int(agv.id))
+            _release_topology_runtime_reservations(int(agv.id))
             return "cancelled"
         if should_interrupt_agv(agv, task, algorithm):
             return "interrupted"
@@ -1680,6 +1852,9 @@ def move_agv_to_autonomy_target(
             agv = get_agv_by_id(agv_id)
             if should_cancel_autonomy(agv):
                 if agv is not None:
+                    _release_motion_segment_claim(int(agv.id))
+                    _release_topology_motion_edge_claim(int(agv.id))
+                    _release_topology_runtime_reservations(int(agv.id))
                     agv.clear_motion(motion_state=agv.status)
                 return
 
@@ -1721,6 +1896,9 @@ def move_agv_to_autonomy_target(
                     agv = get_agv_by_id(agv_id)
                     if should_cancel_autonomy(agv):
                         if agv is not None:
+                            _release_motion_segment_claim(int(agv.id))
+                            _release_topology_motion_edge_claim(int(agv.id))
+                            _release_topology_runtime_reservations(int(agv.id))
                             agv.clear_motion(motion_state=agv.status)
                         return
 

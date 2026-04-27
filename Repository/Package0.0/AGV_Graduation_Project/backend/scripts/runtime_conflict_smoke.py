@@ -98,6 +98,44 @@ def build_follow_topology() -> dict:
     }
 
 
+def build_intersection_topology() -> dict:
+    return {
+        "topology_version": 1,
+        "nodes": [
+            {"key": "w", "x": 1, "y": 3, "label": "W", "node_type": "station", "capacity": 1},
+            {"key": "e", "x": 8, "y": 3, "label": "E", "node_type": "station", "capacity": 1},
+            {"key": "n", "x": 4, "y": 1, "label": "N", "node_type": "station", "capacity": 1},
+            {"key": "s", "x": 4, "y": 6, "label": "S", "node_type": "station", "capacity": 1},
+            {"key": "c", "x": 4, "y": 3, "label": "C", "node_type": "waypoint", "capacity": 1},
+        ],
+        "edges": [
+            {"key": "edge_wc", "source": "w", "target": "c", "direction": "bidirectional", "lane_type": "main", "speed_multiplier": 0.8},
+            {"key": "edge_ce", "source": "c", "target": "e", "direction": "bidirectional", "lane_type": "main", "speed_multiplier": 0.8},
+            {"key": "edge_nc", "source": "n", "target": "c", "direction": "bidirectional", "lane_type": "main", "speed_multiplier": 0.8},
+            {"key": "edge_cs", "source": "c", "target": "s", "direction": "bidirectional", "lane_type": "main", "speed_multiplier": 0.8},
+        ],
+    }
+
+
+def build_station_entry_topology() -> dict:
+    return {
+        "topology_version": 1,
+        "nodes": [
+            {"key": "p", "x": 1, "y": 2, "label": "P", "node_type": "parking", "capacity": 2},
+            {"key": "m", "x": 3, "y": 3, "label": "M", "node_type": "waypoint", "capacity": 1},
+            {"key": "c", "x": 6, "y": 3, "label": "C", "node_type": "waypoint", "capacity": 1},
+            {"key": "q", "x": 8, "y": 2, "label": "Q", "node_type": "charge", "capacity": 1},
+        ],
+        "edges": [
+            {"key": "edge_pm", "source": "p", "target": "m", "direction": "bidirectional", "lane_type": "service", "speed_multiplier": 0.9},
+            {"key": "edge_mc", "source": "m", "target": "c", "direction": "bidirectional", "lane_type": "main", "speed_multiplier": 0.85},
+            {"key": "edge_cq", "source": "c", "target": "q", "direction": "bidirectional", "lane_type": "service", "speed_multiplier": 0.9},
+        ],
+        "parking_nodes": ["p"],
+        "charge_nodes": ["q"],
+    }
+
+
 def path_uses_branch(path: list[dict]) -> bool:
     for point in path or []:
         if int(point.get("y", -1)) == 2:
@@ -214,6 +252,55 @@ def wait_for_personal_grid_pair_finish(
     raise AssertionError(
         f"personal grid head-on smoke timed out: left={get_task_by_id(left_task_id).status} right={get_task_by_id(right_task_id).status}"
     )
+
+
+def wait_for_tasks_finish(
+    agv_ids: list[int],
+    task_ids: list[int],
+    *,
+    timeout_sec: float = 28.0,
+    interval_sec: float = 0.08,
+    allowed_duplicate_cells: set[tuple[int, int]] | None = None,
+) -> list[dict]:
+    samples: list[dict] = []
+    allowed_duplicate_cells = allowed_duplicate_cells or set()
+    deadline = time.time() + timeout_sec
+    while time.time() < deadline:
+        agvs = [get_agv_by_id(agv_id) for agv_id in agv_ids]
+        tasks = [get_task_by_id(task_id) for task_id in task_ids]
+        sample = {
+            "agvs": [
+                {
+                    "id": int(agv.id),
+                    "x": int(agv.x),
+                    "y": int(agv.y),
+                    "current_edge": str(getattr(agv, "current_edge", "") or ""),
+                    "current_node": str(getattr(agv, "current_node", "") or ""),
+                    "motion_state": str(getattr(agv, "motion_state", "") or ""),
+                }
+                for agv in agvs
+                if agv is not None
+            ],
+            "tasks": [
+                {
+                    "id": int(task.id),
+                    "status": str(task.status),
+                    "dispatch_reason": str(getattr(task, "dispatch_reason", "") or ""),
+                }
+                for task in tasks
+                if task is not None
+            ],
+        }
+        samples.append(sample)
+        cells = [(item["x"], item["y"]) for item in sample["agvs"]]
+        duplicate_cells = {cell for cell in cells if cells.count(cell) > 1}
+        unexpected_duplicate_cells = duplicate_cells - allowed_duplicate_cells
+        expect(not unexpected_duplicate_cells, f"enterprise topology AGVs occupied duplicate cells: {cells}")
+        if all(task["status"] == "finished" for task in sample["tasks"]):
+            return samples
+        time.sleep(interval_sec)
+    statuses = {task_id: str(get_task_by_id(task_id).status) for task_id in task_ids}
+    raise AssertionError(f"enterprise topology smoke timed out: {statuses}")
 
 
 def assert_no_simultaneous_edge_usage(samples: list[dict], edge_key: str, message: str) -> None:
@@ -356,6 +443,77 @@ def assert_concurrent_edge_claim_runtime() -> None:
         )
 
 
+def assert_enterprise_intersection_node_reservation() -> None:
+    actor = build_actor("runtime_enterprise_intersection")
+    scope_key = build_scope_key_from_actor(actor)
+    with use_scope(scope_key):
+        status_service.update_map_layout([], None, 10, 8, topology=build_intersection_topology())
+        west_agv = agv_service.create_agv(1, 3, actor=actor)["agv"]
+        north_agv = agv_service.create_agv(4, 1, actor=actor)["agv"]
+        east_agv = agv_service.create_agv(8, 3, actor=actor)["agv"]
+        west_task_id = create_task(actor, start_x=1, start_y=3, end_x=8, end_y=3, priority=8)
+        north_task_id = create_task(actor, start_x=4, start_y=1, end_x=4, end_y=6, priority=5)
+        east_task_id = create_task(actor, start_x=8, start_y=3, end_x=1, end_y=3, priority=3)
+
+        schedule_service.schedule_task_with_path(west_task_id, west_agv.id, "manual", "astar", 10, 8, actor=actor)
+        time.sleep(0.08)
+        schedule_service.schedule_task_with_path(north_task_id, north_agv.id, "manual", "astar", 10, 8, actor=actor)
+        time.sleep(0.08)
+        schedule_service.schedule_task_with_path(east_task_id, east_agv.id, "manual", "astar", 10, 8, actor=actor)
+
+        samples = wait_for_tasks_finish(
+            [west_agv.id, north_agv.id, east_agv.id],
+            [west_task_id, north_task_id, east_task_id],
+            timeout_sec=34.0,
+        )
+        expect(
+            any(
+                "kind=intersection_reserved" in task["dispatch_reason"]
+                or sample_agv["motion_state"] in {"waiting", "yielding"}
+                for sample in samples
+                for task in sample["tasks"]
+                for sample_agv in sample["agvs"]
+            ),
+            "enterprise intersection never exposed reservation waiting/yielding",
+        )
+
+
+def assert_enterprise_station_entry_runtime() -> None:
+    actor = build_actor("runtime_enterprise_station_entry")
+    scope_key = build_scope_key_from_actor(actor)
+    with use_scope(scope_key):
+        status_service.update_map_layout([], None, 10, 8, topology=build_station_entry_topology())
+        parking_agv = agv_service.create_agv(1, 2, actor=actor)["agv"]
+        charge_agv = agv_service.create_agv(8, 2, actor=actor)["agv"]
+        merge_agv = agv_service.create_agv(3, 3, actor=actor)["agv"]
+        parking_task_id = create_task(actor, start_x=1, start_y=2, end_x=8, end_y=2, priority=7)
+        charge_task_id = create_task(actor, start_x=8, start_y=2, end_x=1, end_y=2, priority=5)
+        merge_task_id = create_task(actor, start_x=3, start_y=3, end_x=1, end_y=2, priority=3)
+
+        schedule_service.schedule_task_with_path(parking_task_id, parking_agv.id, "manual", "astar", 10, 8, actor=actor)
+        time.sleep(0.08)
+        schedule_service.schedule_task_with_path(charge_task_id, charge_agv.id, "manual", "astar", 10, 8, actor=actor)
+        time.sleep(0.08)
+        schedule_service.schedule_task_with_path(merge_task_id, merge_agv.id, "manual", "astar", 10, 8, actor=actor)
+
+        samples = wait_for_tasks_finish(
+            [parking_agv.id, charge_agv.id, merge_agv.id],
+            [parking_task_id, charge_task_id, merge_task_id],
+            timeout_sec=34.0,
+            allowed_duplicate_cells={(1, 2)},
+        )
+        expect(
+            any(
+                sample_agv["motion_state"] in {"waiting", "yielding"}
+                or "topology_edge_" in task["dispatch_reason"]
+                for sample in samples
+                for sample_agv in sample["agvs"]
+                for task in sample["tasks"]
+            ),
+            "enterprise station entry scenario never triggered topology conflict handling",
+        )
+
+
 def assert_personal_grid_headon_dynamic_reroute() -> None:
     actor = build_personal_actor("runtime_personal_grid_headon")
     scope_key = build_scope_key_from_actor(actor)
@@ -411,10 +569,12 @@ def main() -> None:
         assert_headon_planner_priority_reroute()
         assert_headon_planner_deadlock_tiebreak()
         assert_concurrent_edge_claim_runtime()
+        assert_enterprise_intersection_node_reservation()
+        assert_enterprise_station_entry_runtime()
         assert_personal_grid_headon_dynamic_reroute()
         assert_personal_grid_yield_path_clears_corridor()
 
-        print("RUNTIME_CONFLICT_SMOKE_OK follow_runtime planner_priority planner_deadlock concurrent_claim personal_grid_headon personal_grid_yield_path")
+        print("RUNTIME_CONFLICT_SMOKE_OK follow_runtime planner_priority planner_deadlock concurrent_claim enterprise_intersection enterprise_station_entry personal_grid_headon personal_grid_yield_path")
     finally:
         cleanup_db_file()
 

@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "scenario": "enterprise_topology_headon",
+  "map_profile": "Enterprise topology head-on demo 12x8",
+  "description": "Use with enterprise_topology_headon_map_profile_12x8.json. Two AGVs run from opposite ends of a single topology lane.",
+  "tasks": [
+    {
+      "grid_cols": 12,
+      "grid_rows": 8,
+      "priority": 8,
+      "dispatch_mode": "auto",
+      "dispatch_algorithm": "astar",
+      "dispatch_reason": "Enterprise topology head-on demo: high-priority AGV should pass first.",
+      "start_x": 1,
+      "start_y": 3,
+      "end_x": 10,
+      "end_y": 3
+    },
+    {
+      "grid_cols": 12,
+      "grid_rows": 8,
+      "priority": 4,
+      "dispatch_mode": "auto",
+      "dispatch_algorithm": "astar",
+      "dispatch_reason": "Enterprise topology head-on demo: low-priority AGV should wait or reroute when the lane is occupied.",
+      "start_x": 10,
+      "start_y": 3,
+      "end_x": 1,
+      "end_y": 3
+    }
+  ]
+}

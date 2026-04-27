@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "scenario": "enterprise_topology_intersection",
+  "map_profile": "Enterprise topology intersection demo 12x8",
+  "description": "Use with enterprise_topology_intersection_map_profile_12x8.json. Three AGVs approach the center node to observe intersection reservation.",
+  "tasks": [
+    {
+      "grid_cols": 12,
+      "grid_rows": 8,
+      "priority": 8,
+      "dispatch_mode": "auto",
+      "dispatch_algorithm": "astar",
+      "dispatch_reason": "Enterprise topology intersection demo: west-to-east high-priority AGV should pass first.",
+      "start_x": 1,
+      "start_y": 3,
+      "end_x": 10,
+      "end_y": 3
+    },
+    {
+      "grid_cols": 12,
+      "grid_rows": 8,
+      "priority": 5,
+      "dispatch_mode": "auto",
+      "dispatch_algorithm": "astar",
+      "dispatch_reason": "Enterprise topology intersection demo: north-to-south AGV waits for the center node.",
+      "start_x": 6,
+      "start_y": 1,
+      "end_x": 6,
+      "end_y": 6
+    },
+    {
+      "grid_cols": 12,
+      "grid_rows": 8,
+      "priority": 3,
+      "dispatch_mode": "auto",
+      "dispatch_algorithm": "astar",
+      "dispatch_reason": "Enterprise topology intersection demo: low-priority AGV waits or reroutes when the center is reserved.",
+      "start_x": 10,
+      "start_y": 3,
+      "end_x": 1,
+      "end_y": 3
+    }
+  ]
+}
