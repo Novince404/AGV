@@ -682,6 +682,61 @@
                   {{ enterpriseRouteTopologyMetaText }}
                 </div>
               </div>
+              <div class="enterprise-settings-subsection">
+                <div class="enterprise-settings-subsection-head">
+                  <div>
+                    <div class="enterprise-settings-subtitle">{{ t('enterprise_demo_assistant_title') }}</div>
+                    <p class="panel-hint enterprise-demo-assistant-hint">{{ t('enterprise_demo_assistant_hint') }}</p>
+                  </div>
+                </div>
+                <div
+                  v-if="enterpriseAvoidanceDemoStatus"
+                  class="enterprise-demo-status"
+                  :class="`is-${enterpriseAvoidanceDemoStatusType}`"
+                >
+                  {{ enterpriseAvoidanceDemoStatus }}
+                </div>
+                <div class="enterprise-demo-card-grid">
+                  <article
+                    v-for="demo in enterpriseAvoidanceDemoCards"
+                    :key="`enterprise-avoidance-demo-${demo.key}`"
+                    class="enterprise-demo-card"
+                  >
+                    <div class="enterprise-demo-card-head">
+                      <strong>{{ demo.title }}</strong>
+                      <span class="point-badge enterprise-settings-chip">
+                        {{ demo.missingCount === 0 ? t('enterprise_demo_ready_badge') : t('enterprise_demo_prepare_badge') }}
+                      </span>
+                    </div>
+                    <p>{{ demo.hint }}</p>
+                    <div class="task-line">
+                      {{ t('enterprise_demo_required_agvs') }} {{ demo.startText }}
+                    </div>
+                    <div class="task-line">
+                      {{ t('enterprise_demo_assets') }} {{ demo.mapFileName }} / {{ demo.taskFileName }}
+                    </div>
+                    <div class="task-line">{{ demo.readyText }}</div>
+                    <div class="enterprise-settings-actions">
+                      <button
+                        class="btn-secondary"
+                        type="button"
+                        :disabled="Boolean(enterpriseAvoidanceDemoLoadingKey)"
+                        @click="loadEnterpriseAvoidanceDemo(demo.key)"
+                      >
+                        {{ demo.loading ? t('enterprise_demo_loading_action') : t('enterprise_demo_load_action') }}
+                      </button>
+                      <button
+                        class="btn-ghost"
+                        type="button"
+                        :disabled="Boolean(enterpriseAvoidanceDemoLoadingKey)"
+                        @click="focusEnterpriseAvoidanceDemoStarts(demo.key)"
+                      >
+                        {{ t('enterprise_demo_focus_starts') }}
+                      </button>
+                    </div>
+                  </article>
+                </div>
+              </div>
               <div
                 v-if="mapProfileActionSummary"
                 class="map-profile-summary-card"

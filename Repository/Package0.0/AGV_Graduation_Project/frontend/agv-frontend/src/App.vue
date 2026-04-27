@@ -3,6 +3,7 @@ import './assets/agv-map.css'
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { LOCALE_TEXTS } from './locales'
 import { DEFAULT_POINT_LIBRARY, DEFAULT_TASK_TEMPLATES } from './config/defaultData'
+import { ENTERPRISE_AVOIDANCE_DEMOS } from './config/enterpriseAvoidanceDemos'
 import { useDispatchScheduler } from './composables/useDispatchScheduler'
 import { useLocalPersistence } from './composables/useLocalPersistence'
 import { usePointTemplateBackend } from './composables/usePointTemplateBackend'
@@ -1005,6 +1006,9 @@ const mapProfileImporting = ref(false)
 const mapProfileSaving = ref(false)
 const mapProfilePreviewingKey = ref('')
 const mapProfileActionSummary = ref(null)
+const enterpriseAvoidanceDemoLoadingKey = ref('')
+const enterpriseAvoidanceDemoStatus = ref('')
+const enterpriseAvoidanceDemoStatusType = ref('info')
 const selectedObstaclePreset = ref('default_shelves')
 const appliedObstacleSceneKey = ref('default_shelves')
 const currentMapProfile = ref(null)
@@ -5009,6 +5013,26 @@ const displayAgvs = computed(() => {
   return [...backendAgvs, ...localDisplayAgvs]
 })
 const visibleMapAgvs = computed(() => displayAgvs.value.filter(agv => !agv.hideOnMap))
+const enterpriseAvoidanceDemoCards = computed(() =>
+  ENTERPRISE_AVOIDANCE_DEMOS.map(demo => {
+    const missingStarts = demo.agvStarts.filter(cell => !findEnterpriseDemoAgvAtCell(cell.x, cell.y))
+    return {
+      key: demo.key,
+      title: t(demo.titleKey),
+      hint: t(demo.hintKey),
+      mapFileName: demo.mapFileName,
+      taskFileName: demo.taskFileName,
+      startText: formatEnterpriseDemoCellList(demo.agvStarts),
+      missingCount: missingStarts.length,
+      readyText: missingStarts.length === 0
+        ? t('enterprise_demo_ready_agvs')
+        : formatInlineMessage(t('enterprise_demo_missing_agvs'), {
+          count: String(missingStarts.length)
+        }),
+      loading: enterpriseAvoidanceDemoLoadingKey.value === demo.key
+    }
+  })
+)
 const selectedAgvTask = computed(() => {
   if (!selectedBackendAgv.value) return null
   return (
@@ -12470,6 +12494,144 @@ async function createBackendAgvAtCell(x, y) {
   }
 }
 
+function formatEnterpriseDemoCellList(cells = []) {
+  return (cells || [])
+    .map(cell => `(${Number(cell.x)}, ${Number(cell.y)})`)
+    .join(' / ')
+}
+
+function findEnterpriseDemoAgvAtCell(x, y) {
+  return agvs.value.find(agv =>
+    agv &&
+    agv.status !== 'maintenance' &&
+    Math.round(Number(agv.x)) === Number(x) &&
+    Math.round(Number(agv.y)) === Number(y)
+  ) || null
+}
+
+function getEnterpriseAvoidanceDemoByKey(demoKey) {
+  return ENTERPRISE_AVOIDANCE_DEMOS.find(demo => demo.key === demoKey) || null
+}
+
+function focusEnterpriseAvoidanceDemoStarts(demoKey) {
+  const demo = getEnterpriseAvoidanceDemoByKey(demoKey)
+  if (!demo) return
+  focusMapPreviewCells(demo.agvStarts)
+  showFloatingToast(
+    formatInlineMessage(t('enterprise_demo_focus_toast'), {
+      points: formatEnterpriseDemoCellList(demo.agvStarts)
+    }),
+    'info'
+  )
+}
+
+function findSavedEnterpriseAvoidanceDemoProfile(demo) {
+  const targetName = String(demo?.profile?.name || '').trim()
+  if (!targetName) return null
+  return mapProfiles.value.find(profile => String(localizedMapProfileField(profile?.name) || '').trim() === targetName) || null
+}
+
+async function saveEnterpriseAvoidanceDemoProfile(demo) {
+  await fetchMapProfiles()
+  const existingProfile = findSavedEnterpriseAvoidanceDemoProfile(demo)
+  if (existingProfile) return existingProfile
+
+  const res = await fetch(`${API_BASE}/status/map/profile`, {
+    method: 'POST',
+    headers: buildAuthorizedJsonHeaders(),
+    body: JSON.stringify({
+      ...demo.profile,
+      valid_cells: null,
+      import_source: 'enterprise_demo'
+    })
+  })
+  const data = await res.json()
+  if (!res.ok) {
+    throw createApiError(data, settingsLocale.value.mapProfileImportFailed)
+  }
+  await fetchMapProfiles()
+  return data?.profile || null
+}
+
+async function ensureEnterpriseAvoidanceDemoAgvs(demo) {
+  await fetchAgvs()
+  let createdCount = 0
+  for (const cell of demo.agvStarts) {
+    const existing = findEnterpriseDemoAgvAtCell(cell.x, cell.y)
+    if (existing && !isSchedulableIdleAgvStatus(existing.status)) {
+      throw new Error(formatInlineMessage(t('enterprise_demo_busy_start'), {
+        id: String(existing.id),
+        point: `(${cell.x}, ${cell.y})`
+      }))
+    }
+    if (existing) continue
+
+    const res = await fetch(`${API_BASE}/agv/create`, {
+      method: 'POST',
+      headers: buildAuthorizedJsonHeaders(),
+      body: JSON.stringify({ x: cell.x, y: cell.y })
+    })
+    const data = await res.json()
+    if (!res.ok) {
+      throw createApiError(data, t('agv_create_failed'))
+    }
+    createdCount += 1
+  }
+  if (createdCount > 0) {
+    await fetchAgvs()
+  }
+  return createdCount
+}
+
+async function loadEnterpriseAvoidanceDemo(demoKey) {
+  const demo = getEnterpriseAvoidanceDemoByKey(demoKey)
+  if (!demo || enterpriseAvoidanceDemoLoadingKey.value) return
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'map.write', buildCapabilityDeniedMessage('map'))) return
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'dispatch.write', buildCapabilityDeniedMessage('dispatch'))) return
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'json.write', buildCapabilityDeniedMessage('data'))) return
+
+  enterpriseAvoidanceDemoLoadingKey.value = demo.key
+  enterpriseAvoidanceDemoStatusType.value = 'info'
+  enterpriseAvoidanceDemoStatus.value = t('enterprise_demo_status_loading')
+
+  try {
+    const profile = await saveEnterpriseAvoidanceDemoProfile(demo)
+    if (!profile?.key) {
+      throw new Error(settingsLocale.value.mapProfileImportFailed)
+    }
+    const applied = isCurrentMapProfile(profile) || await applyMapProfile(profile, { confirm: false })
+    if (!applied) {
+      throw new Error(settingsLocale.value.mapProfileApplyFailed)
+    }
+
+    const createdCount = await ensureEnterpriseAvoidanceDemoAgvs(demo)
+    const payload = {
+      version: 1,
+      scenario: `enterprise_${demo.key}`,
+      map_profile: demo.profile.name,
+      tasks: demo.tasks
+    }
+    const payloadText = JSON.stringify(payload, null, 2)
+    jsonText.value = payloadText
+    await importTasksFromJson(payloadText)
+    await Promise.all([fetchAgvs(), fetchTasks()])
+    enterpriseAvoidanceDemoStatusType.value = 'success'
+    enterpriseAvoidanceDemoStatus.value = formatInlineMessage(t('enterprise_demo_status_loaded'), {
+      name: t(demo.titleKey),
+      created: String(createdCount),
+      starts: formatEnterpriseDemoCellList(demo.agvStarts)
+    })
+    showFloatingToast(enterpriseAvoidanceDemoStatus.value, 'success')
+  } catch (error) {
+    console.error('Load enterprise avoidance demo error:', error)
+    enterpriseAvoidanceDemoStatusType.value = 'error'
+    enterpriseAvoidanceDemoStatus.value = error?.message || t('enterprise_demo_status_failed')
+    showFloatingToast(enterpriseAvoidanceDemoStatus.value, 'error', 5200)
+  } finally {
+    enterpriseAvoidanceDemoLoadingKey.value = ''
+  }
+}
+
 async function deletePersonalMaintenanceAgv(agvId) {
   const normalizedAgvId = Number(agvId)
   if (!Number.isFinite(normalizedAgvId) || normalizedAgvId <= 0 || !canManagePersonalAgvs.value) return
@@ -15045,7 +15207,7 @@ async function deleteMapProfile(profile) {
   }
 }
 
-async function applyMapProfile(profile) {
+async function applyMapProfile(profile, options = {}) {
   if (!profile?.key) return false
   if (obstacleLayoutDirty.value) {
     setObstacleLayoutStatus('error', obstacleSaveRequiredText())
@@ -15070,7 +15232,7 @@ async function applyMapProfile(profile) {
   const confirmMessage = forceApply
     ? settingsLocale.value.mapProfileForceApplyConfirm
     : settingsLocale.value.mapProfileApplyConfirm
-  if (!window.confirm(`${confirmMessage}\n${profileName}`)) {
+  if (options.confirm !== false && !window.confirm(`${confirmMessage}\n${profileName}`)) {
     return false
   }
 
@@ -18236,6 +18398,12 @@ const enterpriseSettingsDialogBindings = {
   mapProfileDeletingKey,
   mapProfileExportingKey,
   mapProfileImporting,
+  enterpriseAvoidanceDemoCards,
+  enterpriseAvoidanceDemoLoadingKey,
+  enterpriseAvoidanceDemoStatus,
+  enterpriseAvoidanceDemoStatusType,
+  loadEnterpriseAvoidanceDemo,
+  focusEnterpriseAvoidanceDemoStarts,
   triggerMapProfileImport,
   mapProfileFileInputRef,
   onMapProfileFileChange,

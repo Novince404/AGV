@@ -1076,3 +1076,24 @@ git -C "Repository/Package0.0/AGV_Graduation_Project" push AGV main
 - 人工复核建议：
   - 企业端开启“显示等待/让行标签与原因”，导入对向会车、三车交汇和站点出入冲突演示任务，观察 AGV 上方出现短标签。
   - 关闭该开关后，地图短标签应消失，但 hover 详情、任务卡和 AGV 点击不受影响。
+
+### 14.34 2026-04-27 追加：企业端避让演示助手
+- 背景：
+  - 用户已验证三套企业拓扑避让演示正常，但每次仍需手动导入地图、放置 AGV、导入任务，重复测试成本较高。
+- 本轮修复：
+  - `frontend/agv-frontend/src/config/enterpriseAvoidanceDemos.js`
+    - 新增三套内置企业避让演示配置：对向会车、三车交汇、站点出入冲突。
+  - `frontend/agv-frontend/src/App.vue`
+    - 新增“载入演示”流程：保存/复用地图方案、应用地图、检查并补齐起点 AGV、导入配套任务并尝试调度。
+    - 新增“定位起点”能力，用于在地图上高亮演示需要的起点坐标。
+  - `frontend/agv-frontend/src/components/EnterpriseSettingsDialog.vue`
+    - 在企业设置“地图方案”页增加“企业避让演示助手”区域。
+  - `frontend/agv-frontend/src/assets/agv-map.css`
+    - 补充演示助手卡片、状态提示和响应式布局样式。
+  - `frontend/agv-frontend/src/locales/zh.js`
+  - `frontend/agv-frontend/src/locales/en.js`
+  - `frontend/agv-frontend/src/locales/ja.js`
+    - 补充演示助手三语文案。
+- 人工复核建议：
+  - 企业端打开“企业设置 -> 地图方案 -> 企业避让演示助手”，分别点击三套演示的“载入演示”。
+  - 载入后应自动切换地图、补齐起点 AGV、导入任务并尝试调度；若起点已有不可调度 AGV，应显示明确错误。
