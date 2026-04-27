@@ -761,6 +761,24 @@
               </div>
               <div class="enterprise-settings-subsection">
                 <div class="enterprise-settings-subtitle">{{ t('enterprise_settings_profile_list_title') }}</div>
+                <div class="enterprise-settings-actions">
+                  <button
+                    class="btn-secondary"
+                    type="button"
+                    :disabled="!authCanMapWrite || mapProfileImporting"
+                    :title="buildCapabilityLockedTitle('map', authCanMapWrite)"
+                    @click="triggerMapProfileImport"
+                  >
+                    {{ mapProfileImporting ? settingsLocale.mapProfileImporting : settingsLocale.mapProfileImport }}
+                  </button>
+                </div>
+                <input
+                  :ref="setMapProfileFileInput"
+                  type="file"
+                  accept="application/json,.json"
+                  class="hidden-file-input"
+                  @change="onMapProfileFileChange"
+                />
                 <div v-if="mapProfiles.length === 0" class="empty-note">{{ t('enterprise_settings_profile_list_empty') }}</div>
                 <div v-else class="map-profile-grid enterprise-settings-map-profile-grid">
                   <div
@@ -2852,6 +2870,18 @@ export default defineComponent({
     watchEffect(() => {
       Object.assign(exposed, props.ui || {})
     })
+
+    function bindRef(targetRef, element) {
+      if (targetRef && typeof targetRef === 'object' && 'value' in targetRef) {
+        targetRef.value = element
+      }
+    }
+
+    function setMapProfileFileInput(element) {
+      bindRef(props.ui?.mapProfileFileInputRef, element)
+    }
+
+    exposed.setMapProfileFileInput = setMapProfileFileInput
 
     return exposed
   }

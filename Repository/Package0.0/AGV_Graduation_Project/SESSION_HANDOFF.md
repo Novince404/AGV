@@ -1034,3 +1034,17 @@ git -C "Repository/Package0.0/AGV_Graduation_Project" push AGV main
 - 后续建议：
   - 人工导入三套企业拓扑演示资产，开启“显示运行冲突原因”，观察等待、让行、重规划提示是否清楚。
   - 如果三车复杂交汇仍有僵持，再推进完整的未来多步时间窗预约表，而不是继续只靠当前边/节点瞬时预约。
+
+### 14.31 2026-04-27 追加：企业端地图方案导入入口补齐
+- 背景：
+  - 用户反馈企业端找不到导入地图的位置。
+  - 检查后确认普通 `MapSettingsPanel` 已有地图方案导入能力，但企业角色隐藏了普通页面设置齿轮；企业设置的“地图方案”页只有应用、预览、导出、删除，没有导入入口。
+- 本轮修复：
+  - `frontend/agv-frontend/src/components/EnterpriseSettingsDialog.vue`
+    - 在企业设置“地图方案”列表上方增加“导入地图方案”按钮。
+    - 增加企业设置弹窗内部专用隐藏 file input，绑定现有 `onMapProfileFileChange`，避免依赖普通地图设置面板是否打开。
+  - `frontend/agv-frontend/src/App.vue`
+    - 将 `triggerMapProfileImport`、`mapProfileFileInputRef`、`onMapProfileFileChange` 传入企业设置弹窗。
+- 人工复核建议：
+  - 企业端打开“企业设置 -> 地图方案”，点击“导入地图方案”，选择 `demo/json/enterprise_topology_headon_map_profile_12x8.json`。
+  - 导入成功后，应能在地图方案列表看到新方案，再点击“应用”切换地图。
