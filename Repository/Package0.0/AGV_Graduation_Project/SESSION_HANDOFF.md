@@ -1,5 +1,51 @@
 # AGV Graduation Project Session Handoff
 
+## 2026-04-28 AI Materials ComfyUI UX Closure
+
+- 本轮按“AI 素材板块体验收口优化计划 v1”完成可用性增强，没有重做 ComfyUI 主链路，也没有把生成结果接入地图业务数据。
+- 后端新增轻量健康检查接口：
+  - `GET /ai/comfyui/health`
+  - 复用 `ai.render` 权限。
+  - 返回 `enabled`、`base_url`、`reachable`、`checkpoint_count`、`preferred_checkpoint`、`error_code`、`error_message`、`checked_at`。
+  - ComfyUI 禁用或离线时仍返回结构化 `200` 状态，便于前端展示“离线但页面可用”。
+- 前端 AI 素材区已新增“渲染前检查”：
+  - 源 JSON
+  - ComfyUI 连接
+  - 模型文件
+  - Workflow
+  - 支持手动“检查连接”，并根据成功 / 警告 / 错误显示不同状态。
+- 源 JSON、Workflow JSON、提示补充已折叠进“高级编辑”，默认流程更轻：
+  - 选择来源
+  - 套用推荐模板
+  - 载入源 JSON / 填入 Workflow
+  - 提交渲染
+- AI 渲染任务卡片增强：
+  - 显示 `Prompt ID` 与 ComfyUI 地址。
+  - 支持复制 `Prompt ID`。
+  - 支持刷新单个任务。
+  - 支持“基于此任务重新生成”，该操作只回填表单，不自动提交。
+- 错误提示收口：
+  - `Map profile request failed`、checkpoint 读取失败、任务读取 / 提交 / 删除失败改为本地化可操作提示。
+  - ComfyUI 后端错误码已补进三语 `apiErrorText`，避免直接露出错误码。
+- 模板区文案已梳理：
+  - 本地模板和共享模板有独立说明。
+  - 按钮区分“保存为本地模板 / 保存到共享模板 / 套用本地模板 / 套用共享模板”。
+- 本轮涉及文件：
+  - `backend/app/api/ai_api.py`
+  - `backend/app/services/comfyui_service.py`
+  - `frontend/agv-frontend/src/App.vue`
+  - `frontend/agv-frontend/src/components/ComfyAiWorkspace.vue`
+  - `frontend/agv-frontend/src/components/EnterpriseSettingsDialog.vue`
+  - `frontend/agv-frontend/src/assets/agv-map.css`
+  - `frontend/agv-frontend/src/locales/zh.js`
+  - `frontend/agv-frontend/src/locales/en.js`
+  - `frontend/agv-frontend/src/locales/ja.js`
+- 本轮验证：
+  - `backend\venv\Scripts\python.exe -m compileall backend\app`
+  - `npm run lint`
+  - `npm run build`
+  - `git diff --check`
+
 ## 2026-04-22 Post-Defense Productization Reset
 
 - 用户确认毕业设计答辩已经通过。

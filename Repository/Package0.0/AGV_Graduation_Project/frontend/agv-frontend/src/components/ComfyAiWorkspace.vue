@@ -7,6 +7,10 @@ const props = defineProps({
   hintText: { type: String, default: '' },
   statusText: { type: String, default: '' },
   statusType: { type: String, default: 'info' },
+  preflightItems: { type: Array, default: () => [] },
+  healthSummaryText: { type: String, default: '' },
+  healthLoading: { type: Boolean, default: false },
+  comfyBaseUrl: { type: String, default: '' },
   builtinTemplates: { type: Array, default: () => [] },
   selectedBuiltinTemplate: { type: Object, default: null },
   selectedBuiltinTemplateMatchesRecommendation: { type: Boolean, default: false },
@@ -38,6 +42,7 @@ const props = defineProps({
   deletingJobId: { type: [String, Number, null], default: null },
   lastFetchedText: { type: String, default: '' },
   noAccessActionText: { type: String, default: '' },
+  onRefreshHealth: { type: Function, default: () => {} },
   onOpenBuiltinOverview: { type: Function, required: true },
   onApplyBuiltin: { type: Function, required: true },
   onLoadSource: { type: Function, required: true },
@@ -55,6 +60,9 @@ const props = defineProps({
   onDeleteSharedTemplate: { type: Function, required: true },
   onPreviewAsset: { type: Function, required: true },
   onDeleteJob: { type: Function, required: true },
+  onCopyPromptId: { type: Function, default: () => {} },
+  onRefreshJob: { type: Function, default: () => {} },
+  onReuseJob: { type: Function, default: () => {} },
   onEntryAction: { type: Function, required: true },
   formatSource: { type: Function, required: true },
   formatStatus: { type: Function, required: true },
@@ -74,6 +82,7 @@ const promptText = defineModel('promptText', { default: '' })
 const inputJsonText = defineModel('inputJsonText', { default: '' })
 const workflowJsonText = defineModel('workflowJsonText', { default: '' })
 const selectedSharedTemplateId = defineModel('selectedSharedTemplateId', { default: '' })
+const advancedEditorOpen = defineModel('advancedEditorOpen', { default: false })
 
 function handleTemplateFileChange(event) {
   props.onImportTemplate(event)
@@ -88,6 +97,30 @@ function handleTemplateFileChange(event) {
     <template v-if="canRender">
       <div v-if="statusText" :class="['template-status', statusType]">
         {{ statusText }}
+      </div>
+
+      <div class="ai-preflight-shell">
+        <div class="ai-preflight-head">
+          <div>
+            <div class="enterprise-settings-subtitle ai-template-subtitle">{{ t('ai_render_preflight_title') }}</div>
+            <div v-if="healthSummaryText" class="task-line ai-template-inline-hint">{{ healthSummaryText }}</div>
+          </div>
+          <button class="btn-ghost" type="button" :disabled="healthLoading" @click="onRefreshHealth">
+            {{ healthLoading ? `${t('ai_render_health_refresh')}...` : t('ai_render_health_refresh') }}
+          </button>
+        </div>
+        <div class="ai-preflight-grid">
+          <article
+            v-for="item in preflightItems"
+            :key="item.key"
+            class="ai-preflight-card"
+            :class="`is-${item.status || 'info'}`"
+          >
+            <span>{{ item.label }}</span>
+            <strong>{{ item.value }}</strong>
+            <p v-if="item.detail">{{ item.detail }}</p>
+          </article>
+        </div>
       </div>
 
       <div class="ai-template-shell ai-template-shell-highlight">
@@ -201,18 +234,6 @@ function handleTemplateFileChange(event) {
               </option>
             </select>
           </label>
-          <label class="span-2">
-            <span>{{ t('ai_render_prompt_text') }}</span>
-            <textarea v-model="promptText" rows="3" />
-          </label>
-          <label class="span-2">
-            <span>{{ t('ai_render_input_json') }}</span>
-            <textarea v-model="inputJsonText" rows="7" spellcheck="false" />
-          </label>
-          <label class="span-2">
-            <span>{{ t('ai_render_workflow_json') }}</span>
-            <textarea v-model="workflowJsonText" rows="8" spellcheck="false" />
-          </label>
         </div>
 
         <div class="ai-action-grid primary">
@@ -227,8 +248,35 @@ function handleTemplateFileChange(event) {
           </button>
         </div>
 
+        <div class="ai-advanced-editor">
+          <button
+            class="ai-advanced-toggle"
+            type="button"
+            :aria-expanded="advancedEditorOpen"
+            @click="advancedEditorOpen = !advancedEditorOpen"
+          >
+            <span>{{ t('ai_render_advanced_editor') }}</span>
+            <span>{{ advancedEditorOpen ? t('ai_render_advanced_collapse') : t('ai_render_advanced_expand') }}</span>
+          </button>
+          <div v-if="advancedEditorOpen" class="form-grid ai-form-grid ai-advanced-grid">
+            <label class="span-2">
+              <span>{{ t('ai_render_prompt_text') }}</span>
+              <textarea v-model="promptText" rows="3" />
+            </label>
+            <label class="span-2">
+              <span>{{ t('ai_render_input_json') }}</span>
+              <textarea v-model="inputJsonText" rows="7" spellcheck="false" />
+            </label>
+            <label class="span-2">
+              <span>{{ t('ai_render_workflow_json') }}</span>
+              <textarea v-model="workflowJsonText" rows="8" spellcheck="false" />
+            </label>
+          </div>
+        </div>
+
         <div class="ai-template-shell">
           <div class="enterprise-settings-subtitle ai-template-subtitle">{{ t('ai_render_saved_templates_title') }}</div>
+          <div class="task-line ai-template-inline-hint">{{ t('ai_render_saved_templates_hint') }}</div>
           <div class="ai-action-grid compact">
             <button class="btn-secondary" type="button" :disabled="submitting" @click="onSaveTemplate">
               {{ t('ai_render_save_template') }}
@@ -343,6 +391,16 @@ function handleTemplateFileChange(event) {
           <div v-if="job.error_message" class="task-line template-status error">
             {{ job.error_message }}
           </div>
+          <div class="ai-job-debug-grid">
+            <div>
+              <span>{{ t('ai_render_prompt_id') }}</span>
+              <code>{{ job.prompt_id || '—' }}</code>
+            </div>
+            <div>
+              <span>{{ t('ai_render_comfy_base_url') }}</span>
+              <code>{{ comfyBaseUrl || '—' }}</code>
+            </div>
+          </div>
           <div v-if="job.asset_urls?.length" class="ai-job-assets">
             <button
               v-for="(assetUrl, assetIndex) in job.asset_urls"
@@ -355,6 +413,20 @@ function handleTemplateFileChange(event) {
             </button>
           </div>
           <div class="ai-job-actions">
+            <button
+              class="btn-secondary"
+              type="button"
+              :disabled="!job.prompt_id"
+              @click="onCopyPromptId(job)"
+            >
+              {{ t('ai_render_copy_prompt_id') }}
+            </button>
+            <button class="btn-secondary" type="button" @click="onRefreshJob(job.id)">
+              {{ t('ai_render_refresh_job') }}
+            </button>
+            <button class="btn-secondary" type="button" @click="onReuseJob(job)">
+              {{ t('ai_render_reuse_job') }}
+            </button>
             <button
               class="btn-danger"
               type="button"

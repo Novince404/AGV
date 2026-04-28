@@ -8,6 +8,12 @@ from app.services import comfyui_service
 router = APIRouter(prefix="/ai/comfyui", tags=["AI"])
 
 
+@router.get("/health")
+def get_comfy_health(request: Request):
+    auth_service.require_actor_capability(request, "ai.render")
+    return comfyui_service.get_health()
+
+
 @router.post("/render")
 def submit_comfy_render(request: Request, req: ComfyRenderRequest):
     actor = auth_service.require_actor_capability(request, "ai.render")

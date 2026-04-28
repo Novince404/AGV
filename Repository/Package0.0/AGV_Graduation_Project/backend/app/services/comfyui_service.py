@@ -109,6 +109,50 @@ def _list_checkpoint_names() -> list[str]:
     return [str(item) for item in raw_names if str(item).strip()]
 
 
+def _preferred_checkpoint_name(names: list[str]) -> str | None:
+    return next(
+        (name for name in names if name == "DreamShaper_8_pruned.safetensors"),
+        names[0] if names else None,
+    )
+
+
+def get_health() -> dict:
+    enabled = bool(_settings().comfyui_enabled)
+    checked_at = now_iso()
+    base_url = _base_url()
+    health = {
+        "enabled": enabled,
+        "base_url": base_url,
+        "reachable": False,
+        "checkpoint_count": 0,
+        "preferred_checkpoint": None,
+        "error_code": None,
+        "error_message": None,
+        "checked_at": checked_at,
+    }
+    if not enabled:
+        health["error_code"] = "comfyui_disabled"
+        health["error_message"] = "ComfyUI bridge is disabled."
+        return health
+
+    try:
+        names = _list_checkpoint_names()
+        health["reachable"] = True
+        health["checkpoint_count"] = len(names)
+        health["preferred_checkpoint"] = _preferred_checkpoint_name(names)
+    except Exception as exc:
+        detail = getattr(exc, "detail", None)
+        if isinstance(detail, dict):
+            health["error_code"] = str(detail.get("error_code") or "comfyui_health_failed")
+            health["error_message"] = str(
+                detail.get("reason") or detail.get("upstream_detail") or detail.get("error_code") or exc
+            )
+        else:
+            health["error_code"] = "comfyui_health_failed"
+            health["error_message"] = str(detail or exc)
+    return health
+
+
 def _extract_history_entry(history_payload: dict, prompt_id: str) -> dict | None:
     if not isinstance(history_payload, dict):
         return None
@@ -331,10 +375,7 @@ def list_render_assets() -> dict:
 def list_available_checkpoints() -> dict:
     _ensure_enabled()
     names = _list_checkpoint_names()
-    preferred = next(
-        (name for name in names if name == "DreamShaper_8_pruned.safetensors"),
-        names[0] if names else None,
-    )
+    preferred = _preferred_checkpoint_name(names)
     return {
         "items": names,
         "count": len(names),

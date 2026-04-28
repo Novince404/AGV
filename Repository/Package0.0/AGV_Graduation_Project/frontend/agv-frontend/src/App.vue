@@ -1060,6 +1060,11 @@ const comfyRenderWorkflowJsonText = ref('')
 const comfyRenderStatus = ref('')
 const comfyRenderStatusType = ref('info')
 const comfyRenderJobs = ref([])
+const comfyRenderBaseUrl = ref('')
+const comfyRenderHealth = ref(null)
+const comfyRenderHealthLoading = ref(false)
+const comfyRenderHealthLastFetchedAt = ref('')
+const comfyRenderAdvancedEditorOpen = ref(false)
 const comfyRenderLoading = ref(false)
 const comfyRenderSubmitting = ref(false)
 const comfyRenderLastFetchedAt = ref('')
@@ -9150,6 +9155,7 @@ async function openEnterpriseSettingsDialog(targetTab = '') {
     : (availableKeys[0] || 'overview')
   enterpriseSettingsDialogOpen.value = true
   if (authCanAiRender.value) {
+    void fetchComfyHealth()
     void fetchComfyCheckpoints()
     if (enterpriseSettingsActiveTab.value === 'ai') {
       void fetchComfyRenderJobs({ force: true })
@@ -9203,6 +9209,7 @@ function switchEnterpriseSettingsTab(nextTab) {
   enterpriseSettingsActiveTab.value = nextTab
   saveEnterpriseSettingsTabPreference(authCurrentRole.value, nextTab)
   if (nextTab === 'ai' && authCanAiRender.value) {
+    void fetchComfyHealth({ force: true })
     void fetchComfyCheckpoints()
     void fetchComfyRenderJobs({ force: true })
     void fetchComfySharedTemplates({ force: true })
@@ -10953,6 +10960,141 @@ const comfyRenderRecommendedCheckpointSummary = computed(() =>
     checkpoint: preferredComfyCheckpointName(comfyRenderAvailableCheckpoints.value, comfyRenderWorkflowPreset.value)
   })
 )
+
+function validateComfyJsonObjectDraft(rawText) {
+  const trimmed = String(rawText || '').trim()
+  if (!trimmed) {
+    return { status: 'warning', valid: false, empty: true }
+  }
+  try {
+    const parsed = JSON.parse(trimmed)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return { status: 'error', valid: false, empty: false }
+    }
+    return { status: 'success', valid: true, empty: false, parsed }
+  } catch {
+    return { status: 'error', valid: false, empty: false }
+  }
+}
+
+const comfyRenderSourceDraftState = computed(() =>
+  validateComfyJsonObjectDraft(comfyRenderInputJsonText.value)
+)
+const comfyRenderWorkflowDraftState = computed(() =>
+  validateComfyJsonObjectDraft(comfyRenderWorkflowJsonText.value)
+)
+const comfyRenderHealthSummaryText = computed(() => {
+  const health = comfyRenderHealth.value
+  const baseUrl = String(health?.base_url || comfyRenderBaseUrl.value || '').trim()
+  if (!health) {
+    return baseUrl
+      ? formatInlineMessage(t('ai_render_health_summary_unchecked_with_url'), { url: baseUrl })
+      : t('ai_render_health_summary_unchecked')
+  }
+  const checkedAt = formatDateTimeInline(health.checked_at) || String(health.checked_at || '')
+  return formatInlineMessage(t('ai_render_health_summary'), {
+    url: baseUrl || '—',
+    checkedAt: checkedAt || '—'
+  })
+})
+const comfyRenderPreflightItems = computed(() => {
+  const sourceState = comfyRenderSourceDraftState.value
+  const workflowState = comfyRenderWorkflowDraftState.value
+  const health = comfyRenderHealth.value
+  const checkpointName = String(comfyRenderCheckpointName.value || '').trim()
+  const availableCheckpoints = comfyRenderAvailableCheckpoints.value
+  const sourceTypeLabel = comfyRenderSourceLabelMap.value[comfyRenderSourceType.value] || t('ai_render_source_custom_json')
+
+  const sourceItem = sourceState.valid
+    ? {
+        key: 'source',
+        status: 'success',
+        label: t('ai_render_preflight_source'),
+        value: t('ai_render_preflight_source_loaded'),
+        detail: sourceTypeLabel
+      }
+    : {
+        key: 'source',
+        status: sourceState.empty ? 'warning' : 'error',
+        label: t('ai_render_preflight_source'),
+        value: sourceState.empty ? t('ai_render_preflight_source_missing') : t('ai_render_preflight_source_invalid'),
+        detail: sourceState.empty ? t('ai_render_preflight_source_missing_hint') : t('ai_render_parse_input_failed')
+      }
+
+  let comfyItem = {
+    key: 'comfy',
+    status: 'warning',
+    label: t('ai_render_preflight_comfy'),
+    value: t('ai_render_preflight_comfy_unchecked'),
+    detail: t('ai_render_health_summary_unchecked')
+  }
+  if (comfyRenderHealthLoading.value) {
+    comfyItem = {
+      ...comfyItem,
+      status: 'info',
+      value: t('ai_render_preflight_comfy_checking'),
+      detail: t('ai_render_health_refresh')
+    }
+  } else if (health) {
+    const enabled = Boolean(health.enabled)
+    const reachable = Boolean(health.reachable)
+    comfyItem = {
+      key: 'comfy',
+      status: reachable ? 'success' : (enabled ? 'error' : 'warning'),
+      label: t('ai_render_preflight_comfy'),
+      value: reachable
+        ? t('ai_render_preflight_comfy_online')
+        : enabled
+          ? t('ai_render_preflight_comfy_offline')
+          : t('ai_render_preflight_comfy_disabled'),
+      detail: localizeComfyRenderErrorMessage(health.error_code)
+        || localizeComfyRenderErrorMessage(health.error_message)
+        || String(health.base_url || comfyRenderBaseUrl.value || '')
+    }
+  }
+
+  const modelItem = !checkpointName
+    ? {
+        key: 'model',
+        status: 'warning',
+        label: t('ai_render_preflight_model'),
+        value: t('ai_render_preflight_model_missing'),
+        detail: t('ai_render_checkpoint_name_placeholder')
+      }
+    : availableCheckpoints.length > 0 && !availableCheckpoints.includes(checkpointName)
+      ? {
+          key: 'model',
+          status: 'warning',
+          label: t('ai_render_preflight_model'),
+          value: t('ai_render_preflight_model_unlisted'),
+          detail: checkpointName
+        }
+      : {
+          key: 'model',
+          status: 'success',
+          label: t('ai_render_preflight_model'),
+          value: t('ai_render_preflight_model_ready'),
+          detail: checkpointName
+        }
+
+  const workflowItem = workflowState.valid
+    ? {
+        key: 'workflow',
+        status: 'success',
+        label: t('ai_render_preflight_workflow'),
+        value: t('ai_render_preflight_workflow_valid'),
+        detail: comfyRenderWorkflowPresetLabelMap.value[comfyRenderWorkflowPreset.value] || ''
+      }
+    : {
+        key: 'workflow',
+        status: workflowState.empty ? 'warning' : 'error',
+        label: t('ai_render_preflight_workflow'),
+        value: workflowState.empty ? t('ai_render_preflight_workflow_missing') : t('ai_render_preflight_workflow_invalid'),
+        detail: workflowState.empty ? t('ai_render_default_workflow_hint') : t('ai_render_parse_workflow_failed')
+      }
+
+  return [sourceItem, comfyItem, modelItem, workflowItem]
+})
 const comfyRenderSelectedTemplate = computed(() =>
   comfyRenderSavedTemplates.value.find(item => String(item.id) === String(comfyRenderSelectedTemplateId.value || '')) || null
 )
@@ -11233,6 +11375,42 @@ function formatComfyRenderAssetActionLabel(job, assetIndex) {
   const assetCount = Array.isArray(job?.asset_urls) ? job.asset_urls.length : 0
   if (assetCount <= 1) return t('ai_render_result_preview')
   return `${t('ai_render_result_preview')} ${Number(assetIndex) + 1}`
+}
+
+function localizeComfyRenderErrorMessage(message) {
+  const raw = String(message || '').trim()
+  if (!raw) return ''
+  try {
+    const parsed = JSON.parse(raw)
+    if (parsed && typeof parsed === 'object') {
+      if (parsed.error_code) return createApiError({ detail: parsed }, raw).message
+      if (parsed.status_str) return String(parsed.status_str)
+      return JSON.stringify(parsed, null, 2)
+    }
+  } catch {
+    // Keep plain text handling below.
+  }
+  if (/^[a-z0-9_]+$/i.test(raw)) {
+    return createApiError({ detail: { error_code: raw } }, raw).message
+  }
+  return raw
+}
+
+function normalizeComfyRenderJobRecord(record) {
+  if (!record || typeof record !== 'object') return null
+  return {
+    ...record,
+    error_message: localizeComfyRenderErrorMessage(record.error_message)
+  }
+}
+
+function upsertComfyRenderJobRecord(record) {
+  const normalized = normalizeComfyRenderJobRecord(record)
+  if (!normalized?.id) return null
+  const nextJobs = comfyRenderJobs.value.filter(item => Number(item.id) !== Number(normalized.id))
+  nextJobs.unshift(normalized)
+  comfyRenderJobs.value = nextJobs.sort((a, b) => compareTime(b.created_at, a.created_at))
+  return normalized
 }
 
 function formatPanelComfyRenderJobMeta(job) {
@@ -11524,7 +11702,7 @@ async function buildComfySourcePayload() {
     })
     const data = await response.json().catch(() => null)
     if (!response.ok) {
-      throw createApiError(data, 'Map profile request failed')
+      throw createApiError(data, t('ai_render_map_profile_request_failed'))
     }
     return {
       sourceRef: targetProfileKey,
@@ -11583,6 +11761,61 @@ async function loadComfySourcePayload() {
   }
 }
 
+async function fetchComfyHealth({ force = false } = {}) {
+  if (!authAuthenticated.value || !authCanAiRender.value) {
+    comfyRenderHealth.value = null
+    comfyRenderHealthLastFetchedAt.value = ''
+    return
+  }
+  if (comfyRenderHealthLoading.value) return
+  const lastFetchedMs = comfyRenderHealthLastFetchedAt.value ? Date.parse(comfyRenderHealthLastFetchedAt.value) : 0
+  if (!force && comfyRenderHealth.value && Number.isFinite(lastFetchedMs) && Date.now() - lastFetchedMs < 10000) return
+
+  comfyRenderHealthLoading.value = true
+  try {
+    const response = await fetch(`${API_BASE}/ai/comfyui/health`, {
+      headers: buildAuthorizedHeaders()
+    })
+    const data = await response.json().catch(() => null)
+    if (!response.ok) {
+      throw createApiError(data, t('ai_render_health_failed'))
+    }
+    comfyRenderHealth.value = data || null
+    comfyRenderBaseUrl.value = String(data?.base_url || comfyRenderBaseUrl.value || '').trim()
+    comfyRenderHealthLastFetchedAt.value = new Date().toISOString()
+    if (force) {
+      setComfyRenderStatus(
+        data?.reachable
+          ? t('ai_render_health_online')
+          : (
+              localizeComfyRenderErrorMessage(data?.error_code)
+              || localizeComfyRenderErrorMessage(data?.error_message)
+              || t('ai_render_health_offline')
+            ),
+        data?.reachable ? 'success' : 'error'
+      )
+    }
+  } catch (error) {
+    console.error('Fetch ComfyUI health error:', error)
+    comfyRenderHealth.value = {
+      enabled: true,
+      base_url: comfyRenderBaseUrl.value || '',
+      reachable: false,
+      checkpoint_count: 0,
+      preferred_checkpoint: null,
+      error_code: 'comfyui_health_failed',
+      error_message: error?.message || t('ai_render_health_failed'),
+      checked_at: new Date().toISOString()
+    }
+    comfyRenderHealthLastFetchedAt.value = new Date().toISOString()
+    if (force) {
+      setComfyRenderStatus(error?.message || t('ai_render_health_failed'), 'error')
+    }
+  } finally {
+    comfyRenderHealthLoading.value = false
+  }
+}
+
 async function fetchComfyCheckpoints({ force = false } = {}) {
   if (!authAuthenticated.value || !authCanAiRender.value) {
     comfyRenderAvailableCheckpoints.value = []
@@ -11599,10 +11832,11 @@ async function fetchComfyCheckpoints({ force = false } = {}) {
     })
     const data = await response.json().catch(() => null)
     if (!response.ok) {
-      throw createApiError(data, 'Comfy checkpoint request failed')
+      throw createApiError(data, t('ai_render_checkpoint_request_failed'))
     }
     const items = Array.isArray(data?.items) ? data.items.map(item => String(item || '').trim()).filter(Boolean) : []
     comfyRenderAvailableCheckpoints.value = items
+    comfyRenderBaseUrl.value = String(data?.comfyui_base_url || comfyRenderBaseUrl.value || '').trim()
     const preferred = String(data?.preferred || preferredComfyCheckpointName(items)).trim()
     if (!String(comfyRenderCheckpointName.value || '').trim() || !items.includes(String(comfyRenderCheckpointName.value || '').trim())) {
       comfyRenderCheckpointName.value = preferred
@@ -11684,9 +11918,12 @@ async function fetchComfyRenderJobs({ force = false } = {}) {
     })
     const data = await response.json().catch(() => null)
     if (!response.ok) {
-      throw createApiError(data, 'Comfy render job request failed')
+      throw createApiError(data, t('ai_render_job_request_failed'))
     }
-    comfyRenderJobs.value = Array.isArray(data?.items) ? data.items : []
+    comfyRenderBaseUrl.value = String(data?.comfyui_base_url || comfyRenderBaseUrl.value || '').trim()
+    comfyRenderJobs.value = Array.isArray(data?.items)
+      ? data.items.map(item => normalizeComfyRenderJobRecord(item)).filter(Boolean)
+      : []
     comfyRenderLastFetchedAt.value = new Date().toISOString()
   } catch (error) {
     console.error('Fetch ComfyUI render jobs error:', error)
@@ -11696,6 +11933,72 @@ async function fetchComfyRenderJobs({ force = false } = {}) {
   } finally {
     comfyRenderLoading.value = false
   }
+}
+
+async function refreshComfyRenderJob(jobId) {
+  if (!ensureAuthenticatedOperation(t('auth_action_requires_login'), 'ai.render', buildCapabilityDeniedMessage('ai'))) return
+  const normalizedJobId = Number(jobId)
+  if (!Number.isFinite(normalizedJobId) || normalizedJobId <= 0) return
+  try {
+    const response = await fetch(`${API_BASE}/ai/comfyui/jobs/${normalizedJobId}`, {
+      headers: buildAuthorizedHeaders()
+    })
+    const data = await response.json().catch(() => null)
+    if (!response.ok) {
+      throw createApiError(data, t('ai_render_job_request_failed'))
+    }
+    comfyRenderBaseUrl.value = String(data?.comfyui_base_url || comfyRenderBaseUrl.value || '').trim()
+    upsertComfyRenderJobRecord(data?.job)
+    comfyRenderLastFetchedAt.value = new Date().toISOString()
+    setComfyRenderStatus(t('ai_render_job_refreshed'), 'success')
+  } catch (error) {
+    setComfyRenderStatus(error?.message || t('ai_render_job_refresh_failed'), 'error')
+    showFloatingToast(error?.message || t('ai_render_job_refresh_failed'), 'error')
+  }
+}
+
+function extractComfyPromptTextFromWorkflow(workflowPayload) {
+  const prompt = workflowPayload?.prompt && typeof workflowPayload.prompt === 'object'
+    ? workflowPayload.prompt
+    : workflowPayload
+  if (!prompt || typeof prompt !== 'object' || Array.isArray(prompt)) return ''
+  for (const node of Object.values(prompt)) {
+    if (!node || typeof node !== 'object') continue
+    const classType = String(node.class_type || '').toLowerCase()
+    const text = String(node.inputs?.text || '').trim()
+    if (text && classType.includes('cliptextencode')) return text
+  }
+  return ''
+}
+
+async function copyComfyPromptId(job) {
+  const promptId = String(job?.prompt_id || '').trim()
+  if (!promptId) return
+  const copied = await copyTextToClipboard(promptId)
+  showFloatingToast(
+    copied ? t('ai_render_prompt_id_copied') : t('ai_render_prompt_id_copy_failed'),
+    copied ? 'success' : 'error'
+  )
+}
+
+function reuseComfyRenderJob(job) {
+  if (!job) return
+  const sourceType = String(job.source_type || 'custom_json')
+  const knownSourceTypes = new Set(comfyRenderSourceOptions.value.map(option => option.value))
+  comfyRenderSourceType.value = knownSourceTypes.has(sourceType) ? sourceType : 'custom_json'
+  comfyRenderSourceRef.value = String(job.source_ref || '').trim()
+  comfyRenderWorkflowJsonText.value = stringifyPrettyJson(job.workflow_payload || {})
+  const extractedPrompt = extractComfyPromptTextFromWorkflow(job.workflow_payload || {})
+  if (extractedPrompt) {
+    comfyRenderPromptText.value = extractedPrompt
+  }
+  comfyRenderInputJsonText.value = stringifyPrettyJson({
+    note: t('ai_render_reuse_source_summary_note'),
+    input_summary: job.input_summary || {}
+  })
+  comfyRenderAdvancedEditorOpen.value = true
+  setComfyRenderStatus(t('ai_render_reuse_job_applied'), 'success')
+  showFloatingToast(t('ai_render_reuse_job_applied'), 'success')
 }
 
 async function submitComfyRenderJob() {
@@ -11724,8 +12027,10 @@ async function submitComfyRenderJob() {
     })
     const data = await response.json().catch(() => null)
     if (!response.ok) {
-      throw createApiError(data, 'Comfy render submit failed')
+      throw createApiError(data, t('ai_render_submit_failed'))
     }
+    comfyRenderBaseUrl.value = String(data?.comfyui_base_url || comfyRenderBaseUrl.value || '').trim()
+    upsertComfyRenderJobRecord(data?.job)
     setComfyRenderStatus(t('ai_render_submit_success'), 'success')
     showFloatingToast(t('ai_render_submit_success'), 'success')
     await fetchComfyRenderJobs({ force: true })
@@ -11750,7 +12055,7 @@ async function deleteComfyRenderJob(jobId) {
     })
     const data = await response.json().catch(() => null)
     if (!response.ok) {
-      throw createApiError(data, 'Comfy render delete failed')
+      throw createApiError(data, t('ai_render_delete_failed'))
     }
     if (Number(jobId) && Number(jobId) === Number(comfyRenderPreviewJobId.value || 0)) {
       closeComfyRenderAssetPreview()
@@ -15948,10 +16253,10 @@ async function fetchMapProfiles() {
     const res = await fetch(`${API_BASE}/status/map/profiles`, {
       headers: buildAuthorizedHeaders()
     })
+    const data = await res.json().catch(() => null)
     if (!res.ok) {
-      throw new Error(`Map profile request failed: ${res.status}`)
+      throw createApiError(data, t('ai_render_map_profile_request_failed'))
     }
-    const data = await res.json()
     mapProfiles.value = Array.isArray(data?.profiles) ? data.profiles : []
     currentMapProfile.value = data?.current_profile ?? null
     syncMapSizeResizeState()
@@ -16868,6 +17173,7 @@ watch(
   () => {
     savePanelSections()
     if (authCanAiRender.value && panelSections.value.ai) {
+      void fetchComfyHealth()
       void fetchComfyCheckpoints()
       void fetchComfyRenderJobs({ force: true })
       void fetchComfySharedTemplates({ force: true })
@@ -16885,10 +17191,14 @@ watch([authAuthenticated, authCanAiRender], ([authenticated, canRender]) => {
     comfyRenderLastFetchedAt.value = ''
     comfyRenderAvailableCheckpoints.value = []
     comfyRenderCheckpointName.value = ''
+    comfyRenderBaseUrl.value = ''
+    comfyRenderHealth.value = null
+    comfyRenderHealthLastFetchedAt.value = ''
     comfyRenderSharedTemplates.value = []
     comfyRenderSelectedSharedTemplateId.value = ''
     return
   }
+  void fetchComfyHealth({ force: true })
   void fetchComfyCheckpoints({ force: true })
   void fetchComfyRenderJobs({ force: true })
   void fetchComfySharedTemplates({ force: true })
@@ -18371,8 +18681,13 @@ const enterpriseSettingsDialogBindings = {
   comfyRenderInputJsonText,
   comfyRenderWorkflowJsonText,
   comfyRenderSelectedSharedTemplateId,
+  comfyRenderAdvancedEditorOpen,
   comfyRenderStatus,
   comfyRenderStatusType,
+  comfyRenderPreflightItems,
+  comfyRenderHealthSummaryText,
+  comfyRenderHealthLoading,
+  comfyRenderBaseUrl,
   comfyRenderBuiltinTemplates,
   comfyRenderSelectedBuiltinTemplate,
   comfyRenderSelectedBuiltinTemplateMatchesRecommendation,
@@ -18558,6 +18873,7 @@ const enterpriseSettingsDialogBindings = {
   setCompareDisplayModeFromEnterprise,
   algorithmCompareWorkspaceBindings,
   buildAiRenderSharedTemplatesHintText,
+  fetchComfyHealth,
   openComfyBuiltinTemplateOverview,
   applySelectedBuiltinComfyTemplate,
   fetchComfyCheckpoints,
@@ -18576,6 +18892,9 @@ const enterpriseSettingsDialogBindings = {
   deleteSelectedSharedTemplate,
   openComfyRenderAssetPreview,
   deleteComfyRenderJob,
+  copyComfyPromptId,
+  refreshComfyRenderJob,
+  reuseComfyRenderJob,
   openAuthDialog,
   formatComfyRenderSource,
   formatComfyRenderStatus,
@@ -20283,6 +20602,7 @@ onBeforeUnmount(() => {
                 v-model:input-json-text="comfyRenderInputJsonText"
                 v-model:workflow-json-text="comfyRenderWorkflowJsonText"
                 v-model:selected-shared-template-id="comfyRenderSelectedSharedTemplateId"
+                v-model:advanced-editor-open="comfyRenderAdvancedEditorOpen"
                 :t="t"
                 :format-inline-message="formatInlineMessage"
                 :can-render="authCanAiRender"
@@ -20290,6 +20610,10 @@ onBeforeUnmount(() => {
                 :hint-text="buildAiRenderHintText()"
                 :status-text="comfyRenderStatus"
                 :status-type="comfyRenderStatusType"
+                :preflight-items="comfyRenderPreflightItems"
+                :health-summary-text="comfyRenderHealthSummaryText"
+                :health-loading="comfyRenderHealthLoading"
+                :comfy-base-url="comfyRenderBaseUrl"
                 :builtin-templates="comfyRenderBuiltinTemplates"
                 :selected-builtin-template="comfyRenderSelectedBuiltinTemplate"
                 :selected-builtin-template-matches-recommendation="comfyRenderSelectedBuiltinTemplateMatchesRecommendation"
@@ -20321,6 +20645,7 @@ onBeforeUnmount(() => {
                 :deleting-job-id="deletingComfyJobId"
                 :last-fetched-text="comfyRenderLastFetchedText"
                 :no-access-action-text="buildOperationsEntryActionText()"
+                :on-refresh-health="() => fetchComfyHealth({ force: true })"
                 :on-open-builtin-overview="openComfyBuiltinTemplateOverview"
                 :on-apply-builtin="applySelectedBuiltinComfyTemplate"
                 :on-load-source="loadComfySourcePayload"
@@ -20338,6 +20663,9 @@ onBeforeUnmount(() => {
                 :on-delete-shared-template="deleteSelectedSharedTemplate"
                 :on-preview-asset="openComfyRenderAssetPreview"
                 :on-delete-job="deleteComfyRenderJob"
+                :on-copy-prompt-id="copyComfyPromptId"
+                :on-refresh-job="refreshComfyRenderJob"
+                :on-reuse-job="reuseComfyRenderJob"
                 :on-entry-action="openAuthDialog"
                 :format-source="formatComfyRenderSource"
                 :format-status="formatComfyRenderStatus"
