@@ -10,6 +10,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "smoke:enterprise-demos": "node scripts/enterprise-avoidance-demo-smoke.mjs",
     "lint": "eslint . --fix --cache",
     "format": "prettier --write --experimental-cli src/"
   },

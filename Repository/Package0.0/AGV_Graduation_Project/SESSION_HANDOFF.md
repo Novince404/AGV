@@ -1118,3 +1118,24 @@ git -C "Repository/Package0.0/AGV_Graduation_Project" push AGV main
   - 企业端打开“企业设置 -> 地图方案 -> 企业避让演示助手”，分别点击三张卡片“载入演示”。
   - 不应再出现“企业版新增 AGV 需要从站点、停车点或充电点上岗”。
   - 缩小企业设置弹窗或浏览器宽度时，三张演示卡片文字应留在卡片内部并自然换行。
+
+### 14.36 2026-04-28 追加：企业避让演示验收收口
+- 背景：
+  - 用户确认企业避让演示助手三套场景人工测试通过。
+  - 下一步目标不是继续扩大算法改动，而是把当前能力沉淀成可复测文档和自动检查。
+- 本轮新增：
+  - `docs/plans/ENTERPRISE_DYNAMIC_AVOIDANCE_ENHANCEMENT_PLAN.md`
+    - 标记企业端拓扑避让、状态标签、演示助手和人工测试已完成。
+    - 补充复测入口、后续方向和演示助手配置检查命令。
+  - `docs/demo/ENTERPRISE_AVOIDANCE_DEMO_RUNBOOK.md`
+    - 新增企业端避让演示助手复测说明，覆盖测试前准备、入口位置、三套场景预期、异常判断和回归建议。
+  - `frontend/agv-frontend/scripts/enterprise-avoidance-demo-smoke.mjs`
+    - 新增 Node smoke 检查，直接读取 `src/config/enterpriseAvoidanceDemos.js`。
+    - 检查演示 key、地图/任务文件名、v2 方案名、拓扑节点/边、合法上岗节点、任务起终点和障碍冲突。
+  - `frontend/agv-frontend/package.json`
+    - 新增 `npm run smoke:enterprise-demos`。
+  - `docs/README.md`
+    - 更新 demo 分区说明，补充企业动态避让演示。
+- 后续建议：
+  - 若后续修改演示助手、企业拓扑演示或上岗节点，先跑 `npm run smoke:enterprise-demos`，再人工点击三张演示卡片。
+  - 若继续改企业端调度算法，再配合后端 `runtime_conflict_smoke.py` 和 `runtime_long_run_smoke.py` 复测。
