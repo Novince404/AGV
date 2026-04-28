@@ -6,11 +6,11 @@ export const ENTERPRISE_AVOIDANCE_DEMOS = [
     mapFileName: 'enterprise_topology_headon_map_profile_12x8.json',
     taskFileName: 'enterprise_topology_headon_tasks.json',
     agvStarts: [
-      { x: 1, y: 3 },
-      { x: 10, y: 3 }
+      { x: 1, y: 3, nodeKey: 'west_gate' },
+      { x: 10, y: 3, nodeKey: 'east_gate' }
     ],
     profile: {
-      name: 'Enterprise topology head-on demo 12x8',
+      name: 'Enterprise topology head-on demo 12x8 v2',
       description: 'Enterprise topology head-on scenario. Two AGVs enter one bidirectional lane from opposite ends so the lower-priority AGV should wait or reroute.',
       grid_cols: 12,
       grid_rows: 8,
@@ -74,12 +74,12 @@ export const ENTERPRISE_AVOIDANCE_DEMOS = [
     mapFileName: 'enterprise_topology_intersection_map_profile_12x8.json',
     taskFileName: 'enterprise_topology_intersection_tasks.json',
     agvStarts: [
-      { x: 1, y: 3 },
-      { x: 6, y: 1 },
-      { x: 10, y: 3 }
+      { x: 1, y: 3, nodeKey: 'west_gate' },
+      { x: 6, y: 1, nodeKey: 'north_gate' },
+      { x: 10, y: 3, nodeKey: 'east_gate' }
     ],
     profile: {
-      name: 'Enterprise topology intersection demo 12x8',
+      name: 'Enterprise topology intersection demo 12x8 v2',
       description: 'Enterprise topology intersection scenario. Three AGVs approach the center node so reservation and waiting labels can be observed.',
       grid_cols: 12,
       grid_rows: 8,
@@ -162,12 +162,12 @@ export const ENTERPRISE_AVOIDANCE_DEMOS = [
     mapFileName: 'enterprise_topology_station_entry_map_profile_12x8.json',
     taskFileName: 'enterprise_topology_station_entry_tasks.json',
     agvStarts: [
-      { x: 1, y: 2 },
-      { x: 10, y: 2 },
-      { x: 3, y: 3 }
+      { x: 1, y: 2, nodeKey: 'parking_a' },
+      { x: 10, y: 2, nodeKey: 'charge_a' },
+      { x: 1, y: 4, nodeKey: 'parking_b' }
     ],
     profile: {
-      name: 'Enterprise topology station entry demo 12x8',
+      name: 'Enterprise topology station entry demo 12x8 v2',
       description: 'Enterprise topology station entry scenario. Parking nodes, charge nodes, and trunk-lane merge points are used to observe station capacity and entry/exit conflict handling.',
       grid_cols: 12,
       grid_rows: 8,
@@ -236,10 +236,10 @@ export const ENTERPRISE_AVOIDANCE_DEMOS = [
         priority: 3,
         dispatch_mode: 'auto',
         dispatch_algorithm: 'astar',
-        dispatch_reason: 'Enterprise station entry demo: low-priority AGV enters parking and waits for merge clearance.',
-        start_x: 3,
-        start_y: 3,
-        end_x: 1,
+        dispatch_reason: 'Enterprise station entry demo: low-priority parking AGV enters the trunk lane and waits for merge clearance.',
+        start_x: 1,
+        start_y: 4,
+        end_x: 10,
         end_y: 2
       }
     ]

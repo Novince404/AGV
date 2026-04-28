@@ -1066,6 +1066,7 @@
     "enterprise_demo_status_loaded": "{name} を読み込みました: AGV {created} 台を作成し、開始位置 {starts} と対応タスクを投入しました。",
     "enterprise_demo_status_failed": "企業回避デモの読み込みに失敗しました。",
     "enterprise_demo_busy_start": "開始位置 {point} には AGV #{id} がありますが、現在スケジュールできません。空き状態になってから再試行してください。",
+    "enterprise_demo_invalid_onboarding_point": "開始位置 {point} はステーション、待機点、充電点ではないため、企業 AGV の配置点として使用できません。",
     "enterprise_demo_focus_toast": "デモ開始位置にフォーカスしました: {points}",
     "enterprise_settings_map_editor_open": "グリッドエディタを開く",
     "enterprise_settings_map_editor_title": "企業向けグリッドエディタ",

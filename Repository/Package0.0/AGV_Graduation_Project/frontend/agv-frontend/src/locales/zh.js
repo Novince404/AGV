@@ -840,6 +840,7 @@
     "enterprise_demo_status_loaded": "已载入{name}：自动创建 {created} 台 AGV，起点 {starts}，配套任务已导入并尝试调度。",
     "enterprise_demo_status_failed": "企业避让演示载入失败。",
     "enterprise_demo_busy_start": "起点 {point} 已有 AGV #{id}，但该车当前不可调度，请等待它空闲后再载入演示。",
+    "enterprise_demo_invalid_onboarding_point": "起点 {point} 不是站点、停车点或充电点，无法作为企业 AGV 上岗点。",
     "enterprise_demo_focus_toast": "已定位演示起点：{points}",
     "enterprise_settings_map_editor_open": "打开网格编辑器",
     "enterprise_settings_map_editor_title": "企业网格编辑器",

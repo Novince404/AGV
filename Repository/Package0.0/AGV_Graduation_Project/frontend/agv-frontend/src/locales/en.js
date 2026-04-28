@@ -840,6 +840,7 @@
     "enterprise_demo_status_loaded": "Loaded {name}: created {created} AGV(s), starts {starts}, and imported paired tasks for scheduling.",
     "enterprise_demo_status_failed": "Enterprise avoidance demo failed to load.",
     "enterprise_demo_busy_start": "Start {point} already has AGV #{id}, but it is not schedulable. Wait until it becomes idle before loading the demo.",
+    "enterprise_demo_invalid_onboarding_point": "Start {point} is not a station, parking node, or charging node, so it cannot onboard an enterprise AGV.",
     "enterprise_demo_focus_toast": "Focused demo starts: {points}",
     "enterprise_settings_map_editor_open": "Open Grid Editor",
     "enterprise_settings_map_editor_title": "Enterprise Grid Editor",

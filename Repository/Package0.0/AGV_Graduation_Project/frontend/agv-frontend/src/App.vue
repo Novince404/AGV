@@ -12500,6 +12500,20 @@ function formatEnterpriseDemoCellList(cells = []) {
     .join(' / ')
 }
 
+function resolveEnterpriseDemoOnboardingNodeKey(demo, cell) {
+  const explicitNodeKey = String(cell?.nodeKey || '').trim()
+  const topologyNodes = demo?.profile?.topology?.nodes || []
+  const targetNode = explicitNodeKey
+    ? topologyNodes.find(node => String(node?.key || '').trim() === explicitNodeKey)
+    : topologyNodes.find(node =>
+      Number(node?.x) === Number(cell?.x) &&
+      Number(node?.y) === Number(cell?.y) &&
+      isSpecialTopologyNodeType(node?.node_type)
+    )
+  if (!targetNode || !isSpecialTopologyNodeType(targetNode.node_type)) return ''
+  return String(targetNode.key || '').trim()
+}
+
 function findEnterpriseDemoAgvAtCell(x, y) {
   return agvs.value.find(agv =>
     agv &&
@@ -12566,10 +12580,17 @@ async function ensureEnterpriseAvoidanceDemoAgvs(demo) {
     }
     if (existing) continue
 
+    const onboardingNodeKey = resolveEnterpriseDemoOnboardingNodeKey(demo, cell)
+    if (!onboardingNodeKey) {
+      throw new Error(formatInlineMessage(t('enterprise_demo_invalid_onboarding_point'), {
+        point: `(${cell.x}, ${cell.y})`
+      }))
+    }
+
     const res = await fetch(`${API_BASE}/agv/create`, {
       method: 'POST',
       headers: buildAuthorizedJsonHeaders(),
-      body: JSON.stringify({ x: cell.x, y: cell.y })
+      body: JSON.stringify({ point_id: onboardingNodeKey })
     })
     const data = await res.json()
     if (!res.ok) {
