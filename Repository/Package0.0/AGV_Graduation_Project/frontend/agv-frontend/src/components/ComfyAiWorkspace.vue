@@ -87,6 +87,11 @@ const advancedEditorOpen = defineModel('advancedEditorOpen', { default: false })
 function handleTemplateFileChange(event) {
   props.onImportTemplate(event)
 }
+
+function safeText(key, fallback) {
+  const translated = props.t(key)
+  return translated && translated !== key ? translated : fallback
+}
 </script>
 
 <template>
@@ -419,13 +424,13 @@ function handleTemplateFileChange(event) {
               :disabled="!job.prompt_id"
               @click="onCopyPromptId(job)"
             >
-              {{ t('ai_render_copy_prompt_id') }}
+              {{ safeText('ai_render_copy_prompt_id', '复制 Prompt ID') }}
             </button>
             <button class="btn-secondary" type="button" @click="onRefreshJob(job.id)">
-              {{ t('ai_render_refresh_job') }}
+              {{ safeText('ai_render_refresh_job', '刷新此任务') }}
             </button>
             <button class="btn-secondary" type="button" @click="onReuseJob(job)">
-              {{ t('ai_render_reuse_job') }}
+              {{ safeText('ai_render_reuse_job', '基于此任务重新生成') }}
             </button>
             <button
               class="btn-danger"

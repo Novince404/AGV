@@ -46,6 +46,20 @@
   - `npm run build`
   - `git diff --check`
 
+### 2026-04-28 AI Materials Patch
+
+- 修复 AI 任务卡新增按钮在部分运行态中显示 raw key 的问题：
+  - `ai_render_copy_prompt_id`
+  - `ai_render_refresh_job`
+  - `ai_render_reuse_job`
+- 按钮显示现在增加组件内中文兜底，即使异步语言包热更新没跟上，也不会直接露出 key。
+- 修复企业设置中点击“预览素材”时图片弹层在企业设置页面下层的问题：
+  - `.asset-preview-mask` 的 `z-index` 从 `120` 提升到 `4300`。
+- 本补丁验证：
+  - `npm run lint`
+  - `npm run build`
+  - `git diff --check`
+
 ## 2026-04-22 Post-Defense Productization Reset
 
 - 用户确认毕业设计答辩已经通过。
