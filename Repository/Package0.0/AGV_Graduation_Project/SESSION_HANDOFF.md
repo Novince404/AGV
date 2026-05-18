@@ -95,6 +95,26 @@
   - 若无空闲/回仓车辆：显示 `当前没有空闲或回仓中的 AGV`。
 - 推荐算法现在优先选择“任务路线可达且车辆能到起点”的算法，避免推荐一个实际无法派送的算法。
 
+### 2026-05-18 Algorithm Compare Three-State Readiness UI
+
+- 继续收口算法对比卡片的可读性：把“路线可达”和“当前是否可派车”拆成三态展示。
+- 前端算法对比卡片现在按结果显示不同视觉状态：
+  - `schedulable`：任务路径可达，且有空闲/回仓 AGV 能到达任务起点，显示绿色“可派车”。
+  - `dispatch-blocked`：任务路径可达，但当前没有空闲/回仓 AGV 能到达任务起点，显示黄色“可达（暂无车辆到起点）”。
+  - `unreachable`：算法路径本身不可达，保持不可达状态。
+- 黄色态只改变算法对比卡片样式和短状态文案，不改变后端调度逻辑、不影响实际派车校验。
+- 涉及文件：
+  - `frontend/agv-frontend/src/components/AlgorithmCompareWorkspace.vue`
+  - `frontend/agv-frontend/src/App.vue`
+  - `frontend/agv-frontend/src/assets/agv-map.css`
+  - `frontend/agv-frontend/src/locales/zh.js`
+  - `frontend/agv-frontend/src/locales/en.js`
+  - `frontend/agv-frontend/src/locales/ja.js`
+- 建议人工复测：
+  - 在企业端输入 `(0,0) -> (9,7)`，点击算法对比。
+  - 如果直线路径可达但没有车辆能到达起点，卡片应显示黄色边框和“可达（暂无车辆到起点）”。
+  - 如果创建或移动一台可到达起点的空闲 AGV，再次对比时应切换为绿色“可派车”。
+
 ## 2026-04-22 Post-Defense Productization Reset
 
 - 用户确认毕业设计答辩已经通过。

@@ -6497,7 +6497,19 @@ function formatCompareStageLengths(result) {
 
 function formatCompareResultStatus(result) {
   if (!result) return ''
-  return result.reachable ? algorithmCompareLocale.value.reachable : algorithmCompareLocale.value.unreachable
+  if (!result.reachable) return algorithmCompareLocale.value.unreachable
+  if (typeof result.dispatch_reachable !== 'undefined' && !result.dispatch_reachable) {
+    return `${algorithmCompareLocale.value.reachable}（${algorithmCompareLocale.value.dispatchPendingShort}）`
+  }
+  if (result.dispatch_reachable) return algorithmCompareLocale.value.schedulable
+  return algorithmCompareLocale.value.reachable
+}
+
+function compareResultCardTone(result) {
+  if (!result?.reachable) return 'unreachable'
+  if (typeof result.dispatch_reachable !== 'undefined' && !result.dispatch_reachable) return 'dispatch-blocked'
+  if (result.dispatch_reachable) return 'schedulable'
+  return 'reachable'
 }
 
 function formatCompareDispatchStart(result) {
@@ -17835,6 +17847,7 @@ const algorithmCompareWorkspaceBindings = {
   compareResultBadgeText,
   applyComparedAlgorithm,
   formatCompareResultStatus,
+  compareResultCardTone,
   formatCompareDispatchStart,
   algorithmCompareLocale,
   formatCompareStageLengths,

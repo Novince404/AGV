@@ -6242,9 +6242,30 @@ h2 {
   gap: 6px;
 }
 
+.algorithm-compare-card.schedulable {
+  border-color: rgba(57, 125, 74, 0.34);
+  background: rgba(236, 247, 239, 0.9);
+}
+
+.algorithm-compare-card.dispatch-blocked {
+  border-color: rgba(201, 135, 31, 0.72);
+  background: linear-gradient(180deg, rgba(255, 248, 231, 0.96), rgba(255, 255, 255, 0.86));
+  box-shadow: 0 0 0 1px rgba(201, 135, 31, 0.14), 0 10px 22px rgba(201, 135, 31, 0.08);
+}
+
+.algorithm-compare-card.unreachable {
+  border-color: rgba(191, 174, 151, 0.82);
+  background: rgba(250, 247, 241, 0.82);
+}
+
 .algorithm-compare-card.active {
   border-color: #4f6d8f;
   box-shadow: 0 0 0 1px rgba(79, 109, 143, 0.18);
+}
+
+.algorithm-compare-card.dispatch-blocked.active {
+  border-color: rgba(201, 135, 31, 0.82);
+  box-shadow: 0 0 0 1px rgba(201, 135, 31, 0.22), 0 10px 22px rgba(201, 135, 31, 0.08);
 }
 
 .algorithm-compare-card.recommended {
@@ -6256,6 +6277,22 @@ h2 {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+}
+
+.algorithm-compare-status {
+  font-weight: 700;
+}
+
+.algorithm-compare-status.schedulable {
+  color: #2f7a43;
+}
+
+.algorithm-compare-status.dispatch-blocked {
+  color: #a36413;
+}
+
+.algorithm-compare-status.unreachable {
+  color: #8c3f2f;
 }
 
 @media (max-width: 560px) {

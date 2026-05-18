@@ -6,10 +6,13 @@
       v-for="entry in compareResultEntries"
       :key="entry[0]"
       class="algorithm-compare-card"
-      :class="{
-        active: algorithm === entry[0],
-        recommended: recommendedCompareAlgorithm === entry[0]
-      }"
+      :class="[
+        compareResultCardTone(entry[1]),
+        {
+          active: algorithm === entry[0],
+          recommended: recommendedCompareAlgorithm === entry[0]
+        }
+      ]"
     >
       <div class="algorithm-compare-card-head">
         <strong>{{ algorithmText(entry[0]) }}</strong>
@@ -17,7 +20,7 @@
           {{ compareResultBadgeText(entry[0]) }}
         </button>
       </div>
-      <div class="task-line">
+      <div class="task-line algorithm-compare-status" :class="compareResultCardTone(entry[1])">
         {{ formatCompareResultStatus(entry[1]) }}
       </div>
       <div class="task-line">
