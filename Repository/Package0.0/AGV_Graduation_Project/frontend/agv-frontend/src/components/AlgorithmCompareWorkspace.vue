@@ -28,6 +28,14 @@
         {{ algorithmCompareLocale.stages }}:
         {{ formatCompareStageLengths(entry[1]) || '--' }}
       </div>
+      <div
+        v-if="formatCompareDispatchStart(entry[1])"
+        class="task-line"
+        :class="{ 'task-reason': entry[1].reachable && !entry[1].dispatch_reachable }"
+      >
+        {{ algorithmCompareLocale.dispatchStart }}:
+        {{ formatCompareDispatchStart(entry[1]) }}
+      </div>
       <div v-if="entry[1].failed_stage_index !== null" class="task-line task-reason">
         {{ algorithmCompareLocale.failedStage }}: {{ Number(entry[1].failed_stage_index) + 1 }}
       </div>

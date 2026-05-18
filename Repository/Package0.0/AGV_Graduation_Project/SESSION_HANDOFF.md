@@ -60,6 +60,41 @@
   - `npm run build`
   - `git diff --check`
 
+## 2026-05-05 Algorithm Compare Scope Fix
+
+- 修复个人端和企业端“算法对比”与实际派车结果不一致的问题。
+- 问题表现：
+  - 单段任务输入 `(0,0) -> (9,7)` 后点击算法对比，`simple` 和 `A*` 都显示不可达。
+  - 但同样路线创建任务并派车可以正常到达。
+- 根因：
+  - 前端 `/schedule/compare_path` 请求只带 `Content-Type`，没有带当前登录 token。
+  - 后端请求作用域因此可能落到 `guest:default`，读取的是默认/游客地图，而不是当前个人或企业账号的地图。
+  - 实际派车 `/schedule/with_path` 会带授权头，所以使用的是正确账号作用域。
+- 修复：
+  - `compareCurrentRoute()` 改为使用 `buildAuthorizedJsonHeaders()`。
+  - 算法对比现在会和派车链路读取同一套地图尺寸、障碍物、异形有效区和企业拓扑。
+- 建议人工复测：
+  - 个人端：输入 `(0,0) -> (9,7)` 后点击算法对比，再创建/派发同一路线，结果应一致。
+  - 企业端：在当前企业地图中重复同样操作，确认对比不再落到游客默认地图。
+
+### 2026-05-05 Algorithm Compare Dispatch Readiness
+
+- 继续修复“算法对比显示可达，但派送提示没有 AGV 可到达任务起点”的体验不一致。
+- 设计口径：
+  - 路线可达：只表示任务起点到终点可走。
+  - 可派送：还必须有至少一台空闲/回仓 AGV 能从当前位置到达任务起点。
+- 后端 `/schedule/compare_path` 现在每个算法结果额外返回：
+  - `dispatch_reachable`
+  - `dispatch_distance`
+  - `dispatch_agv_id`
+  - `dispatch_origin`
+  - `idle_agv_count`
+- 前端算法对比卡片新增“车辆到起点”一行：
+  - 若有车可到起点：显示 `AGV #x 可到达起点，距离 n`。
+  - 若路线可达但无车可到起点：显示 `当前没有空闲/回仓 AGV 可到达任务起点`。
+  - 若无空闲/回仓车辆：显示 `当前没有空闲或回仓中的 AGV`。
+- 推荐算法现在优先选择“任务路线可达且车辆能到起点”的算法，避免推荐一个实际无法派送的算法。
+
 ## 2026-04-22 Post-Defense Productization Reset
 
 - 用户确认毕业设计答辩已经通过。

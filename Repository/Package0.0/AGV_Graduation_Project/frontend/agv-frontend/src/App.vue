@@ -5990,9 +5990,11 @@ const recommendedCompareAlgorithm = computed(() => {
   if (!results) return null
   const simple = results.simple
   const astar = results.astar
-  if (simple?.reachable && !astar?.reachable) return 'simple'
-  if (!simple?.reachable && astar?.reachable) return 'astar'
-  if (!simple?.reachable && !astar?.reachable) return null
+  const simpleSchedulable = Boolean(simple?.reachable && simple?.dispatch_reachable)
+  const astarSchedulable = Boolean(astar?.reachable && astar?.dispatch_reachable)
+  if (simpleSchedulable && !astarSchedulable) return 'simple'
+  if (!simpleSchedulable && astarSchedulable) return 'astar'
+  if (!simpleSchedulable && !astarSchedulable) return null
   if ((astar?.total_length ?? Number.POSITIVE_INFINITY) < (simple?.total_length ?? Number.POSITIVE_INFINITY)) {
     return 'astar'
   }
@@ -6496,6 +6498,20 @@ function formatCompareStageLengths(result) {
 function formatCompareResultStatus(result) {
   if (!result) return ''
   return result.reachable ? algorithmCompareLocale.value.reachable : algorithmCompareLocale.value.unreachable
+}
+
+function formatCompareDispatchStart(result) {
+  if (!result || typeof result.dispatch_reachable === 'undefined') return ''
+  if (Number(result.idle_agv_count ?? 0) <= 0) {
+    return algorithmCompareLocale.value.dispatchNoIdle
+  }
+  if (result.dispatch_reachable) {
+    return formatInlineMessage(algorithmCompareLocale.value.dispatchReady, {
+      agv: result.dispatch_agv_id ?? '--',
+      distance: result.dispatch_distance ?? '--'
+    })
+  }
+  return algorithmCompareLocale.value.dispatchBlocked
 }
 
 function compareResultBadgeText(key) {
@@ -14382,6 +14398,10 @@ function buildCompareSnapshot() {
       reachable_text: formatCompareResultStatus(result),
       total_length: result?.total_length ?? null,
       failed_stage_index: result?.failed_stage_index ?? null,
+      dispatch_reachable: Boolean(result?.dispatch_reachable),
+      dispatch_distance: result?.dispatch_distance ?? null,
+      dispatch_agv_id: result?.dispatch_agv_id ?? null,
+      idle_agv_count: result?.idle_agv_count ?? null,
       failed_stage_label:
         result?.failed_stage_index === null || result?.failed_stage_index === undefined
           ? ''
@@ -14502,7 +14522,7 @@ async function compareCurrentRoute() {
   try {
     const res = await fetch(`${API_BASE}/schedule/compare_path`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: buildAuthorizedJsonHeaders(),
       body: JSON.stringify(payload)
     })
     const data = await res.json()
@@ -17815,6 +17835,7 @@ const algorithmCompareWorkspaceBindings = {
   compareResultBadgeText,
   applyComparedAlgorithm,
   formatCompareResultStatus,
+  formatCompareDispatchStart,
   algorithmCompareLocale,
   formatCompareStageLengths,
   authCanExperimentWrite,

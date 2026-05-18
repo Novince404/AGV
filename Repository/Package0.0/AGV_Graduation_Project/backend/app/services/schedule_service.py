@@ -409,6 +409,7 @@ def _compare_algorithm(
 ):
     stage_results = []
     total_length = 0
+    dispatch_readiness = _compare_dispatch_to_start(algorithm, stages, grid_cols, grid_rows)
 
     for stage in stages:
         path = plan_path(
@@ -428,6 +429,7 @@ def _compare_algorithm(
                 "reachable": False,
                 "total_length": None,
                 "failed_stage_index": stage["index"],
+                **dispatch_readiness,
                 "stage_results": [
                     *stage_results,
                     {
@@ -455,7 +457,58 @@ def _compare_algorithm(
         "reachable": True,
         "total_length": total_length,
         "failed_stage_index": None,
+        **dispatch_readiness,
         "stage_results": stage_results,
+    }
+
+
+def _compare_dispatch_to_start(
+    algorithm: str,
+    stages: list[dict[str, Any]],
+    grid_cols: int,
+    grid_rows: int,
+) -> dict[str, Any]:
+    if not stages:
+        return {
+            "dispatch_reachable": False,
+            "dispatch_distance": None,
+            "dispatch_agv_id": None,
+            "dispatch_origin": None,
+            "idle_agv_count": 0,
+        }
+
+    first_stage = stages[0]
+    idle_agvs = _get_idle_agvs()
+    best_agv = None
+    best_distance = None
+    for agv in idle_agvs:
+        distance = _path_length(
+            algorithm,
+            agv.x,
+            agv.y,
+            first_stage["start_x"],
+            first_stage["start_y"],
+            grid_cols,
+            grid_rows,
+            request_priority=0,
+            agv_id=agv.id,
+        )
+        if distance is None:
+            continue
+        if best_distance is None or (distance, agv.id) < (best_distance, best_agv.id):
+            best_distance = distance
+            best_agv = agv
+
+    return {
+        "dispatch_reachable": best_agv is not None,
+        "dispatch_distance": best_distance,
+        "dispatch_agv_id": int(best_agv.id) if best_agv is not None else None,
+        "dispatch_origin": (
+            {"x": int(best_agv.x), "y": int(best_agv.y)}
+            if best_agv is not None
+            else None
+        ),
+        "idle_agv_count": len(idle_agvs),
     }
 
 
