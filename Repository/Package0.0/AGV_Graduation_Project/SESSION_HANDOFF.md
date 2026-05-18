@@ -1,5 +1,22 @@
 # AGV Graduation Project Session Handoff
 
+## 2026-05-18 Repackage And Organize
+
+- 新增可复用流程文档：`重新打包并整理流程.md`。
+- 后续用户说“重新打包并整理”时，按该文档执行旧版本归档、最新版本中文目录整理、综合版和企业端独立客户端重新封装。
+- 本轮已完成一次正式整理：
+  - 旧封装目录移动到 `dist/旧版本/归档_20260518_2256/`。
+  - 最新综合版移动到 `dist/最新版本/AGV调度系统_综合版_20260518/`。
+  - 最新企业端独立客户端移动到 `dist/最新版本/AGV企业端独立客户端_20260518/`。
+- 本轮已执行：
+  - `cmd /c build_windows_package.bat`
+  - `cmd /c build_enterprise_windows_package.bat`
+- 本轮检查：
+  - 两个最新包均包含 `backend.exe`、启动脚本、`data/` 和 `demo/`。
+  - 企业端独立客户端额外包含 `docs/`。
+  - 未自动双击启动 `.bat`，建议用户人工启动确认浏览器、登录页、地图和企业设置入口。
+- 记录文档：`docs/release/REPACKAGE_LOG_20260518.md`。
+
 ## 2026-04-28 AI Materials ComfyUI UX Closure
 
 - 本轮按“AI 素材板块体验收口优化计划 v1”完成可用性增强，没有重做 ComfyUI 主链路，也没有把生成结果接入地图业务数据。
