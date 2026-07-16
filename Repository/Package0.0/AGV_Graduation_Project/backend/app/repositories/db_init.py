@@ -25,6 +25,9 @@ _SCOPED_ID_COLUMNS: tuple[tuple[str, str, bool], ...] = (
 
 def _ensure_scoped_string_id_capacity() -> None:
     engine = get_engine()
+    if not engine.dialect.name.startswith("mysql"):
+        return
+
     inspector = inspect(engine)
     table_names = set(inspector.get_table_names())
     ddl_statements: list[str] = []
@@ -48,15 +51,12 @@ def _ensure_scoped_string_id_capacity() -> None:
         return
 
     with engine.begin() as connection:
-        is_mysql = connection.dialect.name.startswith("mysql")
-        if is_mysql:
-            connection.execute(text("SET FOREIGN_KEY_CHECKS=0"))
+        connection.execute(text("SET FOREIGN_KEY_CHECKS=0"))
         try:
             for statement in ddl_statements:
                 connection.execute(text(statement))
         finally:
-            if is_mysql:
-                connection.execute(text("SET FOREIGN_KEY_CHECKS=1"))
+            connection.execute(text("SET FOREIGN_KEY_CHECKS=1"))
 
 
 def create_all_tables() -> None:

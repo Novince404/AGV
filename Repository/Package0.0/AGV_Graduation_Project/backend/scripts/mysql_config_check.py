@@ -5,6 +5,8 @@ import os
 import sys
 from pathlib import Path
 
+from sqlalchemy.engine import make_url
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BACKEND_DIR = REPO_ROOT / "backend"
@@ -14,11 +16,17 @@ os.environ["AGV_DATA_BACKEND"] = "mysql"
 
 from app.core.database import check_database_connection  # noqa: E402
 from app.core.settings import get_settings  # noqa: E402
-from app.repositories.db_init import create_all_tables  # noqa: E402
 
 
 def print_line(label: str, value: object) -> None:
     print(f"{label}: {value}")
+
+
+def mask_database_url(database_url: str) -> str:
+    try:
+        return make_url(database_url).render_as_string(hide_password=True)
+    except Exception:
+        return database_url
 
 
 def main() -> int:
@@ -27,7 +35,7 @@ def main() -> int:
 
     print("=== AGV MySQL Config Check ===")
     print_line("backend", settings.data_backend)
-    print_line("database_url", settings.database_url)
+    print_line("database_url", mask_database_url(settings.database_url))
     print_line("auto_create", settings.database_auto_create)
 
     if settings.data_backend != "mysql":
@@ -49,8 +57,15 @@ def main() -> int:
     if connected:
         print("connection: success")
         if settings.database_auto_create:
-            create_all_tables()
-            print("tables: auto-create completed")
+            try:
+                from app.repositories.db_init import create_all_tables
+
+                create_all_tables()
+                print("tables: auto-create completed")
+            except Exception as exc:  # pragma: no cover - startup diagnostic path
+                print("ERROR: mysql table auto-create failed")
+                print_line("detail", exc)
+                ok = False
         else:
             print("tables: auto-create disabled")
     else:

@@ -20,6 +20,18 @@
 - Improved the enterprise registration -> approval -> console onboarding chain with draft persistence, approval-note drafts, recent-review snapshots, status-progress cards, copy helpers, reapply shortcuts, and synchronized prompts across auth, enterprise settings, and platform approval dialogs.
 - Improved frontend packaging and runtime loading by splitting heavy dashboard panels into async components and adding stable Vite chunking for Vue, locale bundles, and `ComfyUI` templates so the previous `chunk > 500kB` warning no longer blocks release validation.
 
+### Fixed
+- Restricted scoped string-ID capacity migration DDL to MySQL so SQLite startup no longer enters a dialect-specific schema path.
+- Made scoped and legacy map-layout reads tolerate duplicate historical rows while still reporting a clear error when no layout exists.
+- Expanded frontend API-base detection to the alternate Vite development and preview ports `5174` and `4174`.
+- Updated the topology trunk-lane smoke actor and AGV creation path to follow current enterprise scope and point-placement rules.
+- Removed a task-completion observation race by returning the AGV to idle before publishing the task's finished state.
+
+### Security
+- Masked database passwords in the MySQL configuration diagnostic output.
+- Added ignore rules for backend logs and repository-root personal thesis, defense, database, environment, dependency, and build materials.
+- Added public-facing Chinese and English README files using only reviewed, non-personal screenshots.
+
 ### Verified
 - Verified locale parity for `en / zh / ja` against the current phase-three enterprise/onboarding surface with no missing keys remaining.
 - Verified the current frontend phase-three baseline with `cmd /c npm run lint` and `cmd /c npm run build` after the latest enterprise follow-up consistency pass.

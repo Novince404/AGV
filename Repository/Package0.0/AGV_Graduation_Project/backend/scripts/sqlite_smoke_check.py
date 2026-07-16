@@ -1023,7 +1023,8 @@ def assert_topology_trunk_lane_behavior() -> None:
     actor = {
         "id": "smoke_topology_trunk",
         "username": "smoke_topology_trunk",
-        "role": "personal",
+        "role": "enterprise_admin",
+        "organization_id": "smoke_topology_trunk_org",
     }
     trunk_scope = build_scope_key_from_actor(actor)
 
@@ -1062,7 +1063,7 @@ def assert_topology_trunk_lane_behavior() -> None:
             "nearby direct route should stay on the normal grid when the trunk edge is not beneficial",
         )
 
-        runtime_agv = agv_service.create_agv(1, 1, actor=actor)["agv"]
+        runtime_agv = agv_service.create_agv(None, None, point_id="a", actor=actor)["agv"]
         runtime_task_id = int(
             task_service.create_task(
                 TaskCreateRequest(
