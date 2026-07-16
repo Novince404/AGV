@@ -84,7 +84,9 @@ Open `http://localhost:5173`. Memory mode is the default and needs no database s
 ## Project status
 
 - Latest stable tag: `v2.0.0`
-- Current mainline: active post-`v2.0.0` development
+- Latest prerelease: [`v3.0.0-beta.1`](https://github.com/Novince404/AGV/releases/tag/v3.0.0-beta.1)
+- Current mainline: the `3.x` productization beta covering identity and role governance, tenant isolation, enterprise topology, continuous motion, dynamic avoidance, and the standalone enterprise client
+- Changes since the stable baseline: [compare `v2.0.0...main`](https://github.com/Novince404/AGV/compare/v2.0.0...main)
 - Validated primarily as a Windows-based graduation-project simulation and demo system
 
 This repository intentionally excludes local environment files, databases, logs, dependencies, build artifacts, and personal thesis/defense materials. Seeded demo users and defaults are for local evaluation only. The project has not been certified for real industrial or safety-critical deployment.

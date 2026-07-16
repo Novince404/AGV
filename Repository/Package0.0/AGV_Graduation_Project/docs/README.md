@@ -10,6 +10,12 @@
 - `demo/`：演示脚本、个人/企业动态避让演示、快速启动、SQLite 演示和故障排查。
 - `release/`：Windows 打包、版本策略和发布材料。
 
+当前产品化预发布版本为 `v3.0.0-beta.1`：
+
+- 版本说明：`release/RELEASE_DRAFT_v3.0.0-beta.1.md`
+- 发布操作：`release/RELEASE_UPLOAD_v3.0.0-beta.1.md`
+- 版本策略：`release/RELEASE_STRATEGY.md`
+
 ## 根目录保留原则
 
 根目录只保留高频入口和协作必读文件。常用启动器保留在根目录，不常用开发脚本移动到 `tools/windows/`。
