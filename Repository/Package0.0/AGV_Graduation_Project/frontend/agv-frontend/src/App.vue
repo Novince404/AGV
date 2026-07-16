@@ -102,7 +102,7 @@ const API_BASE = (() => {
   }
   if (typeof window !== 'undefined') {
     const { origin, protocol, hostname, port } = window.location
-    const isDevFrontendPort = port === '5173' || port === '4173'
+    const isDevFrontendPort = port === '5173' || port === '5174' || port === '4173' || port === '4174'
     if (
       origin &&
       /^https?:$/i.test(protocol) &&

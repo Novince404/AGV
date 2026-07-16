@@ -87,6 +87,14 @@ def _legacy_layout_query():
     )
 
 
+def _first_layout(session, scope_key: str) -> MapLayoutEntity | None:
+    return session.execute(_query_layout(scope_key)).scalars().first()
+
+
+def _first_legacy_layout(session) -> MapLayoutEntity | None:
+    return session.execute(_legacy_layout_query()).scalars().first()
+
+
 def _clone_topology(topology: dict[str, object] | None) -> dict[str, object]:
     topology = topology or {}
     return {
@@ -148,10 +156,10 @@ def _build_layout_state(entity: MapLayoutEntity) -> dict[str, object]:
 
 def _migrate_legacy_layout(scope_key: str) -> None:
     with get_db_session() as session:
-        scoped = session.execute(_query_layout(scope_key)).scalar_one_or_none()
+        scoped = _first_layout(session, scope_key)
         if scoped is not None:
             return
-        legacy = session.execute(_legacy_layout_query()).scalar_one_or_none()
+        legacy = _first_legacy_layout(session)
         if legacy is None:
             return
         legacy.scope_key = scope_key
@@ -161,7 +169,7 @@ def _migrate_legacy_layout(scope_key: str) -> None:
 def _persist_layout_snapshot(layout_state: dict[str, object]) -> None:
     scope_key = _current_scope()
     with get_db_session() as session:
-        entity = session.execute(_query_layout(scope_key)).scalar_one_or_none()
+        entity = _first_layout(session, scope_key)
         if entity is None:
             entity = MapLayoutEntity(scene_key="default", scope_key=scope_key)
 
@@ -212,7 +220,7 @@ def _seed_defaults_if_empty(
     scope_key: str,
 ) -> None:
     with get_db_session() as session:
-        entity = session.execute(_query_layout(scope_key)).scalar_one_or_none()
+        entity = _first_layout(session, scope_key)
         if entity is not None:
             return
 
@@ -236,7 +244,9 @@ def _seed_defaults_if_empty(
 
 def _load_cache(scope_key: str) -> None:
     with get_db_session() as session:
-        entity = session.execute(_query_layout(scope_key)).scalar_one()
+        entity = _first_layout(session, scope_key)
+        if entity is None:
+            raise RuntimeError(f"map layout not found for scope {scope_key!r}")
     _layout_cache_by_scope[scope_key] = _build_layout_state(entity)
 
 

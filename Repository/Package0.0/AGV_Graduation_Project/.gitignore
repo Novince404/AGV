@@ -6,6 +6,7 @@ __pycache__/
 venv/
 backend/venv/
 backend/.env
+backend/logs/
 
 frontend/agv-frontend/node_modules/
 frontend/agv-frontend/dist/

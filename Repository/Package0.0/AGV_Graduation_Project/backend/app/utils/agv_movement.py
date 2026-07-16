@@ -1740,11 +1740,11 @@ def move_agv(
 
             if not advance_task_stage(task):
                 clear_task_paths(task)
-                task.status = "finished"
-                task.finished_at = now_iso()
                 agv.status = "idle"
                 agv.task_id = None
                 agv.clear_motion()
+                task.status = "finished"
+                task.finished_at = now_iso()
                 return
 
             next_stage = get_current_stage(task)

@@ -2,11 +2,14 @@
 
 这是一个 AGV 调度平台，包含个人端、企业端、平台治理、地图配置、任务调度、路径规划、数据库持久化和 ComfyUI 素材生成能力。项目已通过毕业设计答辩，当前主线转向产品化收口和系统设计增强。
 
+仓库首页、截图和快速安装说明见 [根目录 README](../../../README.md)，英文说明见 [README.en.md](../../../README.en.md)。
+
 ## 常用入口
 
 - 个人端演示：双击 `start_agv.bat`。
 - 企业独立客户端演示：双击 `start_enterprise_client.bat`。
-- MySQL 开发模式：双击 `run_mysql_dev.bat`。
+- MySQL 配置检查：运行 `tools\windows\run_mysql_check.bat`。
+- MySQL 后端守护模式：运行 `tools\windows\run_mysql_backend_supervised.bat`。
 - Windows 打包：运行 `build_windows_package.bat` 或 `build_enterprise_windows_package.bat`。
 
 ## 目录导航
