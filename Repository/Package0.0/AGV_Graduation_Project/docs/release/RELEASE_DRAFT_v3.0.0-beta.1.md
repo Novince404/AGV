@@ -63,7 +63,7 @@
 
 ## License
 
-The source is available under the [PolyForm Noncommercial License 1.0.0](../../../../../LICENSE). Noncommercial learning, research, experimentation, testing, modification, and sharing are permitted under its terms. Commercial use requires prior written permission from the author.
+The source is available under the [PolyForm Noncommercial License 1.0.0](https://github.com/Novince404/AGV/blob/v3.0.0-beta.1/LICENSE). Noncommercial learning, research, experimentation, testing, modification, and sharing are permitted under its terms. Commercial use requires prior written permission from the author.
 
 ## Suggested GitHub Release fields
 
