@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Added
+- Added the PolyForm Noncommercial License 1.0.0 with clear Chinese and English terms for free noncommercial learning and research use; commercial use requires prior written permission.
 - Added the module-5 auth mainline foundation with seeded `personal / enterprise / admin` demo accounts plus backend `POST /auth/login`, `POST /auth/logout`, and `GET /auth/me` endpoints.
 - Added auth session models, repositories, schemas, security helpers, and frontend `useAuthSession.js` so login state can be restored from local storage and shown in the top toolbar.
 - Added `PROJECT_IMPLEMENTATION_PLAN_v3.md` and `PROJECT_IMPLEMENTATION_PLAN_v3.docx` to lock the new three-end split, platform-admin approval, `ComfyUI` bridge, and enterprise roadmap.

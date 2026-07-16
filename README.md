@@ -11,6 +11,7 @@
 ![Vue](https://img.shields.io/badge/Vue-3-4FC08D?logo=vuedotjs&logoColor=white)
 ![Database](https://img.shields.io/badge/Database-Memory%20%7C%20SQLite%20%7C%20MySQL-4479A1)
 ![Platform](https://img.shields.io/badge/Platform-Windows-0078D4?logo=windows&logoColor=white)
+[![License: PolyForm Noncommercial 1.0.0](https://img.shields.io/badge/License-PolyForm%20Noncommercial%201.0.0-6f42c1)](LICENSE)
 
 </div>
 
@@ -162,4 +163,9 @@ npm run dev
 
 ## 许可证
 
-本仓库尚未选定开源许可证。在 `LICENSE` 文件明确前，如需复制、修改或再发布代码，请先通过 GitHub 与维护者确认。
+本项目采用 [PolyForm Noncommercial License 1.0.0](LICENSE)：
+
+- 可免费用于非商业目的的学习、研究、实验和测试，并可按照许可证修改与分享。
+- 任何商业使用均须事先获得作者的书面许可。
+- 本仓库属于“源码公开（source-available）”，不属于 OSI 定义的开源软件。
+- 第三方依赖与组件仍分别受其各自许可证约束。

@@ -10,6 +10,7 @@
 ![FastAPI](https://img.shields.io/badge/FastAPI-backend-009688?logo=fastapi&logoColor=white)
 ![Vue](https://img.shields.io/badge/Vue-3-4FC08D?logo=vuedotjs&logoColor=white)
 ![Database](https://img.shields.io/badge/Database-Memory%20%7C%20SQLite%20%7C%20MySQL-4479A1)
+[![License: PolyForm Noncommercial 1.0.0](https://img.shields.io/badge/License-PolyForm%20Noncommercial%201.0.0-6f42c1)](LICENSE)
 
 </div>
 
@@ -101,4 +102,9 @@ Feedback and contributions are welcome through [GitHub Issues](https://github.co
 
 ## License
 
-An open-source license has not been selected yet. Until a `LICENSE` file is added, please contact the maintainer through GitHub before copying, modifying, or redistributing the code.
+This project is licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE):
+
+- You may use it free of charge for noncommercial learning, research, experimentation, and testing, and may modify and share it under the license terms.
+- Any commercial use requires the author's prior written permission.
+- This repository is source-available and is not Open Source under the OSI definition.
+- Third-party dependencies and components remain subject to their respective licenses.
