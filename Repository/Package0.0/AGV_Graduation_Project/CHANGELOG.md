@@ -2,8 +2,18 @@
 
 ## Unreleased
 
+No unreleased changes yet.
+
+## v3.0.0-beta.1 - 2026-07-17
+
 ### Added
 - Added the PolyForm Noncommercial License 1.0.0 with clear Chinese and English terms for free noncommercial learning and research use; commercial use requires prior written permission.
+- Added personal account registration and a platform account-governance workspace with account lifecycle actions, bulk operations, login restrictions, audit summaries, and governance-first demo packaging.
+- Added enterprise tenant isolation, member management, role-aware workspaces, enterprise-internal requests, and platform bug-feedback flows.
+- Added the enterprise topology foundation with nodes, directed edges, stations, parking/charging nodes, topology editing, pure-topology view, and runtime topology cues.
+- Added continuous edge-based AGV motion, topology conflict handling, trunk-lane routing, and the enterprise standalone client delivery flow.
+- Added battery and autonomy behavior covering runtime drain, charging thresholds, station capacity, automatic charging/release, and low-battery safeguards.
+- Added personal-grid and enterprise-topology dynamic avoidance, segment locking, yield/replan feedback, demo assets, and an enterprise avoidance demo assistant.
 - Added the module-5 auth mainline foundation with seeded `personal / enterprise / admin` demo accounts plus backend `POST /auth/login`, `POST /auth/logout`, and `GET /auth/me` endpoints.
 - Added auth session models, repositories, schemas, security helpers, and frontend `useAuthSession.js` so login state can be restored from local storage and shown in the top toolbar.
 - Added `PROJECT_IMPLEMENTATION_PLAN_v3.md` and `PROJECT_IMPLEMENTATION_PLAN_v3.docx` to lock the new three-end split, platform-admin approval, `ComfyUI` bridge, and enterprise roadmap.
@@ -13,6 +23,9 @@
 - Added the enterprise three-role workspace shell with a dedicated enterprise settings dialog, six role-aware tabs, enterprise quick actions, enterprise application follow-up cards, and platform-admin approval follow-up cards.
 
 ### Improved
+- Improved enterprise map editing with irregular-grid controls, profile import, topology-aware placement, role-specific navigation, and clearer runtime overlays.
+- Improved the standalone enterprise package, root launchers, backend rebuild flow, login stability, scoped data reuse, and task-path validation.
+- Improved dynamic-avoidance observability with live status badges, conflict/yield cues, topology rerouting, and repeatable demo guidance.
 - Improved the top toolbar with a compact identity badge, sign-in panel, demo-account quick fill, and localized auth messages across Chinese, English, and Japanese.
 - Improved auth resilience under mixed database setups by falling back to the in-memory auth store when the SQL auth store is unavailable, so the login mainline can still be exercised during this phase.
 - Improved the auth role model by normalizing legacy `enterprise` -> `enterprise_admin` and `admin` -> `platform_admin`, while extending `/auth/me` with `account_status`, `organization_id`, and `organization_name`.
@@ -22,6 +35,9 @@
 - Improved frontend packaging and runtime loading by splitting heavy dashboard panels into async components and adding stable Vite chunking for Vue, locale bundles, and `ComfyUI` templates so the previous `chunk > 500kB` warning no longer blocks release validation.
 
 ### Fixed
+- Fixed tenant and account switching so scoped map, AGV movement threads, storage identifiers, and imported task dispatch retain the active enterprise scope.
+- Fixed topology deadlocks, mid-corridor access and exits, route weights, rerouting, station capacity, and autonomy-motion edge cases.
+- Fixed depleted-battery reset behavior, packaged-enterprise runtime paths, feedback entry visibility, and enterprise login/task startup regressions.
 - Restricted scoped string-ID capacity migration DDL to MySQL so SQLite startup no longer enters a dialect-specific schema path.
 - Made scoped and legacy map-layout reads tolerate duplicate historical rows while still reporting a clear error when no layout exists.
 - Expanded frontend API-base detection to the alternate Vite development and preview ports `5174` and `4174`.
@@ -34,6 +50,7 @@
 - Added public-facing Chinese and English README files using only reviewed, non-personal screenshots.
 
 ### Verified
+- Verified the prerelease baseline with backend compilation, the full SQLite smoke suite, frontend ESLint and production build, and the enterprise avoidance demo smoke test.
 - Verified locale parity for `en / zh / ja` against the current phase-three enterprise/onboarding surface with no missing keys remaining.
 - Verified the current frontend phase-three baseline with `cmd /c npm run lint` and `cmd /c npm run build` after the latest enterprise follow-up consistency pass.
 
