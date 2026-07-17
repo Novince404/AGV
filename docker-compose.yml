@@ -1,0 +1,143 @@
+name: agv-trial
+
+# The API and scheduler deliberately use the same immutable image but separate
+# processes. They coordinate through persistent command/event tables and a
+# database lease, so only one scheduler can lead a deployment at a time.
+x-agv-runtime: &agv-runtime
+  AGV_APP_ENV: trial
+  AGV_DATA_BACKEND: mysql
+  AGV_DATABASE_URL: mysql+pymysql://agv:${AGV_MYSQL_PASSWORD}@mysql:3306/agv_dispatch?charset=utf8mb4
+  AGV_DATABASE_AUTO_CREATE: "false"
+  AGV_DATABASE_ECHO: "false"
+  AGV_AUTH_DEMO_USERS_ENABLED: "false"
+  AGV_BOOTSTRAP_ADMIN_USERNAME: ${AGV_BOOTSTRAP_ADMIN_USERNAME}
+  AGV_BOOTSTRAP_ADMIN_PASSWORD: ${AGV_BOOTSTRAP_ADMIN_PASSWORD}
+  AGV_AUTH_COOKIE_SECURE: ${AGV_AUTH_COOKIE_SECURE:-false}
+  AGV_CSRF_ENABLED: "true"
+  AGV_CORS_ALLOW_ORIGINS: ${AGV_CORS_ALLOW_ORIGINS:-http://localhost:8000,http://127.0.0.1:8000}
+  AGV_CORS_ALLOW_ORIGIN_REGEX: ""
+  AGV_FRONTEND_BASE_URL: ${AGV_FRONTEND_BASE_URL:-http://localhost:8000}
+  AGV_LEGACY_API_ENABLED: "true"
+  AGV_OIDC_ENABLED: ${AGV_OIDC_ENABLED:-false}
+  AGV_OIDC_ISSUER_URL: ${AGV_OIDC_ISSUER_URL:-http://agv-keycloak.localhost:8080/realms/agv}
+  AGV_OIDC_CLIENT_ID: ${AGV_OIDC_CLIENT_ID:-agv-web}
+  # The supplied Keycloak realm is a public Authorization Code + PKCE client.
+  # Leave this empty unless the selected provider uses a confidential client.
+  AGV_OIDC_CLIENT_SECRET: ${AGV_OIDC_CLIENT_SECRET:-}
+  AGV_OIDC_STATE_SECRET: ${AGV_OIDC_STATE_SECRET}
+  AGV_SERVE_FRONTEND_DIST: "true"
+  AGV_FRONTEND_DIST_DIR: /app/frontend/dist
+
+services:
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: agv_dispatch
+      MYSQL_USER: agv
+      MYSQL_PASSWORD: ${AGV_MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${AGV_MYSQL_ROOT_PASSWORD}
+    command: ["mysqld", "--character-set-server=utf8mb4", "--collation-server=utf8mb4_0900_ai_ci"]
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p$$MYSQL_ROOT_PASSWORD || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    networks: [agv_internal]
+
+  migrate:
+    image: agv-trial:${AGV_VERSION:-dev}
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        AGV_VERSION: ${AGV_VERSION:-dev}
+    restart: "no"
+    environment:
+      <<: *agv-runtime
+      AGV_SCHEDULER_V3_ENABLED: "false"
+      AGV_MYSQL_BACKUP_CONFIRMED: ${AGV_MYSQL_BACKUP_CONFIRMED:-no}
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        if [ "$$AGV_MYSQL_BACKUP_CONFIRMED" != "yes" ]; then
+          echo "Refusing migration: set AGV_MYSQL_BACKUP_CONFIRMED=yes only after a verified backup (or for an empty new database)." >&2
+          exit 64
+        fi
+        exec python agv.py database upgrade --backup-confirmed
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks: [agv_internal]
+
+  api:
+    image: agv-trial:${AGV_VERSION:-dev}
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        AGV_VERSION: ${AGV_VERSION:-dev}
+    restart: unless-stopped
+    environment:
+      <<: *agv-runtime
+      AGV_SCHEDULER_V3_ENABLED: "false"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    ports:
+      - "${AGV_HTTP_PORT:-8000}:8000"
+    extra_hosts:
+      # Lets the API container reach the optional Keycloak profile at the same
+      # .localhost hostname used by the developer's browser.
+      - "agv-keycloak.localhost:host-gateway"
+    healthcheck:
+      test: ["CMD", "python", "-c", "from urllib.request import urlopen; assert urlopen('http://127.0.0.1:8000/health/ready', timeout=3).status == 200"]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    networks: [agv_internal]
+
+  scheduler:
+    image: agv-trial:${AGV_VERSION:-dev}
+    restart: unless-stopped
+    command: ["python", "scheduler_main.py"]
+    environment:
+      <<: *agv-runtime
+      AGV_SCHEDULER_V3_ENABLED: "true"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks: [agv_internal]
+
+  # Enable with `docker compose --profile oidc ...`. The imported realm is a
+  # reproducible acceptance fixture; it intentionally contains no users.
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.1
+    profiles: ["oidc"]
+    restart: unless-stopped
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${AGV_KEYCLOAK_ADMIN_USERNAME:-agv-local-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${AGV_KEYCLOAK_ADMIN_PASSWORD:-}
+      KC_HTTP_PORT: "8080"
+      KC_HOSTNAME: agv-keycloak.localhost
+      KC_HOSTNAME_STRICT: "false"
+    ports:
+      - "${AGV_KEYCLOAK_PORT:-8080}:8080"
+    volumes:
+      - keycloak_data:/opt/keycloak/data
+      - ./deploy/keycloak:/opt/keycloak/data/import:ro
+    networks: [agv_internal]
+
+networks:
+  agv_internal:
+    driver: bridge
+
+volumes:
+  mysql_data:
+  keycloak_data:

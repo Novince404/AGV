@@ -4,13 +4,15 @@
 
 **一个覆盖地图建模、任务调度、路径规划、多车避让、数据持久化与企业治理的毕业设计项目。**
 
-[English](README.en.md) · [快速开始](#快速开始) · [系统文档](Repository/Package0.0/AGV_Graduation_Project/docs/README.md) · [算法说明](Repository/Package0.0/AGV_Graduation_Project/docs/defense/DISPATCH_AND_ALGORITHMS.md)
+[English](README.en.md) · [快速开始](#快速开始) · [系统文档](docs/README.md) · [Windows 本地包](docs/release/PACKAGING_WINDOWS.md) · [Docker 企业试用](docs/deployment/DOCKER_TRIAL.md)
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-backend-009688?logo=fastapi&logoColor=white)
 ![Vue](https://img.shields.io/badge/Vue-3-4FC08D?logo=vuedotjs&logoColor=white)
 ![Database](https://img.shields.io/badge/Database-Memory%20%7C%20SQLite%20%7C%20MySQL-4479A1)
 ![Platform](https://img.shields.io/badge/Platform-Windows-0078D4?logo=windows&logoColor=white)
+[![CI](https://github.com/Novince404/AGV/actions/workflows/ci.yml/badge.svg)](https://github.com/Novince404/AGV/actions/workflows/ci.yml)
+[![License: PolyForm Noncommercial 1.0.0](https://img.shields.io/badge/License-PolyForm%20Noncommercial%201.0.0-6f42c1)](LICENSE)
 
 </div>
 
@@ -22,7 +24,7 @@
 
 仓储 AGV 系统同时涉及算法、业务规则、实时状态和工程交付。本项目希望用一个可运行、可解释、可演示的系统回答几个核心问题：任务如何分配给车辆，车辆如何绕开障碍与其他车辆，地图与任务如何长期保存，以及个人用户、企业用户和平台管理员如何在同一平台内协作。
 
-项目已经通过毕业设计答辩，当前 `main` 分支是 `v2.0.0` 之后持续演进的产品化主线。
+项目已经通过毕业设计答辩。`v2.0.0` 保留为最低可交付稳定版，当前产品化主线正在开发 `v3.0.0-beta.2` 企业试用工程基线。
 
 ## 核心能力
 
@@ -49,22 +51,25 @@
 
 ```mermaid
 flowchart LR
-    UI["Vue 3 前端<br/>地图、任务、治理、AI 工作台"] --> API["FastAPI 接口层"]
-    API --> SVC["业务服务层<br/>调度、地图、认证、状态"]
-    SVC --> PLAN["路径与运动<br/>Simple / A* / 拓扑 / 避让"]
-    SVC --> REPO["Repository 门面"]
-    REPO --> MEM["Memory"]
-    REPO --> SQLITE["SQLite"]
-    REPO --> MYSQL["MySQL"]
-    SVC -. 可选 .-> COMFY["ComfyUI"]
+    UI["Vue 3 前端<br/>地图、任务、角色工作台"] --> API["FastAPI<br/>/api/v1"]
+    API --> DB[("事务、命令与事件表<br/>MySQL / SQLite")]
+    DB --> SCH["确定性调度工作进程<br/>默认 100 ms 时间步"]
+    SCH --> ADAPTER["SimulationDeviceAdapter"]
+    ADAPTER --> SCH
+    SCH --> DB
+    DB --> SSE["SSE 事件流"]
+    SSE --> UI
+    OIDC["可选 OIDC / Keycloak"] --> API
 ```
 
-核心源码位于：
+`v3.0.0-beta.2` 将接口处理、持久化命令和仿真调度分开：当前只提供仿真设备适配器，**不连接真实 AGV、PLC、串口、MQTT 或安全急停链路**。完整边界见 [v3 企业试用架构](docs/architecture/V3_ENTERPRISE_ARCHITECTURE.md)。
+
+仓库已经整理为直接可运行的根目录结构：
 
 ```text
-Repository/Package0.0/AGV_Graduation_Project/
+AGV/
 ├─ backend/                    # FastAPI、调度、算法、Repository、数据库
-├─ frontend/agv-frontend/      # Vue 3 地图与操作界面
+├─ frontend/                   # Vue 3 地图与操作界面
 ├─ enterprise_client/          # 企业独立客户端说明与验收资料
 ├─ demo/                       # 可导入的地图、障碍物和任务示例
 ├─ docs/                       # 设计、演示、验收、发布与答辩文档
@@ -83,7 +88,7 @@ Repository/Package0.0/AGV_Graduation_Project/
 
 ```powershell
 git clone https://github.com/Novince404/AGV.git
-cd AGV\Repository\Package0.0\AGV_Graduation_Project
+cd AGV
 ```
 
 ### 2. 安装后端
@@ -98,10 +103,12 @@ backend\venv\Scripts\python.exe -m pip install -r backend\requirements.txt
 ### 3. 安装前端
 
 ```powershell
-cd frontend\agv-frontend
-npm install
-cd ..\..
+cd frontend
+npm ci
+cd ..
 ```
+
+`npm ci` 会按仓库锁定的前端依赖安装；只有在你有意修改依赖时才使用 `npm install` 更新锁文件。
 
 ### 4. 启动开发环境
 
@@ -115,42 +122,54 @@ cd backend
 
 ```powershell
 # 终端 2：前端（从项目根目录开始）
-cd frontend\agv-frontend
+cd frontend
 npm run dev
 ```
 
 打开 `http://localhost:5173`。依赖安装完成后，也可以直接运行 `tools\windows\run_dev.bat`。
 
+### 选择适合的运行方式
+
+- **本机学习、开发或答辩演示**：使用上面的默认 `memory` 模式。它可以启用演示账号，但仅适合受控的本机环境。
+- **Windows 单机 SQLite 演示/打包**：使用 [Windows 本地包说明](docs/release/PACKAGING_WINDOWS.md)。它适合单机持久化演示，不是多服务企业部署方案。
+- **Docker 企业试用**：使用 [Docker 企业试用部署](docs/deployment/DOCKER_TRIAL.md)。它使用 MySQL、独立调度进程和私有环境文件；先阅读 [迁移与备份恢复](docs/deployment/DATABASE_MIGRATIONS.md)。
+
 ## 数据模式
 
 | 模式 | 适用场景 | 额外依赖 |
 | --- | --- | --- |
-| `memory` | 快速体验、功能开发、临时演示 | 无 |
-| `sqlite` | 单机持久化、打包演示、回归检查 | 无独立数据库服务 |
-| `mysql` | 多会话与正式数据库联调 | MySQL 服务与本地凭据 |
+| `memory` | 快速体验、功能开发、本机演示；不用于企业试用 | 无 |
+| `sqlite` | 单机持久化、Windows 打包演示、回归检查 | 无独立数据库服务 |
+| `mysql` | Docker 企业试用与多会话数据库联调 | MySQL 服务与私有凭据 |
 
-详细配置见 [Database Notes](Repository/Package0.0/AGV_Graduation_Project/backend/README_DATABASE.md)。
+详细配置见 [Database Notes](backend/README_DATABASE.md)。
 
 ## 文档导航
 
-- [完整项目说明](Repository/Package0.0/AGV_Graduation_Project/README.md)
-- [代码结构](Repository/Package0.0/AGV_Graduation_Project/docs/defense/CODE_STRUCTURE.md)
-- [调度与算法](Repository/Package0.0/AGV_Graduation_Project/docs/defense/DISPATCH_AND_ALGORITHMS.md)
-- [数据库链路](Repository/Package0.0/AGV_Graduation_Project/docs/defense/DATABASE_FLOW.md)
-- [动态避让设计](Repository/Package0.0/AGV_Graduation_Project/docs/plans/DYNAMIC_AVOIDANCE_DESIGN_NOTE.md)
-- [Windows 打包](Repository/Package0.0/AGV_Graduation_Project/docs/release/PACKAGING_WINDOWS.md)
-- [Changelog](Repository/Package0.0/AGV_Graduation_Project/CHANGELOG.md)
+- [文档索引](docs/README.md)
+- [代码结构](docs/defense/CODE_STRUCTURE.md)
+- [调度与算法](docs/defense/DISPATCH_AND_ALGORITHMS.md)
+- [数据库链路](docs/defense/DATABASE_FLOW.md)
+- [动态避让设计](docs/plans/DYNAMIC_AVOIDANCE_DESIGN_NOTE.md)
+- [v3 企业试用架构](docs/architecture/V3_ENTERPRISE_ARCHITECTURE.md)
+- [Docker 企业试用部署](docs/deployment/DOCKER_TRIAL.md)
+- [数据库迁移、备份与恢复](docs/deployment/DATABASE_MIGRATIONS.md)
+- [企业试用安全基线](docs/security/TRIAL_SECURITY_BASELINE.md)
+- [Windows 打包](docs/release/PACKAGING_WINDOWS.md)
+- [Changelog](CHANGELOG.md)
 
 ## 版本状态
 
 - 最新稳定标签：`v2.0.0`
-- 当前主线：`post-v2.0.0` 持续开发版
-- 前端包版本仍保留为 `2.0.0`，下一次正式 Release 再统一调整版本号与变更记录
+- 最新已发布预览：[`v3.0.0-beta.1`](https://github.com/Novince404/AGV/releases/tag/v3.0.0-beta.1)
+- 当前开发版本：`v3.0.0-beta.2`，重点建立根级工程结构、版本化 API、数据库迁移、安全认证、自动化测试与企业交付基线
+- 版本差异：[比较 `v2.0.0...main`](https://github.com/Novince404/AGV/compare/v2.0.0...main)
 
 ## 安全与使用边界
 
 - 仓库只公开源码、示例数据和通用技术文档；本机 `.env`、数据库、日志、依赖、构建产物、论文和个人答辩材料不会提交。
-- 项目包含便于演示的种子账号与默认配置，它们不应直接用于生产环境。
+- 演示账号只应在 `AGV_APP_ENV=demo` 的本机演示环境中使用。企业试用或生产配置必须设置 `AGV_APP_ENV=trial` 或 `production`、保持 `AGV_AUTH_DEMO_USERS_ENABLED=false`，并创建唯一的本地恢复管理员。
+- 对外试用前还应使用 MySQL、完成可验证备份、配置精确 CORS 来源，并在 HTTPS 下启用安全 Cookie 和 CSRF；详见 [企业试用安全基线](docs/security/TRIAL_SECURITY_BASELINE.md)。
 - 本项目面向教学、研究与软件仿真，尚未经过真实工业设备和安全关键场景认证。
 - ComfyUI 是可选的展示增强模块，不参与核心调度决策。
 
@@ -158,8 +177,15 @@ npm run dev
 
 欢迎通过 [Issues](https://github.com/Novince404/AGV/issues) 提交问题、改进建议或使用反馈，也欢迎围绕多车协同、动态避障、设备协议、调度指标与可视化继续扩展。
 
+开始贡献前请阅读 [贡献指南](CONTRIBUTING.md)、[安全策略](SECURITY.md) 和 [版本路线图](ROADMAP.md)。
+
 如果这个项目对你的课程设计、毕业设计或 AGV 调度学习有帮助，欢迎点一个 Star，让更多人看到它。
 
 ## 许可证
 
-本仓库尚未选定开源许可证。在 `LICENSE` 文件明确前，如需复制、修改或再发布代码，请先通过 GitHub 与维护者确认。
+本项目采用 [PolyForm Noncommercial License 1.0.0](LICENSE)：
+
+- 可免费用于非商业目的的学习、研究、实验和测试，并可按照许可证修改与分享。
+- 任何商业使用均须事先获得作者的书面许可。
+- 本仓库属于“源码公开（source-available）”，不属于 OSI 定义的开源软件。
+- 第三方依赖与组件仍分别受其各自许可证约束。

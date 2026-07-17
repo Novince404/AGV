@@ -1,0 +1,5 @@
+# Reuse the release runtime lock so a Windows package is built from the same
+# dependency set validated by CI and Docker.
+-r requirements.lock
+pyinstaller
+altgraph
