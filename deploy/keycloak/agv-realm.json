@@ -1,0 +1,44 @@
+{
+  "realm": "agv",
+  "enabled": true,
+  "displayName": "AGV Local Acceptance Realm",
+  "registrationAllowed": false,
+  "rememberMe": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": true,
+  "clients": [
+    {
+      "clientId": "agv-web",
+      "name": "AGV Web Acceptance Client",
+      "description": "Local public Authorization Code + PKCE acceptance client.",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "implicitFlowEnabled": false,
+      "redirectUris": [
+        "http://localhost:8000/api/v1/auth/oidc/callback",
+        "http://127.0.0.1:8000/api/v1/auth/oidc/callback"
+      ],
+      "webOrigins": [
+        "http://localhost:8000",
+        "http://127.0.0.1:8000"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "+"
+      }
+    }
+  ],
+  "roles": {
+    "realm": [
+      {
+        "name": "agv-user",
+        "description": "Identity is eligible to request a local AGV account link."
+      }
+    ]
+  }
+}

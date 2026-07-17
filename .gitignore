@@ -1,7 +1,5 @@
-# Local working materials at the repository root. The public source lives under
-# Repository/Package0.0/AGV_Graduation_Project/.
+# Local working materials that must never be published.
 /outputs/
-/tools/
 /work/
 /优秀毕业设计提交材料-*/
 /*成果材料*.zip
@@ -9,12 +7,44 @@
 # Personal thesis/defense working files are intentionally kept out of Git.
 /docs/*.docx
 /docs/defense_overview_work/
-/Repository/Package0.0/AGV_Graduation_Project/path/
-/Repository/Package0.0/AGV_Graduation_Project/docs/defense/*_preview/
-/Repository/Package0.0/AGV_Graduation_Project/docs/defense/template_assets/
-/Repository/Package0.0/AGV_Graduation_Project/docs/defense/*.pptx
-/Repository/Package0.0/AGV_Graduation_Project/docs/defense/~$*
+/path/
+/docs/defense/*_preview/
+/docs/defense/template_assets/
+/docs/defense/*.pptx
+/docs/defense/~$*
 
 # Office lock files can contain local user/session metadata.
 ~$*
 **/~$*
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+venv/
+backend/venv/
+backend/.env
+/.env
+/.env.*
+!/.env.example
+**/.env
+**/.env.*
+!**/.env.example
+backend/logs/
+backend/*.db
+backend/.audit-cache/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/dist-enterprise/
+
+# Build and runtime data
+dist/
+build/
+data/
+/deploy/compose.env
+
+# Local/editor files
+.DS_Store
+~$*.docx

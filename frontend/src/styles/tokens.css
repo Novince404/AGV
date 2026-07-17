@@ -1,0 +1,64 @@
+:root {
+  color-scheme: dark;
+  font-family: Inter, "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+
+  --agv-bg-canvas: #07111f;
+  --agv-bg-surface: #0d1b2d;
+  --agv-bg-elevated: #13263d;
+  --agv-bg-hover: #1a3350;
+  --agv-text-primary: #f2f7ff;
+  --agv-text-secondary: #a9bbd1;
+  --agv-text-muted: #71859e;
+  --agv-brand: #43b6ff;
+  --agv-brand-strong: #1683d8;
+  --agv-success: #36c58a;
+  --agv-warning: #f6b84a;
+  --agv-danger: #f56d7a;
+  --agv-border: rgba(169, 195, 225, 0.18);
+  --agv-border-strong: rgba(102, 190, 255, 0.48);
+  --agv-radius-sm: 8px;
+  --agv-radius-md: 12px;
+  --agv-radius-lg: 18px;
+  --agv-shadow-sm: 0 8px 24px rgba(0, 0, 0, 0.2);
+  --agv-shadow-lg: 0 20px 55px rgba(0, 0, 0, 0.35);
+  --agv-space-1: 4px;
+  --agv-space-2: 8px;
+  --agv-space-3: 12px;
+  --agv-space-4: 16px;
+  --agv-space-5: 24px;
+  --agv-space-6: 32px;
+  --agv-sidebar-width: 236px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  min-width: 320px;
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  min-height: 100vh;
+  color: var(--agv-text-primary);
+  background: var(--agv-bg-canvas);
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+a {
+  color: inherit;
+}

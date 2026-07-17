@@ -4,12 +4,13 @@
 
 **A graduation project covering map modeling, task dispatch, path planning, multi-AGV avoidance, persistence, and enterprise governance.**
 
-[中文](README.md) · [Quick start](#quick-start) · [Documentation](Repository/Package0.0/AGV_Graduation_Project/docs/README.md) · [Algorithms](Repository/Package0.0/AGV_Graduation_Project/docs/defense/DISPATCH_AND_ALGORITHMS.md)
+[中文](README.md) · [Quick start](#quick-start) · [Documentation](docs/README.md) · [Windows local package](docs/release/PACKAGING_WINDOWS.md) · [Docker enterprise trial](docs/deployment/DOCKER_TRIAL.md)
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-backend-009688?logo=fastapi&logoColor=white)
 ![Vue](https://img.shields.io/badge/Vue-3-4FC08D?logo=vuedotjs&logoColor=white)
 ![Database](https://img.shields.io/badge/Database-Memory%20%7C%20SQLite%20%7C%20MySQL-4479A1)
+[![CI](https://github.com/Novince404/AGV/actions/workflows/ci.yml/badge.svg)](https://github.com/Novince404/AGV/actions/workflows/ci.yml)
 [![License: PolyForm Noncommercial 1.0.0](https://img.shields.io/badge/License-PolyForm%20Noncommercial%201.0.0-6f42c1)](LICENSE)
 
 </div>
@@ -37,17 +38,24 @@
 
 ```mermaid
 flowchart LR
-    UI["Vue 3 UI<br/>map, tasks, governance"] --> API["FastAPI API"]
-    API --> SVC["Service layer<br/>dispatch, map, auth, status"]
-    SVC --> PLAN["Planning and movement<br/>Simple / A* / topology / avoidance"]
-    SVC --> REPO["Repository facade"]
-    REPO --> MEM["Memory"]
-    REPO --> SQLITE["SQLite"]
-    REPO --> MYSQL["MySQL"]
-    SVC -. optional .-> COMFY["ComfyUI"]
+    UI["Vue 3 UI<br/>maps, tasks, role workspaces"] --> API["FastAPI<br/>/api/v1"]
+    API --> DB[("transactions, commands, events<br/>MySQL / SQLite")]
+    DB --> SCH["deterministic scheduler<br/>100 ms default time step"]
+    SCH --> ADAPTER["SimulationDeviceAdapter"]
+    ADAPTER --> SCH
+    SCH --> DB
+    DB --> SSE["SSE event stream"]
+    SSE --> UI
+    OIDC["optional OIDC / Keycloak"] --> API
 ```
 
-The application source is under `Repository/Package0.0/AGV_Graduation_Project/` to preserve the original project history.
+`v3.0.0-beta.2` separates API handling, persisted commands, and simulation
+scheduling. It provides a simulation adapter only: **it does not connect to
+real AGVs, PLCs, serial devices, MQTT brokers, or safety-stop chains**. See
+the [v3 enterprise-trial architecture](docs/architecture/V3_ENTERPRISE_ARCHITECTURE.md)
+for the full boundary.
+
+The application is directly available from the repository root: `backend/`, `frontend/`, `demo/`, `docs/`, and `tools/`.
 
 ## Quick start
 
@@ -55,15 +63,19 @@ Requirements: Windows 10/11, Python 3.10+, and Node.js `^20.19.0` or `>=22.12.0`
 
 ```powershell
 git clone https://github.com/Novince404/AGV.git
-cd AGV\Repository\Package0.0\AGV_Graduation_Project
+cd AGV
 
 python -m venv backend\venv
 backend\venv\Scripts\python.exe -m pip install -r backend\requirements.txt
 
-cd frontend\agv-frontend
-npm install
-cd ..\..
+cd frontend
+npm ci
+cd ..
 ```
+
+`npm ci` installs the frontend dependencies locked by the repository. Use
+`npm install` only when you intentionally change dependencies and update the
+lockfile.
 
 Start the backend and frontend in separate terminals:
 
@@ -75,32 +87,64 @@ cd backend
 
 ```powershell
 # Terminal 2, from the project root
-cd frontend\agv-frontend
+cd frontend
 npm run dev
 ```
 
-Open `http://localhost:5173`. Memory mode is the default and needs no database service. See [Database Notes](Repository/Package0.0/AGV_Graduation_Project/backend/README_DATABASE.md) for SQLite and MySQL.
+Open `http://localhost:5173`. Memory mode is the default and needs no database service. See [Database Notes](backend/README_DATABASE.md) for SQLite and MySQL.
+
+### Choose a run path
+
+- **Local learning, development, or defense demo:** use the default `memory`
+  mode above. It can enable demo accounts, but only in a controlled local
+  environment.
+- **Single-machine Windows SQLite demo/package:** follow the
+  [Windows local-package guide](docs/release/PACKAGING_WINDOWS.md). It is for
+  single-machine persistence and demonstration, not a multi-service trial.
+- **Docker enterprise trial:** follow the [Docker trial deployment guide](docs/deployment/DOCKER_TRIAL.md).
+  It uses MySQL, a separate scheduler process, and a private environment file;
+  read [migration, backup, and recovery](docs/deployment/DATABASE_MIGRATIONS.md)
+  first.
 
 ## Project status
 
 - Latest stable tag: `v2.0.0`
-- Latest prerelease: [`v3.0.0-beta.1`](https://github.com/Novince404/AGV/releases/tag/v3.0.0-beta.1)
-- Current mainline: the `3.x` productization beta covering identity and role governance, tenant isolation, enterprise topology, continuous motion, dynamic avoidance, and the standalone enterprise client
+- Latest published preview: [`v3.0.0-beta.1`](https://github.com/Novince404/AGV/releases/tag/v3.0.0-beta.1)
+- Current development version: `v3.0.0-beta.2`, establishing versioned APIs, migrations, secure authentication, automated tests, and an enterprise delivery baseline
 - Changes since the stable baseline: [compare `v2.0.0...main`](https://github.com/Novince404/AGV/compare/v2.0.0...main)
 - Validated primarily as a Windows-based graduation-project simulation and demo system
 
-This repository intentionally excludes local environment files, databases, logs, dependencies, build artifacts, and personal thesis/defense materials. Seeded demo users and defaults are for local evaluation only. The project has not been certified for real industrial or safety-critical deployment.
+## Security and use boundary
+
+- This repository intentionally excludes local environment files, databases,
+  logs, dependencies, build artifacts, and personal thesis/defense materials.
+- Demo users are for a local `AGV_APP_ENV=demo` profile only. A trial or
+  production deployment must use `AGV_APP_ENV=trial` or `production`, keep
+  `AGV_AUTH_DEMO_USERS_ENABLED=false`, and create a unique local recovery
+  administrator.
+- Before external access, use MySQL with a verified backup, exact CORS origins,
+  HTTPS, secure cookies, and CSRF; see the
+  [enterprise-trial security baseline](docs/security/TRIAL_SECURITY_BASELINE.md).
+- The project has not been certified for real industrial or safety-critical
+  deployment.
 
 ## Documentation
 
-- [Code structure](Repository/Package0.0/AGV_Graduation_Project/docs/defense/CODE_STRUCTURE.md)
-- [Dispatch and algorithms](Repository/Package0.0/AGV_Graduation_Project/docs/defense/DISPATCH_AND_ALGORITHMS.md)
-- [Database flow](Repository/Package0.0/AGV_Graduation_Project/docs/defense/DATABASE_FLOW.md)
-- [Dynamic avoidance design](Repository/Package0.0/AGV_Graduation_Project/docs/plans/DYNAMIC_AVOIDANCE_DESIGN_NOTE.md)
-- [Windows packaging](Repository/Package0.0/AGV_Graduation_Project/docs/release/PACKAGING_WINDOWS.md)
-- [Changelog](Repository/Package0.0/AGV_Graduation_Project/CHANGELOG.md)
+- [Documentation index](docs/README.md)
+- [Code structure](docs/defense/CODE_STRUCTURE.md)
+- [Dispatch and algorithms](docs/defense/DISPATCH_AND_ALGORITHMS.md)
+- [Database flow](docs/defense/DATABASE_FLOW.md)
+- [Dynamic avoidance design](docs/plans/DYNAMIC_AVOIDANCE_DESIGN_NOTE.md)
+- [Windows packaging](docs/release/PACKAGING_WINDOWS.md)
+- [v3 enterprise architecture](docs/architecture/V3_ENTERPRISE_ARCHITECTURE.md)
+- [Docker trial deployment](docs/deployment/DOCKER_TRIAL.md)
+- [Database migrations and recovery](docs/deployment/DATABASE_MIGRATIONS.md)
+- [Enterprise-trial security baseline](docs/security/TRIAL_SECURITY_BASELINE.md)
+- [Changelog](CHANGELOG.md)
 
 Feedback and contributions are welcome through [GitHub Issues](https://github.com/Novince404/AGV/issues). If the project helps your AGV studies or graduation work, a Star will help more people discover it.
+
+Before contributing, read [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md), and the [roadmap](ROADMAP.md).
 
 ## License
 

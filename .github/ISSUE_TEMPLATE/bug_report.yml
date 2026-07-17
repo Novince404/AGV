@@ -1,0 +1,40 @@
+name: Bug report
+description: Report reproducible incorrect behavior
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: Please remove credentials, private data, databases, and logs containing personal information.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      placeholder: v3.0.0-beta.2 or commit SHA
+    validations:
+      required: true
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Deployment
+      options: [Development, Windows package, Docker, Other]
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true

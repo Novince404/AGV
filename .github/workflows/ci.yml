@@ -1,0 +1,158 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend checks (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.lock
+            backend/requirements-dev.lock
+      - name: Install dependencies
+        run: python -m pip install -r requirements-dev.lock
+      - name: Compile backend
+        run: python -m compileall -q app main.py scheduler_main.py agv.py
+      - name: Lint backend without modifying sources
+        run: python -m ruff check app tests
+      - name: Run unit and API tests
+        env:
+          AGV_APP_ENV: test
+          AGV_DATA_BACKEND: memory
+          AGV_AUTH_DEMO_USERS_ENABLED: "true"
+          AGV_SCHEDULER_V3_ENABLED: "false"
+        run: python -m pytest tests -q
+      - name: Run SQLite repository smoke test
+        run: python scripts/sqlite_smoke_check.py
+
+  mysql-migration:
+    name: MySQL migration verification
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_DATABASE: agv_dispatch
+          MYSQL_USER: agv
+          MYSQL_PASSWORD: ci-only-password
+          MYSQL_ROOT_PASSWORD: ci-only-root-password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pci-only-root-password"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=30
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.lock
+      - name: Install runtime dependencies
+        run: python -m pip install -r requirements.lock
+      - name: Apply Alembic migration
+        env:
+          AGV_APP_ENV: test
+          AGV_DATA_BACKEND: mysql
+          AGV_DATABASE_URL: mysql+pymysql://agv:ci-only-password@127.0.0.1:3306/agv_dispatch?charset=utf8mb4
+          AGV_DATABASE_AUTO_CREATE: "false"
+        run: python agv.py database upgrade --backup-confirmed
+      - name: Verify migrated schema
+        env:
+          AGV_APP_ENV: test
+          AGV_DATA_BACKEND: mysql
+          AGV_DATABASE_URL: mysql+pymysql://agv:ci-only-password@127.0.0.1:3306/agv_dispatch?charset=utf8mb4
+          AGV_DATABASE_AUTO_CREATE: "false"
+        run: python agv.py database verify
+
+  frontend:
+    name: Frontend checks
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Lint without modifying sources
+        run: npm run lint
+      - name: Type-check TypeScript and Vue sources
+        run: npm run typecheck
+      - name: Run frontend unit tests
+        run: npm run test:unit
+      - name: Production build
+        run: npm run build
+      - name: Enterprise demo smoke test
+        run: npm run smoke:enterprise-demos
+
+  dependency-audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.lock
+      - name: Audit Python production dependencies
+        run: |
+          python -m pip install pip-audit
+          pip-audit -r backend/requirements.lock
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Audit frontend production dependencies
+        working-directory: frontend
+        run: |
+          npm ci
+          npm audit --omit=dev --audit-level=high
+
+  secret-scan:
+    name: Sensitive-file scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
